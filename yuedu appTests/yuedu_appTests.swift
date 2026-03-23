@@ -1,0 +1,214 @@
+//
+//  yuedu_appTests.swift
+//  yuedu appTests
+//
+//  Created by 張瑞麟 on 2026/2/27.
+//
+
+import Testing
+import Foundation
+@testable import yuedu_app
+
+struct yuedu_appTests {
+
+    private func loadSource(named name: String) throws -> BookSource {
+        let sourceFile = "/Users/zhangruilin/Library/Mobile Documents/com~apple~CloudDocs/书源(856)-已测试并去重.json"
+        let json = try String(contentsOfFile: sourceFile, encoding: .utf8)
+        let sources = try JSONDecoder().decode([BookSource].self, from: Data(json.utf8))
+        return try #require(sources.first(where: { $0.bookSourceName == name }))
+    }
+
+    private func fetchFirstChapter(sourceName: String, keyword: String, expectedTitle: String) async throws
+        -> ChapterPackage
+    {
+        let source = try loadSource(named: sourceName)
+        let books = try await BookSourceFetcher.shared.search(query: keyword, in: source)
+        let book = try #require(
+            books.first(where: { $0.name == expectedTitle })
+                ?? books.first(where: { $0.name.contains(expectedTitle) })
+        )
+        let info = try await BookSourceFetcher.shared.fetchBookInfo(
+            url: book.bookUrl,
+            source: source,
+            runtimeVariables: book.runtimeVariables
+        )
+        let tocUrl = info.tocUrl.isEmpty ? book.bookUrl : info.tocUrl
+        let chapters = try await BookSourceFetcher.shared.fetchTOC(
+            tocUrl: tocUrl,
+            source: source,
+            runtimeVariables: info.runtimeVariables
+        )
+        let first = try #require(chapters.first)
+        return try await BookSourceFetcher.shared.fetchChapterPackage(
+            ref: first,
+            bookId: UUID(),
+            source: source,
+            chapterReferer: tocUrl
+        )
+    }
+
+    @Test func txtChapterIngestBuildsOneSpinePerChapter() async throws {
+        let package = try TXTBookIngester(
+            chapters: [
+                .init(title: "第一章", body: "段落一\n\n段落二"),
+                .init(title: "第二章", body: "段落三"),
+            ],
+            title: "測試書",
+            author: "測試作者",
+            originalSourceURL: nil
+        ).ingest()
+
+        #expect(package.manifest.spine.count == 2)
+        #expect(package.parsedBook.chapters.first?.html.contains("id=\"reader-content\"") == true)
+    }
+
+    @Test func onlineCoordinatorUsesCachedChapterAndPlaceholder() async throws {
+        let book = ReadingBook(title: "線上書", author: "作者", source: "https://example.com", contentFilename: "")
+        let bookId = book.id
+        let refs = [
+            OnlineChapterRef(index: 0, title: "章一", url: "https://example.com/1"),
+            OnlineChapterRef(index: 1, title: "章二", url: "https://example.com/2"),
+        ]
+        var onlineBook = book
+        onlineBook.isOnline = true
+        onlineBook.onlineChapters = refs
+
+        _ = BookSourceFetcher.shared.saveToCache(content: "已快取內容", bookId: bookId, chapterIndex: 0)
+
+        let package = try OnlineBookCoordinator.shared.buildPackage(for: onlineBook, preferredChapter: 1)
+
+        #expect(package.parsedBook.chapters.count == 2)
+        #expect(package.parsedBook.chapters[0].html.contains("已快取內容"))
+        #expect(package.parsedBook.chapters[1].html.contains("載入章節中…"))
+
+        BookSourceFetcher.shared.clearAllChapterCache(bookId: bookId)
+    }
+
+    @Test func readerLocatorRoundTripsAndSupportsLegacyKeys() throws {
+        let locator = ReaderLocator(
+            spineHref: "Text/chapter-3.xhtml",
+            chapterIndex: 2,
+            pageInChapter: 4,
+            totalPagesInChapter: 9,
+            globalPage: 18,
+            progression: 0.42,
+            generationId: 7,
+            title: "第三章",
+            chapterProgression: 0.5,
+            totalProgression: 0.42,
+            locatorJSON: "{\"href\":\"Text/chapter-3.xhtml\"}",
+            cssSelector: "#p-12",
+            partialCFI: "/4/2[p12]",
+            domRangeJSON: "{\"start\":12}",
+            highlightedText: "測試段落",
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(locator)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(ReaderLocator.self, from: data)
+
+        #expect(decoded == locator)
+
+        let legacyJSON = """
+        {
+          "href": "Text/legacy.xhtml",
+          "position": 3,
+          "spineIndex": 1
+        }
+        """
+        let legacy = try decoder.decode(ReaderLocator.self, from: Data(legacyJSON.utf8))
+        #expect(legacy.spineHref == "Text/legacy.xhtml")
+        #expect(legacy.chapterIndex == 1)
+        #expect(legacy.pageInChapter == 3)
+        #expect(legacy.totalPagesInChapter == 1)
+    }
+
+    @Test func suduguSourceCanFetchFirstChapterEndToEnd() async throws {
+        let package = try await fetchFirstChapter(
+            sourceName: "速读谷",
+            keyword: "斗罗大陆",
+            expectedTitle: "斗罗大陆"
+        )
+        #expect(!package.content.isEmpty)
+        #expect(package.content.contains("巴蜀"))
+    }
+
+    @Test func sixtyNineBookBarCanFetchFirstChapterEndToEnd() async throws {
+        let package = try await fetchFirstChapter(
+            sourceName: "69书吧👌",
+            keyword: "斗罗大陆",
+            expectedTitle: "斗罗大陆"
+        )
+        #expect(!package.content.isEmpty)
+    }
+
+    @Test func aiKanShuBaCanFetchFirstChapterEndToEnd() async throws {
+        let package = try await fetchFirstChapter(
+            sourceName: "爱看书吧",
+            keyword: "斗罗大陆",
+            expectedTitle: "斗罗大陆"
+        )
+        #expect(!package.content.isEmpty)
+    }
+
+    @Test func tuJiuSanCanFetchFirstChapterEndToEnd() async throws {
+        let package = try await fetchFirstChapter(
+            sourceName: "兔九三🐰",
+            keyword: "斗罗大陆",
+            expectedTitle: "斗罗大陆"
+        )
+        #expect(!package.content.isEmpty)
+    }
+
+    @Test func refreshOnlineBookMetadataRepairsLegacyShelfEntry() async throws {
+        let source = try loadSource(named: "速读谷")
+        let previousSources = BookSourceStore.shared.sources
+        BookSourceStore.shared.sources = [source]
+        defer {
+            BookSourceStore.shared.sources = previousSources
+        }
+
+        let books = try await BookSourceFetcher.shared.search(query: "斗罗大陆", in: source)
+        let book = try #require(
+            books.first(where: { $0.name == "斗罗大陆" })
+                ?? books.first(where: { $0.name.contains("斗罗大陆") })
+        )
+
+        let store = BookStore()
+        let stale = store.addOnlineBook(
+            name: book.name,
+            author: book.author,
+            sourceId: source.id,
+            bookInfoURL: book.bookUrl,
+            tocURL: nil,
+            runtimeVariables: nil,
+            chapters: []
+        )
+        defer {
+            store.delete(bookId: stale.id)
+        }
+
+        let refreshed = try await store.refreshOnlineBookMetadata(
+            bookId: stale.id,
+            forceInfoRefresh: true
+        )
+        #expect(!(refreshed.tocURL ?? "").isEmpty)
+        #expect((refreshed.onlineChapters?.isEmpty ?? true) == false)
+
+        let current = try #require(store.books.first(where: { $0.id == stale.id }))
+        let package = try await ChapterFetchManager.shared.fetchChapter(
+            book: current,
+            chapterIndex: 0,
+            priority: .jump,
+            store: store
+        )
+        #expect(!package.content.isEmpty)
+        BookSourceFetcher.shared.clearAllChapterCache(bookId: stale.id)
+    }
+
+}
