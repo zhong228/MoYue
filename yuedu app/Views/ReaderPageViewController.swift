@@ -23,7 +23,8 @@ final class SnapshotPageContentController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        imageView.contentMode = .scaleAspectFit
+        // Snapshots are captured at viewport size; render 1:1 to avoid letterboxing/stretch artifacts.
+        imageView.contentMode = .scaleToFill
         imageView.clipsToBounds = true
         imageView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(imageView)
@@ -146,7 +147,11 @@ final class ReaderPageViewController: UIPageViewController {
         displayedPage = clamped
         let controller = makeController(for: clamped)
         let shouldAnimate = pageTurnStyle != .none && pageTurnStyle != .cover && animated
-        setViewControllers([controller], direction: direction, animated: shouldAnimate) { _ in }
+        setViewControllers([controller], direction: direction, animated: shouldAnimate) { _ in
+            self.renderer.endGestureInteraction(targetPage: clamped)
+            self.renderer.goToPage(clamped)
+            self.renderer.settleInteractionPage(clamped, style: self.rendererStyle)
+        }
         renderer.willDisplayPage(clamped, style: rendererStyle)
         snapshotProvider.warmWindow(around: clamped, radius: preloadRadius)
     }
@@ -207,13 +212,13 @@ final class ReaderPageViewController: UIPageViewController {
             coverOverlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
 
-        coverCurrentImageView.contentMode = .scaleAspectFit
+        coverCurrentImageView.contentMode = .scaleToFill
         coverCurrentImageView.clipsToBounds = true
         coverCurrentImageView.frame = view.bounds
         coverCurrentImageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         coverOverlayView.addSubview(coverCurrentImageView)
 
-        coverIncomingImageView.contentMode = .scaleAspectFit
+        coverIncomingImageView.contentMode = .scaleToFill
         coverIncomingImageView.clipsToBounds = true
         coverIncomingImageView.frame = view.bounds
         coverIncomingImageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -246,6 +251,7 @@ final class ReaderPageViewController: UIPageViewController {
             coverDirection = 0
             coverOverlayView.isHidden = false
             coverCurrentImageView.image = snapshotProvider.cachedSnapshot(for: displayedPage)
+            coverIncomingImageView.transform = .identity
         case .changed:
             if coverTargetPage == nil {
                 if translationX < -6, displayedPage < renderer.totalPages - 1 {
@@ -267,14 +273,17 @@ final class ReaderPageViewController: UIPageViewController {
 
             guard coverTargetPage != nil else { return }
             renderer.updateGestureInteraction()
-            let rawProgress = min(max(abs(translationX) / width, 0), 1)
-            let commitProgress = max(0, min(rawProgress, 0.999))
+
             if coverDirection == 1 {
-                coverIncomingImageView.frame.origin.x = width * (1 - commitProgress)
+                let clampedX = max(-width, min(0, translationX))
+                coverIncomingImageView.transform = CGAffineTransform(translationX: width + clampedX, y: 0)
             } else {
-                coverIncomingImageView.frame.origin.x = -width * (1 - commitProgress)
+                let clampedX = max(0, min(width, translationX))
+                coverIncomingImageView.transform = CGAffineTransform(translationX: -width + clampedX, y: 0)
             }
-            coverShadowView.alpha = 0.2 * commitProgress
+
+            let progress = abs(translationX) / width
+            coverShadowView.alpha = 0.2 * progress
         case .ended, .cancelled, .failed:
             guard let targetPage = coverTargetPage else {
                 renderer.endGestureInteraction(targetPage: displayedPage)
@@ -287,15 +296,25 @@ final class ReaderPageViewController: UIPageViewController {
             let shouldCommit = progress > 0.34 || abs(velocityX) > 560
             renderer.endGestureInteraction(targetPage: shouldCommit ? targetPage : displayedPage)
 
-            let destinationX: CGFloat
+            let destinationTransform: CGAffineTransform
             if shouldCommit {
-                destinationX = 0
+                destinationTransform = .identity
             } else {
-                destinationX = coverDirection == 1 ? width : -width
+                destinationTransform = coverDirection == 1
+                    ? CGAffineTransform(translationX: width, y: 0)
+                    : CGAffineTransform(translationX: -width, y: 0)
             }
 
-            UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut]) {
-                self.coverIncomingImageView.frame.origin.x = destinationX
+            let initialVelocity = abs(velocityX) / width
+
+            UIView.animate(
+                withDuration: 0.35,
+                delay: 0,
+                usingSpringWithDamping: 0.85,
+                initialSpringVelocity: initialVelocity,
+                options: [.curveEaseOut, .allowUserInteraction]
+            ) {
+                self.coverIncomingImageView.transform = destinationTransform
                 self.coverShadowView.alpha = shouldCommit ? 0.2 : 0
             } completion: { _ in
                 if shouldCommit {
@@ -320,6 +339,7 @@ final class ReaderPageViewController: UIPageViewController {
         coverCurrentImageView.image = nil
         coverIncomingImageView.image = nil
         coverIncomingImageView.frame = view.bounds
+        coverIncomingImageView.transform = .identity
         coverShadowView.alpha = 0
         coverTargetPage = nil
         coverDirection = 0
