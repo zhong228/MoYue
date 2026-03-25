@@ -1,6 +1,18 @@
 import UIKit
 import WebKit
 
+/// WKScriptMessageHandler weak proxy，避免 WKUserContentController 強持有 EPUBSnapshotWebView。
+private final class WeakScriptMessageProxy: NSObject, WKScriptMessageHandler {
+    weak var target: WKScriptMessageHandler?
+    init(target: WKScriptMessageHandler) { self.target = target }
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        target?.userContentController(userContentController, didReceive: message)
+    }
+}
+
 /// 獨立截圖 WebView：放在隱藏 UIWindow 中，串行為每頁截圖。
 /// 與閱讀 WebView 完全分離，消除 scroll/render 競爭。
 @MainActor
@@ -14,6 +26,7 @@ final class EPUBSnapshotWebView: NSObject {
     private let snapshotWindow: UIWindow
     private var currentCaptureTask: Task<Void, Never>?
     private var paginationContinuation: CheckedContinuation<PaginationInfo?, Never>?
+    private var paginationGeneration = 0
 
     struct PaginationInfo {
         let pageCount: Int
@@ -64,7 +77,7 @@ final class EPUBSnapshotWebView: NSObject {
         wv.frame = window.bounds
 
         // 5. 註冊 JS message handler
-        ucc.add(self, name: "snapshotBridge")
+        ucc.add(WeakScriptMessageProxy(target: self), name: "snapshotBridge")
         wv.navigationDelegate = self
     }
 
@@ -101,6 +114,7 @@ final class EPUBSnapshotWebView: NSObject {
             defer { self.isCapturing = false }
 
             // 載入 HTML
+            self.webView.stopLoading()
             self.webView.loadHTMLString(html, baseURL: baseURL)
 
             // 等待 paginationReady（最多 5 秒）
@@ -150,10 +164,13 @@ final class EPUBSnapshotWebView: NSObject {
     // MARK: - 私有輔助
 
     private func waitForPagination() async -> PaginationInfo? {
-        await withCheckedContinuation { continuation in
+        paginationGeneration &+= 1
+        let myGeneration = paginationGeneration
+        return await withCheckedContinuation { continuation in
             paginationContinuation = continuation
             DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-                guard let self, self.paginationContinuation != nil else { return }
+                guard let self, self.paginationGeneration == myGeneration,
+                      self.paginationContinuation != nil else { return }
                 self.paginationContinuation?.resume(returning: nil)
                 self.paginationContinuation = nil
             }
