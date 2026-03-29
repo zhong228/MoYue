@@ -266,6 +266,26 @@ struct yuedu_appTests {
         #expect(foundPage == 1)
     }
 
+    @Test func charOffsetStoreProgressMigrationApproximatesPosition() async {
+        let attrStr = NSAttributedString(
+            string: String(repeating: "a", count: 1000),
+            attributes: [.font: UIFont.systemFont(ofSize: 18)]
+        )
+        let progression = 0.5
+        let charOffset = Int(progression * Double(attrStr.length))
+        #expect(charOffset == 500)
+        let paginator = CoreTextPaginator()
+        let layout = await paginator.paginate(
+            spineIndex: 0,
+            attrStr: attrStr,
+            renderSize: CGSize(width: 375, height: 600),
+            fontSize: 18
+        )
+        let page = layout.pageIndex(for: charOffset)
+        #expect(page >= 0)
+        #expect(page < layout.pageRanges.count)
+    }
+
     @Test func refreshOnlineBookMetadataRepairsLegacyShelfEntry() async throws {
         let source = try loadSource(named: "速读谷")
         let previousSources = BookSourceStore.shared.sources
