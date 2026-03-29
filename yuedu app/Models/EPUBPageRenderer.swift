@@ -5,7 +5,6 @@ import WebKit
 @MainActor
 final class EPUBPageRenderer: ObservableObject {
     private let engine = LiveWebReader()
-    @Published var readingGate: ReadingGateState = .loading
     private var subscriptions: Set<AnyCancellable> = []
     private var snapshotCallbacks: [Int: [(UIImage?) -> Void]] = [:]
     private var snapshotWatchers: [Int: AnyCancellable] = [:]
@@ -193,18 +192,6 @@ final class EPUBPageRenderer: ObservableObject {
 
     func prepareDisplaySnapshot(forPage page: Int, priority: Int = 0) {
         engine.prepareDisplaySnapshot(forPage: page, priority: priority)
-    }
-
-    func storeSnapshot(image: UIImage, forGlobalPage page: Int) {
-        engine.storeSnapshot(image: image, forGlobalPage: page)
-    }
-
-    func chapterHTMLForSnapshot(at index: Int) async -> (html: String, baseURL: URL)? {
-        await engine.chapterHTMLForSnapshot(at: index)
-    }
-
-    var snapshotSchemeHandler: ReaderSchemeHandler {
-        engine.schemeHandler
     }
 
     func preloadSnapshots(around page: Int, radius: Int = 2) {
