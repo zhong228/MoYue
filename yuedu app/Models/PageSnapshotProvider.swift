@@ -56,10 +56,6 @@ final class PageSnapshotProvider: ObservableObject {
     /// Gate 預渲染推入：直接寫入 NSCache，繞過 priority queue 的距離限制。
     func store(image: UIImage, forGlobalPage page: Int) {
         cache.setObject(image, forKey: NSNumber(value: page))
-        // 延遲 bump 避免在 SwiftUI view update cycle 內 publish
-        DispatchQueue.main.async { [weak self] in
-            self?.version &+= 1
-        }
     }
 
     private func syncGenerationIfNeeded() {
