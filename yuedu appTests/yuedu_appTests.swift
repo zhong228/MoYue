@@ -165,6 +165,31 @@ struct yuedu_appTests {
         #expect(!package.content.isEmpty)
     }
 
+    @Test func charOffsetStoreRoundTrips() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CharOffsetStoreTest-\(UUID().uuidString)")
+        let store = CharOffsetStore(directoryURL: dir)
+        let record = CharOffsetRecord(
+            bookId: "book-abc",
+            spineIndex: 3,
+            charOffset: 1024,
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        store.save(record)
+        store.flushSync()
+
+        let loaded = store.load(bookId: "book-abc")
+        #expect(loaded?.spineIndex == 3)
+        #expect(loaded?.charOffset == 1024)
+    }
+
+    @Test func charOffsetStoreReturnsNilForUnknownBook() {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CharOffsetStoreTest-\(UUID().uuidString)")
+        let store = CharOffsetStore(directoryURL: dir)
+        #expect(store.load(bookId: "unknown") == nil)
+    }
+
     @Test func refreshOnlineBookMetadataRepairsLegacyShelfEntry() async throws {
         let source = try loadSource(named: "速读谷")
         let previousSources = BookSourceStore.shared.sources
