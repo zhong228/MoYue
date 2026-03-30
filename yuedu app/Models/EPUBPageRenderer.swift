@@ -22,6 +22,8 @@ final class EPUBPageRenderer: ObservableObject {
     /// Returns the CoreTextPageEngine as a PageRenderingProvider when available.
     var pageRenderingProvider: PageRenderingProvider? { engine }
 
+    @Published var isCoreTextReady: Bool = false
+
     // MARK: - Init
 
     init() {
@@ -104,8 +106,10 @@ final class EPUBPageRenderer: ObservableObject {
         let store = CharOffsetStore(directoryURL: progressDir)
         let newEngine = CoreTextPageEngine(session: session, offsetStore: store)
         self.engine = newEngine
+        isCoreTextReady = false
         Task {
             await newEngine.start(renderSize: renderSize, bookId: bookIdentifier)
+            self.isCoreTextReady = true
         }
     }
 
@@ -183,10 +187,20 @@ final class EPUBPageRenderer: ObservableObject {
 
     func setTheme(_ theme: String) {
         webEngine.setTheme(theme)
-        // Apply theme to CoreText engine without re-paginating body text.
-        if let eng = engine {
-            eng.applyThemeChange(textColor: .label, backgroundColor: .systemBackground)
+        let textColor: UIColor
+        let bgColor: UIColor
+        switch theme {
+        case "dark", "night":
+            textColor = .white
+            bgColor = .black
+        case "sepia":
+            textColor = UIColor(red: 0.3, green: 0.2, blue: 0.1, alpha: 1)
+            bgColor = UIColor(red: 0.97, green: 0.93, blue: 0.84, alpha: 1)
+        default:
+            textColor = .label
+            bgColor = .systemBackground
         }
+        engine?.applyThemeChange(textColor: textColor, backgroundColor: bgColor)
     }
 
     func setPageMargins(horizontal: CGFloat, vertical: CGFloat) {

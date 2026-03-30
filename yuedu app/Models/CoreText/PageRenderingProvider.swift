@@ -1,5 +1,10 @@
 import UIKit
 
+/// A UIViewController that tracks its position in the global page sequence.
+protocol PageIndexProviding: AnyObject {
+    var globalPageIndex: Int { get }
+}
+
 /// 閱讀引擎抽象層。ReaderView 只認識這個 protocol，不依賴具體引擎實作。
 @MainActor
 protocol PageRenderingProvider: AnyObject {

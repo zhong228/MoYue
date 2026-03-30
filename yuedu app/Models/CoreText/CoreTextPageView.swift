@@ -102,6 +102,8 @@ final class CoreTextPageViewController: UIViewController {
     }
 }
 
+extension CoreTextPageViewController: PageIndexProviding {}
+
 /// 章節尚未計算完成時的佔位 ViewController（顯示章節標題 + 載入指示器）
 final class PlaceholderPageViewController: UIViewController {
     private let titleLabel = UILabel()

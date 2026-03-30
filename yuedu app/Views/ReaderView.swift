@@ -303,7 +303,7 @@ struct ReaderView: View {
                     Spacer()
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            } else if let ctEngine = epubRenderer.engine, epubRenderer.isReady {
+            } else if let ctEngine = epubRenderer.engine, epubRenderer.isCoreTextReady {
                 // 在 EPUB 渲染區塊，当 engine 已就緒時改用 CoreText
                 CoreTextPageEngineView(
                     engine: ctEngine,
@@ -469,8 +469,9 @@ struct ReaderView: View {
             NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)
         ) { _ in
             guard let engine = epubRenderer.engine else { return }
+            let size = readerViewportSize  // use stored size, not UIScreen
             Task {
-                await engine.invalidateLayout(newSize: UIScreen.main.bounds.size)
+                await engine.invalidateLayout(newSize: size)
             }
         }
         .onChange(of: settings.readerBrightness) { val in
@@ -2533,7 +2534,7 @@ private struct HideTabBarModifier: ViewModifier {
 // MARK: - CoreText UIPageViewController 橋接
 
 private struct CoreTextPageEngineView: UIViewControllerRepresentable {
-    let engine: CoreTextPageEngine
+    let engine: any PageRenderingProvider
     @Binding var currentPage: Int
     let onPageChanged: (Int) -> Void
 
@@ -2546,6 +2547,19 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         pvc.delegate = context.coordinator
         let initialVC = engine.pageViewController(at: max(0, currentPage))
         pvc.setViewControllers([initialVC], direction: .forward, animated: false)
+
+        NotificationCenter.default.addObserver(
+            forName: .coreTextEngineChapterReady,
+            object: engine as AnyObject,
+            queue: .main
+        ) { [weak pvc] _ in
+            guard let pvc else { return }
+            // Force UIPageViewController to re-fetch current VC from datasource
+            if let first = pvc.viewControllers?.first {
+                pvc.setViewControllers([first], direction: .forward, animated: false)
+            }
+        }
+
         return pvc
     }
 
@@ -2561,11 +2575,11 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         UIPageViewControllerDataSource,
         UIPageViewControllerDelegate
     {
-        var currentEngine: CoreTextPageEngine
+        var currentEngine: any PageRenderingProvider
         @Binding var currentPage: Int
         let onPageChanged: (Int) -> Void
 
-        init(engine: CoreTextPageEngine,
+        init(engine: any PageRenderingProvider,
              currentPage: Binding<Int>,
              onPageChanged: @escaping (Int) -> Void) {
             self.currentEngine = engine
@@ -2577,7 +2591,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             _ pvc: UIPageViewController,
             viewControllerBefore viewController: UIViewController
         ) -> UIViewController? {
-            guard let vc = viewController as? CoreTextPageViewController,
+            guard let vc = viewController as? any PageIndexProviding & UIViewController,
                   vc.globalPageIndex > 0 else { return nil }
             return currentEngine.pageViewController(at: vc.globalPageIndex - 1)
         }
@@ -2586,7 +2600,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             _ pvc: UIPageViewController,
             viewControllerAfter viewController: UIViewController
         ) -> UIViewController? {
-            guard let vc = viewController as? CoreTextPageViewController,
+            guard let vc = viewController as? any PageIndexProviding & UIViewController,
                   vc.globalPageIndex < currentEngine.totalPages - 1 else { return nil }
             return currentEngine.pageViewController(at: vc.globalPageIndex + 1)
         }
@@ -2598,7 +2612,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             transitionCompleted completed: Bool
         ) {
             guard completed,
-                  let vc = pvc.viewControllers?.first as? CoreTextPageViewController else { return }
+                  let vc = pvc.viewControllers?.first as? any PageIndexProviding & UIViewController else { return }
             currentPage = vc.globalPageIndex
             onPageChanged(vc.globalPageIndex)
             Task { @MainActor in

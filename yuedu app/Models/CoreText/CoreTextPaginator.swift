@@ -59,6 +59,7 @@ final class CoreTextPaginator {
         return layout
     }
 
+    @MainActor
     func invalidate(reason: InvalidationReason) {
         switch reason {
         case .fontSizeChanged, .viewSizeChanged:
