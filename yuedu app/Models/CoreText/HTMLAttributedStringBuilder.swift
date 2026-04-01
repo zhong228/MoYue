@@ -253,6 +253,9 @@ final class HTMLAttributedStringBuilder {
         for node in nodes {
             let rendered = await renderNode(node, inheritedStyle: parentStyle, config: config)
             if rendered.length == 0 { continue }
+            // 跳過 block 頂層的純空白 text node（body 與 block 元素之間的縮排空白），
+            // 避免它們被 CoreText 歸入下一個 paragraph，污染該段落的 paragraphStyle
+            if rendered.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
             appendNode(rendered, to: output)
         }
         trimTrailingBreaks(in: output)
@@ -426,6 +429,9 @@ final class HTMLAttributedStringBuilder {
         var style = base
         if paragraphIndex > 0 {
             style.textIndent = 0
+            // 連續段（同一 block element 被 <br display:block> 切開後的第 2+ 段）
+            // 不繼承 paragraphSpacingBefore，避免 margin-top 重複施加
+            style.paragraphSpacingBefore = 0
         }
         if !isLast {
             style.paragraphSpacing = 0
