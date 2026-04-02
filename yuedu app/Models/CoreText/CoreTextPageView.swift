@@ -176,8 +176,6 @@ final class CoreTextPageView: UIView {
 
             ctx.textPosition = origin
 
-            let lineEnd = lineRange.location + lineRange.length
-
             // 判斷是否為段落最後一行（最後一行不做 justify，避免強制撐開）
             let isParagraphLastLine: Bool
             if lineEnd >= stringLength {
