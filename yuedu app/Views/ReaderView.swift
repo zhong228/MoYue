@@ -174,8 +174,8 @@ struct ReaderView: View {
         CGFloat(settings.pageMarginH) + extraReaderHorizontalInset
     }
 
-    private var effectivePageMarginV: CGFloat {
-        CGFloat(settings.pageMarginV)
+    private var systemVerticalPadding: CGFloat {
+        ReaderLayoutMetrics.minimumVerticalPadding
     }
 
     // ── 衍生屬性 ──
@@ -271,7 +271,7 @@ struct ReaderView: View {
     var canGoNextChapter: Bool { currentChapterIndex < chapters.count - 1 }
 
     /// Footer 文字區本體高度（pt），不含 safe area bottom
-    private let footerOverlayHeight: CGFloat = 24
+    private let footerOverlayHeight: CGFloat = ReaderLayoutMetrics.footerHeight
 
     /// 當前頁是否有書籤
     var isCurrentPageBookmarked: Bool {
@@ -579,14 +579,7 @@ struct ReaderView: View {
         }
         .onChange(of: settings.pageMarginH) { _ in
             if usesPagedRenderer {
-                epubRenderer.setPageMargins(horizontal: effectivePageMarginH, vertical: effectivePageMarginV)
-            } else {
-                rebuildPages()
-            }
-        }
-        .onChange(of: settings.pageMarginV) { _ in
-            if usesPagedRenderer {
-                epubRenderer.setPageMargins(horizontal: effectivePageMarginH, vertical: effectivePageMarginV)
+                epubRenderer.setPageMargins(horizontal: effectivePageMarginH, vertical: systemVerticalPadding)
             } else {
                 rebuildPages()
             }
@@ -1539,8 +1532,7 @@ struct ReaderView: View {
                     store: store
                 ) {
                     let marginH = effectivePageMarginH
-                    let marginV = effectivePageMarginV
-                    let settings = currentRenderSettings(marginH: marginH, marginV: marginV)
+                    let settings = currentRenderSettings(marginH: marginH)
                     await MainActor.run {
                         if hasInitializedWebPackage {
                             epubRenderer.reloadWithUpdatedPackage(package, settings: settings)
@@ -1643,8 +1635,7 @@ struct ReaderView: View {
             reloadOnlinePackage(
                 for: b,
                 focusChapter: idx,
-                marginH: effectivePageMarginH,
-                marginV: effectivePageMarginV
+                marginH: effectivePageMarginH
             )
         }
         fetchChapterIfNeeded(chapterIndex: idx)
@@ -1729,12 +1720,10 @@ struct ReaderView: View {
         if BookSourceFetcher.shared.isChapterCached(bookId: b.id, chapterIndex: chapterIndex) {
             if useWebRenderer {
                 let marginH = effectivePageMarginH
-                let marginV = effectivePageMarginV
                 reloadOnlinePackage(
                     for: b,
                     focusChapter: chapterIndex,
                     marginH: marginH,
-                    marginV: marginV,
                     immediate: chapterIndex == currentChapterIndex
                 )
             } else {
@@ -1767,12 +1756,10 @@ struct ReaderView: View {
                     }
                     if useWebRenderer {
                         let marginH = effectivePageMarginH
-                        let marginV = effectivePageMarginV
                         reloadOnlinePackage(
                             for: b,
                             focusChapter: chapterIndex,
                             marginH: marginH,
-                            marginV: marginV,
                             immediate: isCurrentChapter
                         )
                     } else {
@@ -1787,12 +1774,10 @@ struct ReaderView: View {
                     lastChapterError = "ch\(chapterIndex): \(error.localizedDescription)"
                     if useWebRenderer {
                         let marginH = effectivePageMarginH
-                        let marginV = effectivePageMarginV
                         reloadOnlinePackage(
                             for: b,
                             focusChapter: chapterIndex,
                             marginH: marginH,
-                            marginV: marginV,
                             immediate: isCurrentChapter
                         )
                     } else {
@@ -1811,12 +1796,12 @@ struct ReaderView: View {
     }
 
     // MARK: - 載入 & 建頁
-    private func currentRenderSettings(marginH: CGFloat, marginV: CGFloat) -> ReaderRenderSettings {
+    private func currentRenderSettings(marginH: CGFloat) -> ReaderRenderSettings {
         ReaderRenderSettings(
             theme: readerTheme.epubJSName,
             fontSize: fontSize,
             marginH: marginH,
-            marginV: marginV,
+            marginV: systemVerticalPadding,
             footerHeight: footerOverlayHeight
         )
     }
@@ -2106,7 +2091,7 @@ struct ReaderView: View {
         }
     }
 
-    private func loadOnlineContent(_ b: ReadingBook, marginH: CGFloat, marginV: CGFloat) {
+    private func loadOnlineContent(_ b: ReadingBook, marginH: CGFloat) {
         let initialFocusChapter = 0
         currentChapterIndex = initialFocusChapter
         chapters =
@@ -2134,7 +2119,7 @@ struct ReaderView: View {
                         // book 是 computed property，refreshOnlineBookMetadata 已更新 store.books
                         if let updatedBook = self.book {
                             if updatedBook.onlineChapters?.isEmpty == false {
-                                self.loadOnlineContent(updatedBook, marginH: marginH, marginV: marginV)
+                                self.loadOnlineContent(updatedBook, marginH: marginH)
                             } else {
                                 self.isLoadingPipeline = false
                                 self.isRestoringPosition = false
@@ -2157,7 +2142,7 @@ struct ReaderView: View {
                     for: b,
                     preferredChapter: initialFocusChapter
                 )
-                let settings = self.currentRenderSettings(marginH: marginH, marginV: marginV)
+                let settings = self.currentRenderSettings(marginH: marginH)
                 let shouldUseWeb =
                     ReaderFeatureFlags.shared.useProgressiveOnlineReading
                     && ReaderFeatureFlags.shared.shouldUseWebPipeline(
@@ -2208,7 +2193,7 @@ struct ReaderView: View {
                                 "reason": "feature_flag_or_compatibility"
                             ]
                         )
-                        self.applyLegacyPackage(package, pageMarginH: marginH, pageMarginV: marginV)
+                        self.applyLegacyPackage(package, pageMarginH: marginH, pageMarginV: self.systemVerticalPadding)
                         // Legacy pipeline: 初始建立的 pages 全是 placeholder，需要手動觸發首章節載入
                         self.fetchChapterIfNeeded(chapterIndex: initialFocusChapter)
                     }
@@ -2228,7 +2213,6 @@ struct ReaderView: View {
         for book: ReadingBook,
         focusChapter: Int,
         marginH: CGFloat,
-        marginV: CGFloat,
         immediate: Bool = false
     ) {
         // 遞增 generation，取消之前排程的 debounce reload
@@ -2242,7 +2226,6 @@ struct ReaderView: View {
                 for: book,
                 focusChapter: focusChapter,
                 marginH: marginH,
-                marginV: marginV,
                 generation: gen
             )
         }
@@ -2260,10 +2243,9 @@ struct ReaderView: View {
         for book: ReadingBook,
         focusChapter: Int,
         marginH: CGFloat,
-        marginV: CGFloat,
         generation: Int
     ) {
-        let settings = currentRenderSettings(marginH: marginH, marginV: marginV)
+        let settings = currentRenderSettings(marginH: marginH)
         let canDoIncremental = hasInitializedWebPackage && useWebRenderer
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -2307,8 +2289,8 @@ struct ReaderView: View {
         }
     }
 
-    private func loadLocalEPUB(_ book: ReadingBook, marginH: CGFloat, marginV: CGFloat) {
-        let settings = currentRenderSettings(marginH: marginH, marginV: marginV)
+    private func loadLocalEPUB(_ book: ReadingBook, marginH: CGFloat) {
+        let settings = currentRenderSettings(marginH: marginH)
         Task {
             do {
                 let session = try await EPUBBookService.shared.openSession(for: book, using: store)
@@ -2334,14 +2316,12 @@ struct ReaderView: View {
         // 在主線程先捕捉排版參數（依賴 UIScreen，不能在背景線程）
 
         let marginH = effectivePageMarginH
-        let marginV = effectivePageMarginV
-
         guard let b = book else {
             isRestoringPosition = false
             return
         }
         if b.isOnline {
-            loadOnlineContent(b, marginH: marginH, marginV: marginV)
+            loadOnlineContent(b, marginH: marginH)
             return
         }
         if b.resolvedPipelineKind == .epub {
@@ -2356,7 +2336,7 @@ struct ReaderView: View {
                 )
             ]
             self.currentPage = 0
-            loadLocalEPUB(b, marginH: marginH, marginV: marginV)
+            loadLocalEPUB(b, marginH: marginH)
             return
         }
         let bookTitle = b.title
@@ -2374,7 +2354,7 @@ struct ReaderView: View {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let package = try store.package(forLocalBook: b)
-                let settings = self.currentRenderSettings(marginH: marginH, marginV: marginV)
+                let settings = self.currentRenderSettings(marginH: marginH)
                 let shouldUseWeb = ReaderFeatureFlags.shared.shouldUseWebPipeline(
                     for: b,
                     kind: package.pipelineKind
@@ -2395,7 +2375,7 @@ struct ReaderView: View {
                         self.applyLegacyPackage(
                             package,
                             pageMarginH: marginH,
-                            pageMarginV: marginV
+                            pageMarginV: self.systemVerticalPadding
                         )
                     }
                 }

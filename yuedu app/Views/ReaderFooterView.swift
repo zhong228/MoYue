@@ -85,7 +85,7 @@ struct ReaderOverlayFooter: View {
                 .foregroundColor(textColor.opacity(0.4))
             }
             .padding(.horizontal, 14)
-            .padding(.bottom, bottomInset + 10)
+            .padding(.bottom, bottomInset + ReaderLayoutMetrics.footerVisualBottomPadding)
         }
         .allowsHitTesting(false)
     }
@@ -115,7 +115,7 @@ struct ReaderInlineFooter: View {
                 .foregroundColor(textColor.opacity(0.4))
             }
             .padding(.horizontal, 14)
-            .padding(.bottom, bottomInset + 10)
+            .padding(.bottom, bottomInset + ReaderLayoutMetrics.footerVisualBottomPadding)
         }
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)

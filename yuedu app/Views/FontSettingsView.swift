@@ -73,12 +73,10 @@ struct FontSettingsView: View {
                             Slider(value: $settings.pageMarginH, in: 8...48, step: 2)
                             Text("\(Int(settings.pageMarginH))").font(DSFont.caption).foregroundColor(DSColor.textSecondary).frame(width: 24)
                         }
-                        HStack {
-                            Text(gs.t("上下")).font(DSFont.caption).foregroundColor(DSColor.textSecondary).frame(width: 30)
-                            Slider(value: $settings.pageMarginV, in: 4...40, step: 2)
-                            Text("\(Int(settings.pageMarginV))").font(DSFont.caption).foregroundColor(DSColor.textSecondary).frame(width: 24)
-                        }
                     }
+                    Text(gs.t("上下留白與 footer 距離由系統自動控制"))
+                        .font(DSFont.caption)
+                        .foregroundColor(DSColor.textSecondary)
                 }
 
                 // 閱讀亮度

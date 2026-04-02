@@ -1849,6 +1849,18 @@ final class LiveWebReader: NSObject, ObservableObject {
         }
     }
 
+    private func resolvedTopPadding(safeTop: CGFloat) -> Int {
+        Int(ReaderLayoutMetrics.topInset(safeTop: safeTop).rounded(.up))
+    }
+
+    private func resolvedBottomPadding(safeBottom: CGFloat) -> Int {
+        Int(
+            ReaderLayoutMetrics
+                .bottomInset(safeBottom: safeBottom, footerHeight: renderFooterHeight)
+                .rounded(.up)
+        )
+    }
+
     func setViewport(size: CGSize, safeAreaInsets: UIEdgeInsets) {
         let sizeChanged = abs(currentViewportSize.width - size.width) > 1 || abs(currentViewportSize.height - size.height) > 1
         let safeAreaChanged =
@@ -1879,8 +1891,8 @@ final class LiveWebReader: NSObject, ObservableObject {
         let safeTop = Int(currentSafeAreaInsets.top.rounded(.up))
         let safeBottom = Int(currentSafeAreaInsets.bottom.rounded(.up))
         let footerHeight = Int(renderFooterHeight.rounded(.up))
-        let topPadding = max(safeTop + 6, marginV)
-        let bottomPadding = max(safeBottom + footerHeight, marginV)
+        let topPadding = resolvedTopPadding(safeTop: currentSafeAreaInsets.top)
+        let bottomPadding = resolvedBottomPadding(safeBottom: currentSafeAreaInsets.bottom)
 
         // 記住當前閱讀位置（用 chapter progression 比 pageIndex 更穩定）
         let savedChapter = currentLoadedChapter
@@ -2421,8 +2433,8 @@ final class LiveWebReader: NSObject, ObservableObject {
         let safeTop = Int(currentSafeAreaInsets.top.rounded(.up))
         let safeBottom = Int(currentSafeAreaInsets.bottom.rounded(.up))
         let footerHeight = Int(renderFooterHeight.rounded(.up))
-        let topPadding = max(safeTop + 6, marginV)
-        let bottomPadding = max(safeBottom + footerHeight, marginV)
+        let topPadding = resolvedTopPadding(safeTop: currentSafeAreaInsets.top)
+        let bottomPadding = resolvedBottomPadding(safeBottom: currentSafeAreaInsets.bottom)
 
         // Readium CSS 注入（EPUB 專用，提供頂級排版品質）
         // 三明治順序：before → 出版 CSS → default → adapter/inline → after
@@ -2950,11 +2962,8 @@ final class LiveWebReader: NSObject, ObservableObject {
         let adapterCSSBlock = adapterCSS.isEmpty ? "" : "<style>\(adapterCSS)</style>"
 
         let viewportWidth = max(Int(size.width.rounded(.down)), 1)
-        let topPadding = max(Int(currentSafeAreaInsets.top.rounded(.up)) + 6, marginV)
-        let bottomPadding = max(
-            Int(currentSafeAreaInsets.bottom.rounded(.up)) + Int(renderFooterHeight.rounded(.up)),
-            marginV
-        )
+        let topPadding = resolvedTopPadding(safeTop: currentSafeAreaInsets.top)
+        let bottomPadding = resolvedBottomPadding(safeBottom: currentSafeAreaInsets.bottom)
 
         // Readium CSS 三明治注入（EPUB 專用）
         let readiumBeforeCSS: String

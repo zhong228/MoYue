@@ -430,6 +430,22 @@ struct ReaderRenderSettings: Equatable {
     let footerHeight: CGFloat
 }
 
+enum ReaderLayoutMetrics {
+    static let footerHeight: CGFloat = 24
+    static let footerBottomGap: CGFloat = 20
+    static let footerVisualBottomPadding: CGFloat = 4
+    static let minimumVerticalPadding: CGFloat = 24
+    static let topSafeAreaExtra: CGFloat = 10
+
+    static func topInset(safeTop: CGFloat) -> CGFloat {
+        max(minimumVerticalPadding, safeTop + topSafeAreaExtra)
+    }
+
+    static func bottomInset(safeBottom: CGFloat, footerHeight: CGFloat = footerHeight) -> CGFloat {
+        safeBottom + footerHeight + footerBottomGap
+    }
+}
+
 enum ImportedBookContentFormat: Equatable {
     case plainText
     case html

@@ -477,10 +477,8 @@ final class CoreTextPageEngine: PageRenderingProvider {
             .first { $0.isKeyWindow }?
             .safeAreaInsets) ?? .zero
         
-        // 頂部：安全區域 + 10 pt (避開瀏海/狀態列)
-        // 底部：安全區域 + 28 pt (避開 Home Indicator，並為頁腳預留呼吸感)
-        let top = max(20, safeArea.top + 10)
-        let bottom = max(20, safeArea.bottom + 28)
+        let top = ReaderLayoutMetrics.topInset(safeTop: safeArea.top)
+        let bottom = max(20, ReaderLayoutMetrics.bottomInset(safeBottom: safeArea.bottom))
         
         return UIEdgeInsets(top: top, left: h, bottom: bottom, right: h)
     }
