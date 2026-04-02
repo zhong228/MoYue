@@ -152,6 +152,13 @@ final class CoreTextPaginator {
             currentLocation += advance
         }
 
+        applyOrphanControl(
+            framesetter: framesetter,
+            pageRanges: &pageRanges,
+            attrStr: attrStr,
+            contentPathRect: contentPathRect
+        )
+
         let (imageRects, pageImages, pageKinds) = extractImages(
             framesetter: framesetter,
             pageRanges: pageRanges,
@@ -173,6 +180,71 @@ final class CoreTextPaginator {
             fontSize: fontSize,
             contentInsets: contentInsets
         )
+    }
+
+    /// 孤行控制：
+    /// - Orphan：上一頁末行是段落首行 → 移到下一頁
+    /// - Widow：下一頁首行是段落末行 → 把上一頁末行也移到下一頁（確保 ≥2 行）
+    private static func applyOrphanControl(
+        framesetter: CTFramesetter,
+        pageRanges: inout [CFRange],
+        attrStr: NSAttributedString,
+        contentPathRect: CGRect
+    ) {
+        guard pageRanges.count > 1 else { return }
+        let nsString = attrStr.string as NSString
+        let stringLength = attrStr.length
+        let pagePath = CGPath(rect: contentPathRect, transform: nil)
+
+        // Pass 1: Orphan — 上一頁末行是段落首行
+        var i = 0
+        while i < pageRanges.count - 1 {
+            let frame = CTFramesetterCreateFrame(framesetter, pageRanges[i], pagePath, nil)
+            let lines = CTFrameGetLines(frame) as! [CTLine]
+            guard lines.count >= 2, let lastLine = lines.last else { i += 1; continue }
+            let lastRange = CTLineGetStringRange(lastLine)
+            let isOrphan: Bool
+            if lastRange.location == 0 {
+                isOrphan = false
+            } else {
+                let ch = nsString.character(at: lastRange.location - 1)
+                isOrphan = ch == 0x000A || ch == 0x2028 || ch == 0x2029
+            }
+            if isOrphan {
+                let newLen = lastRange.location - pageRanges[i].location
+                if newLen > 0 {
+                    let nextEnd = pageRanges[i + 1].location + pageRanges[i + 1].length
+                    pageRanges[i] = CFRangeMake(pageRanges[i].location, newLen)
+                    pageRanges[i + 1] = CFRangeMake(lastRange.location, nextEnd - lastRange.location)
+                }
+            }
+            i += 1
+        }
+
+        // Pass 2: Widow — 下一頁首行是段落末行（且該頁有 ≥2 行）
+        for j in 1..<pageRanges.count {
+            guard pageRanges[j].length > 0 else { continue }
+            let frame = CTFramesetterCreateFrame(framesetter, pageRanges[j], pagePath, nil)
+            let lines = CTFrameGetLines(frame) as! [CTLine]
+            guard lines.count >= 2 else { continue }
+            let firstRange = CTLineGetStringRange(lines[0])
+            let checkIdx = firstRange.location + firstRange.length
+            let isWidow = checkIdx >= stringLength
+                || nsString.character(at: checkIdx) == 0x000A
+                || nsString.character(at: checkIdx) == 0x2028
+                || nsString.character(at: checkIdx) == 0x2029
+            guard isWidow else { continue }
+            // 把上一頁末行移到這頁
+            let prevFrame = CTFramesetterCreateFrame(framesetter, pageRanges[j - 1], pagePath, nil)
+            let prevLines = CTFrameGetLines(prevFrame) as! [CTLine]
+            guard prevLines.count >= 2, let prevLast = prevLines.last else { continue }
+            let prevLastRange = CTLineGetStringRange(prevLast)
+            let newPrevLen = prevLastRange.location - pageRanges[j - 1].location
+            guard newPrevLen > 0 else { continue }
+            let newCurrEnd = pageRanges[j].location + pageRanges[j].length
+            pageRanges[j - 1] = CFRangeMake(pageRanges[j - 1].location, newPrevLen)
+            pageRanges[j] = CFRangeMake(prevLastRange.location, newCurrEnd - prevLastRange.location)
+        }
     }
 
     private static func extractImages(

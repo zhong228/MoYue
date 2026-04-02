@@ -251,7 +251,8 @@ final class CoreTextPageEngine: PageRenderingProvider {
             imagePage: buildResult.imagePage,
             anchorOffsets: buildResult.anchorOffsets,
             renderSize: renderSize,
-            fontSize: config.fontSize
+            fontSize: config.fontSize,
+            contentInsets: currentContentInsets()
         )
         print("[CoreTextEngine] preloadChapter[\(spineIndex)] pageCount=\(layout.pageRanges.count)")
         layouts[spineIndex] = layout
@@ -281,6 +282,10 @@ final class CoreTextPageEngine: PageRenderingProvider {
             currentPage = pageIndex(forSpine: record.spineIndex, charOffset: record.charOffset)
         }
         isRelaying = false
+        NotificationCenter.default.post(
+            name: .coreTextEngineChapterReady,
+            object: self
+        )
     }
 
     func resolveInternalLink(_ href: String, fromSpineIndex spineIndex: Int) async -> Int? {
@@ -409,9 +414,24 @@ final class CoreTextPageEngine: PageRenderingProvider {
             ctx.translateBy(x: 0, y: size.height)
             ctx.scaleBy(x: 1.0, y: -1.0)
 
-            let path = CGPath(rect: CGRect(origin: .zero, size: size), transform: nil)
+            let insets = layout.contentInsets
+            let contentPathRect = CGRect(
+                x: insets.left,
+                y: insets.bottom,
+                width: max(1, size.width - insets.left - insets.right),
+                height: max(1, size.height - insets.top - insets.bottom)
+            )
+            let path = CGPath(rect: contentPathRect, transform: nil)
             let frame = CTFramesetterCreateFrame(layout.framesetter, layout.pageRanges[0], path, nil)
-            CTFrameDraw(frame, ctx)
+            CoreTextPageView.drawLines(
+                of: frame,
+                contentWidth: contentPathRect.width,
+                contentMinX: contentPathRect.minX,
+                contentMinY: contentPathRect.minY,
+                isLastPage: layout.pageRanges.count == 1,
+                attrStr: layout.attributedString,
+                in: ctx
+            )
 
             ctx.scaleBy(x: 1.0, y: -1.0)
             ctx.translateBy(x: 0, y: -size.height)
@@ -444,6 +464,13 @@ final class CoreTextPageEngine: PageRenderingProvider {
             return start
         }
         totalPages = offset
+    }
+
+    private func currentContentInsets() -> UIEdgeInsets {
+        let gs = GlobalSettings.shared
+        let h = CGFloat(gs.pageMarginH)
+        let v = CGFloat(gs.pageMarginV)
+        return UIEdgeInsets(top: v, left: h, bottom: v, right: h)
     }
 
     private func currentBuilderConfig() -> HTMLAttributedStringBuilder.Config {

@@ -62,6 +62,9 @@ final class CoreTextPageView: UIView {
         CoreTextPageView.drawLines(
             of: frame,
             contentWidth: contentPathRect.width,
+            contentMinX: contentPathRect.minX,
+            contentMinY: contentPathRect.minY,
+            isLastPage: localPageIndex == layout.pageRanges.count - 1,
             attrStr: layout.attributedString,
             in: ctx
         )
@@ -79,9 +82,16 @@ final class CoreTextPageView: UIView {
     /// 逐行繪製 CTFrame 的所有文字行，對 justified 非末行套用 CTLineCreateJustifiedLine。
     /// 共用於 draw(_ rect:) 和 CoreTextPageEngine.generateSnapshot()。
     /// 呼叫前必須已在 CGContext 中設定好 CoreText 座標系（y 軸向上翻轉）。
+    /// - Parameters:
+    ///   - contentMinX: 內容區域左邊界（CoreText 座標），用於繪製 hr 線段起點
+    ///   - contentMinY: 內容區域底部（CoreText 座標），用於計算末頁餘白
+    ///   - isLastPage: 是否為章節最後一頁；最後一頁不做垂直均分
     static func drawLines(
         of frame: CTFrame,
         contentWidth: CGFloat,
+        contentMinX: CGFloat,
+        contentMinY: CGFloat,
+        isLastPage: Bool,
         attrStr: NSAttributedString,
         in ctx: CGContext
     ) {
@@ -94,11 +104,64 @@ final class CoreTextPageView: UIView {
         let nsString = attrStr.string as NSString
         let stringLength = attrStr.length
 
+        // Phase 5A: 非末頁時把底部餘白均分到段落間距，讓頁面文字上下填滿
+        var extraSpacePerGap: CGFloat = 0
+        var paragraphGapAfterLine: Set<Int> = []
+
+        if !isLastPage && lines.count > 1 {
+            for i in 0..<(lines.count - 1) {
+                let r = CTLineGetStringRange(lines[i])
+                let checkIdx = r.location + r.length
+                if checkIdx < stringLength {
+                    let ch = nsString.character(at: checkIdx)
+                    if ch == 0x000A || ch == 0x2028 || ch == 0x2029 {
+                        paragraphGapAfterLine.insert(i)
+                    }
+                }
+            }
+            if !paragraphGapAfterLine.isEmpty {
+                var lastDescent: CGFloat = 0
+                CTLineGetTypographicBounds(lines.last!, nil, &lastDescent, nil)
+                let lastBaseline = origins[lines.count - 1].y
+                let usedBottom = lastBaseline + lastDescent   // descent 為負值
+                let extraSpace = usedBottom - contentMinY
+                if extraSpace > 2 {
+                    extraSpacePerGap = extraSpace / CGFloat(paragraphGapAfterLine.count)
+                }
+            }
+        }
+
+        var accumulatedShift: CGFloat = 0
+
         for (lineIdx, line) in lines.enumerated() {
-            let origin = origins[lineIdx]
-            ctx.textPosition = CGPoint(x: origin.x, y: origin.y)
+            // 累積段落間距補償
+            if lineIdx > 0 && paragraphGapAfterLine.contains(lineIdx - 1) {
+                accumulatedShift -= extraSpacePerGap
+            }
+
+            var origin = origins[lineIdx]
+            origin.y += accumulatedShift
 
             let lineRange = CTLineGetStringRange(line)
+
+            // Phase 4: HR 分隔線
+            if lineRange.location < stringLength,
+               attrStr.attribute(
+                   HTMLAttributedStringBuilder.hrDividerAttribute,
+                   at: lineRange.location, effectiveRange: nil
+               ) != nil {
+                ctx.saveGState()
+                ctx.setStrokeColor(UIColor.separator.cgColor)
+                ctx.setLineWidth(0.5)
+                ctx.move(to: CGPoint(x: contentMinX, y: origin.y))
+                ctx.addLine(to: CGPoint(x: contentMinX + contentWidth, y: origin.y))
+                ctx.strokePath()
+                ctx.restoreGState()
+                continue
+            }
+
+            ctx.textPosition = CGPoint(x: origin.x, y: origin.y)
+
             let lineEnd = lineRange.location + lineRange.length
 
             // 判斷是否為段落最後一行（最後一行不做 justify，避免強制撐開）

@@ -8,6 +8,7 @@ import UIKit
 final class HTMLAttributedStringBuilder {
     static let internalLinkAttribute = NSAttributedString.Key("ReaderInternalLink")
     static let anchorIDAttribute = NSAttributedString.Key("ReaderAnchorID")
+    static let hrDividerAttribute = NSAttributedString.Key("ReaderHRDivider")
     private static let paragraphSeparator = "\n"
     private static let lineSeparator = "\u{2028}"
 
@@ -324,13 +325,41 @@ final class HTMLAttributedStringBuilder {
         }
     }
 
+    private func makeHRDivider(style: ResolvedStyle, config: Config) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.paragraphSpacingBefore = style.fontSize * 0.5
+        paragraph.paragraphSpacing = style.fontSize * 0.5
+        paragraph.minimumLineHeight = style.fontSize
+        paragraph.maximumLineHeight = style.fontSize
+        return NSAttributedString(
+            string: "\n",
+            attributes: [
+                .font: makeFont(from: style, config: config),
+                .foregroundColor: UIColor.clear,
+                .paragraphStyle: paragraph,
+                Self.hrDividerAttribute: true as AnyObject,
+            ]
+        )
+    }
+
     private func renderBlockElement(
         _ element: ElementNode,
         config: Config
     ) async -> NSAttributedString {
+        // hr: 回傳帶有 hrDividerAttribute 的分隔線佔位
+        if element.tag == "hr" {
+            return makeHRDivider(style: element.resolvedStyle, config: config)
+        }
+
         let output = NSMutableAttributedString()
         var segment = NSMutableAttributedString()
         var paragraphIndex = 0
+
+        // 列表項：前置 bullet 字串（hanging indent 由 makeParagraphStyle 處理）
+        if let bullet = element.resolvedStyle.listBullet {
+            let bulletAttrs = baseTextAttributes(style: element.resolvedStyle, config: config)
+            segment.append(NSAttributedString(string: bullet, attributes: bulletAttrs))
+        }
 
         func appendSegment(isLast: Bool) {
             guard segment.length > 0 else { return }
@@ -432,6 +461,8 @@ final class HTMLAttributedStringBuilder {
             // 連續段（同一 block element 被 <br display:block> 切開後的第 2+ 段）
             // 不繼承 paragraphSpacingBefore，避免 margin-top 重複施加
             style.paragraphSpacingBefore = 0
+            // 列表項的後續段落不加 bullet，但保留 hanging indent（marginLeft 不變）
+            style.listBullet = nil
         }
         if !isLast {
             style.paragraphSpacing = 0
@@ -716,6 +747,26 @@ final class HTMLAttributedStringBuilder {
             parentStyle: parent,
             rootFontSize: rootFontSize
         )
+
+        // 列表項：根據父元素類型決定 bullet 字串
+        if element.tagName().lowercased() == "li" {
+            let parentTag = parentElement?.tagName().lowercased() ?? ""
+            if parentTag == "ol" {
+                var idx = 1
+                if let parent = parentElement {
+                    var count = 0
+                    for sibling in parent.children() {
+                        if sibling === element { break }
+                        if sibling.tagName().lowercased() == "li" { count += 1 }
+                    }
+                    idx = count + 1
+                }
+                style.listBullet = "\(idx).\t"
+            } else {
+                style.listBullet = "•\t"
+            }
+        }
+
         return style
     }
 

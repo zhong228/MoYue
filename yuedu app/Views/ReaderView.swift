@@ -2673,8 +2673,11 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             queue: .main
         ) { [weak pvc] _ in
             guard let pvc else { return }
-            // Force UIPageViewController to re-fetch current VC from datasource
-            if let first = pvc.viewControllers?.first {
+            if let first = pvc.viewControllers?.first as? (any PageIndexProviding & UIViewController) {
+                // Get a fresh VC with updated layout (covers both lazy-load and relayout cases)
+                let freshVC = engine.pageViewController(at: first.globalPageIndex)
+                pvc.setViewControllers([freshVC], direction: .forward, animated: false)
+            } else if let first = pvc.viewControllers?.first {
                 pvc.setViewControllers([first], direction: .forward, animated: false)
             }
         }
