@@ -469,8 +469,20 @@ final class CoreTextPageEngine: PageRenderingProvider {
     private func currentContentInsets() -> UIEdgeInsets {
         let gs = GlobalSettings.shared
         let h = CGFloat(gs.pageMarginH)
-        let v = CGFloat(gs.pageMarginV)
-        return UIEdgeInsets(top: v, left: h, bottom: v, right: h)
+        
+        // 動態獲取當前裝置的安全區域（瀏海、動態島、底部橫條）
+        let safeArea = (UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }?
+            .safeAreaInsets) ?? .zero
+        
+        // 頂部：安全區域 + 10 pt (避開瀏海/狀態列)
+        // 底部：安全區域 + 28 pt (避開 Home Indicator，並為頁腳預留呼吸感)
+        let top = max(20, safeArea.top + 10)
+        let bottom = max(20, safeArea.bottom + 28)
+        
+        return UIEdgeInsets(top: top, left: h, bottom: bottom, right: h)
     }
 
     private func currentBuilderConfig() -> HTMLAttributedStringBuilder.Config {
