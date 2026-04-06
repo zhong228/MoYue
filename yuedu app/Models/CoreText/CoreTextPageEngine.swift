@@ -153,7 +153,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
         let (spineIndex, localPage) = localPosition(for: index)
         if let layout = layouts[spineIndex] {
             let vc = CoreTextPageViewController()
-            vc.configure(layout: layout, localPage: localPage, globalPage: index)
+            vc.configure(layout: layout, localPage: localPage, globalPage: index, fallbackBackgroundColor: themeBackgroundColor)
             return vc
         }
         let title = session.chapters.indices.contains(spineIndex)

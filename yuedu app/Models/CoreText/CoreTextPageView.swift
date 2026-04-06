@@ -18,12 +18,12 @@ final class CoreTextPageView: UIView {
     }
 
     /// 設定要渲染的章節佈局與頁碼，自動觸發重繪。
-    func configure(layout: CoreTextPaginator.ChapterLayout, pageIndex: Int) {
+    func configure(layout: CoreTextPaginator.ChapterLayout, pageIndex: Int, fallbackBackgroundColor: UIColor = .systemBackground) {
         self.layout = layout
         self.localPageIndex = pageIndex
         backgroundColor = layout.attributedString.length > 0
             ? extractBackgroundColor(from: layout.attributedString)
-            : .systemBackground
+            : fallbackBackgroundColor
         setNeedsDisplay()
     }
 
@@ -443,15 +443,18 @@ final class CoreTextPageViewController: UIViewController {
 
     private var pendingLayout: CoreTextPaginator.ChapterLayout?
     private var pendingLocalPage: Int = 0
+    private var pendingFallbackColor: UIColor = .systemBackground
 
     func configure(
         layout: CoreTextPaginator.ChapterLayout,
         localPage: Int,
-        globalPage: Int
+        globalPage: Int,
+        fallbackBackgroundColor: UIColor = .systemBackground
     ) {
         self.globalPageIndex = globalPage
+        self.pendingFallbackColor = fallbackBackgroundColor
         if isViewLoaded {
-            pageView.configure(layout: layout, pageIndex: localPage)
+            pageView.configure(layout: layout, pageIndex: localPage, fallbackBackgroundColor: fallbackBackgroundColor)
         } else {
             pendingLayout = layout
             pendingLocalPage = localPage
@@ -464,7 +467,7 @@ final class CoreTextPageViewController: UIViewController {
         pageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(pageView)
         if let layout = pendingLayout {
-            pageView.configure(layout: layout, pageIndex: pendingLocalPage)
+            pageView.configure(layout: layout, pageIndex: pendingLocalPage, fallbackBackgroundColor: pendingFallbackColor)
             pendingLayout = nil
         }
     }
