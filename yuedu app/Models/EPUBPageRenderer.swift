@@ -39,6 +39,7 @@ final class EPUBPageRenderer: ObservableObject {
         )
         let store = CharOffsetStore(directoryURL: progressDir)
         let newEngine = CoreTextPageEngine(session: session, offsetStore: store)
+        newEngine.applyThemeChange(textColor: settings.textColor, backgroundColor: settings.backgroundColor)
         self.engine = newEngine
         isCoreTextReady = false
 

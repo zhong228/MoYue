@@ -520,8 +520,11 @@ struct ReaderView: View {
         }
         .onChange(of: readerTheme) { _ in
             readerTheme.persist()
-            if usesPagedRenderer {
-                epubRenderer.setTheme(readerTheme.epubJSName)
+            if usesCoreTextEPUB {
+                epubRenderer.engine?.applyThemeChange(
+                    textColor: UIColor(readerTheme.textColor),
+                    backgroundColor: UIColor(readerTheme.backgroundColor)
+                )
             } else if isEPUB {
                 rebuildPages()
             }
@@ -1373,6 +1376,8 @@ struct ReaderView: View {
     private func currentRenderSettings(marginH: CGFloat) -> ReaderRenderSettings {
         ReaderRenderSettings(
             theme: readerTheme.epubJSName,
+            textColor: UIColor(readerTheme.textColor),
+            backgroundColor: UIColor(readerTheme.backgroundColor),
             fontSize: fontSize,
             marginH: marginH,
             marginV: systemVerticalPadding,

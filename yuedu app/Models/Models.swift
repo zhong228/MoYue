@@ -3,6 +3,7 @@ import Foundation
 // MARK: - HTML → 純文字
 import SwiftSoup
 import SwiftUI
+import UIKit
 
 // MARK: - 書籍章節 (🟢修改1：加上 Codable，並將 let 改為 var，讓 EPUB 可以存成 JSON)
 
@@ -424,6 +425,8 @@ typealias RenderPackage = BookPackage
 
 struct ReaderRenderSettings: Equatable {
     let theme: String
+    let textColor: UIColor
+    let backgroundColor: UIColor
     let fontSize: CGFloat
     let marginH: CGFloat
     let marginV: CGFloat

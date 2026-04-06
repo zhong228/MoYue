@@ -32,6 +32,9 @@ final class CoreTextPageEngine: PageRenderingProvider {
 
     private(set) var isRelaying = false
 
+    private var themeTextColor: UIColor = .label
+    private var themeBackgroundColor: UIColor = .systemBackground
+
     deinit {
         for url in registeredFontFileURLs.values {
             try? FileManager.default.removeItem(at: url)
@@ -450,6 +453,8 @@ final class CoreTextPageEngine: PageRenderingProvider {
     }
 
     func applyThemeChange(textColor: UIColor, backgroundColor: UIColor) {
+        themeTextColor = textColor
+        themeBackgroundColor = backgroundColor
         paginator.invalidate(reason: .themeChanged)
         chapterSnapshots.removeAll()
         for (spineIndex, layout) in layouts {
@@ -574,14 +579,8 @@ final class CoreTextPageEngine: PageRenderingProvider {
 
     /// Returns appropriate text color. GlobalSettings does not expose a theme enum,
     /// so we fall back to the system adaptive label color which respects dark/light mode.
-    private func currentTextColor() -> UIColor {
-        .label
-    }
-
-    /// Returns appropriate background color using the system adaptive background color.
-    private func currentBackgroundColor() -> UIColor {
-        .systemBackground
-    }
+    private func currentTextColor() -> UIColor { themeTextColor }
+    private func currentBackgroundColor() -> UIColor { themeBackgroundColor }
 
     private func processStylesheet(_ cssText: String, cssHref: String, chapterHref: String) async -> String {
         let withImports = await inlineLocalImports(from: cssText, cssHref: cssHref, chapterHref: chapterHref, visited: [cssHref])
