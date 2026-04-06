@@ -303,6 +303,7 @@ struct ReaderView: View {
                 let _ = { print("[ReaderView] ✅ 使用 CoreText 引擎") }()
                 CoreTextPageEngineView(
                     engine: ctEngine,
+                    pageTurnStyle: settings.pageTurnStyle,
                     currentPage: $currentPage,
                     onPageChanged: { newPage in
                         currentChapterIndex = ctEngine.charOffset(forPage: newPage).spineIndex
@@ -321,6 +322,7 @@ struct ReaderView: View {
                         }
                     }
                 )
+                .id(settings.pageTurnStyle)
                 .ignoresSafeArea()
                 .transition(.opacity.animation(.easeOut(duration: 0.25)))
             } else if usesCoreTextEPUB {
@@ -1702,17 +1704,33 @@ private struct HideTabBarModifier: ViewModifier {
 
 private struct CoreTextPageEngineView: UIViewControllerRepresentable {
     let engine: any PageRenderingProvider
+    let pageTurnStyle: PageTurnStyle
     @Binding var currentPage: Int
     let onPageChanged: (Int) -> Void
     let onTapZone: (String) -> Void
 
     func makeUIViewController(context: Context) -> UIPageViewController {
+        let transitionStyle: UIPageViewController.TransitionStyle
+        switch pageTurnStyle {
+        case .curl:              transitionStyle = .pageCurl
+        case .slide, .cover, .none: transitionStyle = .scroll
+        }
         let pvc = UIPageViewController(
-            transitionStyle: .pageCurl,
+            transitionStyle: transitionStyle,
             navigationOrientation: .horizontal
         )
-        pvc.dataSource = context.coordinator
+
+        // cover / none 模式：停用內建滑動手勢（靠自訂 pan 或 tap 翻頁）
+        if pageTurnStyle == .cover || pageTurnStyle == .none {
+            pvc.dataSource = nil
+            for case let sv as UIScrollView in pvc.view.subviews {
+                sv.isScrollEnabled = false
+            }
+        } else {
+            pvc.dataSource = context.coordinator
+        }
         pvc.delegate = context.coordinator
+
         let initialVC = engine.pageViewController(at: max(0, currentPage))
         pvc.setViewControllers([initialVC], direction: .forward, animated: false)
 
@@ -1723,6 +1741,17 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         )
         tap.cancelsTouchesInView = false
         pvc.view.addGestureRecognizer(tap)
+
+        // cover 模式：加自訂 pan gesture + overlay
+        if pageTurnStyle == .cover {
+            context.coordinator.setupCoverOverlay(on: pvc.view)
+            let pan = UIPanGestureRecognizer(
+                target: context.coordinator,
+                action: #selector(Coordinator.handleCoverPan(_:))
+            )
+            pan.maximumNumberOfTouches = 1
+            pvc.view.addGestureRecognizer(pan)
+        }
 
         NotificationCenter.default.addObserver(
             forName: .coreTextEngineChapterReady,
@@ -1752,8 +1781,19 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             guard visible.globalPageIndex != clampedPage else { return }
             let direction: UIPageViewController.NavigationDirection =
                 clampedPage >= visible.globalPageIndex ? .forward : .reverse
+
+            if pageTurnStyle == .cover {
+                context.coordinator.animateCoverTransition(
+                    to: clampedPage,
+                    direction: direction,
+                    on: uiViewController
+                )
+                return
+            }
+
+            let shouldAnimate = pageTurnStyle != .none
             let targetVC = engine.pageViewController(at: clampedPage)
-            uiViewController.setViewControllers([targetVC], direction: direction, animated: false)
+            uiViewController.setViewControllers([targetVC], direction: direction, animated: shouldAnimate)
             return
         }
 
@@ -1762,7 +1802,13 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(engine: engine, currentPage: $currentPage, onPageChanged: onPageChanged, onTapZone: onTapZone)
+        Coordinator(
+            engine: engine,
+            pageTurnStyle: pageTurnStyle,
+            currentPage: $currentPage,
+            onPageChanged: onPageChanged,
+            onTapZone: onTapZone
+        )
     }
 
     final class Coordinator: NSObject,
@@ -1770,15 +1816,27 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         UIPageViewControllerDelegate
     {
         var currentEngine: any PageRenderingProvider
+        let pageTurnStyle: PageTurnStyle
         @Binding var currentPage: Int
         let onPageChanged: (Int) -> Void
         let onTapZone: (String) -> Void
 
+        // cover 動畫 overlay 元件
+        private let coverOverlayView = UIView()
+        private let coverCurrentImageView = UIImageView()
+        private let coverIncomingImageView = UIImageView()
+        private let coverShadowView = UIView()
+        private var coverTargetPage: Int?
+        private var coverDirection: Int = 0  // 1 = forward, -1 = backward
+        private weak var coverHostView: UIView?
+
         init(engine: any PageRenderingProvider,
+             pageTurnStyle: PageTurnStyle,
              currentPage: Binding<Int>,
              onPageChanged: @escaping (Int) -> Void,
              onTapZone: @escaping (String) -> Void) {
             self.currentEngine = engine
+            self.pageTurnStyle = pageTurnStyle
             self._currentPage = currentPage
             self.onPageChanged = onPageChanged
             self.onTapZone = onTapZone
@@ -1792,6 +1850,8 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             let zone = x < w * 0.3 ? "left" : x > w * 0.7 ? "right" : "center"
             DispatchQueue.main.async { self.onTapZone(zone) }
         }
+
+        // MARK: - UIPageViewControllerDataSource
 
         func pageViewController(
             _ pvc: UIPageViewController,
@@ -1815,6 +1875,8 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             }
             return currentEngine.pageViewController(at: nextIndex)
         }
+
+        // MARK: - UIPageViewControllerDelegate
 
         func pageViewController(
             _ pvc: UIPageViewController,
@@ -1842,6 +1904,163 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             Task { @MainActor in
                 currentEngine.warmUpNext(currentGlobalPage: vc.globalPageIndex)
             }
+        }
+
+        // MARK: - Cover overlay setup
+
+        func setupCoverOverlay(on view: UIView) {
+            coverHostView = view
+
+            coverOverlayView.translatesAutoresizingMaskIntoConstraints = false
+            coverOverlayView.isHidden = true
+            coverOverlayView.isUserInteractionEnabled = false
+            coverOverlayView.clipsToBounds = true
+            coverOverlayView.backgroundColor = .clear
+            view.addSubview(coverOverlayView)
+            NSLayoutConstraint.activate([
+                coverOverlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                coverOverlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                coverOverlayView.topAnchor.constraint(equalTo: view.topAnchor),
+                coverOverlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            ])
+
+            coverCurrentImageView.contentMode = .scaleAspectFill
+            coverCurrentImageView.clipsToBounds = true
+            coverCurrentImageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            coverOverlayView.addSubview(coverCurrentImageView)
+
+            coverIncomingImageView.contentMode = .scaleAspectFill
+            coverIncomingImageView.clipsToBounds = true
+            coverIncomingImageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            coverOverlayView.addSubview(coverIncomingImageView)
+
+            coverShadowView.backgroundColor = UIColor.black.withAlphaComponent(0.18)
+            coverShadowView.autoresizingMask = [.flexibleHeight]
+            coverIncomingImageView.addSubview(coverShadowView)
+        }
+
+        // MARK: - Cover pan gesture
+
+        @objc func handleCoverPan(_ gesture: UIPanGestureRecognizer) {
+            guard let view = gesture.view else { return }
+            let width = max(view.bounds.width, 1)
+            let translationX = gesture.translation(in: view).x
+            let velocityX = gesture.velocity(in: view).x
+
+            switch gesture.state {
+            case .began:
+                coverTargetPage = nil
+                coverDirection = 0
+                coverOverlayView.frame = view.bounds
+                coverCurrentImageView.frame = view.bounds
+                coverCurrentImageView.image = currentEngine.renderSnapshot(forPage: currentPage)
+                coverOverlayView.isHidden = false
+
+            case .changed:
+                if coverTargetPage == nil {
+                    if translationX < -6, currentPage < currentEngine.totalPages - 1 {
+                        coverDirection = 1
+                        let target = currentPage + 1
+                        coverTargetPage = target
+                        let incomingImage = currentEngine.renderSnapshot(forPage: target)
+                        coverIncomingImageView.image = incomingImage
+                        coverIncomingImageView.frame = CGRect(x: width, y: 0, width: width, height: view.bounds.height)
+                        coverShadowView.frame = CGRect(x: 0, y: 0, width: 18, height: view.bounds.height)
+                        coverShadowView.alpha = 0
+                    } else if translationX > 6, currentPage > 0 {
+                        coverDirection = -1
+                        let target = currentPage - 1
+                        coverTargetPage = target
+                        let incomingImage = currentEngine.renderSnapshot(forPage: target)
+                        coverIncomingImageView.image = incomingImage
+                        coverIncomingImageView.frame = CGRect(x: -width, y: 0, width: width, height: view.bounds.height)
+                        coverShadowView.frame = CGRect(x: width - 18, y: 0, width: 18, height: view.bounds.height)
+                        coverShadowView.alpha = 0
+                    }
+                }
+                guard coverTargetPage != nil else { return }
+                let rawProgress = min(max(abs(translationX) / width, 0), 0.999)
+                if coverDirection == 1 {
+                    coverIncomingImageView.frame.origin.x = width * (1 - rawProgress)
+                } else {
+                    coverIncomingImageView.frame.origin.x = -width * (1 - rawProgress)
+                }
+                coverShadowView.alpha = 0.18 * rawProgress
+
+            case .ended, .cancelled, .failed:
+                guard let targetPage = coverTargetPage else {
+                    resetCoverOverlay()
+                    return
+                }
+                let progress = min(max(abs(translationX) / width, 0), 1)
+                let shouldCommit = progress > 0.34 || abs(velocityX) > 560
+
+                let destinationX: CGFloat = shouldCommit ? 0 : (coverDirection == 1 ? width : -width)
+                UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut]) {
+                    self.coverIncomingImageView.frame.origin.x = destinationX
+                    self.coverShadowView.alpha = shouldCommit ? 0.18 : 0
+                } completion: { _ in
+                    if shouldCommit {
+                        self.currentPage = targetPage
+                        self.onPageChanged(targetPage)
+                        Task { @MainActor in
+                            self.currentEngine.warmUpNext(currentGlobalPage: targetPage)
+                        }
+                    }
+                    self.resetCoverOverlay()
+                }
+
+            default:
+                break
+            }
+        }
+
+        // MARK: - Cover programmatic transition (tap zone)
+
+        func animateCoverTransition(
+            to targetPage: Int,
+            direction: UIPageViewController.NavigationDirection,
+            on pvc: UIPageViewController
+        ) {
+            guard let view = pvc.view else { return }
+            let width = max(view.bounds.width, 1)
+            let coverDir: Int = direction == .forward ? 1 : -1
+
+            coverOverlayView.frame = view.bounds
+            coverCurrentImageView.frame = view.bounds
+            coverCurrentImageView.image = currentEngine.renderSnapshot(forPage: currentPage)
+            coverIncomingImageView.image = currentEngine.renderSnapshot(forPage: targetPage)
+            coverIncomingImageView.frame = CGRect(
+                x: coverDir == 1 ? width : -width,
+                y: 0, width: width, height: view.bounds.height
+            )
+            coverShadowView.frame = CGRect(
+                x: coverDir == 1 ? 0 : width - 18,
+                y: 0, width: 18, height: view.bounds.height
+            )
+            coverShadowView.alpha = 0
+            coverOverlayView.isHidden = false
+
+            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut]) {
+                self.coverIncomingImageView.frame.origin.x = 0
+                self.coverShadowView.alpha = 0.18
+            } completion: { _ in
+                let realVC = self.currentEngine.pageViewController(at: targetPage)
+                pvc.setViewControllers([realVC], direction: direction, animated: false)
+                self.onPageChanged(targetPage)
+                Task { @MainActor in
+                    self.currentEngine.warmUpNext(currentGlobalPage: targetPage)
+                }
+                self.resetCoverOverlay()
+            }
+        }
+
+        private func resetCoverOverlay() {
+            coverOverlayView.isHidden = true
+            coverCurrentImageView.image = nil
+            coverIncomingImageView.image = nil
+            coverTargetPage = nil
+            coverDirection = 0
         }
     }
 }

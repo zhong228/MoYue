@@ -36,8 +36,12 @@ protocol PageRenderingProvider: AnyObject {
     /// 取得第 index 頁的快照 ViewController（跨章節動畫接力用）。
     /// 只在該頁為章節第一頁且快照已就緒時才回傳非 nil；其餘情況回傳 nil。
     func snapshotViewController(at index: Int) -> UIViewController?
+
+    /// 離屏渲染指定全局頁為 UIImage，供 cover 動畫使用。
+    func renderSnapshot(forPage globalPage: Int) -> UIImage?
 }
 
 extension PageRenderingProvider {
     func snapshotViewController(at index: Int) -> UIViewController? { nil }
+    func renderSnapshot(forPage globalPage: Int) -> UIImage? { nil }
 }

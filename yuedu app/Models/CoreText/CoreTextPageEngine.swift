@@ -472,6 +472,36 @@ final class CoreTextPageEngine: PageRenderingProvider {
         }
     }
 
+    /// 離屏渲染任意全局頁為 UIImage，供 cover 動畫即時快照使用。
+    func renderSnapshot(forPage globalPage: Int) -> UIImage? {
+        let (spineIndex, localPage) = localPosition(for: globalPage)
+        guard let layout = layouts[spineIndex],
+              localPage < layout.pageRanges.count,
+              renderSize.width > 0, renderSize.height > 0 else { return nil }
+        let bgColor: UIColor
+        if layout.attributedString.length > 0,
+           let color = layout.attributedString.attribute(
+               .backgroundColor, at: 0, effectiveRange: nil
+           ) as? UIColor {
+            bgColor = color
+        } else {
+            bgColor = .systemBackground
+        }
+        let size = renderSize
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { rendererCtx in
+            let ctx = rendererCtx.cgContext
+            ctx.setFillColor(bgColor.cgColor)
+            ctx.fill(CGRect(origin: .zero, size: size))
+            CoreTextPageView.renderPage(
+                layout: layout,
+                pageIndex: localPage,
+                in: ctx,
+                bounds: CGRect(origin: .zero, size: size)
+            )
+        }
+    }
+
     // MARK: - Private helpers
 
     /// 將章節第 0 頁預渲染成 UIImage，存入 chapterSnapshots 以供跨章節動畫接力。
