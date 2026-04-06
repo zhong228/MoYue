@@ -1829,7 +1829,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         private var coverTargetPage: Int?
         private var coverDirection: Int = 0  // 1 = forward, -1 = backward
         private weak var coverHostView: UIView?
-        private weak var coverPageViewController: UIPageViewController?
+        weak var coverPageViewController: UIPageViewController?
 
         init(engine: any PageRenderingProvider,
              pageTurnStyle: PageTurnStyle,
