@@ -1882,11 +1882,12 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                   vc.globalPageIndex > 0 else { return nil }
             let (currentSpine, currentLocal) = currentEngine.localPosition(for: vc.globalPageIndex)
             if currentLocal == 0 && currentSpine > 0 {
-                // 跨章邊界：直接查上一章最後一頁，避免依賴 globalPage-1 的估算
+                // 跨章邊界：直接查上一章最後一頁，避免依賴 globalPage-1 的估算（未載入時估 1 頁導致映射錯誤）
                 if let lastPage = currentEngine.lastPageIndex(ofChapter: currentSpine - 1) {
                     return currentEngine.pageViewController(at: lastPage)
                 }
-                // 上一章未載入 → 觸發預載，返回 placeholder（帶正確 globalPageIndex）
+                // 上一章未載入：pageViewController(at:) 內部會自動觸發 preloadChapter
+                return currentEngine.pageViewController(at: vc.globalPageIndex - 1)
             }
             return currentEngine.pageViewController(at: vc.globalPageIndex - 1)
         }

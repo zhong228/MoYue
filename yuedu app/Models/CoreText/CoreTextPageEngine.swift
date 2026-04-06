@@ -432,7 +432,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
             }
         }
         // 接近章節開頭時預載上一章，確保向後翻跨章能正確定位最後一頁
-        if localPage < threshold && spineIndex > 0 {
+        if localPage < threshold && spineIndex > 0 && layouts[spineIndex - 1] == nil {
             Task { [weak self] in await self?.preloadChapter(at: spineIndex - 1) }
         }
     }
