@@ -5,6 +5,10 @@ protocol PageIndexProviding: AnyObject {
     var globalPageIndex: Int { get }
 }
 
+protocol CoreTextReadingPositionProviding: AnyObject {
+    var coreTextReadingPosition: CoreTextReadingPosition? { get }
+}
+
 /// 閱讀引擎抽象層。ReaderView 只認識這個 protocol，不依賴具體引擎實作。
 @MainActor
 protocol PageRenderingProvider: AnyObject {
@@ -19,11 +23,20 @@ protocol PageRenderingProvider: AnyObject {
     /// 章節 + charOffset → 全局頁碼
     func pageIndex(forSpine spineIndex: Int, charOffset: Int) -> Int
 
+    /// 穩定內容位置 → 全局頁碼。章節未載入時回傳 nil。
+    func pageIndex(for position: CoreTextReadingPosition) -> Int?
+
+    /// 全局頁碼 → 穩定內容位置。若只能推估則回傳最接近的值。
+    func readingPosition(forPage page: Int) -> CoreTextReadingPosition?
+
     /// 全局頁碼 → (spineIndex, charOffset)，供 CharOffsetStore 存檔用
     func charOffset(forPage page: Int) -> (spineIndex: Int, charOffset: Int)
 
     /// 預熱指定章節（背景計算 NSAttributedString + 分頁）
     func preloadChapter(at spineIndex: Int) async
+
+    /// 依穩定內容位置建立對應頁面。章節未載入時可回傳 placeholder。
+    func pageViewController(for position: CoreTextReadingPosition) -> UIViewController
 
     /// 視窗大小改變（旋轉 / iPad 分屏）後觸發全書重排
     /// 完成前應凍結翻頁手勢
@@ -48,8 +61,16 @@ protocol PageRenderingProvider: AnyObject {
 }
 
 extension PageRenderingProvider {
+    func pageIndex(for position: CoreTextReadingPosition) -> Int? { nil }
+    func readingPosition(forPage page: Int) -> CoreTextReadingPosition? { nil }
     func snapshotViewController(at index: Int) -> UIViewController? { nil }
     func renderSnapshot(forPage globalPage: Int) -> UIImage? { nil }
     func lastPageIndex(ofChapter spineIndex: Int) -> Int? { nil }
     func localPosition(for globalPage: Int) -> (spineIndex: Int, localPage: Int) { (0, globalPage) }
+    func pageViewController(for position: CoreTextReadingPosition) -> UIViewController {
+        if let page = pageIndex(for: position) {
+            return pageViewController(at: page)
+        }
+        return pageViewController(at: 0)
+    }
 }

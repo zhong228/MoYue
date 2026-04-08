@@ -22,6 +22,34 @@ struct yuedu_appTests {
         return try #require(sources.first(where: { $0.bookSourceName == name }))
     }
 
+    private func makeChapterLayout(
+        text: String,
+        pageStarts: [Int]
+    ) -> CoreTextPaginator.ChapterLayout {
+        let attributedString = NSAttributedString(string: text)
+        let framesetter = CTFramesetterCreateWithAttributedString(attributedString)
+        let ranges = pageStarts.enumerated().map { index, start in
+            let end = index + 1 < pageStarts.count ? pageStarts[index + 1] : attributedString.length
+            return CFRangeMake(start, max(0, end - start))
+        }
+
+        return CoreTextPaginator.ChapterLayout(
+            spineIndex: 0,
+            attributedString: attributedString,
+            framesetter: framesetter,
+            pageRanges: ranges,
+            inlineAttachments: [:],
+            blockAttachments: [:],
+            blockRenderables: [:],
+            pageKinds: Array(repeating: .text, count: max(ranges.count, 1)),
+            pageBackgroundImage: nil,
+            anchorOffsets: [:],
+            renderSize: CGSize(width: 320, height: 480),
+            fontSize: 18,
+            contentInsets: .zero
+        )
+    }
+
     private func fetchFirstChapter(sourceName: String, keyword: String, expectedTitle: String) async throws
         -> ChapterPackage
     {
@@ -207,6 +235,38 @@ struct yuedu_appTests {
         store.flushSync()
         let loaded = store.load(bookId: record.bookId)
         #expect(loaded == record)
+    }
+
+    @Test func coreTextReadingPositionMapsToCurrentOffsets() {
+        let layouts: [Int: CoreTextPaginator.ChapterLayout] = [
+            0: makeChapterLayout(text: "chapter0", pageStarts: [0]),
+            1: makeChapterLayout(text: "abcdefghijklmnopqrstuvwxyz", pageStarts: [0, 10, 20]),
+        ]
+        let position = CoreTextReadingPosition(spineIndex: 1, charOffset: 12)
+
+        let page = CoreTextReadingPositionMapper.pageIndex(
+            for: position,
+            layouts: layouts,
+            spinePageOffsets: [0, 5]
+        )
+
+        #expect(page == 6)
+    }
+
+    @Test func coreTextReadingPositionChapterEndResolvesToLastPage() {
+        let layouts: [Int: CoreTextPaginator.ChapterLayout] = [
+            0: makeChapterLayout(text: "chapter0", pageStarts: [0]),
+            1: makeChapterLayout(text: "abcdefghijklmnopqrstuvwxyz", pageStarts: [0, 10, 20]),
+        ]
+        let position = CoreTextReadingPosition(spineIndex: 1, charOffset: .max)
+
+        let page = CoreTextReadingPositionMapper.pageIndex(
+            for: position,
+            layouts: layouts,
+            spinePageOffsets: [0, 5]
+        )
+
+        #expect(page == 7)
     }
 
     @Test func htmlBuilderConvertsBasicParagraph() async {

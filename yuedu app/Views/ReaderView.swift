@@ -307,7 +307,7 @@ struct ReaderView: View {
                     currentPage: $currentPage,
                     onPageChanged: { newPage in
                         currentChapterIndex = ctEngine.charOffset(forPage: newPage).spineIndex
-                        epubRenderer.currentEpubPage = newPage
+                        epubRenderer.updateCurrentPosition(globalPage: newPage, engine: ctEngine)
                     },
                     onTapZone: { zone in
                         switch zone {
@@ -1751,6 +1751,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             ? max(0, min(engine.currentPage, engine.totalPages - 1))
             : 0
         let initialVC = engine.pageViewController(at: initialPage)
+        context.coordinator.captureStablePosition(from: initialVC)
         pvc.setViewControllers([initialVC], direction: .forward, animated: false)
         // 同步 binding，讓 ReaderView.currentPage 對齊 engine 恢復的位置
         if initialPage != currentPage {
@@ -1785,16 +1786,27 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             object: engine as AnyObject,
             queue: .main
         ) { [weak pvc, weak coordinator = context.coordinator] _ in
-            guard let pvc else { return }
-            let targetPage = max(0, min(coordinator?.currentPage ?? 0, max(engine.totalPages - 1, 0)))
+            guard let pvc, let coordinator else { return }
+            let fallbackPage = max(0, min(coordinator.currentPage, max(engine.totalPages - 1, 0)))
+            let freshVC: UIViewController
+            let targetPage: Int
+            if let position = coordinator.currentCoreTextPosition {
+                freshVC = engine.pageViewController(for: position)
+                targetPage = engine.pageIndex(for: position)
+                    ?? (freshVC as? any PageIndexProviding)?.globalPageIndex
+                    ?? fallbackPage
+            } else {
+                targetPage = fallbackPage
+                freshVC = engine.pageViewController(at: targetPage)
+            }
             let direction: UIPageViewController.NavigationDirection
             if let first = pvc.viewControllers?.first as? (any PageIndexProviding & UIViewController) {
                 direction = targetPage >= first.globalPageIndex ? .forward : .reverse
             } else {
                 direction = .forward
             }
-            let freshVC = engine.pageViewController(at: targetPage)
             pvc.setViewControllers([freshVC], direction: direction, animated: false)
+            _ = coordinator.syncStablePosition(afterShowing: freshVC, notifyFallback: false)
         }
 
         return pvc
@@ -1832,13 +1844,13 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             } else {
                 uiViewController.setViewControllers([targetVC], direction: direction, animated: shouldAnimate)
             }
-            context.coordinator.onPageChanged(clampedPage)
+            _ = context.coordinator.syncStablePosition(afterShowing: targetVC, notifyFallback: true)
             return
         }
 
         let targetVC = engine.pageViewController(at: clampedPage)
         uiViewController.setViewControllers([targetVC], direction: .forward, animated: false)
-        context.coordinator.onPageChanged(clampedPage)
+        _ = context.coordinator.syncStablePosition(afterShowing: targetVC, notifyFallback: true)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -1864,10 +1876,12 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         // cover 動畫 overlay 元件
         private let coverOverlayView = UIView()
         private let coverCurrentImageView = UIImageView()
-        private let coverShadowView = UIView()      // 負責陰影（clipsToBounds = false）
+        private let coverDimView = UIView()          // backward：舊頁漸暗遮罩
+        private let coverShadowView = UIView()        // 滑動頁邊緣投影
         private let coverIncomingImageView = UIImageView()
         private var coverTargetPage: Int?
         private var coverDirection: Int = 0  // 1 = forward, -1 = backward
+        fileprivate var currentCoreTextPosition: CoreTextReadingPosition?
         weak var coverPageViewController: UIPageViewController?
 
         init(engine: any PageRenderingProvider,
@@ -1891,6 +1905,47 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             DispatchQueue.main.async { self.onTapZone(zone) }
         }
 
+        func captureStablePosition(from viewController: UIViewController) {
+            currentCoreTextPosition = readingPosition(from: viewController)
+        }
+
+        @discardableResult
+        func syncStablePosition(afterShowing viewController: UIViewController, notifyFallback: Bool) -> Int? {
+            let fallbackPage = (viewController as? any PageIndexProviding)?.globalPageIndex ?? currentPage
+            if let position = readingPosition(from: viewController) {
+                currentCoreTextPosition = position
+                if let resolvedPage = currentEngine.pageIndex(for: position) {
+                    currentPage = resolvedPage
+                    onPageChanged(resolvedPage)
+                    return resolvedPage
+                }
+                currentPage = fallbackPage
+                if notifyFallback {
+                    onPageChanged(fallbackPage)
+                    return fallbackPage
+                }
+                return nil
+            }
+
+            currentPage = fallbackPage
+            if notifyFallback {
+                onPageChanged(fallbackPage)
+                return fallbackPage
+            }
+            return nil
+        }
+
+        private func readingPosition(from viewController: UIViewController) -> CoreTextReadingPosition? {
+            if let provider = viewController as? CoreTextReadingPositionProviding,
+               let position = provider.coreTextReadingPosition {
+                return position
+            }
+            if let provider = viewController as? (any PageIndexProviding & UIViewController) {
+                return currentEngine.readingPosition(forPage: provider.globalPageIndex)
+            }
+            return nil
+        }
+
         // MARK: - UIPageViewControllerDataSource
 
         func pageViewController(
@@ -1901,12 +1956,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                   vc.globalPageIndex > 0 else { return nil }
             let (currentSpine, currentLocal) = currentEngine.localPosition(for: vc.globalPageIndex)
             if currentLocal == 0 && currentSpine > 0 {
-                // 跨章邊界：直接查上一章最後一頁，避免依賴 globalPage-1 的估算（未載入時估 1 頁導致映射錯誤）
-                if let lastPage = currentEngine.lastPageIndex(ofChapter: currentSpine - 1) {
-                    return currentEngine.pageViewController(at: lastPage)
-                }
-                // 上一章未載入：pageViewController(at:) 內部會自動觸發 preloadChapter
-                return currentEngine.pageViewController(at: vc.globalPageIndex - 1)
+                return currentEngine.pageViewController(for: .chapterEnd(currentSpine - 1))
             }
             return currentEngine.pageViewController(at: vc.globalPageIndex - 1)
         }
@@ -1917,6 +1967,16 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         ) -> UIViewController? {
             guard let vc = viewController as? any PageIndexProviding & UIViewController,
                   vc.globalPageIndex < currentEngine.totalPages - 1 else { return nil }
+            let (currentSpine, _) = currentEngine.localPosition(for: vc.globalPageIndex)
+            if let lastPage = currentEngine.lastPageIndex(ofChapter: currentSpine),
+               vc.globalPageIndex == lastPage {
+                let nextPosition = CoreTextReadingPosition.chapterStart(currentSpine + 1)
+                if let targetPage = currentEngine.pageIndex(for: nextPosition),
+                   let snapVC = currentEngine.snapshotViewController(at: targetPage) {
+                    return snapVC
+                }
+                return currentEngine.pageViewController(for: nextPosition)
+            }
             let nextIndex = vc.globalPageIndex + 1
             // 快照接力：若下一頁是新章節且快照已就緒，回傳靜態圖 VC 供動畫用
             if let snapVC = currentEngine.snapshotViewController(at: nextIndex) {
@@ -1937,21 +1997,26 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
 
             // 若落地的是快照 VC，立即換成真正的渲染 VC（佈局已就緒，視覺上無縫）
             if let snapVC = pvc.viewControllers?.first as? SnapshotPageViewController {
-                let realVC = currentEngine.pageViewController(at: snapVC.globalPageIndex)
+                let realVC: UIViewController
+                if let position = snapVC.coreTextReadingPosition {
+                    realVC = currentEngine.pageViewController(for: position)
+                } else {
+                    realVC = currentEngine.pageViewController(at: snapVC.globalPageIndex)
+                }
                 pvc.setViewControllers([realVC], direction: .forward, animated: false)
-                currentPage = snapVC.globalPageIndex
-                onPageChanged(snapVC.globalPageIndex)
-                Task { @MainActor in
-                    currentEngine.warmUpNext(currentGlobalPage: snapVC.globalPageIndex)
+                if let resolvedPage = syncStablePosition(afterShowing: realVC, notifyFallback: false) {
+                    Task { @MainActor in
+                        currentEngine.warmUpNext(currentGlobalPage: resolvedPage)
+                    }
                 }
                 return
             }
 
             guard let vc = pvc.viewControllers?.first as? any PageIndexProviding & UIViewController else { return }
-            currentPage = vc.globalPageIndex
-            onPageChanged(vc.globalPageIndex)
-            Task { @MainActor in
-                currentEngine.warmUpNext(currentGlobalPage: vc.globalPageIndex)
+            if let resolvedPage = syncStablePosition(afterShowing: vc, notifyFallback: false) {
+                Task { @MainActor in
+                    currentEngine.warmUpNext(currentGlobalPage: resolvedPage)
+                }
             }
         }
 
@@ -1961,7 +2026,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             coverOverlayView.translatesAutoresizingMaskIntoConstraints = false
             coverOverlayView.isHidden = true
             coverOverlayView.isUserInteractionEnabled = false
-            coverOverlayView.clipsToBounds = false   // false 才能讓 shadow view 的陰影溢出
+            coverOverlayView.clipsToBounds = false
             coverOverlayView.backgroundColor = .clear
             view.addSubview(coverOverlayView)
             NSLayoutConstraint.activate([
@@ -1976,11 +2041,11 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             coverCurrentImageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             coverOverlayView.addSubview(coverCurrentImageView)
 
-            // 陰影 view：白底無內容，clipsToBounds = false，放在 incoming 下面
             let screenCornerRadius = (UIScreen.main.value(forKey: "displayCornerRadius") as? CGFloat) ?? 0
             let radius = screenCornerRadius > 0 ? screenCornerRadius : 12
-            coverShadowView.backgroundColor = .black   // 深色背景讓陰影更真實
-            coverShadowView.layer.cornerRadius = radius
+
+            // 投影 view：在 incoming 下方，不 clip，讓陰影能溢出
+            coverShadowView.backgroundColor = .clear
             coverShadowView.layer.shadowColor = UIColor.black.cgColor
             coverShadowView.layer.shadowOpacity = 0.3
             coverShadowView.layer.shadowRadius = 14
@@ -1991,6 +2056,12 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             coverIncomingImageView.layer.cornerRadius = radius
             coverIncomingImageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             coverOverlayView.addSubview(coverIncomingImageView)
+
+            // 暗色遮罩（backward 用）：疊在舊頁上，隨上一頁蓋入漸暗
+            coverDimView.backgroundColor = .black
+            coverDimView.alpha = 0
+            coverDimView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            coverCurrentImageView.addSubview(coverDimView)
         }
 
         // MARK: - Cover pan gesture
@@ -2005,32 +2076,49 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             case .began:
                 coverTargetPage = nil
                 coverDirection = 0
-                showCurrentSnapshot(page: currentPage, on: view)
+                // 取消前一次可能還在播的動畫，不在此顯示 overlay（等方向確認後才顯示）
+                coverOverlayView.layer.removeAllAnimations()
+                coverIncomingImageView.layer.removeAllAnimations()
+                coverDimView.layer.removeAllAnimations()
+                coverDimView.alpha = 0
 
             case .changed:
                 if coverTargetPage == nil {
-                    if translationX < -6, currentPage < currentEngine.totalPages - 1 {
-                        // Forward cover：目標頁從右滑入
+                    if translationX < -18, currentPage < currentEngine.totalPages - 1 {
+                        // Forward uncover：當前頁往左滑走，新頁在底下
                         coverDirection = 1
                         let target = currentPage + 1
                         coverTargetPage = target
-                        setupIncomingView(for: target, in: view)
-                    } else if translationX > 6, currentPage > 0 {
-                        // Backward uncover：當前頁從右滑出，露出目標頁
+                        coverOverlayView.frame = view.bounds
+                        coverCurrentImageView.frame = view.bounds
+                        coverOverlayView.isHidden = false
+                        setupForwardOutgoing(currentPageSnapshot: currentPage, newPage: target, in: view)
+                    } else if translationX > 18, currentPage > 0 {
+                        // Backward cover：上一頁從左側蓋入
                         coverDirection = -1
                         let target = currentPage - 1
                         coverTargetPage = target
-                        coverCurrentImageView.image = currentEngine.renderSnapshot(forPage: target)
-                        setupOutgoingView(page: currentPage, in: view)
+                        coverOverlayView.frame = view.bounds
+                        coverCurrentImageView.frame = view.bounds
+                        coverCurrentImageView.image = currentEngine.renderSnapshot(forPage: currentPage)
+                        coverOverlayView.isHidden = false
+                        setupIncomingView(for: target, in: view)
                     }
                 }
                 guard coverTargetPage != nil else { return }
                 let rawProgress = min(max(abs(translationX) / width, 0), 0.999)
                 let newX: CGFloat = coverDirection == 1
-                    ? width * (1 - rawProgress)
-                    : rawProgress * width
+                    ? -rawProgress * width
+                    : -width * (1 - rawProgress)
                 coverIncomingImageView.frame.origin.x = newX
                 coverShadowView.frame.origin.x = newX
+                if coverDirection == -1 {
+                    coverDimView.frame = coverCurrentImageView.bounds
+                    coverDimView.alpha = rawProgress * 0.35
+                } else if coverDirection == 1 {
+                    coverDimView.frame = coverCurrentImageView.bounds
+                    coverDimView.alpha = (1 - rawProgress) * 0.35
+                }
 
             case .ended, .cancelled, .failed:
                 guard let targetPage = coverTargetPage else {
@@ -2040,15 +2128,17 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 let progress = min(max(abs(translationX) / width, 0), 1)
                 let shouldCommit = progress > 0.34 || abs(velocityX) > 560
 
-                let destinationX: CGFloat
-                if coverDirection == 1 {
-                    destinationX = shouldCommit ? 0 : width      // forward commit=cover, cancel=retreat
-                } else {
-                    destinationX = shouldCommit ? width : 0      // backward commit=slide out, cancel=return
-                }
                 UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut]) {
-                    self.coverIncomingImageView.frame.origin.x = destinationX
-                    self.coverShadowView.frame.origin.x = destinationX
+                    let destX: CGFloat = self.coverDirection == 1
+                        ? (shouldCommit ? -width : 0)
+                        : (shouldCommit ? 0 : -width)
+                    self.coverIncomingImageView.frame.origin.x = destX
+                    self.coverShadowView.frame.origin.x = destX
+                    if self.coverDirection == -1 {
+                        self.coverDimView.alpha = shouldCommit ? 0.35 : 0
+                    } else if self.coverDirection == 1 {
+                        self.coverDimView.alpha = shouldCommit ? 0 : 0.35
+                    }
                 } completion: { _ in
                     if shouldCommit {
                         // 先把真正的 VC 設上去，讓 updateUIViewController 進來時早返回，避免二次動畫
@@ -2086,12 +2176,13 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             coverOverlayView.isHidden = false
 
             if direction == .forward {
-                // Cover：目標頁從右滑入，蓋住當前頁
-                coverCurrentImageView.image = currentEngine.renderSnapshot(forPage: oldPage)
-                setupIncomingView(for: targetPage, in: view)
+                // Forward uncover：當前頁往左滑走，新頁在底下
+                setupForwardOutgoing(currentPageSnapshot: oldPage, newPage: targetPage, in: view)
+                coverDimView.alpha = 0.35  // tap 動畫：新頁初始最暗，動畫中漸亮
                 UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut]) {
-                    self.coverIncomingImageView.frame.origin.x = 0
-                    self.coverShadowView.frame.origin.x = 0
+                    self.coverIncomingImageView.frame.origin.x = -width
+                    self.coverShadowView.frame.origin.x = -width
+                    self.coverDimView.alpha = 0
                 } completion: { _ in
                     let realVC = self.currentEngine.pageViewController(at: targetPage)
                     pvc.setViewControllers([realVC], direction: direction, animated: false)
@@ -2100,12 +2191,13 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                     self.resetCoverOverlay()
                 }
             } else {
-                // Uncover：當前頁從右滑出，露出底下的目標頁
-                coverCurrentImageView.image = currentEngine.renderSnapshot(forPage: targetPage)
-                setupOutgoingView(page: oldPage, in: view)
+                // Backward cover：上一頁從左滑入
+                coverCurrentImageView.image = currentEngine.renderSnapshot(forPage: oldPage)
+                setupIncomingView(for: targetPage, in: view)
                 UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut]) {
-                    self.coverIncomingImageView.frame.origin.x = width
-                    self.coverShadowView.frame.origin.x = width
+                    self.coverIncomingImageView.frame.origin.x = 0
+                    self.coverShadowView.frame.origin.x = 0
+                    self.coverDimView.alpha = 0.3
                 } completion: { _ in
                     let realVC = self.currentEngine.pageViewController(at: targetPage)
                     pvc.setViewControllers([realVC], direction: direction, animated: false)
@@ -2123,34 +2215,46 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             coverOverlayView.isHidden = false
         }
 
+        private func setupForwardOutgoing(currentPageSnapshot: Int, newPage: Int, in view: UIView) {
+            let width = max(view.bounds.width, 1)
+            let h = view.bounds.height
+            // 新頁作為靜態背景
+            coverCurrentImageView.image = currentEngine.renderSnapshot(forPage: newPage)
+            coverCurrentImageView.frame = CGRect(x: 0, y: 0, width: width, height: h)
+            // 當前頁從 x=0 往左滑走，右側圓角（最後消失的邊緣），投影往右落在新頁
+            coverIncomingImageView.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+            coverIncomingImageView.image = currentEngine.renderSnapshot(forPage: currentPageSnapshot)
+            coverIncomingImageView.frame = CGRect(x: 0, y: 0, width: width, height: h)
+            coverShadowView.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+            coverShadowView.layer.shadowOffset = CGSize(width: 10, height: 0)
+            coverShadowView.frame = CGRect(x: 0, y: 0, width: width, height: h)
+            coverShadowView.layer.shadowPath = UIBezierPath(rect: CGRect(x: 0, y: 0, width: width, height: h)).cgPath
+            coverDimView.frame = CGRect(x: 0, y: 0, width: width, height: h)
+            // alpha 不在此設定，由呼叫方依 context 決定（pan 從 rawProgress 算，tap 由動畫起點設）
+        }
+
         private func setupIncomingView(for targetPage: Int, in view: UIView) {
             let width = max(view.bounds.width, 1)
             let h = view.bounds.height
-            coverIncomingImageView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
-            coverIncomingImageView.image = currentEngine.renderSnapshot(forPage: targetPage)
-            coverIncomingImageView.frame = CGRect(x: width, y: 0, width: width, height: h)
-            coverShadowView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
-            coverShadowView.layer.shadowOffset = CGSize(width: -8, height: 0)  // 陰影往左（落在底層頁上）
-            coverShadowView.frame = CGRect(x: width, y: 0, width: width, height: h)
-        }
-
-        private func setupOutgoingView(page: Int, in view: UIView) {
-            let width = max(view.bounds.width, 1)
-            let h = view.bounds.height
-            // Uncover backward：當前頁作為「頂層」從右邊滑出，露出底下的目標頁
+            // Backward cover：上一頁從左滑入，右側圓角，投影往左落在舊頁
             coverIncomingImageView.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
-            coverIncomingImageView.image = currentEngine.renderSnapshot(forPage: page)
-            coverIncomingImageView.frame = CGRect(x: 0, y: 0, width: width, height: h)
+            coverIncomingImageView.image = currentEngine.renderSnapshot(forPage: targetPage)
+            coverIncomingImageView.frame = CGRect(x: -width, y: 0, width: width, height: h)
             coverShadowView.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
-            coverShadowView.layer.shadowOffset = CGSize(width: 8, height: 0)   // 陰影往右（落在目標頁上）
-            coverShadowView.frame = CGRect(x: 0, y: 0, width: width, height: h)
+            coverShadowView.layer.shadowOffset = CGSize(width: -10, height: 0)
+            coverShadowView.frame = CGRect(x: -width, y: 0, width: width, height: h)
+            coverShadowView.layer.shadowPath = UIBezierPath(rect: CGRect(x: 0, y: 0, width: width, height: h)).cgPath
+            coverDimView.frame = coverCurrentImageView.bounds
+            coverDimView.alpha = 0
         }
 
         private func resetCoverOverlay() {
             coverOverlayView.isHidden = true
+            coverCurrentImageView.frame.origin.x = 0
             coverCurrentImageView.image = nil
             coverIncomingImageView.image = nil
             coverShadowView.frame = .zero
+            coverDimView.alpha = 0
             coverTargetPage = nil
             coverDirection = 0
         }

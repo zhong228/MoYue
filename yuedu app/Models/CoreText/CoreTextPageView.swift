@@ -453,6 +453,7 @@ final class CoreTextPageView: UIView {
 final class CoreTextPageViewController: UIViewController {
     private let pageView = CoreTextPageView()
     private(set) var globalPageIndex: Int = 0
+    private(set) var coreTextReadingPosition: CoreTextReadingPosition?
 
     private var pendingLayout: CoreTextPaginator.ChapterLayout?
     private var pendingLocalPage: Int = 0
@@ -462,9 +463,11 @@ final class CoreTextPageViewController: UIViewController {
         layout: CoreTextPaginator.ChapterLayout,
         localPage: Int,
         globalPage: Int,
+        readingPosition: CoreTextReadingPosition? = nil,
         fallbackBackgroundColor: UIColor = .systemBackground
     ) {
         self.globalPageIndex = globalPage
+        self.coreTextReadingPosition = readingPosition
         self.pendingFallbackColor = fallbackBackgroundColor
         if isViewLoaded {
             pageView.configure(layout: layout, pageIndex: localPage, fallbackBackgroundColor: fallbackBackgroundColor)
@@ -487,15 +490,23 @@ final class CoreTextPageViewController: UIViewController {
 }
 
 extension CoreTextPageViewController: PageIndexProviding {}
+extension CoreTextPageViewController: CoreTextReadingPositionProviding {}
 
 /// 跨章節翻頁動畫接力用的快照 ViewController。
 /// 顯示預先渲染好的 UIImage，動畫結束後由 Coordinator 換成真正的 CoreTextPageViewController。
 final class SnapshotPageViewController: UIViewController {
     private let imageView = UIImageView()
     private(set) var globalPageIndex: Int
+    private(set) var coreTextReadingPosition: CoreTextReadingPosition?
 
-    init(image: UIImage, globalPage: Int, backgroundColor: UIColor) {
+    init(
+        image: UIImage,
+        globalPage: Int,
+        backgroundColor: UIColor,
+        readingPosition: CoreTextReadingPosition? = nil
+    ) {
         self.globalPageIndex = globalPage
+        self.coreTextReadingPosition = readingPosition
         super.init(nibName: nil, bundle: nil)
         imageView.image = image
         imageView.contentMode = .scaleAspectFit
@@ -513,15 +524,22 @@ final class SnapshotPageViewController: UIViewController {
 }
 
 extension SnapshotPageViewController: PageIndexProviding {}
+extension SnapshotPageViewController: CoreTextReadingPositionProviding {}
 
 /// 章節尚未計算完成時的佔位 ViewController（顯示章節標題 + 載入指示器）
 final class PlaceholderPageViewController: UIViewController {
     private let titleLabel = UILabel()
     private let spinner = UIActivityIndicatorView(style: .medium)
     private(set) var globalPageIndex: Int
+    private(set) var coreTextReadingPosition: CoreTextReadingPosition?
 
-    init(chapterTitle: String = "", globalPage: Int = 0) {
+    init(
+        chapterTitle: String = "",
+        globalPage: Int = 0,
+        readingPosition: CoreTextReadingPosition? = nil
+    ) {
         self.globalPageIndex = globalPage
+        self.coreTextReadingPosition = readingPosition
         super.init(nibName: nil, bundle: nil)
         titleLabel.text = chapterTitle
     }
@@ -555,3 +573,4 @@ final class PlaceholderPageViewController: UIViewController {
 }
 
 extension PlaceholderPageViewController: PageIndexProviding {}
+extension PlaceholderPageViewController: CoreTextReadingPositionProviding {}

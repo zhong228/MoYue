@@ -152,14 +152,24 @@ final class CoreTextPageEngine: PageRenderingProvider {
     func pageViewController(at index: Int) -> UIViewController {
         let (spineIndex, localPage) = localPosition(for: index)
         if let layout = layouts[spineIndex] {
-            let vc = CoreTextPageViewController()
-            vc.configure(layout: layout, localPage: localPage, globalPage: index, fallbackBackgroundColor: themeBackgroundColor)
-            return vc
+            return configuredPageViewController(
+                layout: layout,
+                spineIndex: spineIndex,
+                localPage: localPage,
+                globalPage: index
+            )
         }
         let title = session.chapters.indices.contains(spineIndex)
             ? session.chapters[spineIndex].title
             : ""
-        let placeholder = PlaceholderPageViewController(chapterTitle: title, globalPage: index)
+        let readingPosition: CoreTextReadingPosition? = localPage == 0
+            ? .chapterStart(spineIndex)
+            : nil
+        let placeholder = PlaceholderPageViewController(
+            chapterTitle: title,
+            globalPage: index,
+            readingPosition: readingPosition
+        )
         Task { [weak self] in
             await self?.preloadChapter(at: spineIndex)
             NotificationCenter.default.post(
@@ -178,6 +188,26 @@ final class CoreTextPageEngine: PageRenderingProvider {
         return spinePageOffsets[spineIndex] + localPage
     }
 
+    func pageIndex(for position: CoreTextReadingPosition) -> Int? {
+        CoreTextReadingPositionMapper.pageIndex(
+            for: position,
+            layouts: layouts,
+            spinePageOffsets: spinePageOffsets
+        )
+    }
+
+    func readingPosition(forPage page: Int) -> CoreTextReadingPosition? {
+        let (spineIndex, localPage) = localPosition(for: page)
+        guard let layout = layouts[spineIndex],
+              localPage < layout.pageRanges.count else {
+            return CoreTextReadingPosition.chapterStart(spineIndex)
+        }
+        return CoreTextReadingPosition(
+            spineIndex: spineIndex,
+            charOffset: Int(layout.pageRanges[localPage].location)
+        )
+    }
+
     func charOffset(forPage page: Int) -> (spineIndex: Int, charOffset: Int) {
         let (spineIndex, localPage) = localPosition(for: page)
         guard let layout = layouts[spineIndex],
@@ -185,6 +215,33 @@ final class CoreTextPageEngine: PageRenderingProvider {
             return (spineIndex, 0)
         }
         return (spineIndex, Int(layout.pageRanges[localPage].location))
+    }
+
+    func pageViewController(for position: CoreTextReadingPosition) -> UIViewController {
+        guard session.chapters.indices.contains(position.spineIndex) else {
+            return pageViewController(at: 0)
+        }
+
+        if let globalPage = pageIndex(for: position) {
+            return pageViewController(at: globalPage)
+        }
+
+        let title = session.chapters[position.spineIndex].title
+        let estimatedGlobalPage = estimatedGlobalPage(for: position)
+        let placeholder = PlaceholderPageViewController(
+            chapterTitle: title,
+            globalPage: estimatedGlobalPage,
+            readingPosition: position
+        )
+        Task { [weak self] in
+            await self?.preloadChapter(at: position.spineIndex)
+            NotificationCenter.default.post(
+                name: .coreTextEngineChapterReady,
+                object: self,
+                userInfo: ["spineIndex": position.spineIndex]
+            )
+        }
+        return placeholder
     }
 
     func preloadChapter(at spineIndex: Int) async {
@@ -454,7 +511,8 @@ final class CoreTextPageEngine: PageRenderingProvider {
         return SnapshotPageViewController(
             image: snapshot,
             globalPage: index,
-            backgroundColor: bgColor
+            backgroundColor: bgColor,
+            readingPosition: readingPosition(forPage: index)
         )
     }
 
@@ -551,6 +609,32 @@ final class CoreTextPageEngine: PageRenderingProvider {
             return start
         }
         totalPages = offset
+    }
+
+    private func configuredPageViewController(
+        layout: CoreTextPaginator.ChapterLayout,
+        spineIndex: Int,
+        localPage: Int,
+        globalPage: Int
+    ) -> UIViewController {
+        let vc = CoreTextPageViewController()
+        let readingPosition = CoreTextReadingPosition(
+            spineIndex: spineIndex,
+            charOffset: Int(layout.pageRanges[localPage].location)
+        )
+        vc.configure(
+            layout: layout,
+            localPage: localPage,
+            globalPage: globalPage,
+            readingPosition: readingPosition,
+            fallbackBackgroundColor: themeBackgroundColor
+        )
+        return vc
+    }
+
+    private func estimatedGlobalPage(for position: CoreTextReadingPosition) -> Int {
+        guard spinePageOffsets.indices.contains(position.spineIndex) else { return 0 }
+        return spinePageOffsets[position.spineIndex]
     }
 
     private func currentContentInsets() -> UIEdgeInsets {
