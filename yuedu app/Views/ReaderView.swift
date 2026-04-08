@@ -1755,6 +1755,9 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         pvc.setViewControllers([initialVC], direction: .forward, animated: false)
         // 同步 binding，讓 ReaderView.currentPage 對齊 engine 恢復的位置
         if initialPage != currentPage {
+            // 抑制 makeUIViewController 之後 SwiftUI 立即呼叫的 updateUIViewController：
+            // 此時 binding 還是 0 但 VC 已顯示 initialPage，若不抑制會觸發多餘的 backward 動畫
+            context.coordinator.suppressNextCoverTransition = true
             DispatchQueue.main.async {
                 self.currentPage = initialPage
                 self.onPageChanged(initialPage)
@@ -1822,6 +1825,11 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 clampedPage >= visible.globalPageIndex ? .forward : .reverse
 
             if pageTurnStyle == .cover {
+                // 消耗 makeUIViewController 設置的抑制 flag，跳過多餘的初始 backward 動畫
+                if context.coordinator.suppressNextCoverTransition {
+                    context.coordinator.suppressNextCoverTransition = false
+                    return
+                }
                 context.coordinator.animateCoverTransition(
                     from: visible.globalPageIndex,
                     to: clampedPage,
@@ -1881,6 +1889,9 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         private let coverIncomingImageView = UIImageView()
         private var coverTargetPage: Int?
         private var coverDirection: Int = 0  // 1 = forward, -1 = backward
+        /// makeUIViewController 已設定初始頁後，suppressNextCoverTransition = true
+        /// 讓緊跟的 updateUIViewController 跳過多餘的 backward 動畫（binding 尚未同步）
+        var suppressNextCoverTransition = false
         fileprivate var currentCoreTextPosition: CoreTextReadingPosition?
         weak var coverPageViewController: UIPageViewController?
 
@@ -2095,8 +2106,10 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                         setupForwardOutgoing(currentPageSnapshot: currentPage, newPage: target, in: view)
                     } else if translationX > 18, currentPage > 0 {
                         // Backward cover：上一頁從左側蓋入
-                        coverDirection = -1
                         let target = currentPage - 1
+                        // 若 snapshot 尚未就緒（章節未載入），不啟動動畫
+                        guard currentEngine.renderSnapshot(forPage: target) != nil else { return }
+                        coverDirection = -1
                         coverTargetPage = target
                         coverOverlayView.frame = view.bounds
                         coverCurrentImageView.frame = view.bounds
@@ -2169,6 +2182,12 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             on pvc: UIPageViewController
         ) {
             guard let view = pvc.view else { return }
+            // 邊界保護：第一頁不能往前翻、最後一頁不能往後翻
+            let total = currentEngine.totalPages
+            guard targetPage >= 0, total == 0 || targetPage < total else {
+                resetCoverOverlay()
+                return
+            }
             let width = max(view.bounds.width, 1)
 
             coverOverlayView.frame = view.bounds
