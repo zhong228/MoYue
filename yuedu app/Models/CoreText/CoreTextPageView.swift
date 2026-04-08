@@ -141,6 +141,19 @@ final class CoreTextPageView: UIView {
             }
         }
 
+        // 3d. Explicit block text（page/card 級幾何文字，不依賴主文字 frame）
+        for item in layout.blockRenderables[pageIndex] ?? [] {
+            guard let text = item.attributedText else { continue }
+            drawBlockRenderableText(
+                text,
+                in: item.rect,
+                paddingLeft: item.style.paddingLeft,
+                paddingRight: item.style.paddingRight,
+                boundsHeight: layoutSize.height,
+                context: ctx
+            )
+        }
+
         ctx.restoreGState()
     }
 
