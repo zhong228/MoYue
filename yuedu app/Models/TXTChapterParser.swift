@@ -212,12 +212,24 @@ enum TXTChapterParser {
 }
 
 struct TXTBookParser: BookParser {
-    static let supportedExtensions: [String] = ["txt"]
-
-    func parse(fileURL: URL, titleOverride: String?) throws -> ParsedBookDocument {
-        let text = try TXTFileReader.readTextFile(url: fileURL)
-        let title = titleOverride ?? fileURL.deletingPathExtension().lastPathComponent
-        let chapters = TXTChapterParser.parseUnifiedChapters(text, bookTitle: title)
+    func parse(url: URL) async throws -> ParsedBookDocument {
+        let text = try TXTFileReader.readTextFile(url: url)
+            .filter { ch in
+                if ch == "\n" || ch == "\r" || ch == "\t" { return true }
+                return !ch.isASCII || ch.isLetter || ch.isNumber || ch.isPunctuation || ch.isWhitespace
+            }
+        let title = url.deletingPathExtension().lastPathComponent
+        let chapters = TXTChapterParser.parseChapters(text, bookTitle: title)
+            .map { chapter in
+                let trimmedTitle = chapter.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                let body = chapter.paragraphs
+                    .joined(separator: "\n")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmedTitle.isEmpty { return body }
+                if body.isEmpty { return trimmedTitle }
+                return trimmedTitle + "\n" + body
+            }
+            .filter { !$0.isEmpty }
         return ParsedBookDocument(title: title, author: "未知作者", chapters: chapters)
     }
 }

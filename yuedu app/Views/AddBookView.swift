@@ -84,6 +84,16 @@ struct FileImportTab: View {
                         } else {
                             Text(gs.t("已讀取") + " \(content.count) " + gs.t("字"))
                                 .font(DSFont.caption).foregroundColor(DSColor.textSecondary)
+
+                            let summaryBase = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !summaryBase.isEmpty {
+                                let preview = String(summaryBase.prefix(280))
+                                let suffix = summaryBase.count > 280 ? "…" : ""
+                                Text(preview + suffix)
+                                    .font(DSFont.caption)
+                                    .foregroundColor(DSColor.textSecondary)
+                                    .lineLimit(4)
+                            }
                         }
 
                         Button {
@@ -180,18 +190,19 @@ struct FileImportTab: View {
 
     // MARK: - TXT 匯入
     private func importTXT(url: URL) {
-        DispatchQueue.global().async {
+        Task.detached {
             let ok = url.startAccessingSecurityScopedResource()
             defer { if ok { url.stopAccessingSecurityScopedResource() } }
-            // 多編碼偵測（UTF-8 → BIG5 → GBK → 自動偵測）
-            let text = try? TXTFileReader.readTextFile(url: url)
+            let parsed = try? await BookParserRegistry.parse(url: url)
+            let text = parsed?.storageText
             let name = url.deletingPathExtension().lastPathComponent
-            DispatchQueue.main.async {
+            await MainActor.run {
                 isLoading = false
                 if let t = text {
                     pendingContent = t
-                    titleInput = name
-                    authorInput = ""
+                    let parsedTitle = parsed?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    titleInput = parsedTitle.isEmpty ? name : parsedTitle
+                    authorInput = parsed?.author == "未知作者" ? "" : (parsed?.author ?? "")
                 } else {
                     errorMsg = gs.t("無法讀取文件，請確認格式為 TXT")
                 }

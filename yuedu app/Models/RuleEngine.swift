@@ -1487,29 +1487,56 @@ enum RuleEngine {
     /// 簡化 JSONPath 求值（支援 .key、[idx]、[*] 萬用字元）
     private static func jsonGet(_ root: Any, path: String) -> Any? {
         if path.isEmpty { return root }
-        var current: Any = root
+        var frontier: [Any] = [root]
         for component in splitJSONPath(path) {
-            if component == "*" { return current }  // 萬用字元，回傳整個集合
-            if component.hasPrefix("[") && component.hasSuffix("]") {
-                let inner = String(component.dropFirst().dropLast())
-                if inner == "*" { return current }  // [*] 萬用字元
-                guard let idx = Int(inner), let arr = current as? [Any],
-                    idx >= 0, idx < arr.count
-                else { return nil }
-                current = arr[idx]
-                continue
+            var next: [Any] = []
+            for current in frontier {
+                if component == "*" || component == "[*]" {
+                    if let arr = current as? [Any] {
+                        next.append(contentsOf: arr)
+                    } else if let dict = current as? [String: Any] {
+                        next.append(contentsOf: dict.values)
+                    } else {
+                        next.append(current)
+                    }
+                    continue
+                }
+
+                if component.hasPrefix("[") && component.hasSuffix("]") {
+                    let inner = String(component.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
+                    if inner == "*" {
+                        if let arr = current as? [Any] {
+                            next.append(contentsOf: arr)
+                        } else if let dict = current as? [String: Any] {
+                            next.append(contentsOf: dict.values)
+                        }
+                    } else if let idx = Int(inner), let arr = current as? [Any] {
+                        let i = idx >= 0 ? idx : arr.count + idx
+                        if i >= 0, i < arr.count {
+                            next.append(arr[i])
+                        }
+                    } else {
+                        let key = inner.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+                        if let dict = current as? [String: Any], let val = dict[key] {
+                            next.append(val)
+                        }
+                    }
+                    continue
+                }
+
+                if let dict = current as? [String: Any], let val = dict[component] {
+                    next.append(val)
+                } else if let arr = current as? [Any], let idx = Int(component) {
+                    let i = idx >= 0 ? idx : arr.count + idx
+                    if i >= 0, i < arr.count {
+                        next.append(arr[i])
+                    }
+                }
             }
-            if let dict = current as? [String: Any] {
-                guard let val = dict[component] else { return nil }
-                current = val
-            } else if let arr = current as? [Any], let idx = Int(component) {
-                guard idx >= 0, idx < arr.count else { return nil }
-                current = arr[idx]
-            } else {
-                return nil
-            }
+            frontier = next
+            if frontier.isEmpty { return nil }
         }
-        return current
+        return frontier.count == 1 ? frontier[0] : frontier
     }
 
     /// 遞歸搜索 JSON 樹中第一個匹配指定 key 的值（支援 $.. 遞歸 JSONPath）
@@ -2320,16 +2347,17 @@ private final class LegadoAnalyzeByJSonPath {
 
         // 處理 .. 遞歸搜索
         if p.hasPrefix(".") {
-            let key = String(p.dropFirst()).components(separatedBy: ".").first ?? ""
-            let remaining = String(p.dropFirst(1 + key.count))
+            let recursivePath = p.hasPrefix("..") ? String(p.dropFirst(2)) : String(p.dropFirst())
+            let (key, remaining) = splitFirstPathSegment(recursivePath)
+            guard !key.isEmpty else { return nil }
             let allMatches = RuleEngine.jsonSearchAllValues(obj, key: key)
-            if remaining.isEmpty || remaining == "." {
+            if remaining.isEmpty {
                 return allMatches.count == 1 ? allMatches.first : allMatches
             }
             // 繼續解析剩餘路徑
             var results: [Any] = []
             for match in allMatches {
-                if let sub = resolveJSONPath("$" + remaining, on: match) {
+                if let sub = navigatePath(remaining, on: match) {
                     if let arr = sub as? [Any] { results.append(contentsOf: arr) }
                     else { results.append(sub) }
                 }
@@ -2340,43 +2368,76 @@ private final class LegadoAnalyzeByJSonPath {
         return navigatePath(p, on: obj)
     }
 
+    private func splitFirstPathSegment(_ path: String) -> (key: String, remaining: String) {
+        guard !path.isEmpty else { return ("", "") }
+        var key = ""
+        var i = path.startIndex
+        while i < path.endIndex {
+            let ch = path[i]
+            if ch == "." || ch == "[" { break }
+            key.append(ch)
+            i = path.index(after: i)
+        }
+
+        guard i < path.endIndex else { return (key, "") }
+        if path[i] == "." {
+            return (key, String(path[path.index(after: i)...]))
+        }
+        return (key, String(path[i...]))
+    }
+
     private func navigatePath(_ path: String, on obj: Any) -> Any? {
         let components = splitPath(path)
-        var current: Any = obj
+        var frontier: [Any] = [obj]
         for comp in components {
-            if comp == "*" || comp == "[*]" {
-                // 萬用字元，返回當前集合
-                continue
-            }
-            if comp.hasPrefix("[") && comp.hasSuffix("]") {
-                let inner = String(comp.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
-                if inner == "*" { continue }
-                if let idx = Int(inner) {
-                    guard let arr = current as? [Any] else { return nil }
-                    let i = idx >= 0 ? idx : arr.count + idx
-                    guard i >= 0, i < arr.count else { return nil }
-                    current = arr[i]
-                } else {
-                    // 字串索引（如 ['key']）
-                    let key = inner.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-                    guard let dict = current as? [String: Any], let val = dict[key] else { return nil }
-                    current = val
+            var next: [Any] = []
+            for current in frontier {
+                if comp == "*" || comp == "[*]" {
+                    if let arr = current as? [Any] {
+                        next.append(contentsOf: arr)
+                    } else if let dict = current as? [String: Any] {
+                        next.append(contentsOf: dict.values)
+                    } else {
+                        next.append(current)
+                    }
+                    continue
                 }
-                continue
+
+                if comp.hasPrefix("[") && comp.hasSuffix("]") {
+                    let inner = String(comp.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
+                    if inner == "*" {
+                        if let arr = current as? [Any] {
+                            next.append(contentsOf: arr)
+                        } else if let dict = current as? [String: Any] {
+                            next.append(contentsOf: dict.values)
+                        }
+                    } else if let idx = Int(inner), let arr = current as? [Any] {
+                        let i = idx >= 0 ? idx : arr.count + idx
+                        if i >= 0, i < arr.count {
+                            next.append(arr[i])
+                        }
+                    } else {
+                        let key = inner.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
+                        if let dict = current as? [String: Any], let val = dict[key] {
+                            next.append(val)
+                        }
+                    }
+                    continue
+                }
+
+                if let dict = current as? [String: Any], let val = dict[comp] {
+                    next.append(val)
+                } else if let arr = current as? [Any], let idx = Int(comp) {
+                    let i = idx >= 0 ? idx : arr.count + idx
+                    if i >= 0, i < arr.count {
+                        next.append(arr[i])
+                    }
+                }
             }
-            // 普通 key
-            if let dict = current as? [String: Any] {
-                guard let val = dict[comp] else { return nil }
-                current = val
-            } else if let arr = current as? [Any], let idx = Int(comp) {
-                let i = idx >= 0 ? idx : arr.count + idx
-                guard i >= 0, i < arr.count else { return nil }
-                current = arr[i]
-            } else {
-                return nil
-            }
+            frontier = next
+            if frontier.isEmpty { return nil }
         }
-        return current
+        return frontier.count == 1 ? frontier[0] : frontier
     }
 
     private func splitPath(_ path: String) -> [String] {

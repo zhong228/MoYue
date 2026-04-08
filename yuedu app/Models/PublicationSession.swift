@@ -334,8 +334,10 @@ final class PublicationSession {
     private func resource(for href: String) -> Resource? {
         readiumURLs(for: href).lazy
             .compactMap { [self] href in
-                self.publication.get(href)
-                    ?? self.publication.linkWithHREF(href).flatMap(self.publication.get(_:))
+                if let link = self.publication.linkWithHREF(href) {
+                    return self.publication.get(link) ?? self.publication.get(href)
+                }
+                return self.publication.get(href)
             }
             .first
     }

@@ -634,11 +634,17 @@ class BookStore: ObservableObject {
             }
         }
 
+        let document = try? await BookParserRegistry.parse(url: destURL)
+
         // 3. 建立書籍模型
-        let bookTitle = title ?? url.deletingPathExtension().lastPathComponent
+        let fallbackTitle = title ?? url.deletingPathExtension().lastPathComponent
+        let parsedTitle = document?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let parsedAuthor = document?.author.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let bookTitle = parsedTitle.isEmpty ? fallbackTitle : parsedTitle
+        let author = parsedAuthor.isEmpty ? "未知" : parsedAuthor
         var book = ReadingBook(
             title: bookTitle,
-            author: "未知",
+            author: author,
             source: "local_epub",
             contentFilename: filename
         )
