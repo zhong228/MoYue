@@ -660,6 +660,15 @@ struct ReaderView: View {
         guard progress > 0 else { return }
 
         if let engine = epubRenderer.engine {
+            // 若引擎已從 CharOffsetStore 精準恢復到非零頁，避免被粗糙百分比覆蓋。
+            let currentEnginePage = engine.currentPage
+            if currentEnginePage > 0 {
+                currentPage = currentEnginePage
+                currentChapterIndex = engine.charOffset(forPage: currentEnginePage).spineIndex
+                savedPositionSnapshot = 0
+                return
+            }
+
             guard engine.totalPages > 1 else { return }
             let target = max(0, min(Int(round(progress * Double(engine.totalPages - 1))), engine.totalPages - 1))
             if target > 0 {
@@ -2154,9 +2163,9 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         }
         pvc.delegate = context.coordinator
 
-        // 優先用 engine.currentPage（已從 CharOffsetStore 恢復的絕對座標換算而來）
+        // 優先用 SwiftUI binding 的 currentPage，避免切換翻頁樣式重建時跳回舊座標。
         let initialPage = engine.totalPages > 0
-            ? max(0, min(engine.currentPage, engine.totalPages - 1))
+            ? max(0, min(currentPage, engine.totalPages - 1))
             : 0
         let initialVC = engine.pageViewController(at: initialPage)
         context.coordinator.captureStablePosition(from: initialVC)
@@ -2204,25 +2213,37 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             let direction: UIPageViewController.NavigationDirection =
                 clampedPage >= visible.globalPageIndex ? .forward : .reverse
 
-            // 消耗 makeUIViewController 設置的抑制 flag，跳過多餘的初始動畫
+            // 消耗 makeUIViewController 設置的抑制 flag：首次對齊時強制瞬切
             if context.coordinator.suppressNextTransition {
                 context.coordinator.suppressNextTransition = false
+                let targetVC = engine.pageViewController(at: clampedPage)
+                uiViewController.setViewControllers([targetVC], direction: direction, animated: false)
+                _ = context.coordinator.syncStablePosition(afterShowing: targetVC, notifyFallback: true)
                 return
             }
+
+            // 核心修復：非相鄰跳頁（目錄跳轉、offset 重算）一律瞬切，避免 cover 連環 reverse。
+            let isAdjacent = abs(clampedPage - visible.globalPageIndex) == 1
+            let shouldAnimate = (pageTurnStyle != .none) && isAdjacent
 
             if pageTurnStyle == .cover {
-                context.coordinator.animateCoverTransition(
-                    from: visible.globalPageIndex,
-                    to: clampedPage,
-                    direction: direction,
-                    on: uiViewController
-                )
+                if shouldAnimate {
+                    context.coordinator.animateCoverTransition(
+                        from: visible.globalPageIndex,
+                        to: clampedPage,
+                        direction: direction,
+                        on: uiViewController
+                    )
+                } else {
+                    let targetVC = engine.pageViewController(at: clampedPage)
+                    uiViewController.setViewControllers([targetVC], direction: direction, animated: false)
+                    _ = context.coordinator.syncStablePosition(afterShowing: targetVC, notifyFallback: true)
+                }
                 return
             }
 
-            let shouldAnimate = pageTurnStyle != .none
             let targetVC = engine.pageViewController(at: clampedPage)
-            if shouldAnimate && direction == .reverse {
+            if shouldAnimate && direction == .reverse && pageTurnStyle != .curl {
                 // UIPageViewController .scroll 的已知 bug：programmatic reverse 動畫方向錯誤。
                 // 暫時移除 dataSource 讓 UIKit 走正確的反向動畫路徑，完成後恢復。
                 let savedDS = uiViewController.dataSource
@@ -2669,8 +2690,18 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 }
             } else {
                 // Backward cover：上一頁從左滑入
+                guard let targetSnapshot = currentEngine.renderSnapshot(forPage: targetPage) else {
+                    // snapshot 不可用時直接瞬切，避免只看到陰影層的空動畫。
+                    let realVC = currentEngine.pageViewController(at: targetPage)
+                    pvc.setViewControllers([realVC], direction: direction, animated: false)
+                    self.captureStablePosition(from: realVC)
+                    self.onPageChanged(targetPage)
+                    Task { @MainActor in self.currentEngine.warmUpNext(currentGlobalPage: targetPage) }
+                    self.resetCoverOverlay()
+                    return
+                }
                 coverCurrentImageView.image = currentEngine.renderSnapshot(forPage: oldPage)
-                setupIncomingView(for: targetPage, snapshot: currentEngine.renderSnapshot(forPage: targetPage), in: view)
+                setupIncomingView(for: targetPage, snapshot: targetSnapshot, in: view)
                 UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut]) {
                     self.coverIncomingImageView.frame.origin.x = 0
                     self.coverShadowView.frame.origin.x = 0

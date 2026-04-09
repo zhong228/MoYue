@@ -338,9 +338,16 @@ final class TXTPageEngine: PageRenderingProvider {
     }
 
     func totalProgress(forSpine spineIndex: Int, charOffset: Int) -> Double {
-        _ = charOffset
         guard chapterCount > 0 else { return 0 }
-        return Double(spineIndex) / Double(chapterCount)
+
+        let clampedSpine = max(0, min(spineIndex, chapterCount - 1))
+        let baseProgress = Double(clampedSpine) / Double(chapterCount)
+
+        let chapterCharLength = layouts[clampedSpine]?.attributedString.length ?? 1
+        let safeOffset = max(0, min(charOffset, chapterCharLength))
+        let chapterFraction = Double(safeOffset) / Double(max(chapterCharLength, 1))
+
+        return min(1.0, max(0.0, baseProgress + (chapterFraction / Double(chapterCount))))
     }
 
     func renderSnapshot(forPage globalPage: Int) -> UIImage? {
