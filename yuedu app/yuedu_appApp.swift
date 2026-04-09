@@ -9,8 +9,13 @@ struct yuedu_appApp: App {
             ContentView()
                 .environmentObject(bookStore)
                 .onAppear {
-                    // App 啟動時自動更新線上書籍目錄
-                    Task { await ChapterUpdater.refreshAll(bookStore: bookStore) }
+                    Task {
+                        await WebFetcher.shared.setCloudflareChallengeHandler { url in
+                            try await CloudflareChallengePresenter.present(url: url)
+                        }
+                        // App 啟動時自動更新線上書籍目錄
+                        await ChapterUpdater.refreshAll(bookStore: bookStore)
+                    }
                 }
         }
     }

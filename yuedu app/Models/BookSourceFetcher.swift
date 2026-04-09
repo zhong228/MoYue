@@ -1,9 +1,6 @@
 import Combine
 import CryptoKit
 import Foundation
-import SwiftUI
-import UIKit
-import WebKit
 
 // MARK: - 書源網路請求 + 快取
 
@@ -52,6 +49,7 @@ actor BookSourceFetcher {
         _ = data
     }
     static let shared = BookSourceFetcher()
+    private nonisolated static let chapterCacheRepository = ChapterCacheRepository()
 
     private enum FetchTimeoutError: LocalizedError {
         case chapterTimeout
@@ -209,52 +207,6 @@ actor BookSourceFetcher {
     private static func fetchViaWebView(url: URL, headers: [String: String]) async throws -> String
     {
         try await WebViewFetcher.shared.fetchHTML(url: url, headers: headers, timeout: 15)
-    }
-
-    /// 從 WKWebsiteDataStore 撈 Cookie（必須在 MainActor 執行）
-    @MainActor
-    private static func harvestWebViewCookies(for host: String) async -> [HTTPCookie] {
-        await withCheckedContinuation { cont in
-            WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
-                cont.resume(returning: cookies.filter { $0.domain.contains(host) })
-            }
-        }
-    }
-
-    /// 觸發 Cloudflare Challenge View 給使用者手動解驗證碼
-    @MainActor
-    private static func fetchViaInteractiveWebView(url: URL) async throws -> String {
-        return try await withCheckedThrowingContinuation { continuation in
-            let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene
-            guard let rootVC = windowScene?.windows.first?.rootViewController else {
-                continuation.resume(throwing: FetchError.emptyContent)
-                return
-            }
-
-            let challengeView = CloudflareChallengeView(
-                targetURL: url,
-                onChallengePassed: { html in
-                    rootVC.dismiss(animated: true) {
-                        continuation.resume(returning: html)
-                    }
-                },
-                onCancel: {
-                    rootVC.dismiss(animated: true) {
-                        continuation.resume(throwing: FetchError.httpError(503))
-                    }
-                }
-            )
-
-            let hostVC = UIHostingController(rootView: challengeView)
-            hostVC.modalPresentationStyle = .fullScreen
-
-            // Present on top
-            var topVC = rootVC
-            while let presented = topVC.presentedViewController {
-                topVC = presented
-            }
-            topVC.present(hostVC, animated: true)
-        }
     }
 
     // MARK: - 獲取目錄
@@ -783,16 +735,12 @@ actor BookSourceFetcher {
         expectedSourceURL: String? = nil,
         expectedTOCTitle: String? = nil
     ) -> String? {
-        guard isCachedChapterMetadataValid(
+        Self.chapterCacheRepository.loadCachedChapterSync(
             bookId: bookId,
             chapterIndex: chapterIndex,
             expectedSourceURL: expectedSourceURL,
             expectedTOCTitle: expectedTOCTitle
-        ) else {
-            return nil
-        }
-        let url = cachePath(bookId: bookId, chapterIndex: chapterIndex)
-        return try? String(contentsOf: url, encoding: .utf8)
+        )
     }
 
     nonisolated func loadNormalizedChapterHTMLSync(
@@ -801,16 +749,12 @@ actor BookSourceFetcher {
         expectedSourceURL: String? = nil,
         expectedTOCTitle: String? = nil
     ) -> String? {
-        guard isCachedChapterMetadataValid(
+        Self.chapterCacheRepository.loadNormalizedChapterHTMLSync(
             bookId: bookId,
             chapterIndex: chapterIndex,
             expectedSourceURL: expectedSourceURL,
             expectedTOCTitle: expectedTOCTitle
-        ) else {
-            return nil
-        }
-        let url = chapterNormalizedHTMLPath(bookId: bookId, chapterIndex: chapterIndex)
-        return try? String(contentsOf: url, encoding: .utf8)
+        )
     }
 
     nonisolated func isChapterCached(
@@ -819,32 +763,21 @@ actor BookSourceFetcher {
         expectedSourceURL: String? = nil,
         expectedTOCTitle: String? = nil
     ) -> Bool {
-        guard isCachedChapterMetadataValid(
+        Self.chapterCacheRepository.isChapterCached(
             bookId: bookId,
             chapterIndex: chapterIndex,
             expectedSourceURL: expectedSourceURL,
             expectedTOCTitle: expectedTOCTitle
-        ) else {
-            return false
-        }
-        let url = cachePath(bookId: bookId, chapterIndex: chapterIndex)
-        return FileManager.default.fileExists(atPath: url.path)
+        )
     }
 
     nonisolated func clearChapterCache(bookId: UUID, chapterIndex: Int) {
-        let url = cachePath(bookId: bookId, chapterIndex: chapterIndex)
-        try? FileManager.default.removeItem(at: url)
-        try? FileManager.default.removeItem(at: cacheMetadataPath(bookId: bookId, chapterIndex: chapterIndex))
-        try? FileManager.default.removeItem(at: chapterPackagePath(bookId: bookId, chapterIndex: chapterIndex))
-        try? FileManager.default.removeItem(at: chapterRawHTMLPath(bookId: bookId, chapterIndex: chapterIndex))
-        try? FileManager.default.removeItem(
-            at: chapterNormalizedHTMLPath(bookId: bookId, chapterIndex: chapterIndex))
+        Self.chapterCacheRepository.clearChapterCache(bookId: bookId, chapterIndex: chapterIndex)
     }
 
     /// 清空該書所有章節快取（換源時呼叫）
     nonisolated func clearAllChapterCache(bookId: UUID) {
-        let dir = cacheDir(for: bookId)
-        try? FileManager.default.removeItem(at: dir)
+        Self.chapterCacheRepository.clearAllChapterCache(bookId: bookId)
     }
 
     @discardableResult
@@ -857,27 +790,15 @@ actor BookSourceFetcher {
         extractedTitle: String? = nil,
         rawHTML: String? = nil
     ) -> String {
-        let canonicalTitle = extractedTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedHTML = ChapterFetcher.buildNormalizedHTML(
-            title: canonicalTitle?.isEmpty == false ? canonicalTitle! : (tocTitle ?? ""),
-            content: content
-        )
-        let package = ChapterPackage(
+        Self.chapterCacheRepository.saveToCache(
+            content: content,
             bookId: bookId,
             chapterIndex: chapterIndex,
             sourceURL: sourceURL,
             tocTitle: tocTitle,
-            canonicalTitle: canonicalTitle?.isEmpty == false ? canonicalTitle : nil,
-            content: content,
-            contentChecksum: cacheChecksum(for: content),
-            rawHTMLFilename: rawHTML?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? "\(chapterIndex).raw.html" : nil,
-            normalizedHTMLFilename: "\(chapterIndex).normalized.xhtml",
-            savedAt: Date(),
-            state: .cached,
-            failureReason: nil
+            extractedTitle: extractedTitle,
+            rawHTML: rawHTML
         )
-        saveChapterPackageToCache(package, rawHTML: rawHTML, normalizedHTML: normalizedHTML)
-        return "\(chapterIndex).txt"
     }
 
     @discardableResult
@@ -886,32 +807,11 @@ actor BookSourceFetcher {
         rawHTML: String?,
         normalizedHTML: String
     ) -> String {
-        let dir = cacheDir(for: package.bookId)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let filename = "\(package.chapterIndex).txt"
-        let url = dir.appendingPathComponent(filename)
-        try? package.content.write(to: url, atomically: true, encoding: .utf8)
-        let metadata = CachedChapterMetadata(
-            sourceURL: package.sourceURL,
-            tocTitle: package.tocTitle,
-            extractedTitle: package.canonicalTitle,
-            contentChecksum: package.contentChecksum,
-            savedAt: package.savedAt,
-            state: .cached,
-            failureReason: nil
-        )
-        if let data = try? JSONEncoder().encode(metadata) {
-            try? data.write(
-                to: cacheMetadataPath(bookId: package.bookId, chapterIndex: package.chapterIndex),
-                options: .atomic
-            )
-        }
-        saveChapterArtifact(
-            package: package,
+        Self.chapterCacheRepository.saveChapterPackageToCache(
+            package,
             rawHTML: rawHTML,
             normalizedHTML: normalizedHTML
         )
-        return filename
     }
 
     nonisolated func saveFailureMarker(
@@ -922,34 +822,14 @@ actor BookSourceFetcher {
         extractedTitle: String? = nil,
         reason: String? = nil
     ) {
-        let dir = cacheDir(for: bookId)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try? FileManager.default.removeItem(at: cachePath(bookId: bookId, chapterIndex: chapterIndex))
-        try? FileManager.default.removeItem(at: chapterPackagePath(bookId: bookId, chapterIndex: chapterIndex))
-        try? FileManager.default.removeItem(at: chapterRawHTMLPath(bookId: bookId, chapterIndex: chapterIndex))
-        try? FileManager.default.removeItem(
-            at: chapterNormalizedHTMLPath(bookId: bookId, chapterIndex: chapterIndex))
-        let metadata = CachedChapterMetadata(
+        Self.chapterCacheRepository.saveFailureMarker(
+            bookId: bookId,
+            chapterIndex: chapterIndex,
             sourceURL: sourceURL,
             tocTitle: tocTitle,
             extractedTitle: extractedTitle,
-            contentChecksum: "",
-            savedAt: Date(),
-            state: .failed,
-            failureReason: reason
+            reason: reason
         )
-        if let data = try? JSONEncoder().encode(metadata) {
-            try? data.write(
-                to: cacheMetadataPath(bookId: bookId, chapterIndex: chapterIndex),
-                options: .atomic
-            )
-        }
-    }
-
-    nonisolated func cacheDir(for bookId: UUID) -> URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("online_cache")
-            .appendingPathComponent(bookId.uuidString)
     }
 
     nonisolated func tocCacheDir() -> URL {
@@ -1080,30 +960,11 @@ actor BookSourceFetcher {
         return package
     }
 
-    private nonisolated func cachePath(bookId: UUID, chapterIndex: Int) -> URL {
-        cacheDir(for: bookId).appendingPathComponent("\(chapterIndex).txt")
-    }
-
-    private nonisolated func cacheMetadataPath(bookId: UUID, chapterIndex: Int) -> URL {
-        cacheDir(for: bookId).appendingPathComponent("\(chapterIndex).meta.json")
-    }
-
-    private nonisolated func chapterPackagePath(bookId: UUID, chapterIndex: Int) -> URL {
-        cacheDir(for: bookId).appendingPathComponent("\(chapterIndex).package.json")
-    }
-
-    private nonisolated func chapterRawHTMLPath(bookId: UUID, chapterIndex: Int) -> URL {
-        cacheDir(for: bookId).appendingPathComponent("\(chapterIndex).raw.html")
-    }
-
-    private nonisolated func chapterNormalizedHTMLPath(bookId: UUID, chapterIndex: Int) -> URL {
-        cacheDir(for: bookId).appendingPathComponent("\(chapterIndex).normalized.xhtml")
-    }
-
     nonisolated func loadCachedChapterMetadataSync(bookId: UUID, chapterIndex: Int) -> CachedChapterMetadata? {
-        let url = cacheMetadataPath(bookId: bookId, chapterIndex: chapterIndex)
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(CachedChapterMetadata.self, from: data)
+        Self.chapterCacheRepository.loadCachedChapterMetadataSync(
+            bookId: bookId,
+            chapterIndex: chapterIndex
+        )
     }
 
     nonisolated func loadChapterPackageSync(
@@ -1112,107 +973,12 @@ actor BookSourceFetcher {
         expectedSourceURL: String? = nil,
         expectedTOCTitle: String? = nil
     ) -> ChapterPackage? {
-        guard let metadata = loadCachedChapterMetadataSync(bookId: bookId, chapterIndex: chapterIndex) else {
-            return nil
-        }
-        if let expectedSourceURL,
-            normalizedURLKey(metadata.sourceURL) != normalizedURLKey(expectedSourceURL)
-        {
-            return nil
-        }
-        if let expectedTOCTitle,
-            !expectedTOCTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        {
-            let normalizedExpected = normalizeCacheTitle(expectedTOCTitle)
-            let normalizedCached = normalizeCacheTitle(metadata.tocTitle ?? metadata.extractedTitle ?? "")
-            if !normalizedCached.isEmpty
-                && normalizedExpected != normalizedCached
-                && !normalizedExpected.contains(normalizedCached)
-                && !normalizedCached.contains(normalizedExpected)
-            {
-                return nil
-            }
-        }
-
-        let packageURL = chapterPackagePath(bookId: bookId, chapterIndex: chapterIndex)
-        let bodyURL = cachePath(bookId: bookId, chapterIndex: chapterIndex)
-        let artifactData = try? Data(contentsOf: packageURL)
-        let artifact = artifactData.flatMap { try? JSONDecoder().decode(ChapterPackageArtifact.self, from: $0) }
-        let body = (try? String(contentsOf: bodyURL, encoding: .utf8)) ?? ""
-        let cachedTitle = metadata.extractedTitle ?? metadata.tocTitle ?? ""
-
-        if metadata.state == .cached {
-            guard let artifact, !body.isEmpty, artifact.contentChecksum == cacheChecksum(for: body) else {
-                return nil
-            }
-            if ChapterFetcher.isRejectedChapterContent(body, title: cachedTitle) {
-                return nil
-            }
-            return ChapterPackage(
-                bookId: bookId,
-                chapterIndex: chapterIndex,
-                sourceURL: artifact.sourceURL ?? metadata.sourceURL,
-                tocTitle: artifact.tocTitle ?? metadata.tocTitle,
-                canonicalTitle: artifact.canonicalTitle ?? metadata.extractedTitle,
-                content: body,
-                contentChecksum: artifact.contentChecksum,
-                rawHTMLFilename: artifact.rawHTMLFilename,
-                normalizedHTMLFilename: artifact.normalizedHTMLFilename,
-                savedAt: artifact.savedAt,
-                state: .cached,
-                failureReason: nil
-            )
-        }
-
-        return ChapterPackage(
+        Self.chapterCacheRepository.loadChapterPackageSync(
             bookId: bookId,
             chapterIndex: chapterIndex,
-            sourceURL: metadata.sourceURL,
-            tocTitle: metadata.tocTitle,
-            canonicalTitle: metadata.extractedTitle,
-            content: "",
-            contentChecksum: metadata.contentChecksum,
-            rawHTMLFilename: artifact?.rawHTMLFilename,
-            normalizedHTMLFilename: artifact?.normalizedHTMLFilename,
-            savedAt: metadata.savedAt,
-            state: .failed,
-            failureReason: metadata.failureReason
+            expectedSourceURL: expectedSourceURL,
+            expectedTOCTitle: expectedTOCTitle
         )
-    }
-
-    private nonisolated func isCachedChapterMetadataValid(
-        bookId: UUID,
-        chapterIndex: Int,
-        expectedSourceURL: String?,
-        expectedTOCTitle: String?
-    ) -> Bool {
-        let textPath = cachePath(bookId: bookId, chapterIndex: chapterIndex)
-        guard FileManager.default.fileExists(atPath: textPath.path) else { return false }
-        guard let metadata = loadCachedChapterMetadataSync(bookId: bookId, chapterIndex: chapterIndex) else {
-            return expectedSourceURL == nil && expectedTOCTitle == nil
-        }
-
-        if let expectedSourceURL,
-            normalizedURLKey(metadata.sourceURL) != normalizedURLKey(expectedSourceURL)
-        {
-            return false
-        }
-
-        if let expectedTOCTitle,
-            !expectedTOCTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        {
-            let normalizedExpected = normalizeCacheTitle(expectedTOCTitle)
-            let normalizedCached = normalizeCacheTitle(metadata.tocTitle ?? metadata.extractedTitle ?? "")
-            if !normalizedCached.isEmpty
-                && normalizedExpected != normalizedCached
-                && !normalizedExpected.contains(normalizedCached)
-                && !normalizedCached.contains(normalizedExpected)
-            {
-                return false
-            }
-        }
-
-        return true
     }
 
     private nonisolated func normalizedURLKey(_ raw: String?) -> String {
@@ -1220,52 +986,6 @@ actor BookSourceFetcher {
         components.fragment = nil
         components.queryItems = components.queryItems?.sorted { $0.name < $1.name }
         return (components.string ?? raw).lowercased()
-    }
-
-    private nonisolated func normalizeCacheTitle(_ title: String) -> String {
-        title
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
-            .lowercased()
-    }
-
-    private nonisolated func cacheChecksum(for content: String) -> String {
-        let digest = SHA256.hash(data: Data(content.utf8))
-        return digest.compactMap { String(format: "%02x", $0) }.joined()
-    }
-
-    private nonisolated func saveChapterArtifact(
-        package: ChapterPackage,
-        rawHTML: String?,
-        normalizedHTML: String
-    ) {
-        let rawPath = chapterRawHTMLPath(bookId: package.bookId, chapterIndex: package.chapterIndex)
-        let normalizedPath = chapterNormalizedHTMLPath(bookId: package.bookId, chapterIndex: package.chapterIndex)
-        let packagePath = chapterPackagePath(bookId: package.bookId, chapterIndex: package.chapterIndex)
-
-        let rawFilename: String?
-        if let rawHTML, !rawHTML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            try? rawHTML.write(to: rawPath, atomically: true, encoding: .utf8)
-            rawFilename = rawPath.lastPathComponent
-        } else {
-            try? FileManager.default.removeItem(at: rawPath)
-            rawFilename = nil
-        }
-
-        try? normalizedHTML.write(to: normalizedPath, atomically: true, encoding: .utf8)
-
-        let artifact = ChapterPackageArtifact(
-            sourceURL: package.sourceURL,
-            tocTitle: package.tocTitle,
-            canonicalTitle: package.canonicalTitle,
-            contentChecksum: package.contentChecksum,
-            rawHTMLFilename: rawFilename,
-            normalizedHTMLFilename: normalizedPath.lastPathComponent,
-            savedAt: package.savedAt
-        )
-        if let data = try? JSONEncoder().encode(artifact) {
-            try? data.write(to: packagePath, options: .atomic)
-        }
     }
 
     nonisolated static func cleanChapterContent(_ text: String) -> String {
@@ -1530,6 +1250,7 @@ enum FetchError: LocalizedError {
     case noSearchURL
     case invalidURL(String)
     case httpError(Int)
+    case cloudflareChallengeRequired(String)
     case encodingError
     case emptyContent
 
@@ -1538,6 +1259,7 @@ enum FetchError: LocalizedError {
         case .noSearchURL: return "書源未設置搜索 URL"
         case .invalidURL(let u): return "無效 URL：\(u)"
         case .httpError(let code): return "HTTP 錯誤 \(code)"
+        case .cloudflareChallengeRequired(let url): return "需要人機驗證：\(url)"
         case .encodingError: return "頁面編碼無法識別"
         case .emptyContent: return "抓取到空內容"
         }

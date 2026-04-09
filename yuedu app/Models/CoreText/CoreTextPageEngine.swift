@@ -27,7 +27,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
 
     private let resourceProvider: any BookResourceProvider
     private let builder: HTMLAttributedStringBuilder
-    let paginator: CoreTextPaginator
+    private let paginationManager: PaginationManager
     let offsetStore: CharOffsetStore
     private var registeredFontFaces: [String: RegisteredFontFace] = [:]
     private var registeredFontFileURLs: [String: URL] = [:]
@@ -52,12 +52,12 @@ final class CoreTextPageEngine: PageRenderingProvider {
     init(
         resourceProvider: any BookResourceProvider,
         builder: HTMLAttributedStringBuilder = HTMLAttributedStringBuilder(),
-        paginator: CoreTextPaginator = CoreTextPaginator(),
+        paginationManager: PaginationManager? = nil,
         offsetStore: CharOffsetStore
     ) {
         self.resourceProvider = resourceProvider
         self.builder = builder
-        self.paginator = paginator
+        self.paginationManager = paginationManager ?? PaginationManager()
         self.offsetStore = offsetStore
 
         self.builder.imageLoader = { [weak resourceProvider] href in
@@ -84,13 +84,13 @@ final class CoreTextPageEngine: PageRenderingProvider {
     convenience init(
         session: PublicationSession,
         builder: HTMLAttributedStringBuilder = HTMLAttributedStringBuilder(),
-        paginator: CoreTextPaginator = CoreTextPaginator(),
+        paginationManager: PaginationManager? = nil,
         offsetStore: CharOffsetStore
     ) {
         self.init(
             resourceProvider: ReadiumBookResourceAdapter(session: session),
             builder: builder,
-            paginator: paginator,
+            paginationManager: paginationManager,
             offsetStore: offsetStore
         )
     }
@@ -385,9 +385,9 @@ final class CoreTextPageEngine: PageRenderingProvider {
         )
         guard !shouldAbortPreload(generation: generation) else { return }
         print("[CoreTextEngine] preloadChapter[\(spineIndex)] attrStrLen=\(attrStr.length)")
-        let layout = await paginator.paginate(
+        let request = PaginationRequest(
             spineIndex: spineIndex,
-            attrStr: attrStr,
+            attributedString: attrStr,
             imagePage: buildResult.imagePage,
             pageBackgroundImage: pageBackgroundImage,
             anchorOffsets: buildResult.anchorOffsets,
@@ -395,6 +395,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
             fontSize: config.fontSize,
             contentInsets: currentContentInsets()
         )
+        let layout = await paginationManager.paginate(request).layout
         guard !shouldAbortPreload(generation: generation) else { return }
         print("[CoreTextEngine] preloadChapter[\(spineIndex)] pageCount=\(layout.pageRanges.count)")
         // 套用當前主題色（防止預載 Task 在主題切換前開始、切換後完成，導致舊色覆蓋新色）
@@ -496,7 +497,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
         cancelPendingWork()
         isRelaying = true
         renderSize = newSize
-        paginator.invalidate(reason: .viewSizeChanged)
+        paginationManager.invalidate(reason: .viewSizeChanged)
 
         // 只重排目前記憶體中有的章節
         let loadedSpines = Array(layouts.keys.sorted())

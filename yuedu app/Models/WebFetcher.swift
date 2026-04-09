@@ -1,12 +1,13 @@
 import Foundation
-import SwiftUI
-import UIKit
 import WebKit
+
+typealias CloudflareChallengeHandler = @Sendable (URL) async throws -> String
 
 actor WebFetcher {
     static let shared = WebFetcher()
 
     private let session: URLSession
+    private var cloudflareChallengeHandler: CloudflareChallengeHandler?
     private let gbkEncoding = String.Encoding(
         rawValue: CFStringConvertEncodingToNSStringEncoding(
             CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
@@ -22,6 +23,10 @@ actor WebFetcher {
         config.httpShouldSetCookies = true
         config.httpCookieAcceptPolicy = .always
         session = URLSession(configuration: config)
+    }
+
+    func setCloudflareChallengeHandler(_ handler: CloudflareChallengeHandler?) {
+        cloudflareChallengeHandler = handler
     }
 
     func fetchHTML(
@@ -116,7 +121,10 @@ actor WebFetcher {
                         )
                     }
 
-                    let updatedHtml = try await Self.fetchViaInteractiveWebView(url: url)
+                    guard let challengeHandler = cloudflareChallengeHandler else {
+                        throw FetchError.cloudflareChallengeRequired(url.absoluteString)
+                    }
+                    let updatedHtml = try await challengeHandler(url)
 
                     if let host = url.host {
                         let allCookies = await Self.harvestWebViewCookies(for: host)
@@ -356,41 +364,5 @@ actor WebFetcher {
         let cookies = session.configuration.httpCookieStorage?.cookies(for: url) ?? HTTPCookieStorage.shared.cookies(for: url) ?? []
         guard !cookies.isEmpty else { return nil }
         return HTTPCookie.requestHeaderFields(with: cookies)["Cookie"]
-    }
-
-    @MainActor
-    private static func fetchViaInteractiveWebView(url: URL) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            guard
-                let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                let rootVC = windowScene.windows.first?.rootViewController
-            else {
-                continuation.resume(throwing: FetchError.emptyContent)
-                return
-            }
-
-            let challengeView = CloudflareChallengeView(
-                targetURL: url,
-                onChallengePassed: { html in
-                    rootVC.dismiss(animated: true) {
-                        continuation.resume(returning: html)
-                    }
-                },
-                onCancel: {
-                    rootVC.dismiss(animated: true) {
-                        continuation.resume(throwing: FetchError.httpError(503))
-                    }
-                }
-            )
-
-            let hostVC = UIHostingController(rootView: challengeView)
-            hostVC.modalPresentationStyle = .fullScreen
-
-            var topVC = rootVC
-            while let presented = topVC.presentedViewController {
-                topVC = presented
-            }
-            topVC.present(hostVC, animated: true)
-        }
     }
 }

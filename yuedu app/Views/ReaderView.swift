@@ -11,16 +11,6 @@ struct PageContent {
     var attributedContent: NSAttributedString? = nil
 }
 
-// MARK: - 閱讀位置（與字體/螢幕尺寸無關，Koodo Reader BookLocation 對應設計）
-private struct ReadingPosition: Codable {
-    /// 章節索引（0 起始）
-    var chapterIndex: Int
-    /// 章節內字符偏移量（pageInChapter × charsPerPage）
-    var charOffsetInChapter: Int
-    /// 整體進度百分比（0.0 – 1.0），供書架進度條快速讀取
-    var percentage: Double
-}
-
 // MARK: - 翻頁動畫時長（TXT / EPUB 統一，對齊 Koodo/Legado）
 private enum PageTurnAnimation {
     static let slideDuration: Double = 0.25  // 滑動：ease-in-out；EPUB index.html 同為 0.25s
@@ -142,9 +132,10 @@ struct ReaderView: View {
     @State private var changeSourceOrigins: [BookOrigin] = []
     @State private var changeSourceLoading = false
     @State private var changeSourceError: String?
-    @State private var refreshTrigger = 0
     @State private var runtimeState = ReaderRuntimeState()
     @State private var chapterSliderDraft: Double? = nil
+    @State private var contentProvider: (any BookContentProvider)? = nil
+    private let progressManager = ReaderProgressManager.shared
 
     private var systemBrightness: Double {
         get { runtimeState.systemBrightness }
@@ -513,11 +504,8 @@ struct ReaderView: View {
         .onReceive(
             NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)
         ) { _ in
-            guard let engine = epubRenderer.engine else { return }
-            let size = readerViewportSize  // use stored size, not UIScreen
-            Task {
-                await engine.invalidateLayout(newSize: size)
-            }
+            // Use stored viewport size (not UIScreen) to avoid mismatch in split view.
+            performUnifiedRelayout(targetSize: readerViewportSize)
         }
         .onChange(of: settings.readerBrightness) { val in
             if !settings.followSystemBrightness { UIScreen.main.brightness = CGFloat(val) }
@@ -538,23 +526,7 @@ struct ReaderView: View {
             }
         }
         .onReceive(readerConfig.refresh) { kind in
-            switch kind {
-            case .layout:
-                if usesPagedRenderer {
-                    epubRenderer.invalidateCoreTextLayout()
-                } else {
-                    rebuildPages()
-                }
-            case .appearance:
-                if usesCoreTextEPUB {
-                    epubRenderer.engine?.applyThemeChange(
-                        textColor: UIColor(readerTheme.textColor),
-                        backgroundColor: UIColor(readerTheme.backgroundColor)
-                    )
-                } else if (isEPUB || isTXT) {
-                    rebuildPages()
-                }
-            }
+            handleReaderConfigRefresh(kind)
         }
         .onChange(of: settings.pageTurnStyle) { _ in
             // 翻頁樣式變更不需重建頁面，body 會自動切換視圖
@@ -628,12 +600,19 @@ struct ReaderView: View {
         .onChange(of: showChangeSourceSheet) { show in
             if show { loadOtherOrigins() }
         }
-        .onChange(of: refreshTrigger) { _ in
-            if refreshTrigger > 0 { loadContent() }
+        .onChange(of: epubRenderer.isCoreTextReady) { ready in
+            if ready { applyInitialProgressIfNeeded() }
+        }
+        .onChange(of: allPages.count) { _ in
+            applyInitialProgressIfNeeded()
+        }
+        .onChange(of: chapters.count) { _ in
+            applyInitialProgressIfNeeded()
         }
     }
 
     private func performInitialLoad() {
+        savedPositionSnapshot = initialProgressSnapshot()
         guard let currentBook = book, currentBook.isOnline else {
             loadContent()
             return
@@ -660,6 +639,54 @@ struct ReaderView: View {
             await MainActor.run {
                 loadContent()
             }
+        }
+    }
+
+    private func initialProgressSnapshot() -> Double {
+        if let snapshot = progressManager.loadSnapshot(bookId: bookId) {
+            return min(1.0, max(0.0, snapshot.percentage))
+        }
+        return min(1.0, max(0.0, book?.currentPosition ?? 0))
+    }
+
+    private func applyInitialProgressIfNeeded() {
+        let progress = min(1.0, max(0.0, savedPositionSnapshot))
+        guard progress > 0 else { return }
+
+        if let engine = epubRenderer.engine {
+            guard engine.totalPages > 1 else { return }
+            let target = max(0, min(Int(round(progress * Double(engine.totalPages - 1))), engine.totalPages - 1))
+            if target > 0 {
+                currentPage = target
+                let (spineIndex, _) = engine.charOffset(forPage: target)
+                currentChapterIndex = spineIndex
+                epubRenderer.updateCurrentPosition(globalPage: target, engine: engine)
+            }
+            savedPositionSnapshot = 0
+            return
+        }
+
+        if !allPages.isEmpty {
+            let maxIndex = allPages.count - 1
+            guard maxIndex > 0 else { return }
+            let target = max(0, min(Int(round(progress * Double(maxIndex))), maxIndex))
+            if target > 0 {
+                currentPage = target
+                currentChapterIndex = allPages[target].chapterIndex
+            }
+            savedPositionSnapshot = 0
+            return
+        }
+
+        if settings.scrollMode, !chapters.isEmpty {
+            let maxIndex = chapters.count - 1
+            guard maxIndex > 0 else { return }
+            let target = max(0, min(Int(round(progress * Double(maxIndex))), maxIndex))
+            if target > 0 {
+                scrollVisibleChapter = target
+                currentChapterIndex = target
+            }
+            savedPositionSnapshot = 0
         }
     }
 
@@ -1032,8 +1059,8 @@ struct ReaderView: View {
                                     try await store.updateOnlineBookSource(
                                         bookId: bookId, origin: origin)
                                     await MainActor.run {
-                                        refreshTrigger += 1
                                         showChangeSourceSheet = false
+                                        loadContent()
                                     }
                                 } catch {
                                     await MainActor.run {
@@ -1246,25 +1273,37 @@ struct ReaderView: View {
             let (spineIndex, charOffset) = engine.charOffset(forPage: currentPage)
             currentChapterIndex = spineIndex
             let pct = engine.totalProgress(forSpine: spineIndex, charOffset: charOffset)
-            store.updatePosition(bookId: bookId, position: min(1.0, max(0.0, pct)))
+            let normalized = min(1.0, max(0.0, pct))
+            progressManager.saveCoreText(
+                bookId: bookId,
+                chapterIndex: spineIndex,
+                charOffset: charOffset,
+                percentage: normalized
+            )
+            store.updatePosition(bookId: bookId, position: normalized)
         } else if !settings.scrollMode && !allPages.isEmpty {
             // TXT：使用 allPages
             let page = allPages[min(currentPage, allPages.count - 1)]
-            let pos = ReadingPosition(
-                chapterIndex: page.chapterIndex,
-                charOffsetInChapter: page.pageInChapter,
-                percentage: Double(currentPage) / Double(max(allPages.count - 1, 1))
-            )
-            if let data = try? JSONEncoder().encode(pos) {
-                UserDefaults.standard.set(data, forKey: "readerPos_\(bookId.uuidString)")
-            }
             currentChapterIndex = page.chapterIndex
             let progress = Double(currentPage) / Double(max(allPages.count - 1, 1))
-            store.updatePosition(bookId: bookId, position: min(1.0, max(0.0, progress)))
+            let normalized = min(1.0, max(0.0, progress))
+            progressManager.savePaged(
+                bookId: bookId,
+                chapterIndex: page.chapterIndex,
+                pageInChapter: page.pageInChapter,
+                percentage: normalized
+            )
+            store.updatePosition(bookId: bookId, position: normalized)
         } else {
             // 滾動模式
             let progress = Double(scrollVisibleChapter) / Double(max(chapters.count - 1, 1))
-            store.updatePosition(bookId: bookId, position: min(1.0, max(0.0, progress)))
+            let normalized = min(1.0, max(0.0, progress))
+            progressManager.saveScroll(
+                bookId: bookId,
+                chapterIndex: scrollVisibleChapter,
+                percentage: normalized
+            )
+            store.updatePosition(bookId: bookId, position: normalized)
         }
     }
 
@@ -1429,6 +1468,8 @@ struct ReaderView: View {
         book: ReadingBook,
         settings: ReaderRenderSettings
     ) {
+        contentProvider = BookContentProviderFactory.makeEPUBProvider(session: session)
+
         let tocLevelMap: [String: Int] = Dictionary(
             session.tocEntries.map { ($0.href, $0.level) },
             uniquingKeysWith: { first, _ in first }
@@ -1485,6 +1526,7 @@ struct ReaderView: View {
             } catch {
                 await MainActor.run {
                     print("Readium 解析失敗：\(error)")
+                    self.contentProvider = nil
                     self.isLoadingPipeline = false
                     self.isRestoringPosition = false
                 }
@@ -1496,15 +1538,18 @@ struct ReaderView: View {
         guard !isLoadingPipeline else { return }
         isLoadingPipeline = true
         isRestoringPosition = true
+        savedPositionSnapshot = initialProgressSnapshot()
 
         let marginH = effectivePageMarginH
         guard let b = book else {
+            contentProvider = nil
             isRestoringPosition = false
             isLoadingPipeline = false
             return
         }
         // Online books: temporarily disabled
         if b.isOnline {
+            contentProvider = BookContentProviderFactory.makeOnlineProvider(book: b, store: store)
             isLoadingPipeline = false
             isRestoringPosition = false
             return
@@ -1514,6 +1559,8 @@ struct ReaderView: View {
             let bookTitle = b.title
             let text = store.content(for: b)
             let settings = currentRenderSettings(marginH: marginH)
+            let txtProvider = BookContentProviderFactory.makeLocalTXTProvider(book: b, store: store)
+            contentProvider = txtProvider
             
             epubRenderer.loadTXT(
                 text: text,
@@ -1523,7 +1570,11 @@ struct ReaderView: View {
                 settings: settings
             )
             
-            if let txtEngine = epubRenderer.engine as? TXTPageEngine {
+            if txtProvider.totalChapters > 0 {
+                self.chapters = (0..<txtProvider.totalChapters).map { i in
+                    BookChapter(index: i, title: txtProvider.chapterTitle(at: i), content: "")
+                }
+            } else if let txtEngine = epubRenderer.engine as? TXTPageEngine {
                 self.chapters = txtEngine.chapterTitles.enumerated().map { i, t in
                     BookChapter(index: i, title: t, content: "")
                 }
@@ -1540,6 +1591,7 @@ struct ReaderView: View {
 
         guard b.resolvedPipelineKind == .epub else {
             // HTML: temporarily disabled pending CoreText migration
+            contentProvider = nil
             isLoadingPipeline = false
             isRestoringPosition = false
             return
@@ -1554,6 +1606,32 @@ struct ReaderView: View {
     private func rebuildPages() {
         isLoadingPipeline = false
         loadContent()
+    }
+
+    private func handleReaderConfigRefresh(_ kind: ReaderConfigRefreshKind) {
+        switch kind {
+        case .layout:
+            performUnifiedRelayout()
+        case .appearance:
+            applyUnifiedAppearanceUpdate()
+        }
+    }
+
+    private func performUnifiedRelayout(targetSize: CGSize? = nil) {
+        guard let engine = epubRenderer.engine else {
+            rebuildPages()
+            return
+        }
+        let size = targetSize ?? engine.renderSize
+        Task { await engine.invalidateLayout(newSize: size) }
+    }
+
+    private func applyUnifiedAppearanceUpdate() {
+        guard let engine = epubRenderer.engine else { return }
+        engine.applyThemeChange(
+            textColor: UIColor(readerTheme.textColor),
+            backgroundColor: UIColor(readerTheme.backgroundColor)
+        )
     }
 }
 

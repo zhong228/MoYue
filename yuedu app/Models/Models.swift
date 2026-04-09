@@ -608,7 +608,7 @@ class BookStore: ObservableObject {
         return try saveBook(title: bookTitle, author: "未知作者", content: text, source: "local")
     }
 
-    // MARK: 🟢修改3：匯入 EPUB 檔案
+    // MARK: 修改3：匯入 EPUB 檔案
     @discardableResult
     func importEpub(url: URL, title: String? = nil) async throws -> ReadingBook {
         // 0. 產生 UUID 作為新檔名

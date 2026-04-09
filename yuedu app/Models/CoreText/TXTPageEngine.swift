@@ -15,7 +15,7 @@ final class TXTPageEngine: PageRenderingProvider {
     private var layoutGeneration: Int = 0
 
     let offsetStore: CharOffsetStore
-    private let paginator = CoreTextPaginator()
+    private let paginationManager = PaginationManager()
     private let chapters: [UnifiedChapter]
     let bookTitle: String
     private var currentBookId: String?
@@ -208,13 +208,17 @@ final class TXTPageEngine: PageRenderingProvider {
         }
         guard !shouldAbortPreload(generation: generation) else { return }
         
-        let layout = await paginator.paginate(
+        let request = PaginationRequest(
             spineIndex: spineIndex,
-            attrStr: attrStr,
+            attributedString: attrStr,
+            imagePage: nil,
+            pageBackgroundImage: nil,
+            anchorOffsets: [:],
             renderSize: renderSize,
             fontSize: self.fontSize,
             contentInsets: UIEdgeInsets(top: 60, left: 24, bottom: 60, right: 24)
         )
+        let layout = await paginationManager.paginate(request).layout
         guard !shouldAbortPreload(generation: generation) else { return }
         
         layouts[spineIndex] = layout.withUpdatedColors(textColor: themeTextColor, backgroundColor: themeBackgroundColor)

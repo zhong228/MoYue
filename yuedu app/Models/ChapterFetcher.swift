@@ -31,59 +31,6 @@ struct ChapterBuildResult {
 }
 
 enum ChapterFetcher {
-    private static func stringifyJSONValue(_ value: Any?) -> String? {
-        guard let value else { return nil }
-        if value is NSNull { return nil }
-        if let string = value as? String { return string }
-        if let data = try? JSONSerialization.data(withJSONObject: value),
-            let string = String(data: data, encoding: .utf8)
-        {
-            return string
-        }
-        return String(describing: value)
-    }
-
-    private static func stringDictionary(from value: Any?) -> [String: String] {
-        guard let dict = value as? [String: Any] else { return [:] }
-        var output: [String: String] = [:]
-        for (key, rawValue) in dict {
-            guard let stringValue = stringifyJSONValue(rawValue) else { continue }
-            output[key] = stringValue
-        }
-        return output
-    }
-
-    private static func asBool(_ value: Any?) -> Bool {
-        if let bool = value as? Bool { return bool }
-        if let number = value as? NSNumber { return number.boolValue }
-        let text = String(describing: value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        return ["true", "1", "yes", "y"].contains(text)
-    }
-
-    private static func normalizeLegadoOptionsJSONLike(_ raw: String) -> String {
-        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if s.hasPrefix(",") { s.removeFirst() }
-        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        s = s
-            .replacingOccurrences(of: "“", with: "\"")
-            .replacingOccurrences(of: "”", with: "\"")
-            .replacingOccurrences(of: "‘", with: "\"")
-            .replacingOccurrences(of: "’", with: "\"")
-        if s.contains("'") {
-            s = s.replacingOccurrences(
-                of: #"(?<!\\)'([^']*)'"#,
-                with: #""$1""#,
-                options: .regularExpression
-            )
-        }
-        s = s.replacingOccurrences(
-            of: #"([{\[,]\s*)([A-Za-z_][A-Za-z0-9_\-]*)(\s*:)"#,
-            with: #"$1"$2"$3"#,
-            options: .regularExpression
-        )
-        return s
-    }
 
     static func buildNormalizedHTML(title: String, content: String) -> String {
         let paragraphLines = content
@@ -97,62 +44,7 @@ enum ChapterFetcher {
     }
 
     static func parseChapterRequest(_ raw: String) -> ChapterRequestSpec {
-        var source = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let encodedRange = source.range(
-            of: #",\s*%7B[\s\S]*%7D\s*$"#,
-            options: [.regularExpression, .caseInsensitive]
-        ) {
-            let prefix = String(source[..<encodedRange.lowerBound])
-            let encodedSuffix = String(source[encodedRange])
-            if let decodedSuffix = encodedSuffix.removingPercentEncoding {
-                source = prefix + decodedSuffix
-            }
-        }
-        guard let match = source.range(of: #",\s*\{.*\}\s*$"#, options: .regularExpression),
-            let commaIndex = source[match].firstIndex(of: ",")
-        else {
-            return ChapterRequestSpec(
-                url: source,
-                method: "GET",
-                body: nil,
-                headers: [:],
-                referer: nil,
-                useWebView: false,
-                charset: nil
-            )
-        }
-
-        let urlPart = String(source[..<commaIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
-        let optionsText = normalizeLegadoOptionsJSONLike(
-            String(source[source.index(after: commaIndex)...])
-        )
-
-        guard let endBrace = optionsText.lastIndex(of: "}"),
-            let data = optionsText[..<optionsText.index(after: endBrace)].data(using: .utf8),
-            let options = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return ChapterRequestSpec(
-                url: urlPart,
-                method: "GET",
-                body: nil,
-                headers: [:],
-                referer: nil,
-                useWebView: false,
-                charset: nil
-            )
-        }
-
-        let method = ((options["method"] as? String) ?? "GET").uppercased() == "POST"
-            ? "POST" : "GET"
-        return ChapterRequestSpec(
-            url: urlPart,
-            method: method,
-            body: stringifyJSONValue(options["body"]),
-            headers: stringDictionary(from: options["headers"]),
-            referer: stringifyJSONValue(options["referer"]),
-            useWebView: asBool(options["webView"]),
-            charset: stringifyJSONValue(options["charset"])
-        )
+        LegadoRequestParser.parseChapterRequest(raw)
     }
 
     static func merge(_ current: ChapterParsePayload, _ next: ChapterParsePayload) -> ChapterParsePayload {
@@ -515,71 +407,14 @@ enum ChapterFetcher {
     }
 
     static func extractNextPageURL(html: String, currentURL: String, baseURL: String) -> String {
-        guard let baseUrlObj = URL(string: baseURL.isEmpty ? currentURL : baseURL) else {
-            return ""
-        }
-
-        let linkRelNext = #"<link[^>]+rel=["']next["'][^>]+href=["']([^"']+)["']"#
-        let linkHrefFirst = #"<link[^>]+href=["']([^"']+)["'][^>]+rel=["']next["']"#
-        for pattern in [linkRelNext, linkHrefFirst] {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-                let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-                match.numberOfRanges > 1,
-                let range = Range(match.range(at: 1), in: html)
-            {
-                let href = String(html[range]).trimmingCharacters(in: .whitespaces)
-                if !href.isEmpty, !href.hasPrefix("javascript:") {
-                    return DefaultWebNovelParserService.shared.resolveURL(
-                        href,
-                        base: baseUrlObj.absoluteString
-                    )
-                }
+        NextPageLinkExtractor.extractNextPageURL(
+            html: html,
+            currentURL: currentURL,
+            baseURL: baseURL,
+            resolveURL: { href, base in
+                DefaultWebNovelParserService.shared.resolveURL(href, base: base)
             }
-        }
-
-        let hrefPattern =
-            #"<a\s[^>]*href=["']([^"']+)["'][^>]*>[^<]*?(?:下一[頁页]|下一页|Next\s*Page|next\s*page)[^<]*</a>"#
-        if let regex = try? NSRegularExpression(pattern: hrefPattern, options: .caseInsensitive),
-            let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-            match.numberOfRanges > 1,
-            let range = Range(match.range(at: 1), in: html)
-        {
-            let href = String(html[range]).trimmingCharacters(in: .whitespaces)
-            if !href.isEmpty, !href.hasPrefix("javascript:") {
-                return DefaultWebNovelParserService.shared.resolveURL(
-                    href,
-                    base: baseUrlObj.absoluteString
-                )
-            }
-        }
-
-        if let cur = URL(string: currentURL),
-            let comp = URLComponents(url: cur, resolvingAgainstBaseURL: false),
-            let queryItems = comp.queryItems
-        {
-            let pageParam = queryItems.first {
-                $0.name.lowercased() == "page" || $0.name == "p" || $0.name == "index"
-            }
-            if let param = pageParam, let num = Int(param.value ?? ""), num >= 1 {
-                let nextNum = String(num + 1)
-                let pattern = "href=[\"']([^\"']*[?&](?:page|p|index)=" + nextNum + "[^\"']*)[\"']"
-                if let regex = try? NSRegularExpression(pattern: pattern),
-                    let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-                    match.numberOfRanges > 1,
-                    let range = Range(match.range(at: 1), in: html)
-                {
-                    let href = String(html[range]).trimmingCharacters(in: .whitespaces)
-                    if !href.isEmpty {
-                        return DefaultWebNovelParserService.shared.resolveURL(
-                            href,
-                            base: baseUrlObj.absoluteString
-                        )
-                    }
-                }
-            }
-        }
-
-        return ""
+        )
     }
 
     private static func stripHtmlToText(_ html: String) -> String {
@@ -689,120 +524,6 @@ enum ChapterFetcher {
     }
 
     static func cleanChapterContent(_ text: String) -> String {
-        var raw = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if raw.isEmpty { return raw }
-
-        let removePatterns: [(String, String)] = [
-            (#"本章未完，請點擊下一頁繼續閱讀"#, ""),
-            (#"本章未完，请点击下一页继续阅读"#, ""),
-            (#"請記住本書首發域名：[^\s]+\.(com|net|org|cn|cc|cx|pro)"#, ""),
-            (#"请记住本书首发域名：[^\s]+\.(com|net|org|cn|cc|cx|pro)"#, ""),
-            (#"請記住本站域名[^\n]*"#, ""),
-            (#"请记住本站域名[^\n]*"#, ""),
-        ]
-        for (pattern, replacement) in removePatterns {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
-                raw = regex.stringByReplacingMatches(
-                    in: raw, range: NSRange(raw.startIndex..., in: raw), withTemplate: replacement
-                )
-            }
-        }
-
-        raw = raw.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-        if raw.contains("<") {
-            raw = stripHtmlToText(raw)
-        }
-
-        var lines = raw.components(separatedBy: .newlines)
-        let adPatterns: [String] = [
-            #"請記住本站域名|请记住本站|記住本站|本站域名"#,
-            #"支持正版閱讀|支援正版閱讀|請支持正版|請到.*訂閱本書"#,
-            #"最新章節請到|防盜章節"#,
-            #"一秒記住|一秒记住|一秒钟记住"#,
-            #"chaptererror|chapter\s*error"#,
-            #"最新網址|最新网址"#,
-            #"^\s*https?://\S+\s*$"#,
-            #"^[\s\u{3000}\.\-_\*]{0,5}$"#,
-            #"^(上一章|下一章|上一頁|下一页|返回目錄|返回目录)\s*$"#,
-        ]
-        lines = lines.filter { line in
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty { return false }
-            for pattern in adPatterns {
-                if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-                    regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil
-                {
-                    return false
-                }
-            }
-            return true
-        }
-
-        if let regex = try? NSRegularExpression(pattern: #"^(.{5,}?)\s{1,8}\1$"#) {
-            lines = lines.map { line in
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard trimmed.count >= 10 else { return line }
-                if let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
-                    match.numberOfRanges > 1,
-                    let range = Range(match.range(at: 1), in: trimmed)
-                {
-                    return String(trimmed[range])
-                }
-                return line
-            }
-        }
-
-        let dateRegex = try? NSRegularExpression(pattern: #"^\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?$"#)
-        let chapTitleRegex = try? NSRegularExpression(
-            pattern: #"^第\s*[\d零一二三四五六七八九十百千萬万]+\s*[章回卷節节篇部]"#
-        )
-        var dropCount = 0
-        for line in lines.prefix(15) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty {
-                dropCount += 1
-                continue
-            }
-            let range = NSRange(trimmed.startIndex..., in: trimmed)
-            if dateRegex?.firstMatch(in: trimmed, range: range) != nil {
-                dropCount += 1
-                continue
-            }
-            if trimmed.hasPrefix("作者") || trimmed.hasPrefix("作 者") {
-                dropCount += 1
-                continue
-            }
-            if trimmed.count < 60, chapTitleRegex?.firstMatch(in: trimmed, range: range) != nil {
-                dropCount += 1
-                continue
-            }
-            break
-        }
-        if dropCount > 0 {
-            lines = Array(lines.dropFirst(dropCount))
-        }
-
-        lines = lines.filter { line in
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty { return false }
-            if trimmed.count < 60 && trimmed.components(separatedBy: ">").count >= 3 { return false }
-            if trimmed.count < 30 && trimmed.contains("收藏")
-                && (trimmed.contains("目录") || trimmed.contains("目錄") || trimmed.contains("设置") || trimmed.contains("設置"))
-            {
-                return false
-            }
-            return true
-        }
-
-        var result: [String] = []
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            let previous = result.last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if trimmed != previous || trimmed.isEmpty {
-                result.append(line)
-            }
-        }
-
-        return result.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        ChapterContentCleaner.cleanChapterContent(text, htmlToText: stripHtmlToText)
     }
 }

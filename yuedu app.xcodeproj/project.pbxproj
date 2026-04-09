@@ -8,13 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		3021769152B9F41FC1F2CBA5 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 489E6E08B47AA3AC9F140CAD /* SwiftSoup */; };
-		8A11B0E32F9A1C7300A1B001 /* ReadiumFuzi in Frameworks */ = {isa = PBXBuildFile; productRef = 8A11B0E22F9A1C7300A1B001 /* ReadiumFuzi */; };
 		460274832F710D7500486947 /* ReadiumAdapterGCDWebServer in Frameworks */ = {isa = PBXBuildFile; productRef = 460274822F710D7500486947 /* ReadiumAdapterGCDWebServer */; };
 		460274852F710D7500486947 /* ReadiumAdapterLCPSQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 460274842F710D7500486947 /* ReadiumAdapterLCPSQLite */; };
 		4675984E2F7A8D760073996D /* DTCoreText in Frameworks */ = {isa = PBXBuildFile; productRef = 4675984D2F7A8D760073996D /* DTCoreText */; };
 		54FF42D0FA99075B5C91D59B /* ReadiumZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 7F41A49C749809CDAB632913 /* ReadiumZIPFoundation */; };
 		54FF42D1FA99075B5C91D59B /* ReadiumShared in Frameworks */ = {isa = PBXBuildFile; productRef = 54FF42D2FA99075B5C91D59B /* ReadiumShared */; };
 		54FF42D3FA99075B5C91D59B /* ReadiumStreamer in Frameworks */ = {isa = PBXBuildFile; productRef = 54FF42D4FA99075B5C91D59B /* ReadiumStreamer */; };
+		8A11B0E32F9A1C7300A1B001 /* ReadiumFuzi in Frameworks */ = {isa = PBXBuildFile; productRef = 8A11B0E22F9A1C7300A1B001 /* ReadiumFuzi */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -646,14 +646,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		8A11B0E12F9A1C7300A1B001 /* XCRemoteSwiftPackageReference "Fuzi" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/readium/Fuzi.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 4.0.0;
-			};
-		};
 		460274812F710D7500486947 /* XCRemoteSwiftPackageReference "swift-toolkit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/readium/swift-toolkit.git";
@@ -686,14 +678,17 @@
 				minimumVersion = 2.11.3;
 			};
 		};
+		8A11B0E12F9A1C7300A1B001 /* XCRemoteSwiftPackageReference "Fuzi" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/readium/Fuzi.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		8A11B0E22F9A1C7300A1B001 /* ReadiumFuzi */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 8A11B0E12F9A1C7300A1B001 /* XCRemoteSwiftPackageReference "Fuzi" */;
-			productName = ReadiumFuzi;
-		};
 		460274822F710D7500486947 /* ReadiumAdapterGCDWebServer */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 460274812F710D7500486947 /* XCRemoteSwiftPackageReference "swift-toolkit" */;
@@ -728,6 +723,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 46935AA62F52E48600662F9D /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
 			productName = ReadiumZIPFoundation;
+		};
+		8A11B0E22F9A1C7300A1B001 /* ReadiumFuzi */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8A11B0E12F9A1C7300A1B001 /* XCRemoteSwiftPackageReference "Fuzi" */;
+			productName = ReadiumFuzi;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
