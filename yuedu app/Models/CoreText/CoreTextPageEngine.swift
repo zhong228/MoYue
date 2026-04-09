@@ -137,6 +137,10 @@ final class CoreTextPageEngine: PageRenderingProvider {
 
     private var currentBookId: String?
     private var pendingRestoreTarget: (spineIndex: Int, charOffset: Int)?
+    private var chapterByteScanTask: Task<Void, Never>?
+    private var startupBeganUptime: TimeInterval?
+    private var didLogProgressFallback = false
+    private var didLogProgressByteMode = false
     /// 各章節的原始 Data 大小（bytes），用於全書進度估算
     private var chapterByteSizes: [Int] = []
 
@@ -148,9 +152,22 @@ final class CoreTextPageEngine: PageRenderingProvider {
     var onNavigateToPage: ((Int) -> Void)?
 
     deinit {
+        chapterByteScanTask?.cancel()
         for url in registeredFontFileURLs.values {
             fontRegistrationService.cleanupTemporaryFile(at: url)
         }
+    }
+
+    private func startupElapsedMs() -> String {
+        guard let startupBeganUptime else { return "n/a" }
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startupBeganUptime) * 1000
+        return String(format: "%.1f", elapsedMs)
+    }
+
+    private func startupTrace(_ message: String) {
+        let line = "[StartupTrace][CoreTextPageEngine][+\(startupElapsedMs())ms] \(message)"
+        print(line)
+        NSLog("%@", line)
     }
 
     init(
@@ -231,18 +248,28 @@ final class CoreTextPageEngine: PageRenderingProvider {
     }
 
     func start(renderSize: CGSize, bookId: String) async {
+        startupBeganUptime = ProcessInfo.processInfo.systemUptime
         self.renderSize = renderSize
         self.currentBookId = bookId
+        didLogProgressFallback = false
+        didLogProgressByteMode = false
         let totalChapters = chapterCount
         print("[CoreTextEngine] start renderSize=\(renderSize) chapters=\(totalChapters)")
+        startupTrace("start bookId=\(bookId) renderSize=\(renderSize) chapters=\(totalChapters)")
         guard totalChapters > 0 else {
             totalPages = 0
             currentPage = 0
             return
         }
 
-        // 1. 掃描全書章節 Data 大小（秒完，用於 Bytes 進度估算）
-        await scanChapterByteSizes()
+        // 1. 背景掃描全書章節 Data 大小（不阻塞開書主流程）
+        chapterByteScanTask?.cancel()
+        chapterByteSizes = []
+        startupTrace("byteScan launch mode=background")
+        chapterByteScanTask = Task { [weak self] in
+            guard let self else { return }
+            await self.scanChapterByteSizes(for: bookId)
+        }
 
         // 2. 讀存檔 → 決定優先載入哪些章節
         let record = offsetStore.load(bookId: bookId)
@@ -263,12 +290,14 @@ final class CoreTextPageEngine: PageRenderingProvider {
         for i in max(0, savedSpine - 1)...min(savedSpine + 1, totalChapters - 1) {
             priority.insert(i)
         }
+        startupTrace("preload priority=\(priority.sorted())")
 
         await withTaskGroup(of: Void.self) { group in
             for i in priority.sorted() {
                 group.addTask { await self.preloadChapter(at: i) }
             }
         }
+        startupTrace("preload priority done totalPages=\(totalPages)")
         print("[CoreTextEngine] start done totalPages=\(totalPages)")
 
         // 4. 恢復位置（存檔章節已載入，不會 fallback 到 0）
@@ -279,32 +308,57 @@ final class CoreTextPageEngine: PageRenderingProvider {
         }
     }
 
-    private func scanChapterByteSizes() async {
+    private func scanChapterByteSizes(for bookId: String) async {
+        startupTrace("byteScan begin bookId=\(bookId) chapters=\(chapterCount) mode=\(attributedBuilder != nil ? "builder" : "resource")")
+        let sizes: [Int]
         if let attributedBuilder {
-            var sizes = [Int](repeating: 0, count: attributedBuilder.chapterCount)
+            var computed = [Int](repeating: 0, count: attributedBuilder.chapterCount)
             for i in 0..<attributedBuilder.chapterCount {
-                sizes[i] = await attributedBuilder.chapterDataSize(at: i)
-            }
-            chapterByteSizes = sizes
-            return
-        }
-
-        chapterByteSizes = await withTaskGroup(of: (Int, Int).self) { group in
-            for i in resourceProvider.chapters.indices {
-                group.addTask {
-                    let size = (try? await self.resourceProvider.chapterDataSize(at: i)) ?? 0
-                    return (i, size)
+                if Task.isCancelled { return }
+                computed[i] = await attributedBuilder.chapterDataSize(at: i)
+                if i == 0 || i == attributedBuilder.chapterCount - 1 || i % 200 == 0 {
+                    startupTrace("byteScan progress=\(i + 1)/\(attributedBuilder.chapterCount)")
                 }
             }
-            var sizes = [Int](repeating: 0, count: resourceProvider.chapters.count)
-            for await (idx, size) in group { sizes[idx] = size }
-            return sizes
+            sizes = computed
+        } else {
+            sizes = await withTaskGroup(of: (Int, Int).self) { group in
+                for i in resourceProvider.chapters.indices {
+                    group.addTask {
+                        if Task.isCancelled { return (i, 0) }
+                        let size = (try? await self.resourceProvider.chapterDataSize(at: i)) ?? 0
+                        return (i, size)
+                    }
+                }
+                var computed = [Int](repeating: 0, count: resourceProvider.chapters.count)
+                for await (idx, size) in group { computed[idx] = size }
+                return computed
+            }
         }
+
+        guard !Task.isCancelled else { return }
+        guard currentBookId == bookId else { return }
+        chapterByteSizes = sizes
+        let totalBytes = sizes.reduce(0, +)
+        startupTrace("byteScan done chapters=\(sizes.count) totalBytes=\(totalBytes)")
+        onChapterReady?(nil)
     }
 
     /// 全書進度（0.0 ~ 1.0）= (前 N-1 章總 Bytes + 當前章 charOffset) / 全書總 Bytes
     func totalProgress(forSpine spineIndex: Int, charOffset: Int) -> Double {
-        guard !chapterByteSizes.isEmpty else { return 0 }
+        guard !chapterByteSizes.isEmpty else {
+            let totalChapters = max(chapterCount, 1)
+            let clampedSpine = min(max(spineIndex, 0), totalChapters - 1)
+            if !didLogProgressFallback {
+                didLogProgressFallback = true
+                startupTrace("totalProgress mode=fallback spine=\(spineIndex) clamped=\(clampedSpine) totalChapters=\(totalChapters)")
+            }
+            return min(1.0, Double(clampedSpine) / Double(totalChapters))
+        }
+        if !didLogProgressByteMode {
+            didLogProgressByteMode = true
+            startupTrace("totalProgress mode=bytes chapterByteSizesReady count=\(chapterByteSizes.count)")
+        }
         let total = chapterByteSizes.reduce(0, +)
         guard total > 0 else { return 0 }
         let prior = chapterByteSizes.prefix(spineIndex).reduce(0, +)

@@ -235,13 +235,30 @@ final class PublicationSession {
     }
 
     static func extractCoverImage(sourceURL: URL) async -> UIImage? {
+        let startUptime = ProcessInfo.processInfo.systemUptime
+        func coverTrace(_ message: String) {
+            let line = "[ImportTrace][PublicationSession.cover] \(message)"
+            print(line)
+            NSLog("%@", line)
+        }
+        coverTrace("begin file=\(sourceURL.lastPathComponent)")
         guard let publication = try? await openPublication(sourceURL: sourceURL) else {
+            coverTrace("openPublication failed")
             return nil
         }
+        coverTrace(
+            "openPublication done elapsedMs=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - startUptime) * 1000))"
+        )
         switch await publication.cover() {
         case .success(let image):
+            coverTrace(
+                "cover success elapsedMs=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - startUptime) * 1000))"
+            )
             return image
         case .failure:
+            coverTrace(
+                "cover missing elapsedMs=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - startUptime) * 1000))"
+            )
             return nil
         }
     }

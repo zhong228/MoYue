@@ -2501,6 +2501,10 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 DispatchQueue.main.async {
                     guard let self, let pageViewController else { return }
                     guard self.callbackEngineIdentifier == identifier else { return }
+                    let line =
+                        "[StartupTrace][ReaderView.Coordinator] onChapterReady currentPage=\(self.currentPage) enginePage=\(engine.currentPage) totalPages=\(engine.totalPages)"
+                    print(line)
+                    NSLog("%@", line)
                     self.handleChapterReady(on: pageViewController)
                 }
             }
@@ -2542,6 +2546,10 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 targetPage = fallbackPage
                 freshVC = engine.pageViewController(at: targetPage)
             }
+            let prepareLine =
+                "[StartupTrace][ReaderView.Coordinator] handleChapterReady targetPage=\(targetPage) fallbackPage=\(fallbackPage)"
+            print(prepareLine)
+            NSLog("%@", prepareLine)
 
             let direction: UIPageViewController.NavigationDirection
             if let first = pageViewController.viewControllers?.first as? (any PageIndexProviding & UIViewController) {
@@ -2551,7 +2559,11 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             }
 
             pageViewController.setViewControllers([freshVC], direction: direction, animated: false)
-            _ = syncStablePosition(afterShowing: freshVC, notifyFallback: false)
+            let resolved = syncStablePosition(afterShowing: freshVC, notifyFallback: false)
+            let resolvedLine =
+                "[StartupTrace][ReaderView.Coordinator] handleChapterReady syncedPage=\(resolved ?? -1)"
+            print(resolvedLine)
+            NSLog("%@", resolvedLine)
         }
 
         private func handleNavigate(to page: Int) {

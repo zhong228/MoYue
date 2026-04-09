@@ -50,6 +50,34 @@ struct yuedu_appTests {
         )
     }
 
+    private struct ProgressFallbackBuilder: AttributedStringBuilding {
+        let chapterCount: Int
+
+        func chapterTitle(at index: Int) -> String { "c\(index)" }
+        func chapterSourceHref(at index: Int) -> String? { String(index) }
+        func chapterDataSize(at index: Int) async -> Int { 0 }
+        func chapterIndex(for href: String) -> Int? { Int(href) }
+        func cssResourceHrefs() -> [String] { [] }
+
+        func buildChapter(
+            at index: Int,
+            settings: ReaderRenderSettings,
+            themeTextColor: UIColor,
+            themeBackgroundColor: UIColor
+        ) async throws -> AttributedChapterBuildResult {
+            let attributed = NSAttributedString(
+                string: "chapter \(index)",
+                attributes: [.font: UIFont.systemFont(ofSize: settings.fontSize)]
+            )
+            return AttributedChapterBuildResult(
+                attributedString: attributed,
+                imagePage: nil,
+                pageBackgroundImage: nil,
+                anchorOffsets: [:]
+            )
+        }
+    }
+
     private func fetchFirstChapter(sourceName: String, keyword: String, expectedTitle: String) async throws
         -> ChapterPackage
     {
@@ -430,6 +458,26 @@ struct yuedu_appTests {
         #expect(!result.string.contains("\n\n"))
     }
 
+    @Test func htmlBuilderSkipsWhitespaceOnlyTextNodesBetweenParagraphs() async {
+        let builder = HTMLAttributedStringBuilder()
+        let config = HTMLAttributedStringBuilder.Config(
+            fontSize: 18, lineSpacing: 6, paragraphSpacing: 8,
+            firstLineIndent: 36, textColor: .black, backgroundColor: .white
+        )
+        let html = """
+        <html><body><div>
+            <p>第一段</p>
+            <p>第二段</p>
+        </div></body></html>
+        """
+        let result = await builder.build(html: html, config: config).attributedString
+        let hasWhitespaceOnlyGap = result.string.range(
+            of: #"(?:\n|\u{2028})[ \t]{2,}(?:\n|\u{2028})"#,
+            options: .regularExpression
+        ) != nil
+        #expect(hasWhitespaceOnlyGap == false)
+    }
+
     @Test func htmlBuilderPreservesDecorativeBlockWithWhitespaceContent() async {
         let builder = HTMLAttributedStringBuilder()
         let config = HTMLAttributedStringBuilder.Config(
@@ -808,6 +856,99 @@ struct yuedu_appTests {
             hasRestoreTarget: false
         )
         #expect(shouldUseDirectly == false)
+    }
+
+    @Test func coreTextProgressFallsBackToChapterRatioBeforeByteScan() async {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CoreTextProgressFallback-\(UUID().uuidString)")
+        let offsetStore = CharOffsetStore(directoryURL: dir)
+        let settings = ReaderRenderSettings(
+            theme: "light",
+            textColor: .black,
+            backgroundColor: .white,
+            fontSize: 18,
+            lineHeightMultiple: 1.4,
+            lineSpacing: 6,
+            paragraphSpacing: 8,
+            letterSpacing: 0,
+            marginH: 24,
+            marginV: 16,
+            footerHeight: 24,
+            contentInsets: .zero
+        )
+
+        let progress = await MainActor.run { () -> Double in
+            let engine = CoreTextPageEngine(
+                attributedBuilder: ProgressFallbackBuilder(chapterCount: 100),
+                renderSettings: settings,
+                offsetStore: offsetStore
+            )
+            return engine.totalProgress(forSpine: 50, charOffset: 0)
+        }
+
+        #expect(abs(progress - 0.5) < 0.0001)
+    }
+
+    @Test func coreTextProgressFallbackClampsOutOfRangeSpine() async {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CoreTextProgressFallback-\(UUID().uuidString)")
+        let offsetStore = CharOffsetStore(directoryURL: dir)
+        let settings = ReaderRenderSettings(
+            theme: "light",
+            textColor: .black,
+            backgroundColor: .white,
+            fontSize: 18,
+            lineHeightMultiple: 1.4,
+            lineSpacing: 6,
+            paragraphSpacing: 8,
+            letterSpacing: 0,
+            marginH: 24,
+            marginV: 16,
+            footerHeight: 24,
+            contentInsets: .zero
+        )
+
+        let progress = await MainActor.run { () -> Double in
+            let engine = CoreTextPageEngine(
+                attributedBuilder: ProgressFallbackBuilder(chapterCount: 100),
+                renderSettings: settings,
+                offsetStore: offsetStore
+            )
+            return engine.totalProgress(forSpine: 999, charOffset: 0)
+        }
+
+        #expect(abs(progress - 0.99) < 0.0001)
+    }
+
+    @Test func addBookImportGuardRejectsStaleSessionResult() {
+        let active = UUID()
+        let stale = UUID()
+        let accepted = AddBookImportGuard.shouldApplyResult(
+            activeSessionID: active,
+            resultSessionID: stale,
+            isCancelled: false
+        )
+        #expect(accepted == false)
+    }
+
+    @Test func addBookImportGuardRejectsCancelledResult() {
+        let session = UUID()
+        let accepted = AddBookImportGuard.shouldApplyResult(
+            activeSessionID: session,
+            resultSessionID: session,
+            isCancelled: true
+        )
+        #expect(accepted == false)
+    }
+
+    @Test func addBookImportGuardAcceptsMatchingActiveResult() {
+        let session = UUID()
+        let accepted = AddBookImportGuard.shouldApplyResult(
+            activeSessionID: session,
+            resultSessionID: session,
+            isCancelled: false
+        )
+        #expect(accepted == true)
     }
 
     @Test func refreshOnlineBookMetadataRepairsLegacyShelfEntry() async throws {

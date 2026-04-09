@@ -51,10 +51,19 @@ struct FileImportTab: View {
     @State private var pendingContent: String? = nil
     @State private var errorMsg: String? = nil
     @State private var isLoading = false
+    @State private var parseTask: Task<Void, Never>? = nil
+    @State private var importTask: Task<Void, Never>? = nil
+    @State private var activeSessionID = UUID()
     @ObservedObject private var gs = GlobalSettings.shared
 
     // 🟢 新增：用來記住 EPUB 檔案的暫存路徑，給「加入書架」按鈕使用
     @State private var pendingEpubURL: URL? = nil
+
+    private func importTrace(_ message: String) {
+        let line = "[ImportTrace][AddBookView] \(message)"
+        print(line)
+        NSLog("%@", line)
+    }
 
     var body: some View {
         ScrollView {
@@ -103,21 +112,63 @@ struct FileImportTab: View {
                                 ? gs.t("未知作者") : authorInput
 
                             isLoading = true
+                            errorMsg = nil
+                            cancelOngoingTasks()
+                            let sessionID = nextSessionID()
+                            let epubURLForImport = pendingEpubURL
+                            let startUptime = ProcessInfo.processInfo.systemUptime
 
                             // 🟢 核心修改：判斷是存成 EPUB 還是 TXT
-                            Task {
-                                if let epubURL = pendingEpubURL {
-                                    _ = try? await store.importEpub(url: epubURL, title: t)
-                                    try? FileManager.default.removeItem(at: epubURL)
-                                } else {
-                                    _ = try? store.importWeb(
-                                        content: content, title: t, author: a, sourceURL: "local"
-                                    )
-                                }
+                            importTask = Task {
+                                do {
+                                    await MainActor.run {
+                                        importTrace(
+                                            "confirmImport begin session=\(sessionID) mode=\(epubURLForImport == nil ? "txt" : "epub") title=\(t)"
+                                        )
+                                    }
+                                    if let epubURL = epubURLForImport {
+                                        try Task.checkCancellation()
+                                        _ = try await store.importEpub(url: epubURL, title: t)
+                                        try Task.checkCancellation()
+                                        try? FileManager.default.removeItem(at: epubURL)
+                                    } else {
+                                        try Task.checkCancellation()
+                                        _ = try store.importWeb(
+                                            content: content, title: t, author: a, sourceURL: "local"
+                                        )
+                                    }
 
-                                await MainActor.run {
-                                    isLoading = false
-                                    onDismiss()
+                                    await MainActor.run {
+                                        guard AddBookImportGuard.shouldApplyResult(
+                                            activeSessionID: activeSessionID,
+                                            resultSessionID: sessionID,
+                                            isCancelled: Task.isCancelled
+                                        ) else { return }
+                                        importTrace(
+                                            "confirmImport success session=\(sessionID) elapsedMs=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - startUptime) * 1000))"
+                                        )
+                                        isLoading = false
+                                        onDismiss()
+                                    }
+                                } catch is CancellationError {
+                                    await MainActor.run {
+                                        guard activeSessionID == sessionID else { return }
+                                        importTrace("confirmImport cancelled session=\(sessionID)")
+                                        isLoading = false
+                                    }
+                                } catch {
+                                    await MainActor.run {
+                                        guard AddBookImportGuard.shouldApplyResult(
+                                            activeSessionID: activeSessionID,
+                                            resultSessionID: sessionID,
+                                            isCancelled: Task.isCancelled
+                                        ) else { return }
+                                        importTrace(
+                                            "confirmImport failed session=\(sessionID) elapsedMs=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - startUptime) * 1000)) error=\(error.localizedDescription)"
+                                        )
+                                        isLoading = false
+                                        errorMsg = gs.t("匯入失敗：") + error.localizedDescription
+                                    }
                                 }
                             }
                         } label: {
@@ -126,7 +177,7 @@ struct FileImportTab: View {
                                 .background(Color.blue).foregroundColor(.white)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
-                        .disabled(titleInput.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(titleInput.trimmingCharacters(in: .whitespaces).isEmpty || isLoading)
                     }
                     .padding()
                     .background(Color(UIColor.systemBackground))
@@ -153,6 +204,7 @@ struct FileImportTab: View {
                                     style: StrokeStyle(lineWidth: 1.5, dash: [6])))
                     }
                     .buttonStyle(.plain)
+                    .disabled(isLoading)
                 }
 
                 if isLoading {
@@ -173,31 +225,58 @@ struct FileImportTab: View {
         ) { result in
             switch result {
             case .success(let url):
+                cancelOngoingTasks()
+                let sessionID = nextSessionID()
                 isLoading = true
                 errorMsg = nil
                 pendingEpubURL = nil  // 每次選檔先清空
                 let ext = url.pathExtension.lowercased()
+                let sizeBytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                importTrace(
+                    "picker success session=\(sessionID) ext=\(ext) sizeBytes=\(sizeBytes) path=\(url.lastPathComponent)"
+                )
                 if ext == "epub" {
-                    importEPUB(url: url)
+                    importEPUB(url: url, sessionID: sessionID)
                 } else {
-                    importTXT(url: url)
+                    importTXT(url: url, sessionID: sessionID)
                 }
             case .failure(let err):
+                importTrace("picker failure error=\(err.localizedDescription)")
+                isLoading = false
                 errorMsg = gs.t("選取失敗：") + "\(err.localizedDescription)"
             }
+        }
+        .onDisappear {
+            cancelOngoingTasks()
+            cleanupPendingEpubTempFile()
+            resetTransientState()
+            activeSessionID = UUID()
         }
     }
 
     // MARK: - TXT 匯入
-    private func importTXT(url: URL) {
-        Task.detached {
+    private func importTXT(url: URL, sessionID: UUID) {
+        parseTask = Task(priority: .userInitiated) {
+            let startUptime = ProcessInfo.processInfo.systemUptime
+            await MainActor.run {
+                importTrace("importTXT begin session=\(sessionID) file=\(url.lastPathComponent)")
+            }
             let ok = url.startAccessingSecurityScopedResource()
             defer { if ok { url.stopAccessingSecurityScopedResource() } }
             let parsed = try? await BookParserRegistry.parse(url: url)
             let text = parsed?.storageText
             let name = url.deletingPathExtension().lastPathComponent
+            if Task.isCancelled { return }
             await MainActor.run {
+                guard AddBookImportGuard.shouldApplyResult(
+                    activeSessionID: activeSessionID,
+                    resultSessionID: sessionID,
+                    isCancelled: Task.isCancelled
+                ) else { return }
                 isLoading = false
+                importTrace(
+                    "importTXT parsed session=\(sessionID) elapsedMs=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - startUptime) * 1000)) textChars=\(text?.count ?? 0)"
+                )
                 if let t = text {
                     pendingContent = t
                     let parsedTitle = parsed?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -211,7 +290,9 @@ struct FileImportTab: View {
     }
 
     // MARK: - EPUB 匯入
-    private func importEPUB(url: URL) {
+    private func importEPUB(url: URL, sessionID: UUID) {
+        let startUptime = ProcessInfo.processInfo.systemUptime
+        importTrace("importEPUB stage=begin session=\(sessionID) file=\(url.lastPathComponent)")
         let ok = url.startAccessingSecurityScopedResource()
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".epub")
@@ -219,6 +300,9 @@ struct FileImportTab: View {
             try FileManager.default.copyItem(at: url, to: tempURL)
         } catch {
             if ok { url.stopAccessingSecurityScopedResource() }
+            importTrace(
+                "importEPUB stage=copyFailed session=\(sessionID) error=\(error.localizedDescription)"
+            )
             DispatchQueue.main.async {
                 isLoading = false
                 errorMsg = "無法複製 EPUB 檔案：\(error.localizedDescription)"
@@ -227,15 +311,53 @@ struct FileImportTab: View {
         }
         if ok { url.stopAccessingSecurityScopedResource() }
 
-        Task {
-            await MainActor.run {
-                isLoading = false
-                pendingContent = "EPUB_READY"  // 假字串，只為了觸發 UI 顯示確認卡片
-                titleInput = url.deletingPathExtension().lastPathComponent
-                authorInput = "未知作者"
-                pendingEpubURL = tempURL  // 把路徑存起來，按下「加入書架」時再真正匯入
-            }
+        guard AddBookImportGuard.shouldApplyResult(
+            activeSessionID: activeSessionID,
+            resultSessionID: sessionID,
+            isCancelled: false
+        ) else {
+            importTrace("importEPUB stage=staleDiscarded session=\(sessionID)")
+            try? FileManager.default.removeItem(at: tempURL)
+            return
         }
+
+        isLoading = false
+        pendingContent = "EPUB_READY"  // 假字串，只為了觸發 UI 顯示確認卡片
+        titleInput = url.deletingPathExtension().lastPathComponent
+        authorInput = "未知作者"
+        pendingEpubURL = tempURL  // 把路徑存起來，按下「加入書架」時再真正匯入
+        importTrace(
+            "importEPUB stage=prepared session=\(sessionID) elapsedMs=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - startUptime) * 1000)) tempFile=\(tempURL.lastPathComponent)"
+        )
+    }
+
+    private func nextSessionID() -> UUID {
+        let id = UUID()
+        activeSessionID = id
+        return id
+    }
+
+    private func cancelOngoingTasks() {
+        parseTask?.cancel()
+        parseTask = nil
+        importTask?.cancel()
+        importTask = nil
+    }
+
+    private func cleanupPendingEpubTempFile() {
+        if let url = pendingEpubURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func resetTransientState() {
+        showFilePicker = false
+        titleInput = ""
+        authorInput = ""
+        pendingContent = nil
+        errorMsg = nil
+        isLoading = false
+        pendingEpubURL = nil
     }
 }
 

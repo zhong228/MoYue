@@ -14,6 +14,7 @@ struct HomeView: View {
     @ObservedObject private var gs = GlobalSettings.shared
 
     @State private var showAddSheet = false
+    @State private var addSheetSessionID = UUID()
     @State private var searchText = ""
     @State private var sortOrder = BookSortOrder.dateAdded
     @State private var editingBook: ReadingBook? = nil
@@ -88,7 +89,10 @@ struct HomeView: View {
                             .font(DSFont.toolbarIcon)
                     }
                     // 新增本地書籍
-                    Button { showAddSheet = true } label: {
+                    Button {
+                        addSheetSessionID = UUID()
+                        showAddSheet = true
+                    } label: {
                         Image(systemName: "plus")
                             .font(DSFont.toolbarIconLarge)
                     }
@@ -96,7 +100,14 @@ struct HomeView: View {
             }
             .sheet(isPresented: $showAddSheet) {
                 AdaptiveSheetContainer(maxWidth: 760) {
-                    AddBookView().environmentObject(store)
+                    AddBookView()
+                        .id(addSheetSessionID)
+                        .environmentObject(store)
+                }
+            }
+            .onChange(of: showAddSheet) { isPresented in
+                if isPresented {
+                    addSheetSessionID = UUID()
                 }
             }
             .sheet(isPresented: $showSearch) {
