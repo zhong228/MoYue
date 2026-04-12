@@ -290,17 +290,6 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
                 }
             }
 
-            // 1. 行首避頭尾 (Hanging Punctuation)：如果行首是開括號，向左偏移讓字形對齊
-            if lineStart < stringLength {
-                let firstChar = nsString.character(at: lineStart)
-                if let scalar = Unicode.Scalar(firstChar),
-                   CJKTypographyProcessor.openingMarks.contains(scalar) {
-                    let fontSize = attrStr.attribute(.font, at: lineStart, effectiveRange: nil) as? UIFont
-                    let offset = (fontSize?.pointSize ?? 17) * 0.45
-                    origin.x -= offset
-                }
-            }
-
             // Phase 4: HR 分隔線
             if lineRange.location < stringLength,
                attrStr.attribute(
@@ -316,8 +305,6 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
                 ctx.restoreGState()
                 continue
             }
-
-            ctx.textPosition = origin
 
             // 判斷是否為段落最後一行（最後一行不做 justify，避免強制撐開）
             let isParagraphLastLine: Bool
@@ -340,26 +327,29 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
                 isJustified = false
             }
 
+            origin.x = max(contentMinX, origin.x)
+            let maxRightX = contentMinX + contentWidth
+            let availableWidth = max(1, maxRightX - origin.x)
+
             // 非最後一行且設定 justified：用 CTLineCreateJustifiedLine 改善 CJK 字間分配
             let lineToDraw: CTLine
             if isJustified && !isParagraphLastLine {
-                // 行末避頭尾 (Hanging Punctuation)：如果行末是閉括號，微調寬度讓其視覺上對齊
-                var effectiveWidth = contentWidth
-                if lineEnd > 0 {
-                    let lastChar = nsString.character(at: lineEnd - 1)
-                    if let scalar = Unicode.Scalar(lastChar),
-                       CJKTypographyProcessor.closingMarks.contains(scalar) {
-                        let fontSize = attrStr.attribute(.font, at: lineEnd - 1, effectiveRange: nil) as? UIFont
-                        let bonus = (fontSize?.pointSize ?? 17) * 0.4
-                        effectiveWidth += bonus
-                    }
-                }
-
-                // 限制 Justification 拉伸比例，避免字數過少時產生醜陋的間距（大餅臉）
-                // 若文字實際寬度不足 contentWidth 的 60%，則不做 justify
+                // 僅在「覆蓋率高且不含可擴展空白」時做手動 justify，
+                // 避免某些 EPUB 行內空白被過度拉伸造成字距爆炸。
                 let lineWidth = CTLineGetTypographicBounds(line, nil, nil, nil)
-                if lineWidth > Double(contentWidth) * 0.6 {
-                    lineToDraw = CTLineCreateJustifiedLine(line, 1.0, Double(effectiveWidth)) ?? line
+                let coverage = lineWidth / Double(availableWidth)
+                let lineNSRange = NSRange(location: lineStart, length: max(0, lineRange.length))
+                let hasExpandableWhitespace: Bool = {
+                    guard lineNSRange.location >= 0,
+                          lineNSRange.length > 0,
+                          lineNSRange.location + lineNSRange.length <= stringLength
+                    else { return false }
+                    let lineText = nsString.substring(with: lineNSRange)
+                    return lineText.contains(" ") || lineText.contains("\u{00A0}") || lineText.contains("\t")
+                }()
+
+                if !hasExpandableWhitespace && coverage > 0.85 {
+                    lineToDraw = CTLineCreateJustifiedLine(line, 1.0, Double(availableWidth)) ?? line
                 } else {
                     lineToDraw = line
                 }
@@ -367,6 +357,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
                 lineToDraw = line
             }
 
+            ctx.textPosition = origin
             CTLineDraw(lineToDraw, ctx)
         }
     }

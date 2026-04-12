@@ -156,10 +156,16 @@ final class HTMLAttributedStringBuilder {
     private let styleResolver = HTMLBuilderStyleResolver()
     private let coreTextRenderer = HTMLBuilderCoreTextRenderer()
     private let cssPropertyRegistry = HTMLCSSPropertyApplierRegistry.defaultRegistry
+    private static let dirtyCJKSpaceRegex: NSRegularExpression? = {
+        // 清洗「漢字 + 空白(含 NBSP / &nbsp;) + 漢字」的轉檔髒資料，避免 justify 拉爆間距。
+        let pattern = "(?<=\\p{Han})(?:[\\s\\u{00A0}]+|&nbsp;+|&#160;+)+(?=\\p{Han})"
+        return try? NSRegularExpression(pattern: pattern, options: [])
+    }()
 
     func build(html: String, config: Config) async -> BuildResult {
+        let sanitizedHTML = cleanDirtySpacesInHTML(html)
         guard let parsed = await domParser.parse(
-            html: html,
+            html: sanitizedHTML,
             collectStyles: { document in
                 await self.collectStyles(from: document)
             }
@@ -531,6 +537,18 @@ final class HTMLAttributedStringBuilder {
 
         func appendSegment(isLast: Bool) {
             guard segment.length > 0 else { return }
+
+            // ⚠️【關鍵修復 2】：剔除段落開頭與結尾的半形空白與換行，避免排版大亂。
+            let trimCharSet = CharacterSet(charactersIn: " \n\r\t\u{000C}")
+            while segment.length > 0, let first = segment.string.unicodeScalars.first, trimCharSet.contains(first) {
+                segment.deleteCharacters(in: NSRange(location: 0, length: 1))
+            }
+            while segment.length > 0, let last = segment.string.unicodeScalars.last, trimCharSet.contains(last) {
+                segment.deleteCharacters(in: NSRange(location: segment.length - 1, length: 1))
+            }
+
+            guard segment.length > 0 else { return }
+
             let segmentStyle = paragraphSegmentStyle(
                 base: element.resolvedStyle,
                 paragraphIndex: paragraphIndex,
@@ -1786,7 +1804,14 @@ final class HTMLAttributedStringBuilder {
     }
 
     private func normalizeWhitespace(_ text: String) -> String {
-        text.replacingOccurrences(of: "\u{00A0}", with: " ")
+        let collapsed = text.replacingOccurrences(of: "[ \\n\\r\\t\\u{000C}]+", with: " ", options: .regularExpression)
+        return collapsed.replacingOccurrences(of: "\u{00A0}", with: " ")
+    }
+
+    private func cleanDirtySpacesInHTML(_ rawHTML: String) -> String {
+        guard let regex = Self.dirtyCJKSpaceRegex else { return rawHTML }
+        let range = NSRange(location: 0, length: rawHTML.utf16.count)
+        return regex.stringByReplacingMatches(in: rawHTML, options: [], range: range, withTemplate: "")
     }
 
     private func extractURL(from value: String) -> String? {
