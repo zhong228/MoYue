@@ -364,26 +364,77 @@ enum TXTChapterParser {
     }
 
     private static func detectMappedTitleMatches(in mappedTextFile: TXTMappedTextFile) -> [MappedTitleMatch] {
+        // Allocate one bucket per chapterPattern
+        var buckets: [[MappedTitleMatch]] = Array(repeating: [], count: chapterPatterns.count)
+        var specialMatches: [MappedTitleMatch] = []
+
+        let data = mappedTextFile.data
+
+        enumerateMappedLines(in: mappedTextFile) { lineByteRange, lineText in
+            // Pre-filter 1: skip lines longer than 200 bytes (chapter titles are never that long)
+            guard lineByteRange.count <= 200 else { return }
+
+            // Pre-filter 2: check leading byte against known title prefixes
+            // Must find the first non-whitespace byte
+            var firstNonWS = lineByteRange.lowerBound
+            while firstNonWS < lineByteRange.upperBound {
+                let b = data[firstNonWS]
+                if b == 0x20 || b == 0x09 || b == 0x0A || b == 0x0D { firstNonWS += 1; continue }
+                // Also skip UTF-8 ideographic space E3 80 80
+                if b == 0xE3, firstNonWS + 2 < lineByteRange.upperBound,
+                   data[firstNonWS + 1] == 0x80, data[firstNonWS + 2] == 0x80 {
+                    firstNonWS += 3; continue
+                }
+                break
+            }
+            guard firstNonWS < lineByteRange.upperBound else { return }
+
+            let leadByte = data[firstNonWS]
+            // Known title starters:
+            // 0xE7 = 第(UTF-8 E7 AC AC), 0xE5 = 卷/序/終/楔/等(E5...), 0xE5 also covers many CJK
+            // 0xE5, 0xE7, 0xE8, 0xE9 cover most common CJK first bytes
+            // 0x43/0x63 = C/c (Chapter/CHAPTER), 0x50/0x70 = P/p (Part/PART/Prologue/Preface)
+            // 0x49/0x69 = I/i (Introduction), 0x45/0x65 = E/e (Epilogue)
+            let isChineseLead = leadByte >= 0xE4 && leadByte <= 0xEF
+            let isLatinLead: Bool = {
+                switch leadByte {
+                case 0x43, 0x63, 0x50, 0x70, 0x49, 0x69, 0x45, 0x65: return true
+                default: return false
+                }
+            }()
+            guard isChineseLead || isLatinLead else { return }
+
+            // Now decode the line and test patterns
+            let nsLine = lineText as NSString
+            let fullRange = NSRange(location: 0, length: nsLine.length)
+
+            for (i, regex) in chapterPatterns.enumerated() {
+                guard let match = regex.firstMatch(in: lineText, range: fullRange),
+                      let range = Range(match.range, in: lineText) else { continue }
+                let title = String(lineText[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !title.isEmpty else { continue }
+                buckets[i].append(MappedTitleMatch(lineByteRange: lineByteRange, title: title))
+            }
+
+            if let specialRegex = specialTitlePattern {
+                guard let match = specialRegex.firstMatch(in: lineText, range: fullRange),
+                      let range = Range(match.range, in: lineText) else { return }
+                let title = String(lineText[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !title.isEmpty else { return }
+                specialMatches.append(MappedTitleMatch(lineByteRange: lineByteRange, title: title))
+            }
+        }
+
+        // Apply same selection logic as before: first pattern with >=2 matches wins
         var selected: [MappedTitleMatch] = []
         var singleMatchFallback: [MappedTitleMatch] = []
 
-        for regex in chapterPatterns {
-            var matches: [MappedTitleMatch] = []
-            enumerateMappedLines(in: mappedTextFile) { lineByteRange, lineText in
-                let nsLine = lineText as NSString
-                let fullRange = NSRange(location: 0, length: nsLine.length)
-                guard let match = regex.firstMatch(in: lineText, range: fullRange),
-                      let range = Range(match.range, in: lineText)
-                else { return }
-                let title = String(lineText[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !title.isEmpty else { return }
-                matches.append(MappedTitleMatch(lineByteRange: lineByteRange, title: title))
+        for bucket in buckets {
+            if bucket.count == 1, singleMatchFallback.isEmpty {
+                singleMatchFallback = bucket
             }
-            if matches.count == 1, singleMatchFallback.isEmpty {
-                singleMatchFallback = matches
-            }
-            if matches.count >= 2 {
-                selected = matches
+            if bucket.count >= 2 {
+                selected = bucket
                 break
             }
         }
@@ -392,18 +443,7 @@ enum TXTChapterParser {
             selected = singleMatchFallback
         }
 
-        if let specialRegex = specialTitlePattern {
-            enumerateMappedLines(in: mappedTextFile) { lineByteRange, lineText in
-                let nsLine = lineText as NSString
-                let fullRange = NSRange(location: 0, length: nsLine.length)
-                guard let match = specialRegex.firstMatch(in: lineText, range: fullRange),
-                      let range = Range(match.range, in: lineText)
-                else { return }
-                let title = String(lineText[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !title.isEmpty else { return }
-                selected.append(MappedTitleMatch(lineByteRange: lineByteRange, title: title))
-            }
-        }
+        selected.append(contentsOf: specialMatches)
 
         if selected.isEmpty { return [] }
 
