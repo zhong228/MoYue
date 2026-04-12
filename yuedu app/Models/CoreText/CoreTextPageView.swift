@@ -86,7 +86,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
         )
     }
 
-    static func renderPage(
+    nonisolated static func renderPage(
         layout: CoreTextPaginator.ChapterLayout,
         pageIndex: Int,
         in ctx: CGContext,
@@ -205,7 +205,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
         ctx.restoreGState()
     }
 
-    static func drawAttachments(_ attachments: [CoreTextPaginator.RenderedAttachment]) {
+    nonisolated static func drawAttachments(_ attachments: [CoreTextPaginator.RenderedAttachment]) {
         for attachment in attachments {
             attachment.image.draw(in: attachment.rect, blendMode: .normal, alpha: attachment.opacity)
         }
@@ -218,7 +218,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
     ///   - contentMinX: 內容區域左邊界（CoreText 座標），用於繪製 hr 線段起點
     ///   - contentMinY: 內容區域底部（CoreText 座標），用於計算末頁餘白
     ///   - isLastPage: 是否為章節最後一頁；最後一頁不做垂直均分
-    static func drawLines(
+    nonisolated static func drawLines(
         of frame: CTFrame,
         contentWidth: CGFloat,
         contentMinX: CGFloat,
@@ -371,7 +371,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
         }
     }
 
-    static func drawBlockRenderables(
+    nonisolated static func drawBlockRenderables(
         _ renderables: [CoreTextPaginator.RenderedBlockRenderable],
         in ctx: CGContext,
         boundsHeight: CGFloat
@@ -425,7 +425,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
         return (bx, bw)
     }
 
-    static func drawBlockRenderableText(
+    nonisolated static func drawBlockRenderableText(
         _ text: NSAttributedString,
         in rect: CGRect,
         paddingLeft: CGFloat,
@@ -476,12 +476,12 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
         ctx.restoreGState()
     }
 
-    static func drawPageBackground(_ image: UIImage, in bounds: CGRect) {
+    nonisolated static func drawPageBackground(_ image: UIImage, in bounds: CGRect) {
         let drawRect = backgroundImageRect(for: image.size, in: bounds)
         image.draw(in: drawRect)
     }
 
-    private static func backgroundImageRect(for imageSize: CGSize, in bounds: CGRect) -> CGRect {
+    private nonisolated static func backgroundImageRect(for imageSize: CGSize, in bounds: CGRect) -> CGRect {
         guard imageSize.width > 0, imageSize.height > 0, bounds.width > 0, bounds.height > 0 else {
             return bounds
         }

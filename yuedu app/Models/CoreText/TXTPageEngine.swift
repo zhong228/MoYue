@@ -350,6 +350,13 @@ final class TXTPageEngine: PageRenderingProvider {
         return min(1.0, max(0.0, baseProgress + (chapterFraction / Double(chapterCount))))
     }
 
+    func position(forProgress progress: Double) -> (spineIndex: Int, charOffset: Int) {
+        guard chapterCount > 0 else { return (0, 0) }
+        let targetIndex = Int(progress * Double(chapterCount - 1))
+        let clamped = max(0, min(targetIndex, chapterCount - 1))
+        return (clamped, 0)
+    }
+
     func renderSnapshot(forPage globalPage: Int) -> UIImage? {
         let (spine, local) = localPosition(for: globalPage)
         guard let layout = layouts[spine], local < layout.pageRanges.count, renderSize.width > 0 else { return nil }

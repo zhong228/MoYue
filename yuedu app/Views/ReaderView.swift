@@ -1032,51 +1032,27 @@ struct ReaderView: View {
 
     // MARK: - 頂部欄
     private var topBar: some View {
-        VStack(spacing: 0) {
-            HStack {
-                HStack(spacing: 8) {
-                    Button {
-                        saveProgress()
-                        presentationMode.wrappedValue.dismiss()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .accessibilityIdentifier("reader_back_button")
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundColor(readerTheme.textColor)
-                            .frame(width: 36, height: 36)
-                    }
-                    Text(currentChapterTitle.converted(to: settings.textConversion))
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(readerTheme.textColor)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity)
-                    Button {
-                        withAnimation(.easeInOut(duration: uiFeedbackDuration)) {
-                            store.toggleBookmark(
-                                bookId: bookId,
-                                chapterIndex: currentChapterIndex,
-                                chapterTitle: currentChapterTitle,
-                                pageIndex: currentPage,
-                                excerpt: currentPageExcerpt
-                            )
-                        }
-                    } label: {
-                        Image(systemName: isCurrentPageBookmarked ? "bookmark.fill" : "bookmark")
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundColor(isCurrentPageBookmarked ? .orange : readerTheme.textColor)
-                            .scaleEffect(isCurrentPageBookmarked ? 1.15 : 1.0)
-                            .frame(width: 36, height: 36)
-                    }
-                    .animation(.easeInOut(duration: uiFeedbackDuration), value: isCurrentPageBookmarked)
+        ReaderTopBar(
+            theme: readerTheme,
+            chapterTitle: currentChapterTitle.converted(to: settings.textConversion),
+            isBookmarked: isCurrentPageBookmarked,
+            overlayMaxWidth: overlayContentMaxWidth,
+            onBack: {
+                saveProgress()
+                presentationMode.wrappedValue.dismiss()
+            },
+            onToggleBookmark: {
+                withAnimation(.easeInOut(duration: uiFeedbackDuration)) {
+                    store.toggleBookmark(
+                        bookId: bookId,
+                        chapterIndex: currentChapterIndex,
+                        chapterTitle: currentChapterTitle,
+                        pageIndex: currentPage,
+                        excerpt: currentPageExcerpt
+                    )
                 }
-                .frame(maxWidth: overlayContentMaxWidth)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(readerTheme.barColor)
-            Divider().opacity(0.18)
-            Spacer()
-        }
+        )
     }
 
     // MARK: - 底部欄
@@ -1247,18 +1223,18 @@ struct ReaderView: View {
     }
 
     private func chapterSliderProgressValue() -> Double {
-        if usesCoreTextEPUB {
-            guard chapters.count > 1 else { return 0 }
-            return Double(currentChapterIndex) / Double(chapters.count - 1)
+        if let engine = epubRenderer.engine, usesCoreTextEPUB {
+            let pos = engine.charOffset(forPage: currentPage)
+            return engine.totalProgress(forSpine: pos.spineIndex, charOffset: pos.charOffset)
         }
         guard allPages.count > 1 else { return 0 }
         return Double(currentPage) / Double(allPages.count - 1)
     }
 
     private func applyChapterSliderProgress(_ value: Double) {
-        if usesCoreTextEPUB {
-            let idx = Int(value * Double(max(chapters.count - 1, 1)))
-            jumpToChapter(max(0, min(idx, chapters.count - 1)))
+        if let engine = epubRenderer.engine, usesCoreTextEPUB {
+            let pos = engine.position(forProgress: value)
+            jumpToChapter(pos.spineIndex, charOffset: pos.charOffset)
             return
         }
         currentPage = max(
@@ -1382,7 +1358,7 @@ struct ReaderView: View {
         return allPages.firstIndex(where: { $0.chapterIndex == chapterIdx })
     }
 
-    private func jumpToChapter(_ idx: Int) {
+    private func jumpToChapter(_ idx: Int, charOffset: Int = 0) {
         guard chapters.indices.contains(idx) else { return }
         if let engine = epubRenderer.engine, usesCoreTextEPUB {
             Task { @MainActor in
@@ -1391,7 +1367,7 @@ struct ReaderView: View {
                 // 背景預載鄰域章節，確保前後翻頁時 layout 已就緒
                 if idx > 0 { Task { await engine.preloadChapter(at: idx - 1) } }
                 if idx < chapters.count - 1 { Task { await engine.preloadChapter(at: idx + 1) } }
-                let targetPage = engine.pageIndex(forSpine: idx, charOffset: 0)
+                let targetPage = engine.pageIndex(forSpine: idx, charOffset: charOffset)
                 currentChapterIndex = idx
                 currentPage = targetPage
                 epubRenderer.currentEpubPage = targetPage
@@ -2753,6 +2729,19 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         }
 
         // MARK: - Cover pan gesture
+        
+        private enum GestureConstants {
+            /// The minimum horizontal translation (in points) required to trigger the cover animation.
+            static let initialTranslationThreshold: CGFloat = 18.0
+            /// The threshold ratio (0.0 to 1.0) of the screen width that must be crossed to commit the page turn.
+            static let commitProgressRatio: CGFloat = 0.34
+            /// The minimum flick velocity (in points per second) to commit the page turn even if the progress ratio is not reached.
+            static let commitVelocityThreshold: CGFloat = 560.0
+            /// The duration (in seconds) of the settling animation when the user releases their finger.
+            static let settleAnimationDuration: TimeInterval = 0.22
+            /// The maximum alpha value for the dimming overlay during the cover animation.
+            static let maxDimmingAlpha: CGFloat = 0.35
+        }
 
         @objc func handleCoverPan(_ gesture: UIPanGestureRecognizer) {
             guard let view = gesture.view else { return }
@@ -2772,7 +2761,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
 
             case .changed:
                 if coverTargetPage == nil {
-                    if translationX < -18, currentPage < currentEngine.totalPages - 1 {
+                    if translationX < -GestureConstants.initialTranslationThreshold, currentPage < currentEngine.totalPages - 1 {
                         // Forward uncover：當前頁往左滑走，新頁在底下
                         coverDirection = 1
                         let target = currentPage + 1
@@ -2781,7 +2770,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                         coverCurrentImageView.frame = view.bounds
                         coverOverlayView.isHidden = false
                         setupForwardOutgoing(currentPageSnapshot: currentPage, newPage: target, in: view)
-                    } else if translationX > 18, currentPage > 0 {
+                    } else if translationX > GestureConstants.initialTranslationThreshold, currentPage > 0 {
                         // Backward cover：上一頁從左側蓋入
                         let target = currentPage - 1
                         // 若 snapshot 尚未就緒（章節未載入），不啟動動畫
@@ -2804,10 +2793,10 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 coverShadowView.frame.origin.x = newX
                 if coverDirection == -1 {
                     coverDimView.frame = coverCurrentImageView.bounds
-                    coverDimView.alpha = rawProgress * 0.35
+                    coverDimView.alpha = rawProgress * GestureConstants.maxDimmingAlpha
                 } else if coverDirection == 1 {
                     coverDimView.frame = coverCurrentImageView.bounds
-                    coverDimView.alpha = (1 - rawProgress) * 0.35
+                    coverDimView.alpha = (1 - rawProgress) * GestureConstants.maxDimmingAlpha
                 }
 
             case .ended, .cancelled, .failed:
@@ -2816,18 +2805,18 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                     return
                 }
                 let progress = min(max(abs(translationX) / width, 0), 1)
-                let shouldCommit = progress > 0.34 || abs(velocityX) > 560
+                let shouldCommit = progress > GestureConstants.commitProgressRatio || abs(velocityX) > GestureConstants.commitVelocityThreshold
 
-                UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut]) {
+                UIView.animate(withDuration: GestureConstants.settleAnimationDuration, delay: 0, options: [.curveEaseOut]) {
                     let destX: CGFloat = self.coverDirection == 1
                         ? (shouldCommit ? -width : 0)
                         : (shouldCommit ? 0 : -width)
                     self.coverIncomingImageView.frame.origin.x = destX
                     self.coverShadowView.frame.origin.x = destX
                     if self.coverDirection == -1 {
-                        self.coverDimView.alpha = shouldCommit ? 0.35 : 0
+                        self.coverDimView.alpha = shouldCommit ? GestureConstants.maxDimmingAlpha : 0
                     } else if self.coverDirection == 1 {
-                        self.coverDimView.alpha = shouldCommit ? 0 : 0.35
+                        self.coverDimView.alpha = shouldCommit ? 0 : GestureConstants.maxDimmingAlpha
                     }
                 } completion: { _ in
                     if shouldCommit {

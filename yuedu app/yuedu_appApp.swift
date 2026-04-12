@@ -29,10 +29,23 @@ enum ChapterUpdater {
         let onlineBooks = bookStore.books.filter { $0.isOnline }
         guard !onlineBooks.isEmpty else { return }
 
+        // Limit concurrency to avoid network request storms on startup that trigger Rate Limiting/Cloudflare
+        let maxConcurrentTasks = 3
         await withTaskGroup(of: Void.self) { group in
-            for book in onlineBooks {
+            for i in 0..<min(maxConcurrentTasks, onlineBooks.count) {
                 group.addTask {
-                    await refreshBook(book: book, bookStore: bookStore)
+                    await refreshBook(book: onlineBooks[i], bookStore: bookStore)
+                }
+            }
+            
+            var index = maxConcurrentTasks
+            for await _ in group {
+                if index < onlineBooks.count {
+                    let nextBook = onlineBooks[index]
+                    group.addTask {
+                        await refreshBook(book: nextBook, bookStore: bookStore)
+                    }
+                    index += 1
                 }
             }
         }

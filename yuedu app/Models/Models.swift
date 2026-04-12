@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import OSLog
 // MARK: - HTML → 純文字
 import SwiftSoup
 import SwiftUI
@@ -539,6 +540,7 @@ class BookStore: ObservableObject {
     @Published var books: [ReadingBook] = []
 
     private let metaKey = "yd_books_meta"
+    private var saveWorkItem: DispatchWorkItem?
 
     init() { loadMeta() }
 
@@ -632,7 +634,11 @@ class BookStore: ObservableObject {
         guard let mapped = try? TXTFileReader.readMappedTextFile(url: destURL),
               !mapped.string(in: 0..<min(128, mapped.byteCount)).isEmpty || mapped.byteCount == 0
         else {
-            try? FileManager.default.removeItem(at: destURL)
+            do {
+                try FileManager.default.removeItem(at: destURL)
+            } catch {
+                Logger(subsystem: "com.yuedu.app", category: "BookStore").error("Failed to remove item at \(destURL): \(error)")
+            }
             throw TXTFileReaderError.encodingNotSupported
         }
 
@@ -746,12 +752,20 @@ class BookStore: ObservableObject {
 
         func cleanupImportedFiles() {
             if FileManager.default.fileExists(atPath: destURL.path) {
-                try? FileManager.default.removeItem(at: destURL)
+                do {
+                try FileManager.default.removeItem(at: destURL)
+            } catch {
+                Logger(subsystem: "com.yuedu.app", category: "BookStore").error("Failed to remove item at \(destURL): \(error)")
+            }
             }
             if let coverFilename {
                 let coverURL = documentsURL(for: coverFilename)
                 if FileManager.default.fileExists(atPath: coverURL.path) {
-                    try? FileManager.default.removeItem(at: coverURL)
+                    do {
+                        try FileManager.default.removeItem(at: coverURL)
+                    } catch {
+                        Logger(subsystem: "com.yuedu.app", category: "BookStore").error("Failed to remove cover image at \(coverURL): \(error)")
+                    }
                 }
             }
         }
@@ -777,7 +791,11 @@ class BookStore: ObservableObject {
                 let coverURL = documentsURL(for: coverName)
                 // 將封面轉為 JPEG 儲存（壓縮節省空間）
                 if let jpegData = coverImage.jpegData(compressionQuality: 0.85) {
-                    try? jpegData.write(to: coverURL)
+                    do {
+                        try jpegData.write(to: coverURL)
+                    } catch {
+                        Logger(subsystem: "com.yuedu.app", category: "BookStore").error("Failed to write cover image at \(coverURL): \(error)")
+                    }
                     coverFilename = coverName
                 }
             }
@@ -922,7 +940,11 @@ class BookStore: ObservableObject {
         guard let idx = books.firstIndex(where: { $0.id == bookId }) else { return }
         let filename = books[idx].contentFilename
         let fileURL = documentsURL(for: filename)
-        try? rawText.write(to: fileURL, atomically: true, encoding: .utf8)
+        do {
+            try rawText.write(to: fileURL, atomically: true, encoding: .utf8)
+        } catch {
+            Logger(subsystem: "com.yuedu.app", category: "BookStore").error("Failed to write raw text chapter to \(fileURL): \(error)")
+        }
     }
 
     // MARK: 編輯書籍資訊
@@ -941,15 +963,29 @@ class BookStore: ObservableObject {
             if book.isOnline {
                 // 刪除快取目錄
                 let cacheDir = documentsURL(for: "online_cache/\(bookId.uuidString)")
-                try? FileManager.default.removeItem(at: cacheDir)
+                do {
+                    try FileManager.default.removeItem(at: cacheDir)
+                } catch {
+                    Logger(subsystem: "com.yuedu.app", category: "BookStore").error("Failed to remove cache directory \(cacheDir): \(error)")
+                }
             } else {
-                try? FileManager.default.removeItem(at: documentsURL(for: book.contentFilename))
+                do {
+                    let fileUrl = documentsURL(for: book.contentFilename)
+                    try FileManager.default.removeItem(at: fileUrl)
+                } catch {
+                    Logger(subsystem: "com.yuedu.app", category: "BookStore").error("Failed to remove document file \(book.contentFilename): \(error)")
+                }
                 TXTChapterParser.deleteCachedIndexes(bookId: bookId)
                 // 同步刪除 EPUB 字型資源目錄
                 if book.isLegacyParsedEPUB {
                     let assetsDir = book.contentFilename.replacingOccurrences(
                         of: "_epub.json", with: "_epub_assets")
-                    try? FileManager.default.removeItem(at: documentsURL(for: assetsDir))
+                    do {
+                        let assetsUrl = documentsURL(for: assetsDir)
+                        try FileManager.default.removeItem(at: assetsUrl)
+                    } catch {
+                        Logger(subsystem: "com.yuedu.app", category: "BookStore").error("Failed to remove assets directory \(assetsDir): \(error)")
+                    }
                 }
             }
             books.remove(at: idx)
@@ -1023,7 +1059,11 @@ class BookStore: ObservableObject {
     func clearOnlineDownload(bookId: UUID) {
         guard let idx = books.firstIndex(where: { $0.id == bookId }) else { return }
         let cacheDir = documentsURL(for: "online_cache/\(bookId.uuidString)")
-        try? FileManager.default.removeItem(at: cacheDir)
+        do {
+            try FileManager.default.removeItem(at: cacheDir)
+        } catch {
+            Logger(subsystem: "com.yuedu.app", category: "BookStore").error("Failed to remove cache directory \(cacheDir): \(error)")
+        }
         if var chapters = books[idx].onlineChapters {
             for chapterIndex in chapters.indices {
                 chapters[chapterIndex].cachedFilename = nil
@@ -1199,9 +1239,18 @@ class BookStore: ObservableObject {
     }
 
     private func saveMeta() {
-        if let data = try? JSONEncoder().encode(books) {
-            UserDefaults.standard.set(data, forKey: metaKey)
+        saveWorkItem?.cancel()
+        
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            if let data = try? JSONEncoder().encode(self.books) {
+                UserDefaults.standard.set(data, forKey: self.metaKey)
+            }
         }
+        
+        saveWorkItem = workItem
+        // 延遲 2 秒寫入（防抖機制）避免頻繁觸發卡頓
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: workItem)
     }
 
     private func loadMeta() {

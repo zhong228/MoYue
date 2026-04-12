@@ -74,6 +74,7 @@ protocol PageRenderingProvider: AnyObject {
     func resolveInternalLink(_ href: String, fromSpineIndex spineIndex: Int) async -> Int?
     func plainText(forPage page: Int) -> String
     func totalProgress(forSpine spineIndex: Int, charOffset: Int) -> Double
+    func position(forProgress progress: Double) -> (spineIndex: Int, charOffset: Int)
     func cancelPendingWork()
 }
 
@@ -85,6 +86,7 @@ extension PageRenderingProvider {
     func lastPageIndex(ofChapter spineIndex: Int) -> Int? { nil }
     func localPosition(for globalPage: Int) -> (spineIndex: Int, localPage: Int) { (0, globalPage) }
     func resolveInternalLink(_ href: String, fromSpineIndex spineIndex: Int) async -> Int? { nil }
+    func position(forProgress progress: Double) -> (spineIndex: Int, charOffset: Int) { (0, 0) }
     var onChapterReady: ((Int?) -> Void)? {
         get { nil }
         set {}

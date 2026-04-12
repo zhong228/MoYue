@@ -45,6 +45,9 @@ struct TXTLazyAttributedStringBuilder: AttributedStringBuilding {
     }
 
     func chapterDataSize(at index: Int) async -> Int {
+        if mappedChapterIndexes.indices.contains(index) {
+            return mappedChapterIndexes[index].byteRange.count
+        }
         guard let chapterText = chapterText(at: index) else { return 0 }
         return chapterText.lengthOfBytes(using: .utf8)
     }

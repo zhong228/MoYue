@@ -118,7 +118,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
     private(set) var layouts: [Int: CoreTextPaginator.ChapterLayout] = [:]
     private let chapterSnapshots: NSCache<NSNumber, UIImage> = {
         let cache = NSCache<NSNumber, UIImage>()
-        cache.countLimit = 5
+        cache.countLimit = 20 // 提高容量以容納更多章節的邊界快照
         return cache
     }()
     private var spinePageOffsets: [Int] = []
@@ -341,6 +341,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
         chapterByteSizes = sizes
         let totalBytes = sizes.reduce(0, +)
         startupTrace("byteScan done chapters=\(sizes.count) totalBytes=\(totalBytes)")
+        rebuildPageOffsets()
         onChapterReady?(nil)
     }
 
@@ -373,6 +374,34 @@ final class CoreTextPageEngine: PageRenderingProvider {
             scaledOffset = charOffset
         }
         return min(1.0, Double(prior + scaledOffset) / Double(total))
+    }
+
+    /// 全書進度（0.0 ~ 1.0）對應的 (spineIndex, charOffset)
+    func position(forProgress progress: Double) -> (spineIndex: Int, charOffset: Int) {
+        let totalChapters = chapterCount
+        guard totalChapters > 0 else { return (0, 0) }
+
+        guard !chapterByteSizes.isEmpty else {
+            let idx = Int(progress * Double(max(0, totalChapters - 1)))
+            let clamped = max(0, min(idx, totalChapters - 1))
+            return (clamped, 0)
+        }
+
+        let totalBytes = chapterByteSizes.reduce(0, +)
+        guard totalBytes > 0 else { return (0, 0) }
+        let targetByte = Int(progress * Double(totalBytes))
+
+        var currentSum = 0
+        for (i, size) in chapterByteSizes.enumerated() {
+            if currentSum + size > targetByte {
+                let byteOffsetInChapter = targetByte - currentSum
+                let charLength = layouts[i]?.attributedString.length ?? size
+                let charOffset = Int(Double(byteOffsetInChapter) / Double(max(1, size)) * Double(charLength))
+                return (i, charOffset)
+            }
+            currentSum += size
+        }
+        return (max(0, totalChapters - 1), 0)
     }
 
     /// 釋放距離當前章超過 1 的 layout，記憶體只保留 [n-1, n, n+1]
@@ -456,10 +485,15 @@ final class CoreTextPageEngine: PageRenderingProvider {
     }
 
     func pageIndex(forSpine spineIndex: Int, charOffset: Int) -> Int {
-        guard spinePageOffsets.indices.contains(spineIndex),
-              let layout = layouts[spineIndex] else { return 0 }
-        let localPage = layout.pageIndex(for: charOffset)
-        return spinePageOffsets[spineIndex] + localPage
+        guard spinePageOffsets.indices.contains(spineIndex) else { return 0 }
+        if let layout = layouts[spineIndex] {
+            let localPage = layout.pageIndex(for: charOffset)
+            return spinePageOffsets[spineIndex] + localPage
+        } else {
+            // 未載入時模糊估算：每 400 字一頁 (保守值)
+            let estimatedLocal = max(0, charOffset / 400)
+            return spinePageOffsets[spineIndex] + estimatedLocal
+        }
     }
 
     func pageIndex(for position: CoreTextReadingPosition) -> Int? {
@@ -827,8 +861,9 @@ final class CoreTextPageEngine: PageRenderingProvider {
 
     func snapshotViewController(at index: Int) -> UIViewController? {
         let (spineIndex, localPage) = localPosition(for: index)
+        // 快照只用於章節邊界接力。第 0 頁 key 為 (spineIndex << 1)
         guard localPage == 0,
-              let snapshot = chapterSnapshots.object(forKey: NSNumber(value: spineIndex)) else { return nil }
+              let snapshot = chapterSnapshots.object(forKey: NSNumber(value: (spineIndex << 1))) else { return nil }
         let bgColor: UIColor
         if let layout = layouts[spineIndex],
            layout.attributedString.length > 0,
@@ -856,14 +891,9 @@ final class CoreTextPageEngine: PageRenderingProvider {
         }
         chapterSnapshots.removeAllObjects()
         onChapterReady?(nil)
-        // 在背景重建各章節的快照（用於跨章節動畫）
+        // 在背景重建各章節的邊界快照（用於跨章節動畫）
         for spineIndex in layouts.keys {
-            if let layout = layouts[spineIndex] {
-                Task { [weak self] in
-                    guard let self else { return }
-                    self.chapterSnapshots.setObject(self.renderImage(layout: layout, pageIndex: 0), forKey: NSNumber(value: spineIndex))
-                }
-            }
+            generateSnapshot(for: spineIndex)
         }
     }
 
@@ -873,22 +903,61 @@ final class CoreTextPageEngine: PageRenderingProvider {
         guard let layout = layouts[spineIndex],
               localPage < layout.pageRanges.count,
               renderSize.width > 0, renderSize.height > 0 else { return nil }
-        return renderImage(layout: layout, pageIndex: localPage)
+        
+        // 優先從邊界快取中尋找 (Key: (spine << 1) | isLastPage)
+        let isLastPage = localPage == (layout.pageRanges.count - 1)
+        if localPage == 0 || isLastPage {
+            let key = NSNumber(value: (spineIndex << 1) | (isLastPage ? 1 : 0))
+            if let cached = chapterSnapshots.object(forKey: key) {
+                return cached
+            }
+        }
+        
+        return Self.renderImage(layout: layout, pageIndex: localPage, size: renderSize)
     }
 
     // MARK: - Private helpers
 
-    /// 將章節第 0 頁預渲染成 UIImage，存入 chapterSnapshots 以供跨章節動畫接力。
-    /// 在 preloadChapter 完成後同步呼叫（MainActor）。
+    /// 將章節第 0 頁和最後一頁預渲染成 UIImage，存入 chapterSnapshots 以供跨章節動畫接力。
+    /// 使用 Task.detached 在背景執行緒渲染，避免阻塞主執行緒。
     private func generateSnapshot(for spineIndex: Int) {
         guard let layout = layouts[spineIndex],
               !layout.pageRanges.isEmpty,
-              chapterSnapshots.object(forKey: NSNumber(value: spineIndex)) == nil,
               renderSize.width > 0, renderSize.height > 0 else { return }
-        chapterSnapshots.setObject(renderImage(layout: layout, pageIndex: 0), forKey: NSNumber(value: spineIndex))
+        
+        let size = renderSize
+        
+        // 第 0 頁快照 (Key: (spine << 1))
+        let firstKey = NSNumber(value: (spineIndex << 1))
+        if chapterSnapshots.object(forKey: firstKey) == nil {
+            Task {
+                let img = await Task.detached(priority: .userInitiated) {
+                    Self.renderImage(layout: layout, pageIndex: 0, size: size)
+                }.value
+                self.chapterSnapshots.setObject(img, forKey: firstKey)
+            }
+        }
+
+        // 最後一頁快照 (Key: (spine << 1) | 1)
+        let lastIdx = layout.pageRanges.count - 1
+        if lastIdx > 0 {
+            let lastKey = NSNumber(value: (spineIndex << 1) | 1)
+            if chapterSnapshots.object(forKey: lastKey) == nil {
+                Task {
+                    let img = await Task.detached(priority: .userInitiated) {
+                        Self.renderImage(layout: layout, pageIndex: lastIdx, size: size)
+                    }.value
+                    self.chapterSnapshots.setObject(img, forKey: lastKey)
+                }
+            }
+        }
     }
 
-    private func renderImage(layout: CoreTextPaginator.ChapterLayout, pageIndex: Int) -> UIImage {
+    private nonisolated static func renderImage(
+        layout: CoreTextPaginator.ChapterLayout,
+        pageIndex: Int,
+        size: CGSize
+    ) -> UIImage {
         let bgColor: UIColor
         if layout.attributedString.length > 0,
            let color = layout.attributedString.attribute(
@@ -898,7 +967,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
         } else {
             bgColor = .systemBackground
         }
-        let size = renderSize
+        
         return UIGraphicsImageRenderer(size: size).image { ctx in
             let c = ctx.cgContext
             c.setFillColor(bgColor.cgColor)
@@ -934,17 +1003,33 @@ final class CoreTextPageEngine: PageRenderingProvider {
     private func rebuildPageOffsets() {
         let anchoredPosition = readingPosition(forPage: currentPage) ?? .chapterStart(0)
         let oldOffsets = spinePageOffsets
+        let oldPage = currentPage
         var offset = 0
+        
+        // 取得估算用的每頁位元組數 (假設中文環境 600 bytes 一頁)
+        let avgBytesPerPage = 600 
+
         spinePageOffsets = (0..<chapterCount).map { i in
             let start = offset
-            // 未載入章節估 1 頁，確保 spinePageOffsets 和 totalPages 不崩壞
-            offset += layouts[i]?.pageRanges.count ?? 1
+            if let layout = layouts[i] {
+                offset += layout.pageRanges.count
+            } else if i < chapterByteSizes.count && chapterByteSizes[i] > 0 {
+                // 根據 Byte 大小估算頁數
+                offset += max(1, chapterByteSizes[i] / avgBytesPerPage)
+            } else {
+                // 未載入且無 Byte 資訊時估 1 頁，確保 spinePageOffsets 和 totalPages 不崩壞
+                offset += 1
+            }
             return start
         }
         totalPages = offset
 
         if let correctedPage = pageIndex(for: anchoredPosition) {
             currentPage = max(0, min(correctedPage, max(totalPages - 1, 0)))
+        }
+
+        if currentPage != oldPage {
+            onNavigateToPage?(currentPage)
         }
         
         if !oldOffsets.isEmpty, oldOffsets != spinePageOffsets {
