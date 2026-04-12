@@ -607,10 +607,121 @@ class BookStore: ObservableObject {
     // MARK: 匯入 TXT 檔案
     @discardableResult
     func importTxt(url: URL, title: String? = nil) throws -> ReadingBook {
-        // 多編碼偵測（UTF-8 → BIG5 → GBK → 自動偵測）
-        let text = try TXTFileReader.readTextFile(url: url)
         let bookTitle = title ?? url.deletingPathExtension().lastPathComponent
-        return try saveBook(title: bookTitle, author: "未知作者", content: text, source: "local")
+        let filename = "\(UUID().uuidString).txt"
+        let destURL = documentsURL(for: filename)
+
+        // Probe encoding using first 4KB
+        let probeData: Data
+        if let handle = try? FileHandle(forReadingFrom: url) {
+            probeData = handle.readData(ofLength: 4096)
+            try? handle.close()
+        } else {
+            probeData = Data()
+        }
+
+        if probeData.isEmpty || String(data: probeData, encoding: .utf8) != nil {
+            // Fast path: file is UTF-8 (or empty) — direct copy, no memory overhead
+            try FileManager.default.copyItem(at: url, to: destURL)
+        } else {
+            // Slow path: non-UTF-8 (Big5/GBK) — stream-transcode to UTF-8
+            try streamTranscodeToUTF8(source: url, destination: destURL)
+        }
+
+        // Validate the copied file is readable
+        guard let mapped = try? TXTFileReader.readMappedTextFile(url: destURL),
+              !mapped.string(in: 0..<min(128, mapped.byteCount)).isEmpty || mapped.byteCount == 0
+        else {
+            try? FileManager.default.removeItem(at: destURL)
+            throw TXTFileReaderError.encodingNotSupported
+        }
+
+        var book = ReadingBook(title: bookTitle, author: "未知作者", source: "local", contentFilename: filename)
+        book.contentPipelineKind = .txt
+        books.insert(book, at: 0)
+        saveMeta()
+        return book
+    }
+
+    private func streamTranscodeToUTF8(source: URL, destination: URL) throws {
+        guard let inputStream = InputStream(url: source) else {
+            throw TXTFileReaderError.encodingNotSupported
+        }
+        guard let outputStream = OutputStream(url: destination, append: false) else {
+            throw TXTFileReaderError.encodingNotSupported
+        }
+
+        inputStream.open()
+        outputStream.open()
+        defer { inputStream.close(); outputStream.close() }
+
+        // Detect encoding from first 128KB
+        let probeSize = 128 * 1024
+        var probeBuffer = [UInt8](repeating: 0, count: probeSize)
+        let probeRead = inputStream.read(&probeBuffer, maxLength: probeSize)
+        guard probeRead > 0 else { return }
+
+        let probeData = Data(probeBuffer[0..<probeRead])
+        let big5Encoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.big5.rawValue)))
+        let gbkEncoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
+        let sourceEncoding: String.Encoding
+        if String(data: probeData, encoding: big5Encoding) != nil {
+            sourceEncoding = big5Encoding
+        } else if String(data: probeData, encoding: gbkEncoding) != nil {
+            sourceEncoding = gbkEncoding
+        } else {
+            sourceEncoding = .utf8
+        }
+
+        // Re-open source stream from beginning (InputStream can't seek, so close and reopen)
+        inputStream.close()
+        guard let freshInput = InputStream(url: source) else { throw TXTFileReaderError.encodingNotSupported }
+        freshInput.open()
+        defer { freshInput.close() }
+
+        let bufferSize = 64 * 1024
+        var buffer = [UInt8](repeating: 0, count: bufferSize)
+        var leftover = Data()
+
+        while freshInput.hasBytesAvailable {
+            let readCount = freshInput.read(&buffer, maxLength: bufferSize)
+            guard readCount > 0 else { break }
+            let chunk = leftover + Data(buffer[0..<readCount])
+            leftover = Data()
+
+            if let decoded = String(data: chunk, encoding: sourceEncoding) {
+                if let utf8Data = decoded.data(using: .utf8) {
+                    utf8Data.withUnsafeBytes { ptr in
+                        if let base = ptr.bindMemory(to: UInt8.self).baseAddress {
+                            _ = outputStream.write(base, maxLength: utf8Data.count)
+                        }
+                    }
+                }
+            } else if chunk.count > 4 {
+                // Keep last 3 bytes for next chunk (multi-byte boundary recovery)
+                let safeEnd = chunk.count - 3
+                let safe = chunk.subdata(in: 0..<safeEnd)
+                leftover = chunk.subdata(in: safeEnd..<chunk.count)
+                if let decoded = String(data: safe, encoding: sourceEncoding),
+                   let utf8Data = decoded.data(using: .utf8) {
+                    utf8Data.withUnsafeBytes { ptr in
+                        if let base = ptr.bindMemory(to: UInt8.self).baseAddress {
+                            _ = outputStream.write(base, maxLength: utf8Data.count)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Flush leftover
+        if !leftover.isEmpty, let decoded = String(data: leftover, encoding: sourceEncoding),
+           let utf8Data = decoded.data(using: .utf8) {
+            utf8Data.withUnsafeBytes { ptr in
+                if let base = ptr.bindMemory(to: UInt8.self).baseAddress {
+                    _ = outputStream.write(base, maxLength: utf8Data.count)
+                }
+            }
+        }
     }
 
     // MARK: 修改3：匯入 EPUB 檔案
