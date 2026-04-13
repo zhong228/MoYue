@@ -202,6 +202,7 @@ struct HomeView: View {
         List {
             ForEach(filteredBooks) { book in
                 Button {
+                    guard readerBookId == nil else { return }
                     selectedBookFrame = bookFrames[book.id] ?? UIScreen.main.bounds
                     readerBookId = book.id
                 } label: {
