@@ -365,6 +365,7 @@ struct BookRow: View {
             Spacer()
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder
