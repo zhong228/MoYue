@@ -1,5 +1,7 @@
 import UIKit
 
+// MARK: - PageIndexProviding / CoreTextReadingPositionProviding
+
 /// A UIViewController that tracks its position in the global page sequence.
 protocol PageIndexProviding: AnyObject {
     var globalPageIndex: Int { get }
@@ -9,80 +11,94 @@ protocol CoreTextReadingPositionProviding: AnyObject {
     var coreTextReadingPosition: CoreTextReadingPosition? { get }
 }
 
-/// 閱讀引擎抽象層。ReaderView 只認識這個 protocol，不依賴具體引擎實作。
+// MARK: - PageLayoutEngine（純排版層。不 import UIKit 以外的 UI 型別）
+
+/// 排版引擎抽象：只負責「接收資料 → 計算佈局 → 輸出幾何數據」，
+/// 不製造任何 UIView / UIViewController。
+/// 未來若要支援垂直捲動、條漫等新排版方式，只需實作此 protocol，
+/// 上層 UI 容器自行決定如何消費 layouts。
 @MainActor
-protocol PageRenderingProvider: AnyObject {
+protocol PageLayoutEngine: AnyObject {
     /// 全書總頁數（跨所有章節）
     var totalPages: Int { get }
     /// 當前全局頁碼（0-based）
     var currentPage: Int { get }
-
-    /// 取得第 index 頁的 ViewController（供 UIPageViewController data source 使用）
-    func pageViewController(at index: Int) -> UIViewController
+    /// 排版結果（spineIndex → ChapterLayout）
+    var layouts: [Int: CoreTextPaginator.ChapterLayout] { get }
+    /// 當前畫面尺寸
+    var renderSize: CGSize { get }
+    /// CharOffset 持久化倉庫
+    var offsetStore: CharOffsetStore { get }
 
     /// 章節 + charOffset → 全局頁碼
     func pageIndex(forSpine spineIndex: Int, charOffset: Int) -> Int
-
-    /// 穩定內容位置 → 全局頁碼。章節未載入時回傳 nil。
+    /// 穩定座標 → 全局頁碼
     func pageIndex(for position: CoreTextReadingPosition) -> Int?
-
-    /// 全局頁碼 → 穩定內容位置。若只能推估則回傳最接近的值。
+    /// 全局頁碼 → 穩定座標
     func readingPosition(forPage page: Int) -> CoreTextReadingPosition?
-
-    /// 全局頁碼 → (spineIndex, charOffset)，供 CharOffsetStore 存檔用
+    /// 全局頁碼 → (spineIndex, charOffset)
     func charOffset(forPage page: Int) -> (spineIndex: Int, charOffset: Int)
-
-    /// 預熱指定章節（背景計算 NSAttributedString + 分頁）
-    func preloadChapter(at spineIndex: Int) async
-
-    /// 依穩定內容位置建立對應頁面。章節未載入時可回傳 placeholder。
-    func pageViewController(for position: CoreTextReadingPosition) -> UIViewController
-
-    /// 視窗大小改變（旋轉 / iPad 分屏）後觸發全書重排
-    /// 完成前應凍結翻頁手勢
-    func invalidateLayout(newSize: CGSize) async
-
-    /// 在 UIPageViewController.didFinishAnimating 中呼叫
-    /// 當前章節剩餘 ≤ 20% 時自動預熱下一章
-    func warmUpNext(currentGlobalPage: Int)
-
-    /// 回傳指定章節最後一頁的全局頁碼。章節未載入時回傳 nil。
-    func lastPageIndex(ofChapter spineIndex: Int) -> Int?
-
-    /// 全局頁碼 → (spineIndex, localPage)，供跨章邊界導航使用。
+    /// 全局頁碼 → (spineIndex, localPage)
     func localPosition(for globalPage: Int) -> (spineIndex: Int, localPage: Int)
+    /// 指定章節最後一頁的全局頁碼
+    func lastPageIndex(ofChapter spineIndex: Int) -> Int?
+    /// 全局頁碼 → 純文字（供 TTS / 搜尋）
+    func plainText(forPage page: Int) -> String
+    /// 全書閱讀進度（0…1）
+    func totalProgress(forSpine spineIndex: Int, charOffset: Int) -> Double
+    /// 進度 → 座標
+    func position(forProgress progress: Double) -> (spineIndex: Int, charOffset: Int)
+    /// 章節內部連結解析
+    func resolveInternalLink(_ href: String, fromSpineIndex spineIndex: Int) async -> Int?
 
-    /// 取得第 index 頁的快照 ViewController（跨章節動畫接力用）。
-    /// 只在該頁為章節第一頁且快照已就緒時才回傳非 nil；其餘情況回傳 nil。
-    func snapshotViewController(at index: Int) -> UIViewController?
+    // MARK: 引擎生命週期
+    func start(renderSize: CGSize, bookId: String) async
+    func preloadChapter(at spineIndex: Int) async
+    func invalidateLayout(newSize: CGSize) async
+    func warmUpNext(currentGlobalPage: Int)
+    func cancelPendingWork()
 
-    /// 離屏渲染指定全局頁為 UIImage，供 cover 動畫使用。
-    func renderSnapshot(forPage globalPage: Int) -> UIImage?
-
-    /// 章節就緒回呼（取代 Notification 廣播）
-    var onChapterReady: ((Int?) -> Void)? { get set }
-    /// 引擎請求跳頁回呼（取代 Notification 廣播）
-    var onNavigateToPage: ((Int) -> Void)? { get set }
-    
-    var offsetStore: CharOffsetStore { get }
-    var renderSize: CGSize { get }
-    var layouts: [Int: CoreTextPaginator.ChapterLayout] { get }
-    
+    // MARK: 樣式更新
     func applyThemeChange(textColor: UIColor, backgroundColor: UIColor)
     func updateRenderSettings(_ settings: ReaderRenderSettings)
-    func start(renderSize: CGSize, bookId: String) async
-    func resolveInternalLink(_ href: String, fromSpineIndex spineIndex: Int) async -> Int?
-    func plainText(forPage page: Int) -> String
-    func totalProgress(forSpine spineIndex: Int, charOffset: Int) -> Double
-    func position(forProgress progress: Double) -> (spineIndex: Int, charOffset: Int)
-    func cancelPendingWork()
+
+    // MARK: 回呼（取代 Notification 廣播）
+    var onChapterReady: ((Int?) -> Void)? { get set }
+    var onNavigateToPage: ((Int) -> Void)? { get set }
 }
 
-extension PageRenderingProvider {
+// MARK: - PageViewControllerVending（UIKit 橋接層）
+
+/// ViewController 工廠協定。
+/// 職責：把 PageLayoutEngine 產出的幾何數據包裝成 UIViewController，
+/// 供 UIPageViewController data source 使用。
+/// 刻意獨立於 PageLayoutEngine，讓未來的 ScrollReaderBridge 只實作
+/// PageLayoutEngine 而不必理會任何 ViewController 的建構細節。
+@MainActor
+protocol PageViewControllerVending: AnyObject {
+    /// 取得第 index 頁的 ViewController
+    func pageViewController(at index: Int) -> UIViewController
+    /// 依穩定座標取得 ViewController
+    func pageViewController(for position: CoreTextReadingPosition) -> UIViewController
+    /// 取得跨章節動畫用快照 ViewController
+    func snapshotViewController(at index: Int) -> UIViewController?
+    /// 離屏渲染為 UIImage（cover 動畫）
+    func renderSnapshot(forPage globalPage: Int) -> UIImage?
+}
+
+// MARK: - PageRenderingProvider（組合型別別名）
+
+/// ReaderView 所依賴的完整引擎型別。
+/// 等於「排版引擎 + ViewController 工廠」的聯集。
+/// 若未來要實作垂直捲動閱讀器，只需實作 PageLayoutEngine，
+/// 不需實作 PageViewControllerVending。
+typealias PageRenderingProvider = PageLayoutEngine & PageViewControllerVending
+
+// MARK: - PageLayoutEngine 預設實作
+
+extension PageLayoutEngine {
     func pageIndex(for position: CoreTextReadingPosition) -> Int? { nil }
     func readingPosition(forPage page: Int) -> CoreTextReadingPosition? { nil }
-    func snapshotViewController(at index: Int) -> UIViewController? { nil }
-    func renderSnapshot(forPage globalPage: Int) -> UIImage? { nil }
     func lastPageIndex(ofChapter spineIndex: Int) -> Int? { nil }
     func localPosition(for globalPage: Int) -> (spineIndex: Int, localPage: Int) { (0, globalPage) }
     func resolveInternalLink(_ href: String, fromSpineIndex spineIndex: Int) async -> Int? { nil }
@@ -96,11 +112,18 @@ extension PageRenderingProvider {
         set {}
     }
     func cancelPendingWork() {}
+    func updateRenderSettings(_ settings: ReaderRenderSettings) {}
+}
+
+// MARK: - PageViewControllerVending 預設實作
+
+extension PageViewControllerVending where Self: PageLayoutEngine {
     func pageViewController(for position: CoreTextReadingPosition) -> UIViewController {
         if let page = pageIndex(for: position) {
             return pageViewController(at: page)
         }
         return pageViewController(at: 0)
     }
-    func updateRenderSettings(_ settings: ReaderRenderSettings) {}
+    func snapshotViewController(at index: Int) -> UIViewController? { nil }
+    func renderSnapshot(forPage globalPage: Int) -> UIImage? { nil }
 }
