@@ -1,18 +1,54 @@
 import Foundation
 
 final class ModernRuleEngine {
+
+    // MARK: - Global Extractor Registry（開閉原則）
+    //
+    // 要新增 Extractor（例如 AIExtractor）：
+    //   ModernRuleEngine.registerExtractor(AIExtractor())
+    // 不需要修改此檔案任何一行。核心引擎「對修改封閉」。
+    //
+    // 啟動時由 AppDependencies 填充；測試環境可隨時替換整張清單。
+
+    private static var _registry: [RuleExtractor] = [
+        JsonExtractor(),
+        XPathExtractor(),
+        CssExtractor(),
+        JsoupDefaultExtractor(),
+        LegacyFallbackExtractor(),
+    ]
+    private static let registryLock = NSLock()
+
+    /// 向全域 Registry 末尾追加一個 Extractor。
+    static func registerExtractor(_ extractor: RuleExtractor) {
+        registryLock.withLock { _registry.append(extractor) }
+    }
+
+    /// 向全域 Registry 指定位置插入一個 Extractor（優先級控制用）。
+    static func registerExtractor(_ extractor: RuleExtractor, at index: Int) {
+        registryLock.withLock {
+            _registry.insert(extractor, at: min(index, _registry.count))
+        }
+    }
+
+    /// 取得當前 Registry 快照（測試 / Debug 用）。
+    static var registeredExtractors: [RuleExtractor] {
+        registryLock.withLock { _registry }
+    }
+
+    /// 完整替換 Registry（測試環境隔離用）。
+    static func setExtractors(_ extractors: [RuleExtractor]) {
+        registryLock.withLock { _registry = extractors }
+    }
+
+    // MARK: - Instance
+
     private let extractors: [RuleExtractor]
 
-    init(
-        extractors: [RuleExtractor] = [
-            JsonExtractor(),
-            XPathExtractor(),
-            CssExtractor(),
-            JsoupDefaultExtractor(),
-            LegacyFallbackExtractor(),
-        ]
-    ) {
-        self.extractors = extractors
+    /// 使用 Registry 中當下已註冊的 Extractor 集合建立引擎實例。
+    /// 傳入 `extractors` 可完全覆蓋 Registry（適合單元測試注入 mock）。
+    init(extractors: [RuleExtractor]? = nil) {
+        self.extractors = extractors ?? ModernRuleEngine.registeredExtractors
     }
 
     func extractList(from content: String, rule: String, baseURL: String) throws -> [String] {
