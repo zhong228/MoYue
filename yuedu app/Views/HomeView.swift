@@ -501,23 +501,17 @@ struct BookGridCell: View {
                 .shadow(color: .black.opacity(0.18), radius: 5, x: 0, y: 3)
         } else {
             RoundedRectangle(cornerRadius: 10)
-                .fill(
-                    LinearGradient(
-                        colors: [coverColor(for: book.title).opacity(0.7), coverColor(for: book.title)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .fill(Color(.secondarySystemBackground))
                 .aspectRatio(2/3, contentMode: .fit)
                 .overlay(
                     Text(book.title)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(4)
-                        .padding(10)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(DSColor.textSecondary)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(6)
+                        .padding(10),
+                    alignment: .topLeading
                 )
-                .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
         }
     }
 
@@ -528,9 +522,4 @@ struct BookGridCell: View {
         return UIImage(data: data)
     }
 
-    private func coverColor(for title: String) -> Color {
-        let colors: [Color] = [.blue, .indigo, .purple, .pink, .orange, .teal, .green]
-        let index = abs(title.hashValue) % colors.count
-        return colors[index]
-    }
 }
