@@ -1569,8 +1569,12 @@ struct ReaderView: View {
 
     // MARK: - 線上章節懶加載
     private func fetchChapterIfNeeded(chapterIndex: Int) {
-        guard let b = book, b.isOnline, let refs = b.onlineChapters, chapterIndex < refs.count,
-            !fetchingChapters.contains(chapterIndex)
+        // 用資料結構本身（onlineChapters）判斷能不能 fetch，不依賴 isOnline 旗標。
+        // 這讓 ReaderView 對「章節來源類型」保持多型：只要 book 有 onlineChapters
+        // 且索引合法，就可以發起 fetch，無需知道 book 是不是「線上書」。
+        guard let b = book,
+              let refs = b.onlineChapters, refs.indices.contains(chapterIndex),
+              !fetchingChapters.contains(chapterIndex)
         else {
             return
         }
@@ -1718,8 +1722,7 @@ struct ReaderView: View {
     }
 
     private func loadOnlineCoreText(_ book: ReadingBook, marginH: CGFloat) {
-        guard let document = BookDocumentFactory.makeOnlineDocument(book: book, store: store),
-              let provider = BookContentProviderFactory.makeOnlineProvider(book: book, store: store) else {
+        guard let document = BookDocumentFactory.makeOnlineDocument(book: book, store: store) else {
             applyDocument(nil)
             isLoadingPipeline = false
             isRestoringPosition = false
@@ -1739,18 +1742,39 @@ struct ReaderView: View {
         allPages = []
 
         let settings = currentRenderSettings(marginH: marginH)
-        let chapterSourceHrefs = refs.map {
-            DefaultWebNovelParserService.shared.sanitizeExtractedURL($0.url)
+        // ── Phase 6 A/B 分支 ─────────────────────────────────────────────────
+        if GlobalSettings.shared.useRenderableNodePipeline, !refs.isEmpty {
+            let builder = OnlineNodeAttributedStringBuilder(
+                refs: refs,
+                bookId: book.id,
+                fetcher: dependencies.bookSourceFetcher
+            )
+            epubRenderer.loadTXT(
+                attributedBuilder: builder,
+                bookIdentifier: "coretext-node-\(book.id.uuidString)",
+                renderSize: readerViewportSize,
+                settings: settings
+            )
+        } else {
+            guard let provider = BookContentProviderFactory.makeOnlineProvider(book: book, store: store) else {
+                applyDocument(nil)
+                isLoadingPipeline = false
+                isRestoringPosition = false
+                return
+            }
+            let chapterSourceHrefs = refs.map {
+                DefaultWebNovelParserService.shared.sanitizeExtractedURL($0.url)
+            }
+            let scheme = "reader-online-\(book.id.uuidString.lowercased())"
+            epubRenderer.loadWithProvider(
+                contentProvider: provider,
+                chapterSourceHrefs: chapterSourceHrefs,
+                bookIdentifier: "coretext-\(book.id.uuidString)",
+                renderSize: readerViewportSize,
+                settings: settings,
+                customScheme: scheme
+            )
         }
-        let scheme = "reader-online-\(book.id.uuidString.lowercased())"
-        epubRenderer.loadWithProvider(
-            contentProvider: provider,
-            chapterSourceHrefs: chapterSourceHrefs,
-            bookIdentifier: "coretext-\(book.id.uuidString)",
-            renderSize: readerViewportSize,
-            settings: settings,
-            customScheme: scheme
-        )
 
         currentPage = 0
         isLoadingPipeline = false
@@ -1784,6 +1808,77 @@ struct ReaderView: View {
             DispatchQueue.global(qos: .userInitiated).async {
                 let docsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                 let txtURL = docsURL.appendingPathComponent(targetBook.contentFilename)
+                let lowercasedFilename = targetBook.contentFilename.lowercased()
+                let isMarkdownFile = lowercasedFilename.hasSuffix(".md")
+                    || lowercasedFilename.hasSuffix(".markdown")
+
+                if isMarkdownFile {
+                    let markdownText: String
+                    do {
+                        markdownText = try TXTFileReader.readTextFile(url: txtURL)
+                    } catch {
+                        Task { @MainActor in
+                            guard self.book?.id == targetBook.id else { return }
+                            self.applyDocument(nil)
+                            self.isLoadingPipeline = false
+                            self.isRestoringPosition = false
+                        }
+                        return
+                    }
+
+                    let markdownBuilder = MarkdownAttributedStringBuilder(
+                        markdown: markdownText,
+                        fallbackTitle: bookTitle
+                    )
+                    let markdownChapters = markdownBuilder.unifiedChapters
+
+                    Task { @MainActor in
+                        guard self.book?.id == targetBook.id else {
+                            self.isLoadingPipeline = false
+                            self.isRestoringPosition = false
+                            return
+                        }
+
+                        let document = BookDocumentFactory.makeTXTDocument(
+                            book: targetBook,
+                            chapters: markdownChapters
+                        )
+                        self.applyDocument(document)
+
+                        if GlobalSettings.shared.useRenderableNodePipeline {
+                            self.epubRenderer.loadTXT(
+                                attributedBuilder: markdownBuilder,
+                                bookIdentifier: targetBook.id.uuidString,
+                                renderSize: self.readerViewportSize,
+                                settings: settings
+                            )
+                        } else {
+                            let legacyBuilder = TXTAttributedStringBuilder(chapters: markdownChapters)
+                            self.epubRenderer.loadTXT(
+                                attributedBuilder: legacyBuilder,
+                                bookIdentifier: targetBook.id.uuidString,
+                                renderSize: self.readerViewportSize,
+                                settings: settings
+                            )
+                        }
+
+                        if document.tableOfContents.count > 0 {
+                            self.chapters = document.tableOfContents.enumerated().map { i, chapter in
+                                BookChapter(index: i, title: chapter.title, content: "")
+                            }
+                        } else {
+                            self.chapters = [BookChapter(index: 0, title: bookTitle, content: "")]
+                        }
+
+                        self.allPages = []
+                        if self.savedPositionSnapshot == 0 {
+                            self.currentPage = 0
+                        }
+                        self.isLoadingPipeline = false
+                        self.isRestoringPosition = false
+                    }
+                    return
+                }
 
                 let mappedTextFile: TXTMappedTextFile
                 do {

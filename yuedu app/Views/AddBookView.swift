@@ -58,6 +58,7 @@ struct FileImportTab: View {
 
     // 🟢 新增：用來記住 EPUB 檔案的暫存路徑，給「加入書架」按鈕使用
     @State private var pendingEpubURL: URL? = nil
+    @State private var pendingMarkdownURL: URL? = nil
 
     private func importTrace(_ message: String) {
         let line = "[ImportTrace][AddBookView] \(message)"
@@ -69,8 +70,8 @@ struct FileImportTab: View {
         ScrollView {
             VStack(spacing: 24) {
                 HintCard(
-                    icon: "doc.text", title: gs.t("支援格式：TXT / EPUB"),
-                    detail: gs.t("支援純文字（.txt）與電子書（.epub）格式。選取後系統自動識別章節結構。"))
+                    icon: "doc.text", title: gs.t("支援格式：TXT / Markdown / EPUB"),
+                    detail: gs.t("支援純文字（.txt / .md / .markdown）與電子書（.epub）格式。選取後系統自動識別章節結構。"))
 
                 if let content = pendingContent {
                     VStack(alignment: .leading, spacing: 12) {
@@ -116,14 +117,23 @@ struct FileImportTab: View {
                             cancelOngoingTasks()
                             let sessionID = nextSessionID()
                             let epubURLForImport = pendingEpubURL
+                            let markdownURLForImport = pendingMarkdownURL
                             let startUptime = ProcessInfo.processInfo.systemUptime
 
                             // 🟢 核心修改：判斷是存成 EPUB 還是 TXT
                             importTask = Task {
                                 do {
                                     await MainActor.run {
+                                        let mode: String
+                                        if epubURLForImport != nil {
+                                            mode = "epub"
+                                        } else if markdownURLForImport != nil {
+                                            mode = "markdown"
+                                        } else {
+                                            mode = "txt"
+                                        }
                                         importTrace(
-                                            "confirmImport begin session=\(sessionID) mode=\(epubURLForImport == nil ? "txt" : "epub") title=\(t)"
+                                            "confirmImport begin session=\(sessionID) mode=\(mode) title=\(t)"
                                         )
                                     }
                                     if let epubURL = epubURLForImport {
@@ -131,6 +141,9 @@ struct FileImportTab: View {
                                         _ = try await store.importEpub(url: epubURL, title: t)
                                         try Task.checkCancellation()
                                         try? FileManager.default.removeItem(at: epubURL)
+                                    } else if let markdownURL = markdownURLForImport {
+                                        try Task.checkCancellation()
+                                        _ = try store.importMarkdown(url: markdownURL, title: t, author: a)
                                     } else {
                                         try Task.checkCancellation()
                                         _ = try store.importWeb(
@@ -221,15 +234,23 @@ struct FileImportTab: View {
         }
         .fileImporter(
             isPresented: $showFilePicker,
-            allowedContentTypes: [UTType.plainText, UTType.epub]
+            allowedContentTypes: [
+                UTType.plainText,
+                UTType(filenameExtension: "md") ?? .plainText,
+                UTType(filenameExtension: "markdown") ?? .plainText,
+                UTType.epub,
+            ]
         ) { result in
             switch result {
             case .success(let url):
                 cancelOngoingTasks()
+                cleanupPendingEpubTempFile()
+                cleanupPendingMarkdownTempFile()
                 let sessionID = nextSessionID()
                 isLoading = true
                 errorMsg = nil
                 pendingEpubURL = nil  // 每次選檔先清空
+                pendingMarkdownURL = nil
                 let ext = url.pathExtension.lowercased()
                 let sizeBytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
                 importTrace(
@@ -249,6 +270,7 @@ struct FileImportTab: View {
         .onDisappear {
             cancelOngoingTasks()
             cleanupPendingEpubTempFile()
+            cleanupPendingMarkdownTempFile()
             resetTransientState()
             activeSessionID = UUID()
         }
@@ -263,9 +285,29 @@ struct FileImportTab: View {
             }
             let ok = url.startAccessingSecurityScopedResource()
             defer { if ok { url.stopAccessingSecurityScopedResource() } }
+            let ext = url.pathExtension.lowercased()
+            let isMarkdownFile = ext == "md" || ext == "markdown"
             let parsed = try? await BookParserRegistry.parse(url: url)
             let text = parsed?.storageText
             let name = url.deletingPathExtension().lastPathComponent
+            let markdownTempURL: URL?
+            if isMarkdownFile, text != nil {
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString + ".\(ext == "markdown" ? "markdown" : "md")")
+                do {
+                    try FileManager.default.copyItem(at: url, to: tempURL)
+                    markdownTempURL = tempURL
+                } catch {
+                    markdownTempURL = nil
+                    await MainActor.run {
+                        importTrace(
+                            "importTXT markdownCopyFailed session=\(sessionID) error=\(error.localizedDescription)"
+                        )
+                    }
+                }
+            } else {
+                markdownTempURL = nil
+            }
             if Task.isCancelled { return }
             await MainActor.run {
                 guard AddBookImportGuard.shouldApplyResult(
@@ -278,12 +320,18 @@ struct FileImportTab: View {
                     "importTXT parsed session=\(sessionID) elapsedMs=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - startUptime) * 1000)) textChars=\(text?.count ?? 0)"
                 )
                 if let t = text {
+                    if isMarkdownFile, markdownTempURL == nil {
+                        pendingContent = nil
+                        errorMsg = gs.t("無法準備 Markdown 檔案，請重試")
+                        return
+                    }
                     pendingContent = t
+                    pendingMarkdownURL = markdownTempURL
                     let parsedTitle = parsed?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     titleInput = parsedTitle.isEmpty ? name : parsedTitle
                     authorInput = parsed?.author == "未知作者" ? "" : (parsed?.author ?? "")
                 } else {
-                    errorMsg = gs.t("無法讀取文件，請確認格式為 TXT")
+                    errorMsg = gs.t("無法讀取文件，請確認格式為 TXT / Markdown")
                 }
             }
         }
@@ -350,6 +398,12 @@ struct FileImportTab: View {
         }
     }
 
+    private func cleanupPendingMarkdownTempFile() {
+        if let url = pendingMarkdownURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
     private func resetTransientState() {
         showFilePicker = false
         titleInput = ""
@@ -358,6 +412,7 @@ struct FileImportTab: View {
         errorMsg = nil
         isLoading = false
         pendingEpubURL = nil
+        pendingMarkdownURL = nil
     }
 }
 

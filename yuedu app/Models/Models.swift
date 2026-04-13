@@ -611,7 +611,37 @@ class BookStore: ObservableObject {
     @discardableResult
     func importTxt(url: URL, title: String? = nil) throws -> ReadingBook {
         let bookTitle = title ?? url.deletingPathExtension().lastPathComponent
-        let filename = "\(UUID().uuidString).txt"
+        return try importLocalTextFile(
+            url: url,
+            title: bookTitle,
+            author: "未知作者",
+            fileExtension: "txt"
+        )
+    }
+
+    @discardableResult
+    func importMarkdown(
+        url: URL,
+        title: String? = nil,
+        author: String = "未知作者"
+    ) throws -> ReadingBook {
+        let bookTitle = title ?? url.deletingPathExtension().lastPathComponent
+        let ext = normalizedMarkdownExtension(url.pathExtension.lowercased())
+        return try importLocalTextFile(
+            url: url,
+            title: bookTitle,
+            author: author,
+            fileExtension: ext
+        )
+    }
+
+    private func importLocalTextFile(
+        url: URL,
+        title: String,
+        author: String,
+        fileExtension: String
+    ) throws -> ReadingBook {
+        let filename = "\(UUID().uuidString).\(fileExtension)"
         let destURL = documentsURL(for: filename)
 
         // Probe encoding using first 4KB
@@ -643,11 +673,20 @@ class BookStore: ObservableObject {
             throw TXTFileReaderError.encodingNotSupported
         }
 
-        var book = ReadingBook(title: bookTitle, author: "未知作者", source: "local", contentFilename: filename)
+        var book = ReadingBook(title: title, author: author, source: "local", contentFilename: filename)
         book.contentPipelineKind = .txt
         books.insert(book, at: 0)
         saveMeta()
         return book
+    }
+
+    private func normalizedMarkdownExtension(_ ext: String) -> String {
+        switch ext {
+        case "markdown":
+            return "markdown"
+        default:
+            return "md"
+        }
     }
 
     private func streamTranscodeToUTF8(source: URL, destination: URL) throws {
