@@ -55,19 +55,24 @@ struct ChapterFetcher {
         title: String,
         plainTextContent: String,
         rawHTMLContent: String?
-    ) -> String {
+    ) async -> String {
         guard
             let rawHTMLContent,
             !rawHTMLContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            Self.containsLikelyHTMLTags(rawHTMLContent),
-            let document = try? SwiftSoup.parse(rawHTMLContent),
-            let body = document.body()
+            Self.containsLikelyHTMLTags(rawHTMLContent)
         else {
             return buildNormalizedHTML(title: title, content: plainTextContent)
         }
 
-        _ = try? body.select("script,noscript,iframe,object,embed").remove()
-        let bodyHTML = ((try? body.html()) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        // SwiftSoup.parse は CPU 負荷が高い同期処理。
+        // cooperative thread pool をブロックしないよう detached task で実行する。
+        let bodyHTML = await Task.detached(priority: .userInitiated) {
+            guard let document = try? SwiftSoup.parse(rawHTMLContent),
+                  let body = document.body() else { return "" }
+            _ = try? body.select("script,noscript,iframe,object,embed").remove()
+            return ((try? body.html()) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        }.value
+
         guard !bodyHTML.isEmpty else {
             return buildNormalizedHTML(title: title, content: plainTextContent)
         }
@@ -203,7 +208,7 @@ struct ChapterFetcher {
         }
         let canonicalTitle = parsed.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveTitle = canonicalTitle.isEmpty ? tocTitle : canonicalTitle
-        let normalizedHTML = buildRenderableNormalizedHTML(
+        let normalizedHTML = await buildRenderableNormalizedHTML(
             title: effectiveTitle,
             plainTextContent: content,
             rawHTMLContent: parsed.content
@@ -483,7 +488,7 @@ struct ChapterFetcher {
     }
 
     private static func stripHtmlToText(_ html: String) -> String {
-        stripHtmlToTextUsingSwiftSoup(html) ?? html.strippedHTML
+        stripHtmlToTextUsingSwiftSoup(html) ?? ""
     }
 
     private static func stripHtmlToTextUsingSwiftSoup(_ html: String) -> String? {

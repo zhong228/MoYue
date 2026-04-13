@@ -29,6 +29,7 @@ enum ChapterFetchPriority: Int {
 actor ChapterFetchManager {
     static let shared = ChapterFetchManager()
 
+    private let bookSourceFetcher: BookSourceFetcher
     private var tasks: [String: Task<ChapterPackage, Error>] = [:]
     private var states: [String: OnlineChapterLoadState] = [:]
 
@@ -41,12 +42,16 @@ actor ChapterFetchManager {
     private var bookFailureCounts: [UUID: Int] = [:]
     private let quarantineThreshold = 5
 
+    init(bookSourceFetcher: BookSourceFetcher = .shared) {
+        self.bookSourceFetcher = bookSourceFetcher
+    }
+
     private func key(bookId: UUID, chapterIndex: Int) -> String {
         "\(bookId.uuidString)#\(chapterIndex)"
     }
 
     func chapterState(bookId: UUID, chapterIndex: Int) -> OnlineChapterLoadState {
-        if BookSourceFetcher.shared.isChapterCached(bookId: bookId, chapterIndex: chapterIndex) {
+        if bookSourceFetcher.isChapterCached(bookId: bookId, chapterIndex: chapterIndex) {
             return .cached
         }
         return states[key(bookId: bookId, chapterIndex: chapterIndex)] ?? .missing
@@ -67,7 +72,7 @@ actor ChapterFetchManager {
         // 清理舊快取可能殘留的 HTML 片段 URL（如 <a href="...">第1章</a>）
         let sanitizedURL = DefaultWebNovelParserService.shared.sanitizeExtractedURL(refs[chapterIndex].url)
 
-        if let cached = BookSourceFetcher.shared.loadChapterPackageSync(
+        if let cached = bookSourceFetcher.loadChapterPackageSync(
             bookId: book.id,
             chapterIndex: chapterIndex,
             expectedSourceURL: sanitizedURL,
@@ -78,7 +83,7 @@ actor ChapterFetchManager {
         }
         // 若使用原始 URL 有快取（舊版存入的），也接受
         if sanitizedURL != refs[chapterIndex].url,
-           let cached = BookSourceFetcher.shared.loadChapterPackageSync(
+           let cached = bookSourceFetcher.loadChapterPackageSync(
             bookId: book.id,
             chapterIndex: chapterIndex,
             expectedSourceURL: refs[chapterIndex].url,
@@ -137,7 +142,7 @@ actor ChapterFetchManager {
                         domain: "OnlineReadingPipeline", code: -2,
                         userInfo: [NSLocalizedDescriptionKey: "找不到書源"])
                 }
-                return try await BookSourceFetcher.shared.fetchChapterPackage(
+                return try await bookSourceFetcher.fetchChapterPackage(
                     ref: ref,
                     bookId: book.id,
                     source: source,
@@ -150,14 +155,14 @@ actor ChapterFetchManager {
                 referer: book.bookInfoURL ?? book.source
             )
             if !content.isEmpty {
-                _ = BookSourceFetcher.shared.saveToCache(
+                _ = bookSourceFetcher.saveToCache(
                     content: content,
                     bookId: book.id,
                     chapterIndex: chapterIndex,
                     sourceURL: ref.url,
                     tocTitle: ref.title
                 )
-                return BookSourceFetcher.shared.loadChapterPackageSync(
+                return bookSourceFetcher.loadChapterPackageSync(
                     bookId: book.id,
                     chapterIndex: chapterIndex,
                     expectedSourceURL: ref.url,
@@ -207,7 +212,7 @@ actor ChapterFetchManager {
             }
 
             if package.state == .cached && !package.content.isEmpty {
-                let filename = BookSourceFetcher.shared.saveToCache(
+                let filename = bookSourceFetcher.saveToCache(
                     content: package.content,
                     bookId: book.id,
                     chapterIndex: chapterIndex,
@@ -313,7 +318,7 @@ actor ChapterFetchManager {
         reason: String,
         pipelineKind: String
     ) async {
-        BookSourceFetcher.shared.saveFailureMarker(
+        bookSourceFetcher.saveFailureMarker(
             bookId: bookId,
             chapterIndex: chapterIndex,
             sourceURL: sourceURL,

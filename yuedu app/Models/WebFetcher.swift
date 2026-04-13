@@ -14,15 +14,19 @@ actor WebFetcher {
         )
     )
 
-    private init() {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 30
-        config.httpMaximumConnectionsPerHost = 6
-        config.httpCookieStorage = HTTPCookieStorage.shared
-        config.httpShouldSetCookies = true
-        config.httpCookieAcceptPolicy = .always
-        session = URLSession(configuration: config)
+    init(session: URLSession? = nil) {
+        if let session {
+            self.session = session
+        } else {
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 15
+            config.timeoutIntervalForResource = 30
+            config.httpMaximumConnectionsPerHost = 6
+            config.httpCookieStorage = HTTPCookieStorage.shared
+            config.httpShouldSetCookies = true
+            config.httpCookieAcceptPolicy = .always
+            self.session = URLSession(configuration: config)
+        }
     }
 
     func setCloudflareChallengeHandler(_ handler: CloudflareChallengeHandler?) {

@@ -9,19 +9,18 @@ final class ReaderViewModel: ObservableObject {
     @Published var failedChapters: Set<Int> = []
     @Published var lastChapterError: String = ""
 
-    private let bookSourceFetcher: BookSourceFetching
+    // ViewModel 只依賴「章節抓取」能力，不依賴書源快取的具體實作。
+    // 快取命中判斷屬於優化策略，由呼叫端（View）決定是否先查快取再呼叫 ViewModel。
     private let chapterFetcher: ChapterFetching
 
-    init(
-        bookSourceFetcher: BookSourceFetching,
-        chapterFetcher: ChapterFetching
-    ) {
-        self.bookSourceFetcher = bookSourceFetcher
+    init(chapterFetcher: ChapterFetching) {
         self.chapterFetcher = chapterFetcher
     }
     
     // MARK: - 資料獲取 (Data Fetching)
-    /// 擷取線上章節
+    /// 擷取線上章節。
+    /// ViewModel 不關心 book 是否「isOnline」——它只關心 book 有沒有可抓取的 onlineChapters。
+    /// 多型設計：未來若有 WiFiBook、iCloudBook，只要有 onlineChapters 即可復用此方法。
     func fetchChapterIfNeeded(
         book: ReadingBook?,
         chapterIndex: Int,
@@ -30,21 +29,9 @@ final class ReaderViewModel: ObservableObject {
         onSuccess: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void
     ) {
-        guard let b = book, b.isOnline, let refs = b.onlineChapters, chapterIndex < refs.count,
+        guard let b = book,
+              let refs = b.onlineChapters, refs.indices.contains(chapterIndex),
               !fetchingChapters.contains(chapterIndex) else {
-            return
-        }
-        
-        let bookId = b.id
-
-        if bookSourceFetcher.isChapterCached(
-            bookId: bookId,
-            chapterIndex: chapterIndex,
-            expectedSourceURL: nil,
-            expectedTOCTitle: nil
-        ) {
-            failedChapters.remove(chapterIndex)
-            onSuccess()
             return
         }
         
@@ -83,3 +70,4 @@ final class ReaderViewModel: ObservableObject {
         }
     }
 }
+

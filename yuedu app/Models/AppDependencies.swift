@@ -35,6 +35,13 @@ protocol BookSourceFetching {
 
     func clearChapterCache(bookId: UUID, chapterIndex: Int)
     func search(query: String, in source: BookSource) async throws -> [OnlineBook]
+
+    func loadChapterPackageSync(
+        bookId: UUID,
+        chapterIndex: Int,
+        expectedSourceURL: String?,
+        expectedTOCTitle: String?
+    ) -> ChapterPackage?
 }
 
 protocol ChapterFetching {
@@ -49,6 +56,8 @@ protocol ChapterFetching {
 }
 
 struct LiveWebContentFetcher: WebContentFetching {
+    let webFetcher: WebFetcher
+
     func fetchHTML(
         url: URL,
         method: String,
@@ -58,7 +67,7 @@ struct LiveWebContentFetcher: WebContentFetching {
         bodyCharset: String?,
         allowInteractiveChallengeOn503: Bool
     ) async throws -> String {
-        try await WebFetcher.shared.fetchHTML(
+        try await webFetcher.fetchHTML(
             url: url,
             method: method,
             body: body,
@@ -71,12 +80,14 @@ struct LiveWebContentFetcher: WebContentFetching {
 }
 
 struct LiveBookSourceFetcher: BookSourceFetching {
+    let bookSourceFetcher: BookSourceFetcher
+
     func fetchBookInfoPackage(
         url: String,
         source: BookSource,
         runtimeVariables: [String: String]?
     ) async throws -> BookInfoPackage {
-        try await BookSourceFetcher.shared.fetchBookInfoPackage(
+        try await bookSourceFetcher.fetchBookInfoPackage(
             url: url,
             source: source,
             runtimeVariables: runtimeVariables
@@ -88,7 +99,7 @@ struct LiveBookSourceFetcher: BookSourceFetching {
         source: BookSource,
         runtimeVariables: [String: String]?
     ) async throws -> TOCPackage {
-        try await BookSourceFetcher.shared.fetchTOCPackage(
+        try await bookSourceFetcher.fetchTOCPackage(
             tocUrl: tocUrl,
             source: source,
             runtimeVariables: runtimeVariables
@@ -101,7 +112,7 @@ struct LiveBookSourceFetcher: BookSourceFetching {
         expectedSourceURL: String? = nil,
         expectedTOCTitle: String? = nil
     ) -> Bool {
-        BookSourceFetcher.shared.isChapterCached(
+        bookSourceFetcher.isChapterCached(
             bookId: bookId,
             chapterIndex: chapterIndex,
             expectedSourceURL: expectedSourceURL,
@@ -110,22 +121,38 @@ struct LiveBookSourceFetcher: BookSourceFetching {
     }
 
     func clearChapterCache(bookId: UUID, chapterIndex: Int) {
-        BookSourceFetcher.shared.clearChapterCache(bookId: bookId, chapterIndex: chapterIndex)
+        bookSourceFetcher.clearChapterCache(bookId: bookId, chapterIndex: chapterIndex)
     }
 
     func search(query: String, in source: BookSource) async throws -> [OnlineBook] {
-        try await BookSourceFetcher.shared.search(query: query, in: source)
+        try await bookSourceFetcher.search(query: query, in: source)
+    }
+
+    func loadChapterPackageSync(
+        bookId: UUID,
+        chapterIndex: Int,
+        expectedSourceURL: String?,
+        expectedTOCTitle: String?
+    ) -> ChapterPackage? {
+        bookSourceFetcher.loadChapterPackageSync(
+            bookId: bookId,
+            chapterIndex: chapterIndex,
+            expectedSourceURL: expectedSourceURL,
+            expectedTOCTitle: expectedTOCTitle
+        )
     }
 }
 
 struct LiveChapterFetcher: ChapterFetching {
+    let chapterFetchManager: ChapterFetchManager
+
     func fetchChapter(
         book: ReadingBook,
         chapterIndex: Int,
         priority: ChapterFetchPriority,
         store: BookStore?
     ) async throws -> ChapterPackage {
-        try await ChapterFetchManager.shared.fetchChapter(
+        try await chapterFetchManager.fetchChapter(
             book: book,
             chapterIndex: chapterIndex,
             priority: priority,
@@ -134,7 +161,7 @@ struct LiveChapterFetcher: ChapterFetching {
     }
 
     func cancelAll(for bookId: UUID) async {
-        await ChapterFetchManager.shared.cancelAll(for: bookId)
+        await chapterFetchManager.cancelAll(for: bookId)
     }
 }
 
@@ -143,11 +170,16 @@ struct AppDependencies {
     var bookSourceFetcher: BookSourceFetching
     var chapterFetcher: ChapterFetching
 
-    static let live = AppDependencies(
-        webContentFetcher: LiveWebContentFetcher(),
-        bookSourceFetcher: LiveBookSourceFetcher(),
-        chapterFetcher: LiveChapterFetcher()
-    )
+    static let live: AppDependencies = {
+        let webFetcher = WebFetcher()
+        let bsf = BookSourceFetcher(webFetcher: webFetcher)
+        let cfm = ChapterFetchManager(bookSourceFetcher: bsf)
+        return AppDependencies(
+            webContentFetcher: LiveWebContentFetcher(webFetcher: webFetcher),
+            bookSourceFetcher: LiveBookSourceFetcher(bookSourceFetcher: bsf),
+            chapterFetcher: LiveChapterFetcher(chapterFetchManager: cfm)
+        )
+    }()
 }
 
 private struct AppDependenciesKey: EnvironmentKey {

@@ -51,6 +51,7 @@ actor BookSourceFetcher {
     static let shared = BookSourceFetcher()
     private nonisolated static let chapterCacheRepository = ChapterCacheRepository()
     private let pipeline = BookSourceParsingPipeline()
+    let webFetcher: WebFetcher
 
     private enum FetchTimeoutError: LocalizedError {
         case chapterTimeout
@@ -63,7 +64,9 @@ actor BookSourceFetcher {
         }
     }
 
-    private init() {}
+    init(webFetcher: WebFetcher = WebFetcher.shared) {
+        self.webFetcher = webFetcher
+    }
 
     // MARK: - 搜索書籍
 
@@ -862,7 +865,7 @@ actor BookSourceFetcher {
         bodyCharset: String? = nil,
         allowInteractiveChallengeOn503: Bool = true
     ) async throws -> String {
-        try await WebFetcher.shared.fetchHTML(
+        try await webFetcher.fetchHTML(
             url: url,
             method: method,
             body: body,
