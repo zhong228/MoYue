@@ -1733,7 +1733,7 @@ struct ReaderView: View {
 
         let refs = book.onlineChapters ?? []
         chapters = refs.enumerated().map { idx, ref in
-            let href = DefaultWebNovelParserService.shared.sanitizeExtractedURL(ref.url)
+            let href = RuleEngine.sanitizeExtractedURL(ref.url)
             return BookChapter(index: idx, title: ref.title, content: "", href: href)
         }
         if chapters.isEmpty {
@@ -1763,7 +1763,7 @@ struct ReaderView: View {
                 return
             }
             let chapterSourceHrefs = refs.map {
-                DefaultWebNovelParserService.shared.sanitizeExtractedURL($0.url)
+                RuleEngine.sanitizeExtractedURL($0.url)
             }
             let scheme = "reader-online-\(book.id.uuidString.lowercased())"
             epubRenderer.loadWithProvider(

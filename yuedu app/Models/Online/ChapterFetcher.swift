@@ -32,12 +32,6 @@ struct ChapterBuildResult {
 }
 
 struct ChapterFetcher {
-    let parserService: WebNovelParserService
-
-    init(parserService: WebNovelParserService = DefaultWebNovelParserService.shared) {
-        self.parserService = parserService
-    }
-
     static let shared = ChapterFetcher()
 
     func buildNormalizedHTML(title: String, content: String) -> String {
@@ -295,7 +289,7 @@ struct ChapterFetcher {
                 .components(separatedBy: .newlines)
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .joined(separator: "\n")
-            content = parserService.applyReplaceRegex(content, rules: replaceRules)
+            content = RuleEngine.applyReplaceRegex(content, rules: replaceRules)
             content = content
                 .components(separatedBy: .newlines)
                 .map { line in
@@ -471,7 +465,7 @@ struct ChapterFetcher {
 
         var bestSelector = ""
         for selector in knownSelectors {
-            let text = parserService.extractValue(
+            let text = RuleEngine.extractValue(
                 fromHTML: html, rule: selector + "@text", baseURL: pageURL
             )
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -489,8 +483,8 @@ struct ChapterFetcher {
             html: html,
             currentURL: currentURL,
             baseURL: baseURL,
-            resolveURL: { [parserService] href, base in
-                parserService.resolveURL(href, base: base)
+            resolveURL: { href, base in
+                RuleEngine.resolveURL(href, base: base)
             }
         )
     }

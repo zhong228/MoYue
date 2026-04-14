@@ -75,7 +75,7 @@ actor ChapterFetchManager {
         }
 
         // 清理舊快取可能殘留的 HTML 片段 URL（如 <a href="...">第1章</a>）
-        let sanitizedURL = DefaultWebNovelParserService.shared.sanitizeExtractedURL(refs[chapterIndex].url)
+        let sanitizedURL = RuleEngine.sanitizeExtractedURL(refs[chapterIndex].url)
 
         if let cached = bookSourceFetcher.loadChapterPackageSync(
             bookId: book.id,
@@ -562,7 +562,7 @@ final class OnlineBookCoordinator {
     ) throws -> XHTMLBookBuilder.ConvertedBook {
         let bsf = bookSourceFetcher
         let xhtmlChapters = refs.enumerated().map { idx, ref in
-            let sanitizedURL = DefaultWebNovelParserService.shared.sanitizeExtractedURL(ref.url)
+            let sanitizedURL = RuleEngine.sanitizeExtractedURL(ref.url)
             // 嘗試用清理後的 URL 查找快取，若找不到再嘗試原始 URL（相容舊版快取）
             var chapterPackage = bsf.loadChapterPackageSync(
                 bookId: book.id,

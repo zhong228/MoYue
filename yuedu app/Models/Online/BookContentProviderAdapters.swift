@@ -126,7 +126,7 @@ struct OnlineHTMLContentProviderAdapter: BookContentProvider {
         }
 
         let ref = refs[index]
-        let sanitizedURL = DefaultWebNovelParserService.shared.sanitizeExtractedURL(ref.url)
+        let sanitizedURL = RuleEngine.sanitizeExtractedURL(ref.url)
 
         if let cached = BookSourceFetcher.shared.loadChapterPackageSync(
             bookId: book.id,

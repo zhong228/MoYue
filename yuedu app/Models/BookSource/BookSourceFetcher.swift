@@ -92,7 +92,7 @@ actor BookSourceFetcher {
         guard !source.searchUrl.isEmpty else { throw FetchError.noSearchURL }
 
         let requestSpec = source.renderSearchRequest(query: query)
-        let resolvedUrlStr = DefaultWebNovelParserService.shared.resolveURL(
+        let resolvedUrlStr = RuleEngine.resolveURL(
             requestSpec.url,
             base: source.bookSourceUrl
         )
@@ -482,10 +482,10 @@ actor BookSourceFetcher {
             return cached
         }
         // 安全清理：舊的目錄快取可能包含 HTML 片段（如 <a href="...">），先清理再解析
-        var sanitizedRefUrl = DefaultWebNovelParserService.shared.sanitizeExtractedURL(ref.url)
+        var sanitizedRefUrl = RuleEngine.sanitizeExtractedURL(ref.url)
         // 若清理後為相對路徑（如 /2280/1091923.html），需要重新解析為絕對 URL
         if !sanitizedRefUrl.hasPrefix("http://") && !sanitizedRefUrl.hasPrefix("https://") {
-            sanitizedRefUrl = DefaultWebNovelParserService.shared.resolveURL(
+            sanitizedRefUrl = RuleEngine.resolveURL(
                 sanitizedRefUrl,
                 base: chapterReferer ?? source.bookSourceUrl
             )

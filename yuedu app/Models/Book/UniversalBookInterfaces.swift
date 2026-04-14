@@ -286,7 +286,7 @@ struct OnlineHTMLBookDocument: BookDocument {
             coverImagePath: book.coverImagePath
         )
         self.tableOfContents = refs.map {
-            let sanitizedURL = DefaultWebNovelParserService.shared.sanitizeExtractedURL($0.url)
+            let sanitizedURL = RuleEngine.sanitizeExtractedURL($0.url)
             return UniversalChapter(id: sanitizedURL, title: $0.title, content: .text(""))
         }
     }
@@ -294,7 +294,7 @@ struct OnlineHTMLBookDocument: BookDocument {
     func loadContent(for chapterId: String) async throws -> ChapterContent {
         let index: Int?
         if let direct = refs.firstIndex(where: {
-            DefaultWebNovelParserService.shared.sanitizeExtractedURL($0.url) == chapterId
+            RuleEngine.sanitizeExtractedURL($0.url) == chapterId
         }) {
             index = direct
         } else if let parsed = Int(chapterId), refs.indices.contains(parsed) {
@@ -308,7 +308,7 @@ struct OnlineHTMLBookDocument: BookDocument {
         }
 
         let ref = refs[index]
-        let sanitizedURL = DefaultWebNovelParserService.shared.sanitizeExtractedURL(ref.url)
+        let sanitizedURL = RuleEngine.sanitizeExtractedURL(ref.url)
         if let cached = BookSourceFetcher.shared.loadChapterPackageSync(
             bookId: book.id,
             chapterIndex: index,

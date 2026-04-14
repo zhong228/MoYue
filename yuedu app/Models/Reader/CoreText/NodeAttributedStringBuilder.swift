@@ -147,7 +147,7 @@ struct OnlineNodeAttributedStringBuilder: AttributedStringBuilding {
 
     func chapterSourceHref(at index: Int) -> String? {
         guard refs.indices.contains(index) else { return nil }
-        return DefaultWebNovelParserService.shared.sanitizeExtractedURL(refs[index].url)
+        return RuleEngine.sanitizeExtractedURL(refs[index].url)
     }
 
     func chapterIndex(for href: String) -> Int? {
@@ -159,7 +159,7 @@ struct OnlineNodeAttributedStringBuilder: AttributedStringBuilding {
     func chapterDataSize(at index: Int) async -> Int {
         guard refs.indices.contains(index) else { return 0 }
         let ref = refs[index]
-        let sanitizedURL = DefaultWebNovelParserService.shared.sanitizeExtractedURL(ref.url)
+        let sanitizedURL = RuleEngine.sanitizeExtractedURL(ref.url)
         let pkg = fetcher.loadChapterPackageSync(
             bookId: bookId, chapterIndex: index,
             expectedSourceURL: sanitizedURL, expectedTOCTitle: ref.title)
@@ -176,7 +176,7 @@ struct OnlineNodeAttributedStringBuilder: AttributedStringBuilding {
             throw AttributedStringBuildingError.chapterOutOfRange(index)
         }
         let ref = refs[index]
-        let sanitizedURL = DefaultWebNovelParserService.shared.sanitizeExtractedURL(ref.url)
+        let sanitizedURL = RuleEngine.sanitizeExtractedURL(ref.url)
         let pkg = fetcher.loadChapterPackageSync(
             bookId: bookId, chapterIndex: index,
             expectedSourceURL: sanitizedURL, expectedTOCTitle: ref.title)
