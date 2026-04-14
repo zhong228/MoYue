@@ -204,14 +204,16 @@ struct HomeView: View {
                             Label(gs.t("刪除書籍"), systemImage: "trash")
                         }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.system(size: 20))
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 16, weight: .bold))
                             .foregroundColor(DSColor.textSecondary)
-                            .padding(.horizontal, 8)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
                     }
                 }
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 8))
+                .listRowSeparator(.visible)
+                .listRowSeparatorTint(DSColor.textSecondary.opacity(0.15))
+                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 12))
                 .listRowBackground(Color.clear)
                 .transition(.opacity.combined(with: .move(edge: .leading)))
             }
@@ -367,67 +369,115 @@ struct EmptyLibraryView: View {
     }
 }
 
-// MARK: - 書籍列表行
+// MARK: - 書籍列表行（Apple Books 風格）
 struct BookRow: View {
     let book: ReadingBook
     @ObservedObject private var gs = GlobalSettings.shared
+
+    private let coverW: CGFloat = 72
+    private let coverH: CGFloat = 100
+
     var body: some View {
-        HStack(spacing: 14) {
-            // 封面：優先顯示 EPUB 封面圖片，否則用漸層色塊
+        HStack(spacing: 16) {
             bookCover
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text(book.title).font(.headline).lineLimit(2)
-                Text(book.author).font(DSFont.subheadline).foregroundColor(DSColor.textSecondary)
-                Spacer(minLength: DSSpacing.xs)
-                ProgressView(value: book.currentPosition).tint(DSColor.accent)
-                HStack {
-                    Text(
-                        book.currentPosition < 0.01
-                            ? gs.t("尚未開始")
-                            : book.currentPosition >= 0.99
-                                ? gs.t("已讀到最新章節")
-                                : "\(Int(book.currentPosition * 100))% " + gs.t("已讀")
-                    )
-                    .font(DSFont.caption2).foregroundColor(DSColor.textSecondary)
-                    Spacer()
-                    Text(book.addedDate, style: .date)
-                        .font(DSFont.caption2).foregroundColor(DSColor.textSecondary.opacity(0.6))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(book.title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !book.author.isEmpty {
+                    Text(book.author)
+                        .font(.system(size: 13))
+                        .foregroundColor(DSColor.textSecondary)
+                        .lineLimit(1)
                 }
+
+                Spacer(minLength: 6)
+
+                // 進度標籤
+                progressBadge
             }
-            Spacer()
+            .padding(.vertical, 10)
+
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, 4)
         .contentShape(Rectangle())
     }
 
     @ViewBuilder
-    var bookCover: some View {
+    private var progressBadge: some View {
+        if book.currentPosition < 0.01 {
+            // 新增（尚未開始閱讀）
+            Text(gs.t("新增"))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(DSColor.accent)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(DSColor.accent.opacity(0.12))
+                .clipShape(Capsule())
+        } else if book.currentPosition >= 0.99 {
+            Text(gs.t("已讀完"))
+                .font(.system(size: 12))
+                .foregroundColor(DSColor.textSecondary)
+        } else {
+            Text("\(Int(book.currentPosition * 100))%")
+                .font(.system(size: 13))
+                .foregroundColor(DSColor.textSecondary)
+        }
+    }
+
+    @ViewBuilder
+    private var bookCover: some View {
         if let coverPath = book.coverImagePath,
            let uiImage = loadCoverImage(filename: coverPath) {
             Image(uiImage: uiImage)
                 .resizable()
                 .scaledToFill()
-                .frame(width: 56, height: 76)
+                .frame(width: coverW, height: coverH)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
-                .shadow(color: .black.opacity(0.2), radius: 4, x: 1, y: 2)
+                .shadow(color: .black.opacity(0.18), radius: 5, x: 1, y: 3)
         } else {
-            Text(book.title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(DSColor.textSecondary)
-                .multilineTextAlignment(.leading)
-                .lineLimit(4)
-                .frame(width: 56, height: 76, alignment: .topLeading)
+            // 漸層色塊 fallback
+            ZStack(alignment: .bottomLeading) {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(
+                        LinearGradient(
+                            colors: coverGradient(for: book.title),
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: coverW, height: coverH)
+                    .shadow(color: .black.opacity(0.18), radius: 5, x: 1, y: 3)
+                Text(book.title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white.opacity(0.9))
+                    .lineLimit(3)
+                    .padding(8)
+            }
+            .frame(width: coverW, height: coverH)
         }
     }
 
-    func loadCoverImage(filename: String) -> UIImage? {
+    private func loadCoverImage(filename: String) -> UIImage? {
         let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(filename)
         guard let data = try? Data(contentsOf: url) else { return nil }
         return UIImage(data: data)
     }
 
+    private func coverGradient(for title: String) -> [Color] {
+        let palettes: [[Color]] = [
+            [Color(red: 0.30, green: 0.45, blue: 0.80), Color(red: 0.15, green: 0.25, blue: 0.55)],
+            [Color(red: 0.70, green: 0.25, blue: 0.30), Color(red: 0.45, green: 0.10, blue: 0.18)],
+            [Color(red: 0.20, green: 0.55, blue: 0.45), Color(red: 0.10, green: 0.35, blue: 0.28)],
+            [Color(red: 0.65, green: 0.45, blue: 0.15), Color(red: 0.42, green: 0.28, blue: 0.05)],
+            [Color(red: 0.45, green: 0.20, blue: 0.65), Color(red: 0.28, green: 0.10, blue: 0.45)],
+        ]
+        let idx = abs(title.hashValue) % palettes.count
+        return palettes[idx]
+    }
 }
 
 // MARK: - 書籍網格格子
