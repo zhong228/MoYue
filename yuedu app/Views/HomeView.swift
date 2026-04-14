@@ -19,6 +19,7 @@ struct HomeView: View {
     @State private var editingBook: ReadingBook? = nil
     @State private var bookToDelete: ReadingBook? = nil
     @State private var editMode = EditMode.inactive
+    @State private var showSearch = false
     @AppStorage("bookLayoutIsGrid") private var isGridMode = false
 
     // fullScreenCover 閱讀器（取代 NavigationLink，避免 SwiftUI NavLink 重建 @State bug）
@@ -38,7 +39,7 @@ struct HomeView: View {
             AdaptiveContentContainer(maxWidth: 920) {
                 Group {
                     if store.books.isEmpty {
-                        EmptyLibraryView(showAdd: $showAddSheet)
+                        EmptyLibraryView(showAdd: $showAddSheet, showSearch: $showSearch)
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     } else {
                         VStack(spacing: 0) {
@@ -77,6 +78,11 @@ struct HomeView: View {
                         Image(systemName: isGridMode ? "list.bullet" : "square.grid.2x2")
                             .font(DSFont.toolbarIcon)
                     }
+                    // 書籍搜索
+                    Button { showSearch = true } label: {
+                        Image(systemName: "magnifyingglass")
+                            .font(DSFont.toolbarIcon)
+                    }
                     // 新增本地書籍
                     Button {
                         addSheetSessionID = UUID()
@@ -97,6 +103,11 @@ struct HomeView: View {
             .onChange(of: showAddSheet) { isPresented in
                 if isPresented {
                     addSheetSessionID = UUID()
+                }
+            }
+            .sheet(isPresented: $showSearch) {
+                AdaptiveSheetContainer(maxWidth: 900) {
+                    BookSearchView().environmentObject(store)
                 }
             }
             // 編輯書籍資訊 Sheet
@@ -284,6 +295,7 @@ struct EditBookSheet: View {
 // MARK: - 空書架
 struct EmptyLibraryView: View {
     @Binding var showAdd: Bool
+    @Binding var showSearch: Bool
     @ObservedObject private var gs = GlobalSettings.shared
     @State private var appeared = false
     var body: some View {
@@ -304,6 +316,13 @@ struct EmptyLibraryView: View {
                     .padding(.horizontal, DSSpacing.xxl).padding(.vertical, 14)
                     .background(DSColor.accent).clipShape(Capsule())
             }
+            Button {
+                showSearch = true
+            } label: {
+                Label(gs.t("搜索書籍"), systemImage: "magnifyingglass")
+                    .font(DSFont.subheadline.weight(.medium))
+            }
+            .buttonStyle(.plain)
             Spacer()
         }
         .padding()
