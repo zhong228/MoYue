@@ -453,7 +453,7 @@ struct BookRow: View {
                 .scaledToFill()
                 .frame(width: coverW, height: coverH)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
-                .shadow(color: .black.opacity(0.12), radius: 2, x: 0, y: 1)
+                .shadow(color: .black.opacity(0.08), radius: 15, x: 0, y: 10)
         } else {
             ZStack(alignment: .bottomLeading) {
                 RoundedRectangle(cornerRadius: 4)
@@ -463,7 +463,7 @@ struct BookRow: View {
                             startPoint: .topLeading, endPoint: .bottomTrailing
                         )
                     )
-                    .shadow(color: .black.opacity(0.12), radius: 2, x: 0, y: 1)
+                    .shadow(color: .black.opacity(0.08), radius: 15, x: 0, y: 10)
                 Text(book.title)
                     .font(.system(size: 9, weight: .medium))
                     .foregroundColor(.white.opacity(0.9))
