@@ -196,8 +196,6 @@ struct HomeView: View {
                 )
                 .listRowSeparator(.visible)
                 .listRowSeparatorTint(DSColor.textSecondary.opacity(0.15))
-                // 分隔線從文字左緣開始：16pt leading + 45pt cover + 12pt spacing = 73pt
-                .alignmentGuide(.listRowSeparatorLeading) { _ in -73 }
                 .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                 .listRowBackground(Color.clear)
                 .transition(.opacity.combined(with: .move(edge: .leading)))
