@@ -176,7 +176,7 @@ enum MarkdownRenderableNodeConverter {
             if isHorizontalRule(trimmed) {
                 flushParagraph()
                 flushQuote()
-                nodes.append(.horizontalRule)
+                nodes.append(.horizontalRule())
                 continue
             }
 
@@ -228,7 +228,7 @@ enum MarkdownRenderableNodeConverter {
             return flatten(children)
         case .text(let text):
             return text
-        case .lineBreak, .horizontalRule, .pageBreak:
+        case .lineBreak, .horizontalRule(_), .pageBreak:
             return ""
         case .inline(_, let children, _):
             return flatten(children)

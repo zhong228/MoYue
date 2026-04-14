@@ -42,7 +42,7 @@ private extension HTMLAttributedStringBuilder.ElementNode {
             node = .listItem(mappedChildren, bullet: bullet)
 
         case "hr":
-            node = .horizontalRule
+            node = .horizontalRule(style: style)
 
         case "br":
             node = .lineBreak
@@ -77,7 +77,7 @@ private extension RenderStyle {
             fontWeight: s.fontWeight,
             bold: s.fontWeight >= 700,
             italic: s.isItalic,
-            color: RenderColor(uiColor: s.textColor),
+            color: s.hasCSSColor ? RenderColor(uiColor: s.textColor) : nil,
             backgroundColor: s.backgroundFillColor.flatMap { RenderColor(uiColor: $0) },
             textIndent: s.textIndent,
             textAlign: .from(nsTextAlignment: s.textAlign),
@@ -94,8 +94,12 @@ private extension RenderStyle {
             opacity: s.opacity,
             borderTopWidth: s.borderTopWidth,
             borderBottomWidth: s.borderBottomWidth,
+            borderLeftWidth: s.borderLeftWidth,
+            borderRightWidth: s.borderRightWidth,
             borderTopColor: s.borderTopColor.flatMap { RenderColor(uiColor: $0) },
             borderBottomColor: s.borderBottomColor.flatMap { RenderColor(uiColor: $0) },
+            borderLeftColor: s.borderLeftColor.flatMap { RenderColor(uiColor: $0) },
+            borderRightColor: s.borderRightColor.flatMap { RenderColor(uiColor: $0) },
             isHorizontallyCentered: s.isHorizontallyCentered
         )
     }

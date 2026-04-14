@@ -26,7 +26,7 @@ public indirect enum RenderableNode: Sendable {
     case heading([RenderableNode], level: Int, style: RenderStyle = .none)
 
     /// 分隔線（<hr>）。
-    case horizontalRule
+    case horizontalRule(style: RenderStyle = .none)
 
     /// 引言區塊（<blockquote>）。
     case blockquote([RenderableNode])
@@ -103,8 +103,12 @@ public struct RenderStyle: Sendable {
     public var opacity: CGFloat
     public var borderTopWidth: CGFloat
     public var borderBottomWidth: CGFloat
+    public var borderLeftWidth: CGFloat
+    public var borderRightWidth: CGFloat
     public var borderTopColor: RenderColor?
     public var borderBottomColor: RenderColor?
+    public var borderLeftColor: RenderColor?
+    public var borderRightColor: RenderColor?
     public var isHorizontallyCentered: Bool
 
     public init(
@@ -128,8 +132,12 @@ public struct RenderStyle: Sendable {
         opacity: CGFloat = 1.0,
         borderTopWidth: CGFloat = 0,
         borderBottomWidth: CGFloat = 0,
+        borderLeftWidth: CGFloat = 0,
+        borderRightWidth: CGFloat = 0,
         borderTopColor: RenderColor? = nil,
         borderBottomColor: RenderColor? = nil,
+        borderLeftColor: RenderColor? = nil,
+        borderRightColor: RenderColor? = nil,
         isHorizontallyCentered: Bool = false
     ) {
         self.fontSizeMultiplier = fontSizeMultiplier
@@ -152,8 +160,12 @@ public struct RenderStyle: Sendable {
         self.opacity = opacity
         self.borderTopWidth = borderTopWidth
         self.borderBottomWidth = borderBottomWidth
+        self.borderLeftWidth = borderLeftWidth
+        self.borderRightWidth = borderRightWidth
         self.borderTopColor = borderTopColor
         self.borderBottomColor = borderBottomColor
+        self.borderLeftColor = borderLeftColor
+        self.borderRightColor = borderRightColor
         self.isHorizontallyCentered = isHorizontallyCentered
     }
 

@@ -55,6 +55,7 @@ final class HTMLCSSPropertyApplierRegistry {
         LineHeightApplier(),
         BackgroundImageApplier(),
         BackgroundColorApplier(),
+        LetterSpacingApplier(),
     ])
 }
 
@@ -147,6 +148,7 @@ private struct ColorApplier: HTMLCSSPropertyApplier {
     ) {
         if let color = context.parseColor(value) {
             style.textColor = color
+            style.hasCSSColor = true
         }
     }
 }
@@ -187,6 +189,25 @@ private struct BackgroundColorApplier: HTMLCSSPropertyApplier {
     ) {
         if let color = context.parseColor(value) {
             style.backgroundFillColor = color
+        }
+    }
+}
+
+private struct LetterSpacingApplier: HTMLCSSPropertyApplier {
+    let key = "letter-spacing"
+
+    func apply(
+        value: String,
+        style: inout HTMLAttributedStringBuilder.ResolvedStyle,
+        context: HTMLCSSApplyContext
+    ) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if trimmed == "normal" {
+            style.letterSpacing = nil
+            return
+        }
+        if let resolved = context.resolveLength(trimmed, style.fontSize, context.rootFontSize, style.fontSize) {
+            style.letterSpacing = resolved
         }
     }
 }

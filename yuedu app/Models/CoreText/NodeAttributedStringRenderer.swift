@@ -76,9 +76,17 @@ struct NodeAttributedStringRenderer {
             // \u{2028} = Unicode Line Separator（同 HTMLAttributedStringBuilder 慣例）
             return NSAttributedString(string: "\u{2028}", attributes: ctx.baseAttributes)
 
-        case .horizontalRule:
+        case .horizontalRule(let style):
             var attrs = ctx.baseAttributes
-            attrs[HTMLAttributedStringBuilder.hrDividerAttribute] = true as NSNumber
+            let hrStyle = HTMLAttributedStringBuilder.HRDividerStyle(
+                color: style.borderTopColor?.uiColor
+                    ?? style.borderBottomColor?.uiColor
+                    ?? style.color?.uiColor
+                    ?? style.backgroundColor?.uiColor,
+                lineWidth: style.borderTopWidth > 0 ? style.borderTopWidth
+                    : style.height.flatMap { $0 > 0 ? $0 : nil }
+            )
+            attrs[HTMLAttributedStringBuilder.hrDividerAttribute] = hrStyle
             return NSAttributedString(string: "\n", attributes: attrs)
 
         case .pageBreak:
@@ -174,7 +182,19 @@ struct NodeAttributedStringRenderer {
         }
         let contentLength = result.length
         if contentLength > 0 {
-            applyBlockDecorationAttributes(style: style, to: result, range: NSRange(location: 0, length: contentLength))
+            let hasBlockChildren = children.contains { child in
+                if case .block = child { return true }
+                if case .heading = child { return true }
+                if case .blockquote = child { return true }
+                if case .listItem = child { return true }
+                if case .horizontalRule = child { return true }
+                return false
+            }
+            if hasBlockChildren {
+                applyContainerDecorationAttributes(style: style, to: result, range: NSRange(location: 0, length: contentLength))
+            } else {
+                applyBlockDecorationAttributes(style: style, to: result, range: NSRange(location: 0, length: contentLength))
+            }
         }
         result.append(NSAttributedString(string: "\n", attributes: childCtx.baseAttributes))
         return result
@@ -229,7 +249,7 @@ struct NodeAttributedStringRenderer {
         }
 
         // ── 顏色 ──
-        if let c = style.color { newCtx.textColor = c.uiColor }
+        if let c = style.color { newCtx.textColor = c.uiColor; newCtx.hasCSSColor = true }
 
         // ── Paragraph Style ──
         let para = NSMutableParagraphStyle()
@@ -263,7 +283,7 @@ struct NodeAttributedStringRenderer {
         newCtx.font = makeFont(families: families, size: ctx.font.pointSize, weight: weight, italic: style.italic || ctx.font.isItalic)
         newCtx.fontFamilies = families
         newCtx.fontWeight = weight
-        if let c = style.color { newCtx.textColor = c.uiColor }
+        if let c = style.color { newCtx.textColor = c.uiColor; newCtx.hasCSSColor = true }
         return newCtx
     }
 
@@ -558,6 +578,33 @@ struct NodeAttributedStringRenderer {
         )
     }
 
+    private func applyContainerDecorationAttributes(
+        style: RenderStyle,
+        to attributedString: NSMutableAttributedString,
+        range: NSRange
+    ) {
+        guard range.length > 0 else { return }
+        if let backgroundColor = style.backgroundColor?.uiColor {
+            attributedString.addAttribute(
+                HTMLAttributedStringBuilder.blockBackgroundColorAttribute,
+                value: backgroundColor,
+                range: range
+            )
+        }
+        guard let blockRenderStyle = makeBlockRenderStyle(from: style) else { return }
+        let blockID = "container-" + UUID().uuidString
+        attributedString.addAttribute(
+            HTMLAttributedStringBuilder.containerBlockRenderStyleAttribute,
+            value: blockRenderStyle,
+            range: range
+        )
+        attributedString.addAttribute(
+            HTMLAttributedStringBuilder.containerBlockRenderIDAttribute,
+            value: blockID,
+            range: range
+        )
+    }
+
     private func makeBlockRenderStyle(
         from style: RenderStyle,
         blockImage: HTMLAttributedStringBuilder.BlockRenderStyle.BlockImage? = nil
@@ -566,8 +613,12 @@ struct NodeAttributedStringRenderer {
             backgroundFillColor: style.backgroundColor?.uiColor,
             borderTopWidth: style.borderTopWidth,
             borderBottomWidth: style.borderBottomWidth,
+            borderLeftWidth: style.borderLeftWidth,
+            borderRightWidth: style.borderRightWidth,
             borderTopColor: style.borderTopColor?.uiColor,
             borderBottomColor: style.borderBottomColor?.uiColor,
+            borderLeftColor: style.borderLeftColor?.uiColor,
+            borderRightColor: style.borderRightColor?.uiColor,
             width: style.width,
             height: style.height,
             textAlign: nsTextAlignment(from: style.textAlign),
@@ -598,6 +649,7 @@ struct NodeAttributedStringRenderer {
         var fontFamilies: [String]
         var fontWeight: Int
         var textColor: UIColor
+        var hasCSSColor: Bool
         var kern: CGFloat
         var paragraphStyle: NSParagraphStyle
         var baselineOffset: CGFloat
@@ -617,6 +669,9 @@ struct NodeAttributedStringRenderer {
             ]
             if let href = linkHref {
                 attrs[HTMLAttributedStringBuilder.internalLinkAttribute] = href
+            }
+            if hasCSSColor {
+                attrs[HTMLAttributedStringBuilder.cssSpecifiedForegroundColorAttribute] = textColor
             }
             return attrs
         }
@@ -638,6 +693,7 @@ struct NodeAttributedStringRenderer {
                 fontFamilies: config.fontFamily.map { [$0] } ?? [],
                 fontWeight: 400,
                 textColor: config.textColor,
+                hasCSSColor: false,
                 kern: config.letterSpacing,
                 paragraphStyle: para,
                 baselineOffset: ReaderTypographyCorrection.baselineOffset(

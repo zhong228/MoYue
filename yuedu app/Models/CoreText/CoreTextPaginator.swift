@@ -47,12 +47,37 @@ final class CoreTextPaginator {
         let contentInsets: UIEdgeInsets
 
         /// 僅更新文字顏色，不重新分頁（顏色不影響換行）。
+        /// CSS 明確指定前景色（帶 cssSpecifiedForegroundColorAttribute 標記）的 range 保留原色；
+        /// 帶 blockBackgroundColorAttribute 的 range 不覆蓋 .backgroundColor，避免遮蔽區塊背景。
         func withUpdatedColors(textColor: UIColor, backgroundColor: UIColor) -> ChapterLayout {
             guard attributedString.length > 0 else { return self }
             let updated = NSMutableAttributedString(attributedString: attributedString)
-            let range = NSRange(location: 0, length: updated.length)
-            updated.addAttribute(.foregroundColor, value: textColor, range: range)
-            updated.addAttribute(.backgroundColor, value: backgroundColor, range: range)
+            let fullRange = NSRange(location: 0, length: updated.length)
+
+            // ── 前景色：先全域套用主題色，再還原 CSS 指定色 ──
+            updated.addAttribute(.foregroundColor, value: textColor, range: fullRange)
+            updated.enumerateAttribute(
+                HTMLAttributedStringBuilder.cssSpecifiedForegroundColorAttribute,
+                in: fullRange,
+                options: []
+            ) { value, effectiveRange, _ in
+                if let cssColor = value as? UIColor {
+                    updated.addAttribute(.foregroundColor, value: cssColor, range: effectiveRange)
+                }
+            }
+
+            // ── 背景色：先全域套用主題色，再移除有 CSS 區塊背景的 range ──
+            updated.addAttribute(.backgroundColor, value: backgroundColor, range: fullRange)
+            updated.enumerateAttribute(
+                HTMLAttributedStringBuilder.blockBackgroundColorAttribute,
+                in: fullRange,
+                options: []
+            ) { value, effectiveRange, _ in
+                if value != nil {
+                    updated.removeAttribute(.backgroundColor, range: effectiveRange)
+                }
+            }
+
             let newFramesetter = CTFramesetterCreateWithAttributedString(updated)
             return ChapterLayout(
                 spineIndex: spineIndex,
@@ -471,12 +496,14 @@ final class CoreTextPaginator {
                 let ranges: [NSRange]
                 var rect: CGRect
                 var usesExplicitGeometry: Bool
+                let isContainer: Bool
             }
 
             struct SpanGroup {
                 let blockID: String
                 let style: HTMLAttributedStringBuilder.BlockRenderStyle
                 var ranges: [NSRange]
+                let isContainer: Bool
             }
 
             var spanGroupsByID: [String: SpanGroup] = [:]
@@ -500,7 +527,34 @@ final class CoreTextPaginator {
                     spanGroupsByID[blockID] = SpanGroup(
                         blockID: blockID,
                         style: renderStyle,
-                        ranges: [effectiveRange]
+                        ranges: [effectiveRange],
+                        isContainer: false
+                    )
+                }
+            }
+
+            // 容器層裝飾（父 div 的 border/background，跨越 block 子元素）
+            attrStr.enumerateAttribute(
+                HTMLAttributedStringBuilder.containerBlockRenderStyleAttribute,
+                in: pageNSRange,
+                options: []
+            ) { value, effectiveRange, _ in
+                guard let renderStyle = value as? HTMLAttributedStringBuilder.BlockRenderStyle,
+                      let blockID = attrStr.attribute(
+                          HTMLAttributedStringBuilder.containerBlockRenderIDAttribute,
+                          at: effectiveRange.location,
+                          effectiveRange: nil
+                      ) as? String
+                else { return }
+                if var existing = spanGroupsByID[blockID] {
+                    existing.ranges.append(effectiveRange)
+                    spanGroupsByID[blockID] = existing
+                } else {
+                    spanGroupsByID[blockID] = SpanGroup(
+                        blockID: blockID,
+                        style: renderStyle,
+                        ranges: [effectiveRange],
+                        isContainer: true
                     )
                 }
             }
@@ -511,7 +565,8 @@ final class CoreTextPaginator {
                     style: $0.style,
                     ranges: $0.ranges,
                     rect: .null,
-                    usesExplicitGeometry: false
+                    usesExplicitGeometry: false,
+                    isContainer: $0.isContainer
                 )
             }
             guard !groups.isEmpty else { continue }
@@ -618,7 +673,8 @@ final class CoreTextPaginator {
             let renderables = groups
                 .filter { !$0.rect.isNull }
                 .map { group -> RenderedBlockRenderable in
-                    let text = explicitRenderableText(
+                    // 容器群組僅繪製裝飾（border/background），不接管文字渲染
+                    let text: NSAttributedString? = group.isContainer ? nil : explicitRenderableText(
                         style: group.style,
                         ranges: group.ranges,
                         attrStr: attrStr,

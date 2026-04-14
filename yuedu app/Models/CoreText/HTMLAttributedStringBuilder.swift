@@ -12,6 +12,11 @@ final class HTMLAttributedStringBuilder {
     static let blockBackgroundColorAttribute = NSAttributedString.Key("ReaderBlockBackgroundColor")
     static let blockRenderStyleAttribute = NSAttributedString.Key("ReaderBlockRenderStyle")
     static let blockRenderIDAttribute = NSAttributedString.Key("ReaderBlockRenderID")
+    /// 容器層裝飾（與 blockRenderStyle 並存，用於父 div 的 border/background 跨越 block 子元素）。
+    static let containerBlockRenderStyleAttribute = NSAttributedString.Key("ReaderContainerBlockRenderStyle")
+    static let containerBlockRenderIDAttribute = NSAttributedString.Key("ReaderContainerBlockRenderID")
+    /// Marker attribute: CSS 明確指定的前景色。withUpdatedColors() 不會覆蓋帶有此標記的 range。
+    static let cssSpecifiedForegroundColorAttribute = NSAttributedString.Key("ReaderCSSSpecifiedForegroundColor")
     private static let paragraphSeparator = "\n"
     private static let lineSeparator = "\u{2028}"
 
@@ -88,12 +93,27 @@ final class HTMLAttributedStringBuilder {
         var isHorizontallyCentered: Bool
         var borderTopWidth: CGFloat
         var borderBottomWidth: CGFloat
+        var borderLeftWidth: CGFloat
+        var borderRightWidth: CGFloat
         var borderTopColor: UIColor?
         var borderBottomColor: UIColor?
+        var borderLeftColor: UIColor?
+        var borderRightColor: UIColor?
         var opacity: CGFloat
+        /// CSS letter-spacing（px 值），nil = 使用預設字距
+        var letterSpacing: CGFloat?
+        /// CSS 是否明確指定了 `color`（含繼承自 CSS 父層），
+        /// withUpdatedColors() 會據此判斷是否保留原色。
+        var hasCSSColor: Bool
         /// 使用者設定的段距，從 root 傳播，不受 CSS margin 覆蓋。
         /// 用於確保 <p> 預設段距不被 EPUB CSS body/div margin:0 歸零。
         var configParagraphSpacing: CGFloat
+    }
+
+    /// HR 分隔線的視覺樣式（儲存在 hrDividerAttribute 中）。
+    struct HRDividerStyle {
+        let color: UIColor?
+        let lineWidth: CGFloat?
     }
 
     struct BlockRenderStyle {
@@ -110,8 +130,12 @@ final class HTMLAttributedStringBuilder {
         let backgroundFillColor: UIColor?
         let borderTopWidth: CGFloat
         let borderBottomWidth: CGFloat
+        let borderLeftWidth: CGFloat
+        let borderRightWidth: CGFloat
         let borderTopColor: UIColor?
         let borderBottomColor: UIColor?
+        let borderLeftColor: UIColor?
+        let borderRightColor: UIColor?
         let width: CGFloat?
         let height: CGFloat?
         let textAlign: NSTextAlignment
@@ -123,7 +147,10 @@ final class HTMLAttributedStringBuilder {
         let blockImage: BlockImage?
 
         var hasVisualDecoration: Bool {
-            backgroundFillColor != nil || borderTopWidth > 0 || borderBottomWidth > 0 || blockImage != nil
+            backgroundFillColor != nil
+                || borderTopWidth > 0 || borderBottomWidth > 0
+                || borderLeftWidth > 0 || borderRightWidth > 0
+                || blockImage != nil
         }
     }
 
@@ -521,13 +548,26 @@ final class HTMLAttributedStringBuilder {
         paragraph.paragraphSpacing = style.fontSize * 0.5
         paragraph.minimumLineHeight = style.fontSize
         paragraph.maximumLineHeight = style.fontSize
+
+        // 從 CSS 推斷 HR 顏色：border-top-color > border-bottom-color > text color > separator
+        let hrColor = style.borderTopColor
+            ?? style.borderBottomColor
+            ?? (style.hasCSSColor ? style.textColor : nil)
+            ?? style.backgroundFillColor
+            ?? UIColor.separator
+        // 從 CSS 推斷 HR 粗細：border-top-width > height > 預設 0.5pt
+        let hrLineWidth = style.borderTopWidth > 0
+            ? style.borderTopWidth
+            : (style.height.flatMap { $0 > 0 ? $0 : nil } ?? 0.5)
+        let hrStyle = HRDividerStyle(color: hrColor, lineWidth: hrLineWidth)
+
         return NSAttributedString(
             string: "\n",
             attributes: [
                 .font: makeFont(from: style, config: config),
                 .foregroundColor: UIColor.clear,
                 .paragraphStyle: paragraph,
-                Self.hrDividerAttribute: true as AnyObject,
+                Self.hrDividerAttribute: hrStyle,
             ]
         )
     }
@@ -620,11 +660,14 @@ final class HTMLAttributedStringBuilder {
             paragraphIndex += 1
         }
 
+        var hasBlockChild = false
+
         for child in element.children {
             switch child {
             case .lineBreak(let breakNode) where breakNode.resolvedStyle.isBlock:
                 appendSegment(isLast: false)
             case .element(let childElement) where childElement.resolvedStyle.isBlock:
+                hasBlockChild = true
                 appendSegment(isLast: false)
                 let rendered = await renderNode(child, inheritedStyle: element.resolvedStyle, config: config)
                 if rendered.length > 0 {
@@ -663,6 +706,23 @@ final class HTMLAttributedStringBuilder {
         }
 
         appendSegment(isLast: true)
+
+        // ── 容器層裝飾 ──
+        // 僅當此元素包含 block 子元素時，才套用容器層 attribute，
+        // 讓 extractBlockRenderables 能將所有行 union 成一個完整的矩形。
+        // 若無 block 子元素，inline segment 的 blockRenderStyle 已足夠。
+        if hasBlockChild,
+           output.length > 0,
+           let containerStyle = makeBlockRenderStyle(from: element.resolvedStyle),
+           containerStyle.hasVisualDecoration {
+            let containerID = "container-" + blockRenderID
+            let fullRange = NSRange(location: 0, length: output.length)
+            output.addAttribute(Self.containerBlockRenderStyleAttribute, value: containerStyle, range: fullRange)
+            output.addAttribute(Self.containerBlockRenderIDAttribute, value: containerID, range: fullRange)
+            if let bgColor = element.resolvedStyle.backgroundFillColor {
+                output.addAttribute(Self.blockBackgroundColorAttribute, value: bgColor, range: fullRange)
+            }
+        }
 
         return output
     }
@@ -822,8 +882,12 @@ final class HTMLAttributedStringBuilder {
             backgroundFillColor: style.backgroundFillColor,
             borderTopWidth: style.borderTopWidth,
             borderBottomWidth: style.borderBottomWidth,
+            borderLeftWidth: style.borderLeftWidth,
+            borderRightWidth: style.borderRightWidth,
             borderTopColor: style.borderTopColor,
             borderBottomColor: style.borderBottomColor,
+            borderLeftColor: style.borderLeftColor,
+            borderRightColor: style.borderRightColor,
             width: style.width,
             height: style.height,
             textAlign: style.textAlign,
@@ -916,11 +980,18 @@ final class HTMLAttributedStringBuilder {
         case .sub:   baselineOffset -= style.fontSize * 0.25
         case .baseline: break
         }
-        return [
+        var attrs: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: style.textColor,
             .baselineOffset: baselineOffset,
         ]
+        if let kern = style.letterSpacing {
+            attrs[.kern] = kern as NSNumber
+        }
+        if style.hasCSSColor {
+            attrs[Self.cssSpecifiedForegroundColorAttribute] = style.textColor
+        }
+        return attrs
     }
 
     private func paragraphTerminatorAttributes(style: ResolvedStyle, config: Config) -> [NSAttributedString.Key: Any] {
@@ -1257,9 +1328,15 @@ final class HTMLAttributedStringBuilder {
             isHorizontallyCentered: false,
             borderTopWidth: 0,
             borderBottomWidth: 0,
+            borderLeftWidth: 0,
+            borderRightWidth: 0,
             borderTopColor: nil,
             borderBottomColor: nil,
+            borderLeftColor: nil,
+            borderRightColor: nil,
             opacity: 1,
+            letterSpacing: parent.letterSpacing,
+            hasCSSColor: parent.hasCSSColor,
             configParagraphSpacing: parent.configParagraphSpacing
         )
     }
@@ -1296,9 +1373,15 @@ final class HTMLAttributedStringBuilder {
             isHorizontallyCentered: false,
             borderTopWidth: 0,
             borderBottomWidth: 0,
+            borderLeftWidth: 0,
+            borderRightWidth: 0,
             borderTopColor: nil,
             borderBottomColor: nil,
+            borderLeftColor: nil,
+            borderRightColor: nil,
             opacity: 1,
+            letterSpacing: nil,
+            hasCSSColor: false,
             configParagraphSpacing: config.paragraphSpacing
         )
     }
@@ -1415,6 +1498,7 @@ final class HTMLAttributedStringBuilder {
         }
         if !handledProperties.contains("color"), let color = declarations["color"], let resolved = parseColor(color) {
             style.textColor = resolved
+            style.hasCSSColor = true
         }
         if let opacity = declarations["opacity"], let value = Double(opacity.trimmingCharacters(in: .whitespacesAndNewlines)) {
             style.opacity = max(0, min(1, CGFloat(value)))
@@ -1552,6 +1636,18 @@ final class HTMLAttributedStringBuilder {
         if let borderBottom = declarations["border-bottom"] {
             applyBorderShorthand(borderBottom, edge: .bottom, to: &style)
         }
+        if let borderLeft = declarations["border-left"] {
+            applyBorderShorthand(borderLeft, edge: .left, to: &style)
+        }
+        if let borderRight = declarations["border-right"] {
+            applyBorderShorthand(borderRight, edge: .right, to: &style)
+        }
+        if let border = declarations["border"] {
+            applyBorderShorthand(border, edge: .top, to: &style)
+            applyBorderShorthand(border, edge: .bottom, to: &style)
+            applyBorderShorthand(border, edge: .left, to: &style)
+            applyBorderShorthand(border, edge: .right, to: &style)
+        }
         if let borderTopWidth = declarations["border-top-width"],
            let value = resolveLength(
                 borderTopWidth,
@@ -1576,11 +1672,37 @@ final class HTMLAttributedStringBuilder {
         if let borderBottomColor = declarations["border-bottom-color"] {
             style.borderBottomColor = parseBorderColor(borderBottomColor, currentTextColor: style.textColor)
         }
+        if let borderLeftWidth = declarations["border-left-width"],
+           let value = resolveLength(
+                borderLeftWidth,
+                currentFontSize: style.fontSize,
+                rootFontSize: rootFontSize,
+                relativeBase: style.fontSize
+           ) {
+            style.borderLeftWidth = max(0, value)
+        }
+        if let borderRightWidth = declarations["border-right-width"],
+           let value = resolveLength(
+                borderRightWidth,
+                currentFontSize: style.fontSize,
+                rootFontSize: rootFontSize,
+                relativeBase: style.fontSize
+           ) {
+            style.borderRightWidth = max(0, value)
+        }
+        if let borderLeftColor = declarations["border-left-color"] {
+            style.borderLeftColor = parseBorderColor(borderLeftColor, currentTextColor: style.textColor)
+        }
+        if let borderRightColor = declarations["border-right-color"] {
+            style.borderRightColor = parseBorderColor(borderRightColor, currentTextColor: style.textColor)
+        }
     }
 
     private enum BorderEdge {
         case top
         case bottom
+        case left
+        case right
     }
 
     private func applyBorderShorthand(_ raw: String, edge: BorderEdge, to style: inout ResolvedStyle) {
@@ -1632,6 +1754,12 @@ final class HTMLAttributedStringBuilder {
         case .bottom:
             style.borderBottomWidth = width
             style.borderBottomColor = color
+        case .left:
+            style.borderLeftWidth = width
+            style.borderLeftColor = color
+        case .right:
+            style.borderRightWidth = width
+            style.borderRightColor = color
         }
     }
 

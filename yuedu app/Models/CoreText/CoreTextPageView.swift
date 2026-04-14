@@ -292,13 +292,16 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
 
             // Phase 4: HR 分隔線
             if lineRange.location < stringLength,
-               attrStr.attribute(
+               let hrValue = attrStr.attribute(
                    HTMLAttributedStringBuilder.hrDividerAttribute,
                    at: lineRange.location, effectiveRange: nil
-               ) != nil {
+               ) {
+                let hrStyle = hrValue as? HTMLAttributedStringBuilder.HRDividerStyle
+                let hrColor = hrStyle?.color ?? UIColor.separator
+                let hrWidth = hrStyle?.lineWidth ?? 0.5
                 ctx.saveGState()
-                ctx.setStrokeColor(UIColor.separator.cgColor)
-                ctx.setLineWidth(0.5)
+                ctx.setStrokeColor(hrColor.cgColor)
+                ctx.setLineWidth(hrWidth)
                 ctx.move(to: CGPoint(x: origin.x, y: origin.y))
                 ctx.addLine(to: CGPoint(x: origin.x + contentWidth, y: origin.y))
                 ctx.strokePath()
@@ -334,24 +337,34 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
             // 非最後一行且設定 justified：用 CTLineCreateJustifiedLine 改善 CJK 字間分配
             let lineToDraw: CTLine
             if isJustified && !isParagraphLastLine {
-                // 僅在「覆蓋率高且不含可擴展空白」時做手動 justify，
-                // 避免某些 EPUB 行內空白被過度拉伸造成字距爆炸。
-                let lineWidth = CTLineGetTypographicBounds(line, nil, nil, nil)
-                let coverage = lineWidth / Double(availableWidth)
+                // CTFrame 對 .justified 段落會自動 justify 所有非末行，
+                // 導致很短的行被過度拉伸。用原始 substring rebuild 一條
+                // natural CTLine 取得真實寬度，再決定是否 justify。
                 let lineNSRange = NSRange(location: lineStart, length: max(0, lineRange.length))
-                let hasExpandableWhitespace: Bool = {
-                    guard lineNSRange.location >= 0,
-                          lineNSRange.length > 0,
-                          lineNSRange.location + lineNSRange.length <= stringLength
-                    else { return false }
-                    let lineText = nsString.substring(with: lineNSRange)
-                    return lineText.contains(" ") || lineText.contains("\u{00A0}") || lineText.contains("\t")
-                }()
+                let substring = attrStr.attributedSubstring(from: lineNSRange)
+                let naturalLine = CTLineCreateWithAttributedString(substring)
+                let naturalWidth = CTLineGetTypographicBounds(naturalLine, nil, nil, nil)
+                let coverage = naturalWidth / Double(availableWidth)
 
-                if !hasExpandableWhitespace && coverage > 0.85 {
-                    lineToDraw = CTLineCreateJustifiedLine(line, 1.0, Double(availableWidth)) ?? line
+                if coverage < 0.7 {
+                    // 行太短（< 70% 可用寬），不做 justify，避免字距爆炸
+                    lineToDraw = naturalLine
                 } else {
-                    lineToDraw = line
+                    let hasExpandableWhitespace: Bool = {
+                        guard lineNSRange.length > 0,
+                              lineNSRange.location + lineNSRange.length <= stringLength
+                        else { return false }
+                        let lineText = nsString.substring(with: lineNSRange)
+                        return lineText.contains(" ") || lineText.contains("\u{00A0}") || lineText.contains("\t")
+                    }()
+
+                    if !hasExpandableWhitespace && coverage > 0.85 {
+                        // CJK 純漢字行：用 CTLineCreateJustifiedLine 做精確 justify
+                        lineToDraw = CTLineCreateJustifiedLine(naturalLine, 1.0, Double(availableWidth)) ?? line
+                    } else {
+                        // 中間覆蓋率或含可擴展空白：保留 CTFrame 的 justify
+                        lineToDraw = line
+                    }
                 }
             } else {
                 lineToDraw = line
@@ -391,6 +404,24 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
                 let (bx, bw) = borderXAndWidth(for: item)
                 ctx.move(to: CGPoint(x: bx, y: y))
                 ctx.addLine(to: CGPoint(x: bx + bw, y: y))
+                ctx.strokePath()
+            }
+            if item.style.borderLeftWidth > 0 {
+                let lineW = item.style.borderLeftWidth
+                let x = item.rect.minX + lineW / 2
+                ctx.setStrokeColor((item.style.borderLeftColor ?? .label).cgColor)
+                ctx.setLineWidth(lineW)
+                ctx.move(to: CGPoint(x: x, y: item.rect.minY))
+                ctx.addLine(to: CGPoint(x: x, y: item.rect.maxY))
+                ctx.strokePath()
+            }
+            if item.style.borderRightWidth > 0 {
+                let lineW = item.style.borderRightWidth
+                let x = item.rect.maxX - lineW / 2
+                ctx.setStrokeColor((item.style.borderRightColor ?? .label).cgColor)
+                ctx.setLineWidth(lineW)
+                ctx.move(to: CGPoint(x: x, y: item.rect.minY))
+                ctx.addLine(to: CGPoint(x: x, y: item.rect.maxY))
                 ctx.strokePath()
             }
             // block image 統一在 Phase 3（flip-back 後）用 UIImage.draw() 繪製

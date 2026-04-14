@@ -158,9 +158,15 @@ struct CSSPropertyApplierTests {
             isHorizontallyCentered: false,
             borderTopWidth: 0,
             borderBottomWidth: 0,
+            borderLeftWidth: 0,
+            borderRightWidth: 0,
             borderTopColor: nil,
             borderBottomColor: nil,
+            borderLeftColor: nil,
+            borderRightColor: nil,
             opacity: 1,
+            letterSpacing: nil,
+            hasCSSColor: false,
             configParagraphSpacing: 0
         )
     }
