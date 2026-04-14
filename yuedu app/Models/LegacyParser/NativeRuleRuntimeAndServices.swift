@@ -575,7 +575,7 @@ private final class NativeRuleRuntime {
     }
 }
 
-private enum RuleMode {
+private enum LegacyRuleMode {
     case defaultMode  // JSoup CSS
     case xpath
     case json
@@ -584,9 +584,9 @@ private enum RuleMode {
 }
 
 /// 對應 Legado AnalyzeRule.SourceRule
-private struct SourceRule {
+private struct LegacySourceRule {
     var rule: String
-    var mode: RuleMode
+    var mode: LegacyRuleMode
     var replaceRegex: String = ""
     var replacement: String = ""
     var replaceFirst: Bool = false
@@ -715,10 +715,10 @@ private final class NativeRuleAnalyzer {
     // MARK: - splitSourceRule（對應 Legado AnalyzeRule.splitSourceRule）
     // 按 @js: 和 <js>...</js> 切分規則，返回 SourceRule 列表
 
-    func splitSourceRule(_ ruleStr: String?, allInOne: Bool = false) -> [SourceRule] {
+    func splitLegacySourceRule(_ ruleStr: String?, allInOne: Bool = false) -> [LegacySourceRule] {
         guard let ruleStr = ruleStr, !ruleStr.isEmpty else { return [] }
-        var ruleList: [SourceRule] = []
-        var defaultMode: RuleMode = .defaultMode
+        var ruleList: [LegacySourceRule] = []
+        var defaultMode: LegacyRuleMode = .defaultMode
         var start = 0
         let nsStr = ruleStr as NSString
         let fullRange = NSRange(location: 0, length: nsStr.length)
@@ -734,7 +734,7 @@ private final class NativeRuleAnalyzer {
                 let tmp = nsStr.substring(with: NSRange(location: start, length: match.range.location - start))
                     .trimmingCharacters(in: .whitespaces)
                 if !tmp.isEmpty {
-                    ruleList.append(parseSourceRule(tmp, defaultMode: defaultMode))
+                    ruleList.append(parseLegacySourceRule(tmp, defaultMode: defaultMode))
                 }
             }
             // group(2) 是 @js: 的內容，group(1) 是 <js> 的內容
@@ -746,7 +746,7 @@ private final class NativeRuleAnalyzer {
             } else {
                 jsContent = ""
             }
-            let jsRule = SourceRule(rule: jsContent, mode: .js)
+            let jsRule = LegacySourceRule(rule: jsContent, mode: .js)
             ruleList.append(jsRule)
             start = match.range.location + match.range.length
         }
@@ -754,7 +754,7 @@ private final class NativeRuleAnalyzer {
         if ruleStr.count > start {
             let tmp = nsStr.substring(from: start).trimmingCharacters(in: .whitespaces)
             if !tmp.isEmpty {
-                ruleList.append(parseSourceRule(tmp, defaultMode: defaultMode))
+                ruleList.append(parseLegacySourceRule(tmp, defaultMode: defaultMode))
             }
         }
         return ruleList
@@ -762,7 +762,7 @@ private final class NativeRuleAnalyzer {
 
     // MARK: - SourceRule 解析（對應 Legado SourceRule.init）
 
-    private func parseSourceRule(_ ruleStr: String, defaultMode: RuleMode) -> SourceRule {
+    private func parseLegacySourceRule(_ ruleStr: String, defaultMode: LegacyRuleMode) -> LegacySourceRule {
         var mode = defaultMode
         var ruleBody: String
 
@@ -842,7 +842,7 @@ private final class NativeRuleAnalyzer {
             if !regexMatches.isEmpty { hasTemplates = true }
         }
 
-        return SourceRule(
+        return LegacySourceRule(
             rule: ruleBody,
             mode: mode,
             putMap: putMap,
@@ -851,7 +851,7 @@ private final class NativeRuleAnalyzer {
         )
     }
 
-    private func splitRegexParams(_ ruleStr: String, into params: inout [(type: Int, param: String)], mode: inout RuleMode) {
+    private func splitRegexParams(_ ruleStr: String, into params: inout [(type: Int, param: String)], mode: inout LegacyRuleMode) {
         let nsStr = ruleStr as NSString
         // 只在 ## 之前的部分查找 $N
         let ruleStrArray = ruleStr.components(separatedBy: "##")
@@ -905,7 +905,7 @@ private final class NativeRuleAnalyzer {
     // MARK: - makeUpRule（對應 Legado SourceRule.makeUpRule）
     // 展開 @get, {{}}, $N 模板，並分離 ## 正則
 
-    private func makeUpRule(_ sourceRule: inout SourceRule, result: Any?) {
+    private func makeUpRule(_ sourceRule: inout LegacySourceRule, result: Any?) {
         if sourceRule.hasTemplates && !sourceRule.ruleParams.isEmpty {
             var infoVal = ""
             for (type, param) in sourceRule.ruleParams {
@@ -920,7 +920,7 @@ private final class NativeRuleAnalyzer {
                 case -1:
                     // {{expression}}: JS 或規則
                     if isRuleExpression(param) {
-                        let ruleList = splitSourceRule(param)
+                        let ruleList = splitLegacySourceRule(param)
                         infoVal += getString(ruleList, content: content)
                     } else {
                         if let jsResult = evalJS(param, result: result) {
@@ -959,7 +959,7 @@ private final class NativeRuleAnalyzer {
 
     // MARK: - replaceRegex（對應 Legado AnalyzeRule.replaceRegex）
 
-    private func replaceRegex(_ result: String, _ sourceRule: SourceRule) -> String {
+    private func replaceRegex(_ result: String, _ sourceRule: LegacySourceRule) -> String {
         guard !sourceRule.replaceRegex.isEmpty else { return result }
         if sourceRule.replaceFirst {
             if let regex = try? NSRegularExpression(pattern: sourceRule.replaceRegex) {
@@ -994,11 +994,11 @@ private final class NativeRuleAnalyzer {
 
     func getString(_ ruleStr: String?, content mContent: Any? = nil, isUrl: Bool = false) -> String {
         guard let ruleStr = ruleStr, !ruleStr.isEmpty else { return "" }
-        let ruleList = splitSourceRule(ruleStr)
+        let ruleList = splitLegacySourceRule(ruleStr)
         return getString(ruleList, content: mContent, isUrl: isUrl)
     }
 
-    func getString(_ ruleList: [SourceRule], content mContent: Any? = nil, isUrl: Bool = false, unescape: Bool = true) -> String {
+    func getString(_ ruleList: [LegacySourceRule], content mContent: Any? = nil, isUrl: Bool = false, unescape: Bool = true) -> String {
         var result: Any? = nil
         let workContent = mContent ?? content
         guard !ruleList.isEmpty else { return "" }
@@ -1017,7 +1017,7 @@ private final class NativeRuleAnalyzer {
                 result = "" as Any
             } else {
                 if !rule.isEmpty {
-                    result = evaluateSourceRule(sourceRule, on: result!, isUrl: isUrl)
+                    result = evaluateLegacySourceRule(sourceRule, on: result!, isUrl: isUrl)
                 }
                 if result != nil && !sourceRule.replaceRegex.isEmpty {
                     result = replaceRegex(stringifyResult(result!), sourceRule)
@@ -1040,11 +1040,11 @@ private final class NativeRuleAnalyzer {
 
     func getStringList(_ ruleStr: String?, content mContent: Any? = nil, isUrl: Bool = false) -> [String]? {
         guard let ruleStr = ruleStr, !ruleStr.isEmpty else { return nil }
-        let ruleList = splitSourceRule(ruleStr)
+        let ruleList = splitLegacySourceRule(ruleStr)
         return getStringList(ruleList, content: mContent, isUrl: isUrl)
     }
 
-    func getStringList(_ ruleList: [SourceRule], content mContent: Any? = nil, isUrl: Bool = false) -> [String]? {
+    func getStringList(_ ruleList: [LegacySourceRule], content mContent: Any? = nil, isUrl: Bool = false) -> [String]? {
         var result: Any? = nil
         let workContent = mContent ?? content
 
@@ -1094,7 +1094,7 @@ private final class NativeRuleAnalyzer {
 
     func getElements(_ ruleStr: String) -> [Any] {
         guard !ruleStr.isEmpty else { return [] }
-        let ruleList = splitSourceRule(ruleStr, allInOne: true)
+        let ruleList = splitLegacySourceRule(ruleStr, allInOne: true)
         var result: Any? = content
 
         for var sourceRule in ruleList {
@@ -1110,7 +1110,7 @@ private final class NativeRuleAnalyzer {
 
     // MARK: - 求值 SourceRule（按 mode 分發）
 
-    private func evaluateSourceRule(_ rule: SourceRule, on obj: Any, isUrl: Bool = false) -> Any? {
+    private func evaluateLegacySourceRule(_ rule: LegacySourceRule, on obj: Any, isUrl: Bool = false) -> Any? {
         let ruleStr = rule.rule
         if ruleStr.isEmpty { return obj }
         switch rule.mode {
@@ -1132,7 +1132,7 @@ private final class NativeRuleAnalyzer {
         }
     }
 
-    private func evaluateSourceRuleForList(_ rule: SourceRule, on obj: Any) -> Any? {
+    private func evaluateSourceRuleForList(_ rule: LegacySourceRule, on obj: Any) -> Any? {
         let ruleStr = rule.rule
         if ruleStr.isEmpty { return obj }
         switch rule.mode {
@@ -1151,7 +1151,7 @@ private final class NativeRuleAnalyzer {
         }
     }
 
-    private func evaluateSourceRuleForElements(_ rule: SourceRule, on obj: Any) -> Any? {
+    private func evaluateSourceRuleForElements(_ rule: LegacySourceRule, on obj: Any) -> Any? {
         let ruleStr = rule.rule
         if ruleStr.isEmpty { return obj }
         switch rule.mode {
@@ -1552,8 +1552,8 @@ private final class NativeRuleAnalyzer {
 
     func parseTOC() -> [OnlineChapterRef] {
         let items = getElements(source.ruleToc.chapterList)
-        let nameRuleList = splitSourceRule(source.ruleToc.chapterName)
-        let urlRuleList = splitSourceRule(source.ruleToc.chapterUrl)
+        let nameRuleList = splitLegacySourceRule(source.ruleToc.chapterName)
+        let urlRuleList = splitLegacySourceRule(source.ruleToc.chapterUrl)
 
         return items.enumerated().map { index, item in
             let itemAnalyzer = NativeRuleAnalyzer(
