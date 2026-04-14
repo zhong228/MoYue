@@ -416,13 +416,10 @@ struct BookRow: View {
             }
             .buttonStyle(.plain)
 
-            // 自訂分隔線：從封面右側開始，EPUB / TXT 長度一致
-            HStack(spacing: 0) {
-                Color.clear.frame(width: coverW + 12)
-                Rectangle()
-                    .fill(Color(uiColor: .separator))
-                    .frame(height: 0.5)
-            }
+            // 自訂分隔線：從封面左緣開始，全寬
+            Rectangle()
+                .fill(Color(uiColor: .separator))
+                .frame(height: 0.5)
         }
     }
 
