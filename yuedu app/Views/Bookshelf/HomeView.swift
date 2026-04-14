@@ -20,6 +20,7 @@ struct HomeView: View {
     @State private var bookToDelete: ReadingBook? = nil
     @State private var editMode = EditMode.inactive
     @State private var showSearch = false
+    @State private var selectedGroup: String = ""   // "" = 全部
     @AppStorage("bookLayoutIsGrid") private var isGridMode = false
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -31,10 +32,11 @@ struct HomeView: View {
 
     // 過濾 + 排序
     var filteredBooks: [ReadingBook] {
+        let grouped = selectedGroup.isEmpty ? store.books : store.books.filter { $0.group == selectedGroup }
         switch sortOrder {
-        case .dateAdded: return store.books
-        case .titleAZ: return store.books.sorted { $0.title < $1.title }
-        case .progress: return store.books.sorted { $0.currentPosition > $1.currentPosition }
+        case .dateAdded: return grouped
+        case .titleAZ: return grouped.sorted { $0.title < $1.title }
+        case .progress: return grouped.sorted { $0.currentPosition > $1.currentPosition }
         }
     }
 
@@ -47,6 +49,10 @@ struct HomeView: View {
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     } else {
                         VStack(spacing: 0) {
+                            // 分組篩選（有分組時顯示）
+                            if !store.allGroups.isEmpty {
+                                groupFilterBar
+                            }
                             // 排序選擇（僅在編輯模式顯示）
                             if editMode == .active {
                                 sortBar
@@ -118,9 +124,11 @@ struct HomeView: View {
             // 編輯書籍資訊 Sheet
             .sheet(item: $editingBook) { book in
                 AdaptiveSheetContainer(maxWidth: 640) {
-                    EditBookSheet(book: book) { newTitle, newAuthor in
+                    EditBookSheet(book: book) { newTitle, newAuthor, newGroup in
                         store.updateBook(bookId: book.id, title: newTitle, author: newAuthor)
+                        store.setGroup(newGroup, for: book.id)
                     }
+                    .environmentObject(store)
                 }
             }
             // 刪除確認對話框
@@ -151,6 +159,23 @@ struct HomeView: View {
             if let bookId = readerBookId {
                 ReaderView(bookId: bookId).environmentObject(store)
             }
+        }
+    }
+
+    // MARK: - 分組篩選欄
+    private var groupFilterBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DSSpacing.sm) {
+                DSChip(title: gs.t("全部"), isSelected: selectedGroup.isEmpty) {
+                    withAnimation { selectedGroup = "" }
+                }
+                ForEach(store.allGroups, id: \.self) { group in
+                    DSChip(title: group, isSelected: selectedGroup == group) {
+                        withAnimation { selectedGroup = group }
+                    }
+                }
+            }
+            .padding(.horizontal, DSSpacing.lg).padding(.vertical, 6)
         }
     }
 
@@ -223,18 +248,21 @@ struct HomeView: View {
 // MARK: - 編輯書籍資訊 Sheet
 struct EditBookSheet: View {
     let book: ReadingBook
-    let onSave: (String, String) -> Void
+    let onSave: (String, String, String) -> Void
 
     @State private var titleInput: String
     @State private var authorInput: String
+    @State private var groupInput: String
     @Environment(\.presentationMode) var dismiss
     @ObservedObject private var gs = GlobalSettings.shared
+    @EnvironmentObject private var store: BookStore
 
-    init(book: ReadingBook, onSave: @escaping (String, String) -> Void) {
+    init(book: ReadingBook, onSave: @escaping (String, String, String) -> Void) {
         self.book = book
         self.onSave = onSave
         _titleInput = State(initialValue: book.title)
         _authorInput = State(initialValue: book.author)
+        _groupInput = State(initialValue: book.group)
     }
 
     var body: some View {
@@ -253,6 +281,26 @@ struct EditBookSheet: View {
                             Spacer()
                             TextField(gs.t("作者"), text: $authorInput)
                                 .multilineTextAlignment(.trailing)
+                        }
+                        HStack {
+                            Text(gs.t("分組"))
+                            Spacer()
+                            TextField(gs.t("未分組"), text: $groupInput)
+                                .multilineTextAlignment(.trailing)
+                        }
+                        if !store.allGroups.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 6) {
+                                    ForEach(store.allGroups, id: \.self) { g in
+                                        Button(g) { groupInput = g }
+                                            .font(.caption)
+                                            .padding(.horizontal, 10).padding(.vertical, 4)
+                                            .background(groupInput == g ? DSColor.accent.opacity(0.2) : Color.secondary.opacity(0.1))
+                                            .foregroundColor(groupInput == g ? DSColor.accent : DSColor.textSecondary)
+                                            .clipShape(Capsule())
+                                    }
+                                }
+                            }
                         }
                     }
                     Section(header: Text(gs.t("閱讀進度"))) {
@@ -284,7 +332,7 @@ struct EditBookSheet: View {
                     }
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button {
-                            onSave(titleInput, authorInput)
+                            onSave(titleInput, authorInput, groupInput)
                             dismiss.wrappedValue.dismiss()
                         } label: {
                             Text(gs.t("儲存")).font(.body.weight(.semibold))

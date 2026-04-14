@@ -7,6 +7,11 @@ struct SettingsView: View {
     @State private var showSourceList = false
     @State private var showDownloadManager = false
     @State private var showReplaceRules = false
+    @State private var showReadingStats = false
+    @State private var showWebDAVSync = false
+    @State private var showLanServer = false
+    @State private var showRSSReader = false
+    @State private var showLegadoMigration = false
 
     private let feedbackEmail = "r3212239269@gmail.com"
 
@@ -57,6 +62,39 @@ struct SettingsView: View {
                             icon: "text.magnifyingglass",
                             title: gs.t("替換規則"),
                             action: { showReplaceRules = true }
+                        )
+                    }
+
+                    // ── 閱讀工具 ──
+                    Section(header: Text(gs.t("閱讀工具"))) {
+                        DSSettingsRow(
+                            icon: "chart.bar.fill",
+                            title: gs.t("閱讀統計"),
+                            action: { showReadingStats = true }
+                        )
+                        DSSettingsRow(
+                            icon: "dot.radiowaves.left.and.right",
+                            title: gs.t("RSS 訂閱"),
+                            action: { showRSSReader = true }
+                        )
+                    }
+
+                    // ── 資料管理 ──
+                    Section(header: Text(gs.t("資料管理"))) {
+                        DSSettingsRow(
+                            icon: "icloud.and.arrow.up.fill",
+                            title: gs.t("WebDAV 同步"),
+                            action: { showWebDAVSync = true }
+                        )
+                        DSSettingsRow(
+                            icon: "wifi",
+                            title: gs.t("局域網服務"),
+                            action: { showLanServer = true }
+                        )
+                        DSSettingsRow(
+                            icon: "arrow.down.doc.fill",
+                            title: gs.t("Legado 資料遷移"),
+                            action: { showLegadoMigration = true }
                         )
                     }
 
@@ -111,6 +149,31 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showReplaceRules) {
                 ReplaceRuleListView()
+            }
+            .sheet(isPresented: $showReadingStats) {
+                AdaptiveSheetContainer(maxWidth: 760) {
+                    ReadingStatsView()
+                }
+            }
+            .sheet(isPresented: $showRSSReader) {
+                AdaptiveSheetContainer(maxWidth: 820) {
+                    RSSListView()
+                }
+            }
+            .sheet(isPresented: $showWebDAVSync) {
+                AdaptiveSheetContainer(maxWidth: 640) {
+                    WebDAVSyncView()
+                }
+            }
+            .sheet(isPresented: $showLanServer) {
+                AdaptiveSheetContainer(maxWidth: 640) {
+                    LanServerView().environmentObject(store)
+                }
+            }
+            .sheet(isPresented: $showLegadoMigration) {
+                AdaptiveSheetContainer(maxWidth: 760) {
+                    LegadoMigrationView().environmentObject(store)
+                }
             }
         }
         .navigationViewStyle(.stack)

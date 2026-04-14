@@ -64,6 +64,9 @@ struct ReadingBook: Identifiable, Codable {
     var runtimeVariables: [String: String]?
     var onlineChapters: [OnlineChapterRef]?
 
+    // 書架分組
+    var group: String = ""
+
     // 書籤
     var bookmarks: [Bookmark] = []
 
@@ -139,13 +142,14 @@ struct ReadingBook: Identifiable, Codable {
             (try? c.decode(BookOfflineDownloadState.self, forKey: .offlineDownloadState))
             ?? .none
         downloadedChapterCount = (try? c.decode(Int.self, forKey: .downloadedChapterCount)) ?? 0
+        group = (try? c.decode(String.self, forKey: .group)) ?? ""
     }
 
     enum CodingKeys: String, CodingKey {
         case id, title, author, source, contentFilename, contentPipelineKind, currentPosition, addedDate
         case isOnline, bookSourceId, bookInfoURL, tocURL, runtimeVariables, onlineChapters, bookmarks
         case coverImagePath, rendererPreference, compatibilityState
-        case offlineDownloadState, downloadedChapterCount
+        case offlineDownloadState, downloadedChapterCount, group
     }
 
     private static func inferPipelineKind(
@@ -992,6 +996,19 @@ class BookStore: ObservableObject {
         if let idx = books.firstIndex(where: { $0.id == bookId }) {
             books[idx].title = title.isEmpty ? books[idx].title : title
             books[idx].author = author.isEmpty ? books[idx].author : author
+            saveMeta()
+        }
+    }
+
+    // MARK: 書架分組
+    var allGroups: [String] {
+        let groups = books.compactMap { $0.group.isEmpty ? nil : $0.group }
+        return Array(Set(groups)).sorted()
+    }
+
+    func setGroup(_ group: String, for bookId: UUID) {
+        if let idx = books.firstIndex(where: { $0.id == bookId }) {
+            books[idx].group = group
             saveMeta()
         }
     }

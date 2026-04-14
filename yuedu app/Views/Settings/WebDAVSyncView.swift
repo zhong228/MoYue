@@ -1,0 +1,195 @@
+import SwiftUI
+import Combine
+
+struct WebDAVSyncView: View {
+
+    @StateObject private var manager = WebDAVManager.shared
+    @ObservedObject private var gs = GlobalSettings.shared
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var showAlert = false
+    @State private var alertTitle = ""
+    @State private var alertMessage = ""
+
+    // MARK: - Body
+
+    var body: some View {
+        NavigationView {
+            Form {
+                serverSection
+                actionsSection
+                statusSection
+            }
+            .navigationTitle(gs.t("WebDAV 同步"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(gs.t("關閉")) { dismiss() }
+                }
+            }
+            .disabled(manager.isSyncing)
+            .overlay {
+                if manager.isSyncing {
+                    syncingOverlay
+                }
+            }
+            .alert(alertTitle, isPresented: $showAlert) {
+                Button(gs.t("確定"), role: .cancel) {}
+            } message: {
+                Text(alertMessage)
+            }
+        }
+    }
+
+    // MARK: - Sections
+
+    private var serverSection: some View {
+        Section(header: Text(gs.t("伺服器設定"))) {
+            HStack {
+                Text(gs.t("網址"))
+                    .foregroundColor(DSColor.textSecondary)
+                TextField("https://example.com/dav", text: $manager.serverUrl)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                    .keyboardType(.URL)
+            }
+            HStack {
+                Text(gs.t("帳號"))
+                    .foregroundColor(DSColor.textSecondary)
+                TextField(gs.t("使用者名稱"), text: $manager.username)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+            }
+            HStack {
+                Text(gs.t("密碼"))
+                    .foregroundColor(DSColor.textSecondary)
+                SecureField(gs.t("密碼"), text: $manager.password)
+            }
+        }
+    }
+
+    private var actionsSection: some View {
+        Section(header: Text(gs.t("操作"))) {
+            Button {
+                Task { await testConnection() }
+            } label: {
+                Label(gs.t("測試連線"), systemImage: "network")
+                    .foregroundColor(DSColor.accent)
+            }
+
+            Button {
+                Task { await runBackup() }
+            } label: {
+                Label(gs.t("備份到雲端"), systemImage: "icloud.and.arrow.up")
+                    .foregroundColor(DSColor.accent)
+            }
+
+            Button {
+                Task { await runRestore() }
+            } label: {
+                Label(gs.t("從雲端還原"), systemImage: "icloud.and.arrow.down")
+                    .foregroundColor(DSColor.accent)
+            }
+        }
+    }
+
+    private var statusSection: some View {
+        Section(header: Text(gs.t("狀態"))) {
+            if let date = manager.lastSyncDate {
+                HStack {
+                    Text(gs.t("上次同步"))
+                        .foregroundColor(DSColor.textSecondary)
+                    Spacer()
+                    Text(date, style: .relative)
+                        .foregroundColor(DSColor.textPrimary)
+                }
+            }
+            if !manager.statusMessage.isEmpty {
+                Text(manager.statusMessage)
+                    .foregroundColor(DSColor.textSecondary)
+                    .font(.footnote)
+            }
+        }
+    }
+
+    private var syncingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.35)
+                .ignoresSafeArea()
+            VStack(spacing: 12) {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .scaleEffect(1.4)
+                Text(manager.statusMessage)
+                    .foregroundColor(.white)
+                    .font(.subheadline)
+            }
+            .padding(24)
+            .background(.ultraThinMaterial)
+            .cornerRadius(16)
+        }
+    }
+
+    // MARK: - Actions
+
+    private func testConnection() async {
+        guard validateSettings() else { return }
+        let ok = await manager.testConnection()
+        await MainActor.run {
+            alertTitle   = ok ? gs.t("連線成功") : gs.t("連線失敗")
+            alertMessage = ok
+                ? gs.t("已成功連線至 WebDAV 伺服器")
+                : gs.t("無法連線，請確認網址、帳號及密碼")
+            showAlert = true
+        }
+    }
+
+    private func runBackup() async {
+        guard validateSettings() else { return }
+        do {
+            try await manager.backup()
+            await MainActor.run {
+                alertTitle   = gs.t("備份成功")
+                alertMessage = gs.t("資料已成功備份至雲端")
+                showAlert    = true
+            }
+        } catch {
+            presentError(error)
+        }
+    }
+
+    private func runRestore() async {
+        guard validateSettings() else { return }
+        do {
+            try await manager.restore()
+            await MainActor.run {
+                alertTitle   = gs.t("還原成功")
+                alertMessage = gs.t("書源已立即更新，書庫和替換規則將在重啟 App 後完全生效")
+                showAlert    = true
+            }
+        } catch {
+            presentError(error)
+        }
+    }
+
+    // MARK: - Helpers
+
+    @discardableResult
+    private func validateSettings() -> Bool {
+        guard !manager.serverUrl.isEmpty else {
+            alertTitle   = gs.t("設定不完整")
+            alertMessage = gs.t("請填寫伺服器網址")
+            showAlert    = true
+            return false
+        }
+        return true
+    }
+
+    private func presentError(_ error: Error) {
+        Task { @MainActor in
+            alertTitle   = gs.t("操作失敗")
+            alertMessage = error.localizedDescription
+            showAlert    = true
+        }
+    }
+}
