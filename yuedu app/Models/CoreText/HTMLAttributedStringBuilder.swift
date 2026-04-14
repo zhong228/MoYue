@@ -683,8 +683,12 @@ final class HTMLAttributedStringBuilder {
         // 若 segment 只有空白字元但元素有視覺裝飾（如 border-top），
         // 把空白 segment 換成受控高度的 spacer，避免空白被 appendNode 丟棄，
         // 也避免 \n 字元撐出不必要的高度。
+        // ⚠️ 有 block 子元素時不做 spacer：容器裝飾透過 union block 子元素的行
+        // 已能正確包覆整體範圍。若仍建 spacer，appendSegment 會套上 blockRenderStyleAttribute
+        // 形成額外的 decoration group，導致多畫一個空白框。
         let segStyle0 = paragraphSegmentStyle(base: element.resolvedStyle, paragraphIndex: 0, isLast: true)
-        if segment.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        if !hasBlockChild,
+           segment.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            let blockRenderStyle = makeBlockRenderStyle(from: segStyle0),
            blockRenderStyle.hasVisualDecoration {
             let bTop = element.resolvedStyle.borderTopWidth
