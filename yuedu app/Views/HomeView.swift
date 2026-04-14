@@ -21,6 +21,10 @@ struct HomeView: View {
     @State private var editMode = EditMode.inactive
     @State private var showSearch = false
     @AppStorage("bookLayoutIsGrid") private var isGridMode = false
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    // 左右留白隨設備動態調整
+    private var hInset: CGFloat { sizeClass == .regular ? 32 : 20 }
 
     // fullScreenCover 閱讀器（取代 NavigationLink，避免 SwiftUI NavLink 重建 @State bug）
     @State private var readerBookId: UUID? = nil
@@ -47,7 +51,6 @@ struct HomeView: View {
                             if editMode == .active {
                                 sortBar
                             }
-                            Divider()
                             // 書籍列表 / 網格
                             if isGridMode { bookGrid } else { bookList }
                         }
@@ -177,7 +180,7 @@ struct HomeView: View {
                     onDelete: { bookToDelete = book }
                 )
                 .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                .listRowInsets(EdgeInsets(top: 0, leading: hInset, bottom: 0, trailing: hInset))
                 .listRowBackground(Color.clear)
                 .transition(.opacity.combined(with: .move(edge: .leading)))
             }
@@ -208,7 +211,7 @@ struct HomeView: View {
                     }
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, hInset)
             .padding(.vertical, 12)
         }
         .animation(.easeOut(duration: 0.25), value: filteredBooks.map(\.id))
