@@ -100,11 +100,12 @@ struct BookInfoRule: Codable {
     var tocUrl: String = ""
     var canReName: String = ""
     var downloadUrls: String = ""  // Legado: 下載地址規則
+    var ttsDice: String = ""       // Legado: TTS 隨機選擇器
 
     enum CodingKeys: String, CodingKey {
         case initScript = "init"
         case name, author, coverUrl, intro, kind, wordCount, lastChapter, updateTime, tocUrl, canReName
-        case downloadUrls
+        case downloadUrls, ttsDice
     }
 
     init() {}
@@ -122,6 +123,7 @@ struct BookInfoRule: Codable {
         tocUrl        = c.safeString(forKey: .tocUrl)
         canReName     = c.safeString(forKey: .canReName)
         downloadUrls  = c.safeString(forKey: .downloadUrls)
+        ttsDice       = c.safeString(forKey: .ttsDice)
     }
 }
 
@@ -214,6 +216,18 @@ struct ExploreRule: Codable {
     }
 }
 
+// MARK: - 評論規則（Legado ReviewRule）
+
+struct ReviewRule: Codable {
+    var review: String = ""
+
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        review = c.safeString(forKey: .review)
+    }
+}
+
 // MARK: - 書源
 
 struct BookSource: Identifiable, Codable {
@@ -239,11 +253,15 @@ struct BookSource: Identifiable, Codable {
     var respondTime: Int64 = 180000   // Legado: 回應時間（毫秒）
     var lastUpdateTime: Int64 = 0     // Legado: 最後更新時間戳
     var weight: Int = 0
+    var variableComment: String = ""  // Legado: 變量注釋
+    var exploreScreen: String = ""    // Legado: 發現頁面配置
+    var coverDecodeJs: String = ""    // Legado: 封面解碼 JS
     var ruleSearch: SearchRule = SearchRule()
     var ruleExplore: ExploreRule = ExploreRule()  // Legado: 發現頁規則
     var ruleBookInfo: BookInfoRule = BookInfoRule()
     var ruleToc: TOCRule = TOCRule()
     var ruleContent: ContentRule = ContentRule()
+    var ruleReview: ReviewRule = ReviewRule()      // Legado: 評論規則
 
     /// 此書源是否需要 WebView JS 渲染
     var needsWebView: Bool { bookSourceType == 1 }
@@ -256,7 +274,8 @@ struct BookSource: Identifiable, Codable {
         case searchUrl, exploreUrl, concurrentRate
         case header, loginUrl, loginUi, loginCheckJs
         case respondTime, lastUpdateTime, weight
-        case ruleSearch, ruleExplore, ruleBookInfo, ruleToc, ruleContent
+        case variableComment, exploreScreen, coverDecodeJs
+        case ruleSearch, ruleExplore, ruleBookInfo, ruleToc, ruleContent, ruleReview
     }
 
     init(from decoder: Decoder) throws {
@@ -280,6 +299,9 @@ struct BookSource: Identifiable, Codable {
         if respondTime == 0 { respondTime = 180000 }  // Legado 默認值
         lastUpdateTime   = c.safeInt64(forKey: .lastUpdateTime)
         weight           = c.safeInt(forKey: .weight)
+        variableComment  = c.safeString(forKey: .variableComment)
+        exploreScreen    = c.safeString(forKey: .exploreScreen)
+        coverDecodeJs    = c.safeString(forKey: .coverDecodeJs)
         // Legado 的 enabled 可能是 Bool、Int 1/0 或 String "true"/"false"
         enabled          = c.safeBool(forKey: .enabled, defaultValue: true)
         enabledExplore   = c.safeBool(forKey: .enabledExplore, defaultValue: true)
@@ -291,6 +313,7 @@ struct BookSource: Identifiable, Codable {
         ruleBookInfo = c.decodeRule(BookInfoRule.self, forKey: .ruleBookInfo) ?? BookInfoRule()
         ruleToc      = c.decodeRule(TOCRule.self,      forKey: .ruleToc)      ?? TOCRule()
         ruleContent  = c.decodeRule(ContentRule.self,  forKey: .ruleContent)  ?? ContentRule()
+        ruleReview   = c.decodeRule(ReviewRule.self,   forKey: .ruleReview)   ?? ReviewRule()
     }
 
     init() {}
