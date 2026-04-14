@@ -17,6 +17,7 @@ class JSCoreEngine {
     private var context: JSContext
     private let lock = NSLock()
     private let bridge: LegadoJSBridge
+    private let cookieBridge = LegadoCookieBridge()
 
     /// Last JavaScript error message (nil if no error on last evaluation).
     private(set) var lastError: String?
@@ -46,6 +47,16 @@ class JSCoreEngine {
     /// Handle `java.getStringList(ruleStr)` — connected to ModernRuleEngine later.
     var getStringListHandler: ((String) -> [String]?)? {
         didSet { bridge.getStringListHandler = getStringListHandler }
+    }
+
+    /// Book source object injected as `source` in JS — set this before evaluating rule scripts.
+    var bookSource: BookSource? {
+        didSet {
+            lock.lock()
+            defer { lock.unlock() }
+            injectSourceObject(into: context)
+            bridge.sourceHeaders = parseHeaders(bookSource?.header ?? "")
+        }
     }
 
     // MARK: - Initializer
@@ -129,8 +140,11 @@ class JSCoreEngine {
         // Inject the `java` bridge object
         ctx.setObject(bridge, forKeyedSubscript: "java" as NSString)
 
-        // Convenience: also expose `cookie` as empty string (Legado compat)
-        ctx.setObject("", forKeyedSubscript: "cookie" as NSString)
+        // Inject the `cookie` bridge object (get/set/remove via HTTPCookieStorage)
+        ctx.setObject(cookieBridge, forKeyedSubscript: "cookie" as NSString)
+
+        // Inject `source` object (may be nil at configure time; bookSource didSet re-injects)
+        injectSourceObject(into: ctx)
 
         // Inject a top-level `print` that delegates to java.log
         let printBlock: @convention(block) (String) -> Void = { msg in
@@ -146,6 +160,44 @@ class JSCoreEngine {
                 var JSON = { parse: function(s){return eval('('+s+')');}, stringify: function(o){return ''} };
             }
         """)
+    }
+
+    /// Inject `source` as a plain JS object derived from BookSource properties.
+    private func injectSourceObject(into ctx: JSContext) {
+        guard let src = bookSource else {
+            ctx.setObject([:] as [String: Any], forKeyedSubscript: "source" as NSString)
+            return
+        }
+        var obj: [String: Any] = [
+            "bookSourceUrl": src.bookSourceUrl,
+            "bookSourceName": src.bookSourceName,
+            "bookSourceGroup": src.bookSourceGroup ?? "",
+            "bookSourceComment": src.bookSourceComment ?? "",
+            "loginUrl": src.loginUrl,
+            "loginUi": src.loginUi,
+            "loginCheckJs": src.loginCheckJs,
+            "header": src.header,
+        ]
+        if !src.variableComment.isEmpty { obj["variableComment"] = src.variableComment }
+        ctx.setObject(obj, forKeyedSubscript: "source" as NSString)
+    }
+
+    /// Parse a Legado header string (JSON object or "Key: Value\nKey2: Value2") into a dictionary.
+    private func parseHeaders(_ headerStr: String) -> [String: String] {
+        let trimmed = headerStr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let data = trimmed.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+            return json
+        }
+        // Fallback: "Key: Value" line format
+        var result: [String: String] = [:]
+        trimmed.components(separatedBy: "\n").forEach { line in
+            let parts = line.split(separator: ":", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            if parts.count == 2 { result[parts[0]] = parts[1] }
+        }
+        return result
     }
 
     /// Extract a usable String from a JSValue, returning nil for undefined/null/error.

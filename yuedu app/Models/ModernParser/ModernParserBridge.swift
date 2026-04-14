@@ -314,6 +314,9 @@ class ModernParserBridge {
     private func wireEngine() {
         engine.source = sourceRuleData
 
+        // Inject BookSource into JS `source` object and set headers for java.ajax
+        jsEngine.bookSource = sourceRuleData.source
+
         // JS evaluator for ModernRuleEngine
         engine.jsEvaluator = { [weak self] jsCode, previousResult in
             let resultStr = ModernRuleEngine.toString(previousResult)
@@ -336,12 +339,14 @@ class ModernParserBridge {
             self?.engine.getStringList(ruleStr: ruleStr)
         }
 
-        // JS bridge → synchronous network request
+        // JS bridge → synchronous network request with charset-aware decoding
         jsEngine.networkHandler = { request in
             let semaphore = DispatchSemaphore(value: 0)
             var result: String?
-            let task = URLSession.shared.dataTask(with: request) { data, _, _ in
-                if let data { result = String(data: data, encoding: .utf8) }
+            let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+                if let data {
+                    result = LegadoJSBridge.decodeData(data, response: response)
+                }
                 semaphore.signal()
             }
             task.resume()

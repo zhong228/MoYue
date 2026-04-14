@@ -32,6 +32,55 @@ import CommonCrypto
     func md5Encode16(_ str: String) -> String
 }
 
+// MARK: - Cookie Bridge
+
+/// Legado's `cookie` object — accessible from JS as `cookie.get(url)`, `cookie.set(url, val)`, `cookie.remove(url)`.
+@objc protocol LegadoCookieBridgeExport: JSExport {
+    func get(_ url: String) -> String
+    func set(_ url: String, _ cookie: String)
+    func remove(_ url: String)
+}
+
+@objc class LegadoCookieBridge: NSObject, LegadoCookieBridgeExport {
+
+    func get(_ url: String) -> String {
+        guard let cookieURL = URL(string: url),
+              let cookies = HTTPCookieStorage.shared.cookies(for: cookieURL),
+              !cookies.isEmpty else { return "" }
+        return cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+    }
+
+    func set(_ url: String, _ cookie: String) {
+        guard let cookieURL = URL(string: url), !cookie.isEmpty else { return }
+        let parsed = HTTPCookie.cookies(
+            withResponseHeaderFields: ["Set-Cookie": cookie], for: cookieURL)
+        if parsed.isEmpty {
+            if let simple = makeCookie(cookie, for: cookieURL) {
+                HTTPCookieStorage.shared.setCookie(simple)
+            }
+        } else {
+            parsed.forEach { HTTPCookieStorage.shared.setCookie($0) }
+        }
+    }
+
+    func remove(_ url: String) {
+        guard let cookieURL = URL(string: url),
+              let cookies = HTTPCookieStorage.shared.cookies(for: cookieURL) else { return }
+        cookies.forEach { HTTPCookieStorage.shared.deleteCookie($0) }
+    }
+
+    private func makeCookie(_ raw: String, for url: URL) -> HTTPCookie? {
+        guard let host = url.host else { return nil }
+        let pair = raw.split(separator: ";", maxSplits: 1).first
+            .map(String.init)?.trimmingCharacters(in: .whitespaces) ?? ""
+        let segments = pair.split(separator: "=", maxSplits: 1).map(String.init)
+        guard segments.count == 2, !segments[0].isEmpty else { return nil }
+        return HTTPCookie(properties: [
+            .name: segments[0], .value: segments[1], .domain: host, .path: "/"
+        ])
+    }
+}
+
 // MARK: - Bridge Implementation
 
 /// Concrete implementation of the `java` bridge object injected into JSContext.
@@ -47,6 +96,9 @@ import CommonCrypto
     /// Delegate for rule evaluation (connected later).
     var getStringHandler: ((String) -> String?)?
     var getStringListHandler: ((String) -> [String]?)?
+
+    /// Book source headers (for JS network requests to use correct User-Agent etc.)
+    var sourceHeaders: [String: String] = [:]
 
     // MARK: Networking
 
@@ -170,11 +222,12 @@ import CommonCrypto
             guard let url = URL(string: urlStr.trimmingCharacters(in: .whitespacesAndNewlines)) else {
                 return ""
             }
-            let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+            sourceHeaders.forEach { request.setValue($1, forHTTPHeaderField: $0) }
             return handler(request) ?? ""
         }
 
-        // Fallback: synchronous URLSession request
+        // Fallback: synchronous URLSession request with charset-aware decoding
         guard let url = URL(string: urlStr.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             return ""
         }
@@ -184,18 +237,38 @@ import CommonCrypto
             "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15",
             forHTTPHeaderField: "User-Agent"
         )
+        request.setValue("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        request.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
+        // Apply book source headers (may override User-Agent)
+        sourceHeaders.forEach { request.setValue($1, forHTTPHeaderField: $0) }
 
         var responseBody = ""
         let semaphore = DispatchSemaphore(value: 0)
 
-        let task = URLSession.shared.dataTask(with: request) { data, _, _ in
-            if let data = data, let body = String(data: data, encoding: .utf8) {
-                responseBody = body
-            }
-            semaphore.signal()
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            defer { semaphore.signal() }
+            guard let data = data else { return }
+            responseBody = Self.decodeData(data, response: response)
         }
         task.resume()
         _ = semaphore.wait(timeout: .now() + 15)
         return responseBody
+    }
+
+    /// Charset-aware string decoding: honours HTTP Content-Type charset before falling back to UTF-8.
+    static func decodeData(_ data: Data, response: URLResponse?) -> String {
+        if let httpResponse = response as? HTTPURLResponse,
+           let ianaName = httpResponse.textEncodingName {
+            let cfEncoding = CFStringConvertIANACharSetNameToEncoding(ianaName as CFString)
+            if cfEncoding != kCFStringEncodingInvalidId {
+                let nsEncoding = CFStringConvertEncodingToNSStringEncoding(cfEncoding)
+                if let text = String(data: data, encoding: String.Encoding(rawValue: nsEncoding)) {
+                    return text
+                }
+            }
+        }
+        return String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .isoLatin1)
+            ?? ""
     }
 }
