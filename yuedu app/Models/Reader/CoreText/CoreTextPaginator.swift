@@ -351,7 +351,7 @@ final class CoreTextPaginator {
         var kinds = Array(repeating: PageKind.text, count: pageRanges.count)
         let delegateKey = NSAttributedString.Key(kCTRunDelegateAttributeName as String)
 
-        for (pageIdx, range) in pageRanges.enumerated() {
+        for (pageIdx, range) in pageRanges.enumerated() { autoreleasepool {
             let frame = CTFramesetterCreateFrame(framesetter, range, pagePath, nil)
             let lines = CTFrameGetLines(frame) as! [CTLine]
             var origins = [CGPoint](repeating: .zero, count: lines.count)
@@ -447,7 +447,7 @@ final class CoreTextPaginator {
                     }
                 }
             }
-        }
+        } } // end autoreleasepool + for pageIdx
 
         let visibleContent = attrStr.string.unicodeScalars.filter { scalar in
             scalar != "\u{FFFC}" && !CharacterSet.whitespacesAndNewlines.contains(scalar)
@@ -482,10 +482,10 @@ final class CoreTextPaginator {
         let pagePath = CGPath(rect: contentPathRect, transform: nil)
         var pageRenderables: [Int: [RenderedBlockRenderable]] = [:]
 
-        for (pageIdx, range) in pageRanges.enumerated() {
+        for (pageIdx, range) in pageRanges.enumerated() { autoreleasepool {
             let frame = CTFramesetterCreateFrame(framesetter, range, pagePath, nil)
             let lines = CTFrameGetLines(frame) as! [CTLine]
-            guard !lines.isEmpty else { continue }
+            guard !lines.isEmpty else { return }
 
             var origins = [CGPoint](repeating: .zero, count: lines.count)
             CTFrameGetLineOrigins(frame, CFRangeMake(0, lines.count), &origins)
@@ -569,7 +569,7 @@ final class CoreTextPaginator {
                     isContainer: $0.isContainer
                 )
             }
-            guard !groups.isEmpty else { continue }
+            guard !groups.isEmpty else { return }
 
             for groupIndex in groups.indices {
                 if let explicitRect = computeExplicitBlockRenderableRect(
@@ -690,7 +690,7 @@ final class CoreTextPaginator {
             if !renderables.isEmpty {
                 pageRenderables[pageIdx] = renderables
             }
-        }
+        } } // end autoreleasepool + for pageIdx
 
         return pageRenderables
     }

@@ -203,3 +203,11 @@ final class TTSManager: NSObject, ObservableObject, AVSpeechSynthesizerDelegate 
         stop()
     }
 }
+
+// MARK: - TTSPlayable
+extension TTSManager: TTSPlayable {
+    func speak(text: String, title: String, rate: Float) {
+        updateRate(rate)
+        speak(text: text, title: title)
+    }
+}

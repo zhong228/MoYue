@@ -72,47 +72,42 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		AA11BB22CC33DD44EE55FF66AA11BB22 /* Info.plist in yuedu app Widget */ = {
+		AA11BB22CC33DD44EE55FF66AA11BB22 /* Exceptions for "yuedu app Widget" folder in "yuedu app Widget" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				"Info.plist",
+				Info.plist,
 			);
 			target = 3D398CD107E29DC5585FDF83 /* yuedu app Widget */;
 		};
-		BB22CC33DD44EE55FF66AA11BB22CC33 /* Info.plist in yuedu app ShareExtension */ = {
+		BB22CC33DD44EE55FF66AA11BB22CC33 /* Exceptions for "yuedu app ShareExtension" folder in "yuedu app ShareExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				"Info.plist",
+				Info.plist,
 			);
 			target = C7BCB242F4C3B08FEE1E0216 /* yuedu app ShareExtension */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		460D365B2F51C5B8006E774C /* yuedu app */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "yuedu app";
 			sourceTree = "<group>";
 		};
 		460D36692F51C5B9006E774C /* yuedu appTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "yuedu appTests";
 			sourceTree = "<group>";
 		};
 		460D36732F51C5B9006E774C /* yuedu appUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "yuedu appUITests";
 			sourceTree = "<group>";
 		};
 		501150730FA6492E85D96D0235061651 /* yuedu app Widget */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				AA11BB22CC33DD44EE55FF66AA11BB22 /* Info.plist in yuedu app Widget */,
+				AA11BB22CC33DD44EE55FF66AA11BB22 /* Exceptions for "yuedu app Widget" folder in "yuedu app Widget" target */,
 			);
 			path = "yuedu app Widget";
 			sourceTree = "<group>";
@@ -120,7 +115,7 @@
 		A1BCCA3D5B9C4DD1AFB56B678141488F /* yuedu app ShareExtension */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				BB22CC33DD44EE55FF66AA11BB22CC33 /* Info.plist in yuedu app ShareExtension */,
+				BB22CC33DD44EE55FF66AA11BB22CC33 /* Exceptions for "yuedu app ShareExtension" folder in "yuedu app ShareExtension" target */,
 			);
 			path = "yuedu app ShareExtension";
 			sourceTree = "<group>";
@@ -708,6 +703,7 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 65DHH783G3;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
@@ -733,6 +729,7 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 65DHH783G3;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
@@ -757,6 +754,7 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 65DHH783G3;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -780,6 +778,7 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 65DHH783G3;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;

@@ -183,6 +183,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
             queue: .main
         ) { [weak self] _ in
             self?.chapterSnapshots.removeAllObjects()
+            self?.cancelPreloadTasks()
         }
     }
 

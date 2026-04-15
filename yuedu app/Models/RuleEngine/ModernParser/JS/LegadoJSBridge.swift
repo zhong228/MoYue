@@ -202,7 +202,7 @@ import CommonCrypto
             guard let url = URL(string: urlStr.trimmingCharacters(in: .whitespacesAndNewlines)) else {
                 return ""
             }
-            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
             sourceHeaders.forEach { request.setValue($1, forHTTPHeaderField: $0) }
             return handler(request) ?? ""
         }
@@ -212,7 +212,7 @@ import CommonCrypto
             return ""
         }
 
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
         request.setValue(
             "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15",
             forHTTPHeaderField: "User-Agent"
@@ -231,7 +231,7 @@ import CommonCrypto
             responseBody = Self.decodeData(data, response: response)
         }
         task.resume()
-        _ = semaphore.wait(timeout: .now() + 15)
+        _ = semaphore.wait(timeout: .now() + 8)
         return responseBody
     }
 
