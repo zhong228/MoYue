@@ -24,12 +24,24 @@ import CommonCrypto
     func log(_ msg: String) -> String
     func logType(_ msg: String)
 
-    // Utilities
+    // Time utilities
     func timeFormat(_ timestamp: JSValue) -> String
+    func timeFormatUTC(_ time: Double, _ format: String, _ sh: Int) -> String
+
+    // Encoding / Decoding
     func base64Decode(_ str: String) -> String
     func base64Encode(_ str: String) -> String
     func md5Encode(_ str: String) -> String
     func md5Encode16(_ str: String) -> String
+    func hexDecodeToString(_ hex: String) -> String
+    func hexEncodeToString(_ str: String) -> String
+    func encodeURI(_ str: String) -> String
+    func encodeURIComponent(_ str: String) -> String
+    func htmlFormat(_ str: String) -> String
+
+    // Chinese character conversion
+    func t2s(_ text: String) -> String
+    func s2t(_ text: String) -> String
 }
 
 // MARK: - Cookie Bridge
@@ -194,7 +206,115 @@ import CommonCrypto
         return String(full[start..<end])
     }
 
-    // MARK: - Private Helpers
+    // MARK: - Hex Encoding
+
+    /// Decode a hex string to a UTF-8 string. Example: `"48656c6c6f"` → `"Hello"`.
+    func hexDecodeToString(_ hex: String) -> String {
+        let cleaned = hex.replacingOccurrences(of: " ", with: "")
+        guard cleaned.count % 2 == 0 else { return "" }
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(cleaned.count / 2)
+        var idx = cleaned.startIndex
+        while idx < cleaned.endIndex {
+            let next = cleaned.index(idx, offsetBy: 2)
+            guard let byte = UInt8(cleaned[idx..<next], radix: 16) else { return "" }
+            bytes.append(byte)
+            idx = next
+        }
+        return String(bytes: bytes, encoding: .utf8) ?? ""
+    }
+
+    /// Encode a string to lowercase hex. Example: `"Hello"` → `"48656c6c6f"`.
+    func hexEncodeToString(_ str: String) -> String {
+        str.data(using: .utf8)?.map { String(format: "%02x", $0) }.joined() ?? ""
+    }
+
+    // MARK: - URL Encoding
+
+    /// Mirrors Legado's `java.encodeURI(str)`. Encodes all characters except URI-safe ones.
+    func encodeURI(_ str: String) -> String {
+        str.addingPercentEncoding(
+            withAllowedCharacters: .init(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'();/?:@&=+$,#")
+        ) ?? str
+    }
+
+    /// Mirrors Legado's `java.encodeURIComponent(str)`. Encodes all characters except unreserved ones.
+    func encodeURIComponent(_ str: String) -> String {
+        str.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? str
+    }
+
+    // MARK: - HTML Formatting
+
+    /// Decode common HTML entities to plain text.
+    /// Mirrors Legado's `java.htmlFormat(str)`.
+    func htmlFormat(_ str: String) -> String {
+        var result = str
+        let entities: [(String, String)] = [
+            ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
+            ("&quot;", "\""), ("&#39;", "'"), ("&apos;", "'"),
+            ("&nbsp;", "\u{00A0}"), ("&ensp;", "\u{2002}"),
+            ("&emsp;", "\u{2003}"), ("&hellip;", "…"),
+            ("&mdash;", "—"), ("&ndash;", "–"),
+        ]
+        for (entity, replacement) in entities {
+            result = result.replacingOccurrences(of: entity, with: replacement)
+        }
+        // Decode numeric entities like &#1234; and &#x4e2d;
+        if let regex = try? NSRegularExpression(pattern: "&#x([0-9a-fA-F]+);|&#([0-9]+);") {
+            let ns = result as NSString
+            let matches = regex.matches(in: result, range: NSRange(location: 0, length: ns.length))
+            for match in matches.reversed() {
+                if match.range(at: 1).location != NSNotFound {
+                    let hexStr = ns.substring(with: match.range(at: 1))
+                    if let scalar = UInt32(hexStr, radix: 16), let u = Unicode.Scalar(scalar) {
+                        result.replaceSubrange(Range(match.range, in: result)!, with: String(u))
+                    }
+                } else if match.range(at: 2).location != NSNotFound {
+                    let decStr = ns.substring(with: match.range(at: 2))
+                    if let scalar = UInt32(decStr), let u = Unicode.Scalar(scalar) {
+                        result.replaceSubrange(Range(match.range, in: result)!, with: String(u))
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    // MARK: - Chinese Character Conversion
+
+    /// Traditional Chinese → Simplified Chinese. Mirrors Legado's `java.t2s(text)`.
+    func t2s(_ text: String) -> String {
+        text.applyingTransform(.init("Traditional-Simplified"), reverse: false) ?? text
+    }
+
+    /// Simplified Chinese → Traditional Chinese. Mirrors Legado's `java.s2t(text)`.
+    func s2t(_ text: String) -> String {
+        text.applyingTransform(.init("Traditional-Simplified"), reverse: true) ?? text
+    }
+
+    // MARK: - UTC Time Formatting
+
+    /// Format a Unix millisecond timestamp in UTC with a timezone offset.
+    /// Mirrors Legado's `java.timeFormatUTC(time, format, sh)`.
+    /// - Parameters:
+    ///   - time: Unix timestamp in milliseconds.
+    ///   - format: Java-style date format string (e.g. `"yyyy-MM-dd HH:mm:ss"`).
+    ///   - sh: Hour offset from UTC (e.g. `8` for UTC+8).
+    func timeFormatUTC(_ time: Double, _ format: String, _ sh: Int) -> String {
+        let date = Date(timeIntervalSince1970: time / 1000)
+        let fmt = DateFormatter()
+        // Convert Java format → DateFormatter format
+        var fmtStr = format
+            .replacingOccurrences(of: "yyyy", with: "yyyy")
+            .replacingOccurrences(of: "MM",   with: "MM")
+            .replacingOccurrences(of: "dd",   with: "dd")
+            .replacingOccurrences(of: "HH",   with: "HH")
+            .replacingOccurrences(of: "mm",   with: "mm")
+            .replacingOccurrences(of: "ss",   with: "ss")
+        fmt.dateFormat = fmtStr
+        fmt.timeZone = TimeZone(secondsFromGMT: sh * 3600) ?? .current
+        return fmt.string(from: date)
+    }
 
     private func performRequest(_ urlStr: String) -> String {
         // Delegate to external handler if provided
