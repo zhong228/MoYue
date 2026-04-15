@@ -47,25 +47,31 @@ final class ReaderViewModel: ObservableObject {
                     store: store
                 )
 
-                await MainActor.run {
+                guard !Task.isCancelled else {
                     self.fetchingChapters.remove(chapterIndex)
-                    if pkg.state == .cached && !pkg.content.isEmpty {
-                        self.failedChapters.remove(chapterIndex)
-                        onSuccess()
-                    } else {
-                        self.failedChapters.insert(chapterIndex)
-                        let reason = pkg.failureReason ?? "empty"
-                        self.lastChapterError = "ch\(chapterIndex): \(reason)"
-                        onFailure(self.lastChapterError)
-                    }
+                    return
                 }
-            } catch {
-                await MainActor.run {
-                    self.fetchingChapters.remove(chapterIndex)
+                self.fetchingChapters.remove(chapterIndex)
+                if pkg.state == .cached && !pkg.content.isEmpty {
+                    self.failedChapters.remove(chapterIndex)
+                    onSuccess()
+                } else {
                     self.failedChapters.insert(chapterIndex)
-                    self.lastChapterError = "ch\(chapterIndex): \(error.localizedDescription)"
+                    let reason = pkg.failureReason ?? "empty"
+                    self.lastChapterError = "ch\(chapterIndex): \(reason)"
                     onFailure(self.lastChapterError)
                 }
+            } catch is CancellationError {
+                self.fetchingChapters.remove(chapterIndex)
+            } catch {
+                guard !Task.isCancelled else {
+                    self.fetchingChapters.remove(chapterIndex)
+                    return
+                }
+                self.fetchingChapters.remove(chapterIndex)
+                self.failedChapters.insert(chapterIndex)
+                self.lastChapterError = "ch\(chapterIndex): \(error.localizedDescription)"
+                onFailure(self.lastChapterError)
             }
         }
     }

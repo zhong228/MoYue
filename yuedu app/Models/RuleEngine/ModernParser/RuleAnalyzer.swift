@@ -17,21 +17,17 @@ final class RuleAnalyzer {
     /// Current operator type after splitRule ("||", "&&", "%%", or "")
     var elementsType: String = ""
 
-    /// Balance-checking function selected at init: code mode vs rule mode
-    private let chompBalanced: (Character, Character) -> Bool
+    /// Balance-checking mode selected at init (code blocks vs rule expressions)
+    private let isCode: Bool
 
     init(data: String, code: Bool = false) {
         self.queue = Array(data)
-        if code {
-            // Capture unowned self after initialization via two-step trick
-            var codeBalanced: ((Character, Character) -> Bool)!
-            self.chompBalanced = { codeBalanced($0, $1) }
-            codeBalanced = { [unowned self] in self.chompCodeBalanced($0, $1) }
-        } else {
-            var ruleBalanced: ((Character, Character) -> Bool)!
-            self.chompBalanced = { ruleBalanced($0, $1) }
-            ruleBalanced = { [unowned self] in self.chompRuleBalanced($0, $1) }
-        }
+        self.isCode = code
+    }
+
+    /// Dispatches to the correct balanced-bracket checker based on init-time mode.
+    private func chompBalanced(_ open: Character, _ close: Character) -> Bool {
+        isCode ? chompCodeBalanced(open, close) : chompRuleBalanced(open, close)
     }
 
     // MARK: - Public API

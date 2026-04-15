@@ -1,5 +1,6 @@
 import Foundation
 import JavaScriptCore
+import os
 
 /// Security sandbox for JavaScript execution.
 /// Limits what book source JS code can access, enforces timeouts,
@@ -21,8 +22,9 @@ final class JSSandbox {
         "WebSocket",
     ]
 
-    /// Dedicated serial queue for JS evaluation (JSContext is NOT thread-safe).
-    private static let jsQueue = DispatchQueue(label: "com.yuedu.jssandbox", qos: .userInitiated)
+    /// Counter for unique queue labels (protected by a lock).
+    private static var _evalCounter: Int = 0
+    private static let evalCounterLock = NSLock()
 
     // MARK: - Public API
 
@@ -51,16 +53,25 @@ final class JSSandbox {
             return nil
         }
 
+        // 每次 eval 建立獨立 queue，避免掛起的腳本鎖死後續所有 JS 呼叫。
+        // 若腳本超時，獨立 queue 的執行緒會繼續執行直到 iOS 回收，不影響其他 eval。
+        evalCounterLock.lock()
+        _evalCounter += 1
+        let id = _evalCounter
+        evalCounterLock.unlock()
+        let evalQueue = DispatchQueue(
+            label: "com.yuedu.jssandbox.eval.\(id)",
+            qos: .userInitiated
+        )
+        let semaphore = DispatchSemaphore(value: 0)
         var result: JSValue?
-        let workItem = DispatchWorkItem {
+
+        evalQueue.async {
             result = context.evaluateScript(script)
+            semaphore.signal()
         }
 
-        jsQueue.async(execute: workItem)
-        let completed = workItem.wait(timeout: .now() + timeout) == .success
-
-        if !completed {
-            workItem.cancel()
+        if semaphore.wait(timeout: .now() + timeout) == .timedOut {
             logSecurity("Script execution timed out after \(timeout)s")
             return nil
         }

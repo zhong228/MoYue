@@ -23,7 +23,6 @@ enum ModernParserBridgeError: LocalizedError {
 /// when switching sources.
 class ModernParserBridge {
 
-    private let engine: ModernRuleEngine
     private let jsEngine: JSCoreEngine
     private let loginManager: LoginManager
     let sourceRuleData: BookSourceRuleData
@@ -32,11 +31,59 @@ class ModernParserBridge {
 
     init(source: BookSource) {
         self.sourceRuleData = BookSourceRuleData(source: source)
-        self.engine = ModernRuleEngine()
         self.jsEngine = JSCoreEngine()
         self.loginManager = LoginManager.shared
 
-        wireEngine()
+        wireJSEngine()
+    }
+
+    // MARK: - Engine Factory
+
+    /// Creates a fresh, fully-wired ModernRuleEngine for a single parse operation.
+    /// A new instance per call prevents state bleed when async operations overlap.
+    private func makeEngine() -> ModernRuleEngine {
+        let e = ModernRuleEngine()
+        e.source = sourceRuleData
+
+        // Capture `e` weakly so the closure doesn't extend its lifetime past the parse call.
+        e.jsEvaluator = { [weak self, weak e] jsCode, prevResult in
+            guard let self, let engine = e else { return nil }
+            // Point JS back-references at THIS engine instance before evaluating.
+            // Safe because jsEngine serialises all evaluations on its dedicated queue.
+            self.jsEngine.getStringHandler = { ruleStr in engine.getString(ruleStr: ruleStr) }
+            self.jsEngine.getStringListHandler = { ruleStr in engine.getStringList(ruleStr: ruleStr) }
+            return self.jsEngine.evaluate(jsCode, result: ModernRuleEngine.toString(prevResult))
+        }
+        return e
+    }
+
+    // MARK: - Wire JS-only state (source headers, variable storage, network)
+
+    private func wireJSEngine() {
+        jsEngine.bookSource = sourceRuleData.source
+
+        jsEngine.getData = { [weak self] key in
+            self?.sourceRuleData.getVariable(key: key)
+        }
+        jsEngine.putData = { [weak self] key, value in
+            self?.sourceRuleData.putVariable(key: key, value: value)
+        }
+
+        // networkHandler runs on the jsEngine serial queue thread — blocking via
+        // semaphore here is intentional and safe (dedicated thread, not the global pool).
+        jsEngine.networkHandler = { request in
+            let semaphore = DispatchSemaphore(value: 0)
+            var result: String?
+            let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+                if let data {
+                    result = LegadoJSBridge.decodeData(data, response: response)
+                }
+                semaphore.signal()
+            }
+            task.resume()
+            _ = semaphore.wait(timeout: .now() + 30)
+            return result
+        }
     }
 
     // MARK: - Parsing API (matches BookSourceParsingPipeline signatures)
@@ -46,6 +93,7 @@ class ModernParserBridge {
         baseURL: String,
         source: BookSource
     ) throws -> [OnlineBook] {
+        let engine = makeEngine()
         engine.setContent(html, baseUrl: baseURL)
 
         let listRule = source.ruleSearch.bookList
@@ -96,6 +144,7 @@ class ModernParserBridge {
         runtimeVariables: [String: String]? = nil
     ) throws -> OnlineBook {
         loadRuntimeVariables(runtimeVariables)
+        let engine = makeEngine()
         engine.setContent(html, baseUrl: baseURL)
 
         // Execute init script if present (Legado ruleBookInfo.init)
@@ -114,8 +163,6 @@ class ModernParserBridge {
         let lastChapter = engine.getString(ruleStr: source.ruleBookInfo.lastChapter)
         let tocUrlRaw = engine.getString(ruleStr: source.ruleBookInfo.tocUrl, isUrl: true)
         let tocUrl = tocUrlRaw.isEmpty ? bookUrl : tocUrlRaw
-
-        engine.setContent(html, baseUrl: baseURL)
 
         return OnlineBook(
             name: name.isEmpty ? "未知書名" : name,
@@ -140,6 +187,7 @@ class ModernParserBridge {
         runtimeVariables: [String: String]? = nil
     ) throws -> [OnlineChapterRef] {
         loadRuntimeVariables(runtimeVariables)
+        let engine = makeEngine()
         engine.setContent(html, baseUrl: baseURL)
 
         let listRule = source.ruleToc.chapterList
@@ -193,7 +241,6 @@ class ModernParserBridge {
             ))
         }
 
-        engine.setContent(html, baseUrl: baseURL)
         return chapters
     }
 
@@ -206,6 +253,7 @@ class ModernParserBridge {
         let rule = source.ruleToc.nextTocUrl
         guard !rule.isEmpty else { return "" }
         loadRuntimeVariables(runtimeVariables)
+        let engine = makeEngine()
         engine.setContent(html, baseUrl: baseURL)
         return engine.getString(ruleStr: rule, isUrl: true)
     }
@@ -217,6 +265,7 @@ class ModernParserBridge {
         runtimeVariables: [String: String]? = nil
     ) throws -> ChapterParsePayload {
         loadRuntimeVariables(runtimeVariables)
+        let engine = makeEngine()
         engine.setContent(html, baseUrl: baseURL)
 
         let content = engine.getString(ruleStr: source.ruleContent.content)
@@ -225,8 +274,6 @@ class ModernParserBridge {
         let sourceRegex = source.ruleContent.sourceRegex
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let sourceMatched = sourceRegex.isEmpty || html.range(of: sourceRegex, options: .regularExpression) != nil
-
-        engine.setContent(html, baseUrl: baseURL)
 
         return ChapterParsePayload(
             content: content,
@@ -246,6 +293,7 @@ class ModernParserBridge {
         let rule = source.ruleContent.nextContentUrl
         guard !rule.isEmpty else { return [] }
         loadRuntimeVariables(runtimeVariables)
+        let engine = makeEngine()
         engine.setContent(html, baseUrl: baseURL)
         let list = engine.getStringList(ruleStr: rule, isUrl: true)
         return list.filter { !$0.isEmpty }
@@ -329,52 +377,6 @@ class ModernParserBridge {
             ?? analyzeUrl.url
 
         return (body, finalUrl)
-    }
-
-    // MARK: - Private: Engine Wiring
-
-    private func wireEngine() {
-        engine.source = sourceRuleData
-
-        // Inject BookSource into JS `source` object and set headers for java.ajax
-        jsEngine.bookSource = sourceRuleData.source
-
-        // JS evaluator for ModernRuleEngine
-        engine.jsEvaluator = { [weak self] jsCode, previousResult in
-            let resultStr = ModernRuleEngine.toString(previousResult)
-            return self?.jsEngine.evaluate(jsCode, result: resultStr)
-        }
-
-        // JS bridge → variable storage
-        jsEngine.getData = { [weak self] key in
-            self?.sourceRuleData.getVariable(key: key)
-        }
-        jsEngine.putData = { [weak self] key, value in
-            self?.sourceRuleData.putVariable(key: key, value: value)
-        }
-
-        // JS bridge → rule engine getString/getStringList
-        jsEngine.getStringHandler = { [weak self] ruleStr in
-            self?.engine.getString(ruleStr: ruleStr)
-        }
-        jsEngine.getStringListHandler = { [weak self] ruleStr in
-            self?.engine.getStringList(ruleStr: ruleStr)
-        }
-
-        // JS bridge → synchronous network request with charset-aware decoding
-        jsEngine.networkHandler = { request in
-            let semaphore = DispatchSemaphore(value: 0)
-            var result: String?
-            let task = URLSession.shared.dataTask(with: request) { data, response, _ in
-                if let data {
-                    result = LegadoJSBridge.decodeData(data, response: response)
-                }
-                semaphore.signal()
-            }
-            task.resume()
-            _ = semaphore.wait(timeout: .now() + 30)
-            return result
-        }
     }
 
     // MARK: - Private: Runtime Variable Helpers

@@ -173,6 +173,17 @@ final class CoreTextPageEngine: PageRenderingProvider {
     deinit {
         chapterByteScanTask?.cancel()
         styleResolver.cleanupFontFiles()
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    private func subscribeMemoryWarning() {
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.chapterSnapshots.removeAllObjects()
+        }
     }
 
     private func startupElapsedMs() -> String {
@@ -204,6 +215,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
             resourceProvider: resourceProvider,
             fontRegistrationService: fontRegistrationService
         )
+        subscribeMemoryWarning()
     }
 
     init(
@@ -223,6 +235,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
             resourceProvider: EmptyBookResourceProvider.shared,
             fontRegistrationService: fontRegistrationService
         )
+        subscribeMemoryWarning()
     }
 
     convenience init(

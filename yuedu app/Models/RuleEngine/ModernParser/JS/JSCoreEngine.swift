@@ -15,9 +15,14 @@ import JavaScriptCore
 class JSCoreEngine {
 
     private var context: JSContext
-    private let lock = NSLock()
     private let bridge: LegadoJSBridge
     private let cookieBridge = LegadoCookieBridge()
+
+    // Serial queue owns the JSContext — all evaluations run on this thread.
+    // Using a dedicated queue instead of NSLock eliminates the deadlock that
+    // NSLock causes when JS calls java.ajax() (semaphore) while the lock is held.
+    private let jsQueue = DispatchQueue(label: "com.yuedu.jsengine.serial", qos: .userInitiated)
+    private let jsQueueKey = DispatchSpecificKey<Void>()
 
     /// Last JavaScript error message (nil if no error on last evaluation).
     private(set) var lastError: String?
@@ -52,10 +57,10 @@ class JSCoreEngine {
     /// Book source object injected as `source` in JS — set this before evaluating rule scripts.
     var bookSource: BookSource? {
         didSet {
-            lock.lock()
-            defer { lock.unlock() }
-            injectSourceObject(into: context)
-            bridge.sourceHeaders = parseHeaders(bookSource?.header ?? "")
+            onJSQueue {
+                injectSourceObject(into: context)
+                bridge.sourceHeaders = parseHeaders(bookSource?.header ?? "")
+            }
         }
     }
 
@@ -66,62 +71,67 @@ class JSCoreEngine {
         self.context = ctx
         self.bridge = LegadoJSBridge()
 
+        jsQueue.setSpecific(key: jsQueueKey, value: ())
         configureContext(ctx)
     }
 
     // MARK: - Public API
 
+    /// Dispatch work to the JS serial queue, re-entrant-safe.
+    /// If already executing on the JS queue (e.g. java.getString → engine.getString → evaluate),
+    /// the work runs inline to avoid a deadlock.
+    private func onJSQueue<T>(_ work: () -> T) -> T {
+        if DispatchQueue.getSpecific(key: jsQueueKey) != nil {
+            return work() // already on the JS queue — run inline
+        }
+        return jsQueue.sync { work() }
+    }
+
     /// Evaluate JavaScript code and return the result as a string.
     /// Returns `nil` on JS error or if the result is `undefined`/`null`.
     func evaluate(_ script: String) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
-        lastError = nil
-
-        guard let value = context.evaluateScript(script) else { return nil }
-        return extractString(from: value)
+        onJSQueue {
+            lastError = nil
+            guard let value = context.evaluateScript(script) else { return nil }
+            return extractString(from: value)
+        }
     }
 
     /// Evaluate with a `result` variable pre-set (Legado convention:
     /// the previous rule step's output is available as `result` in JS).
     func evaluate(_ script: String, result: String?) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
-        lastError = nil
-
-        if let result = result {
-            context.setObject(result, forKeyedSubscript: "result" as NSString)
-        } else {
-            context.setObject(NSNull(), forKeyedSubscript: "result" as NSString)
+        onJSQueue {
+            lastError = nil
+            if let result = result {
+                context.setObject(result, forKeyedSubscript: "result" as NSString)
+            } else {
+                context.setObject(NSNull(), forKeyedSubscript: "result" as NSString)
+            }
+            guard let value = context.evaluateScript(script) else { return nil }
+            return extractString(from: value)
         }
-
-        guard let value = context.evaluateScript(script) else { return nil }
-        return extractString(from: value)
     }
 
     /// Evaluate with multiple bindings injected into the context before execution.
     func evaluate(_ script: String, bindings: [String: Any]) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
-        lastError = nil
-
-        for (key, value) in bindings {
-            context.setObject(value, forKeyedSubscript: key as NSString)
+        onJSQueue {
+            lastError = nil
+            for (key, value) in bindings {
+                context.setObject(value, forKeyedSubscript: key as NSString)
+            }
+            guard let val = context.evaluateScript(script) else { return nil }
+            return extractString(from: val)
         }
-
-        guard let val = context.evaluateScript(script) else { return nil }
-        return extractString(from: val)
     }
 
     /// Reset the context — clears all JS variables and re-injects the bridge.
     func reset() {
-        lock.lock()
-        defer { lock.unlock() }
-
-        let ctx = JSContext()!
-        self.context = ctx
-        configureContext(ctx)
-        lastError = nil
+        onJSQueue {
+            let ctx = JSContext()!
+            self.context = ctx
+            configureContext(ctx)
+            lastError = nil
+        }
     }
 
     // MARK: - Private Helpers

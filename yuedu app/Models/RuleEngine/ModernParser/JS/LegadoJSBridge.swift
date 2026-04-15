@@ -82,19 +82,24 @@ import CommonCrypto
     }
 
     func ajaxAll(_ urlArray: [String]) -> [String] {
-        // Execute requests concurrently using DispatchGroup
+        guard !urlArray.isEmpty else { return [] }
+        // Throttle to at most 6 concurrent requests to avoid GCD thread-pool exhaustion.
+        // ajaxAll is called from the JS serial queue thread, which blocks here intentionally.
+        let throttle = DispatchSemaphore(value: 6)
         var results = Array(repeating: "", count: urlArray.count)
-        let group = DispatchGroup()
         let resultsLock = NSLock()
+        let group = DispatchGroup()
 
         for (index, urlStr) in urlArray.enumerated() {
+            throttle.wait() // block until a concurrency slot is free
             group.enter()
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                defer { group.leave() }
+            DispatchQueue.global(qos: .utility).async { [weak self] in
                 let body = self?.performRequest(urlStr) ?? ""
                 resultsLock.lock()
                 results[index] = body
                 resultsLock.unlock()
+                throttle.signal()
+                group.leave()
             }
         }
 
