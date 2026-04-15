@@ -1,74 +1,114 @@
+import AVFoundation
 import Combine
 import Foundation
 
-// MARK: - HTTP TTS 引擎（將章節 URL 解析為音頻 URL）
+// MARK: - HTTP TTS 引擎（AVPlayer 串流播放）
 
-final class HTTPTTSEngine: ObservableObject {
+/// 透過 HTTP URL 取得 TTS 音頻串流，使用 AVPlayer 播放。
+/// URL 模板支援佔位符：{{text}}、{{title}}、{{speakSpeed}}
+final class HTTPTTSEngine: NSObject, TTSPlayable {
 
-    static let shared = HTTPTTSEngine()
+    var isPlaying: Bool = false
+    var onPageFinished: (() -> String?)?
+    var onStop: (() -> Void)?
 
-    private init() {}
+    private var player: AVPlayer?
+    private var playerItem: AVPlayerItem?
+    private var itemObserver: NSKeyValueObservation?
+    private var endObserver: Any?
+    private var lastRate: Float = 0.5
 
-    // MARK: - URL 模板替換
+    // MARK: - TTSPlayable
 
-    /// 將模板字串中的佔位符替換為實際值並回傳 URL。
-    /// 支援的佔位符：{{title}}、{{text}}、{{speakSpeed}}
-    func buildAudioUrl(
-        template: String,
-        text: String,
-        title: String,
-        speed: Double = 1.0
-    ) -> URL? {
-        let encodedTitle = title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? title
-        let encodedText  = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
-
-        let resolved = template
-            .replacingOccurrences(of: "{{title}}", with: encodedTitle)
-            .replacingOccurrences(of: "{{text}}", with: encodedText)
-            .replacingOccurrences(of: "{{speakSpeed}}", with: speed.description)
-
-        return URL(string: resolved)
-    }
-
-    // MARK: - 從書源取得音頻 URL
-
-    /// 根據書源規則，將章節 URL 解析為可播放的音頻 URL。
-    /// - 若 ruleContent.content 非空且以 "http" 開頭，視為直接音頻 URL 模板。
-    /// - 其餘情況：對章節 URL 發 GET 請求，若回應本身是一個 http URL 字串則使用它，
-    ///   否則直接把章節 URL 當作音頻 URL。
-    func getAudioUrl(chapterUrl: String, source: BookSource) async throws -> URL? {
-        let contentRule = source.ruleContent.content.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // 規則明確是 URL 模板（含 {{text}} 或直接 http）→ 直接回傳
-        if !contentRule.isEmpty, contentRule.hasPrefix("http") {
-            return URL(string: contentRule)
+    func speak(text: String, title: String, rate: Float) {
+        let template = GlobalSettings.shared.httpTtsUrlTemplate
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !template.isEmpty, let url = buildURL(template: template, text: text, title: title, rate: rate) else {
+            return
         }
 
-        // 嘗試 GET 請求，看回應是否為一個音頻 URL
-        guard let requestUrl = URL(string: chapterUrl) else { return nil }
+        lastRate = rate
+        stopInternal()
 
-        var request = URLRequest(url: requestUrl, timeoutInterval: 15)
-        request.httpMethod = "GET"
+        let item = AVPlayerItem(url: url)
+        playerItem = item
 
-        // 附加書源 header
-        if !source.header.isEmpty,
-           let headerData = source.header.data(using: .utf8),
-           let headerDict = try? JSONSerialization.jsonObject(with: headerData) as? [String: String] {
-            for (key, value) in headerDict {
-                request.setValue(value, forHTTPHeaderField: key)
+        // 監聽播放結束
+        endObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.didPlayToEndTimeNotification,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handlePlaybackEnded()
+        }
+
+        // 監聽載入失敗
+        itemObserver = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+            if item.status == .failed {
+                DispatchQueue.main.async { self?.stop() }
             }
         }
 
-        let (data, _) = try await URLSession.shared.data(for: request)
-
-        if let responseString = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           responseString.hasPrefix("http"),
-           let audioUrl = URL(string: responseString) {
-            return audioUrl
+        if player == nil {
+            player = AVPlayer(playerItem: item)
+        } else {
+            player?.replaceCurrentItem(with: item)
         }
 
-        // 降級：直接使用章節 URL
-        return URL(string: chapterUrl)
+        player?.play()
+        isPlaying = true
+    }
+
+    func pause() {
+        player?.pause()
+        isPlaying = false
+    }
+
+    func resume() {
+        player?.play()
+        isPlaying = true
+    }
+
+    func stop() {
+        stopInternal()
+        onStop?()
+    }
+
+    // MARK: - Internal helpers
+
+    private func stopInternal() {
+        player?.pause()
+        if let obs = endObserver {
+            NotificationCenter.default.removeObserver(obs)
+            endObserver = nil
+        }
+        itemObserver?.invalidate()
+        itemObserver = nil
+        player?.replaceCurrentItem(with: nil)
+        isPlaying = false
+    }
+
+    private func handlePlaybackEnded() {
+        isPlaying = false
+        if let nextText = onPageFinished?(), !nextText.isEmpty {
+            speak(text: nextText, title: "", rate: lastRate)
+        } else {
+            stop()
+        }
+    }
+
+    /// 將模板佔位符替換為實際值並回傳 URL。
+    func buildURL(template: String, text: String, title: String, rate: Float) -> URL? {
+        guard !template.isEmpty else { return nil }
+        let encodedText  = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
+        let encodedTitle = title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? title
+        let speedStr     = String(format: "%.2f", rate)
+
+        let resolved = template
+            .replacingOccurrences(of: "{{text}}",       with: encodedText)
+            .replacingOccurrences(of: "{{title}}",      with: encodedTitle)
+            .replacingOccurrences(of: "{{speakSpeed}}", with: speedStr)
+
+        return URL(string: resolved)
     }
 }

@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var showLanServer = false
     @State private var showRSSReader = false
     @State private var showLegadoMigration = false
+    @State private var showTTSSettings = false
 
     private let feedbackEmail = "r3212239269@gmail.com"
 
@@ -76,6 +77,11 @@ struct SettingsView: View {
                             icon: "dot.radiowaves.left.and.right",
                             title: gs.t("RSS 訂閱"),
                             action: { showRSSReader = true }
+                        )
+                        DSSettingsRow(
+                            icon: "waveform",
+                            title: gs.t("語音朗讀設定"),
+                            action: { showTTSSettings = true }
                         )
                     }
 
@@ -173,6 +179,16 @@ struct SettingsView: View {
             .sheet(isPresented: $showLegadoMigration) {
                 AdaptiveSheetContainer(maxWidth: 760) {
                     LegadoMigrationView().environmentObject(store)
+                }
+            }
+            .sheet(isPresented: $showTTSSettings) {
+                NavigationView {
+                    TTSSettingsView()
+                        .toolbar {
+                            ToolbarItem(placement: .navigationBarTrailing) {
+                                Button(gs.t("完成")) { showTTSSettings = false }
+                            }
+                        }
                 }
             }
         }

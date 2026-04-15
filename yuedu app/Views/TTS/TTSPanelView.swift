@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - TTS 控制面板
 
 struct TTSPanelView: View {
-    @ObservedObject var tts: TTSManager
+    @ObservedObject var tts: TTSCoordinator
     let currentText: String
     let chapterTitle: String
     @Environment(\.dismiss) var dismiss
@@ -12,6 +12,20 @@ struct TTSPanelView: View {
     var body: some View {
         NavigationView {
             List {
+                // 引擎標示
+                Section {
+                    NavigationLink(destination: TTSSettingsView()) {
+                        HStack {
+                            Image(systemName: "waveform")
+                                .foregroundColor(DSColor.accent)
+                            Text(gs.t("語音引擎"))
+                            Spacer()
+                            Text(gs.t(gs.ttsEngine.displayName))
+                                .foregroundColor(DSColor.textSecondary)
+                        }
+                    }
+                }
+
                 // 播放控制
                 Section {
                     HStack {

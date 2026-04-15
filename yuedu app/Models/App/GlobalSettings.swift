@@ -269,6 +269,26 @@ class GlobalSettings: ObservableObject {
         didSet { UserDefaults.standard.set(searchCacheDays, forKey: "yd_search_cache_days") }
     }
 
+    // MARK: - TTS 設定
+    enum TTSEngineType: String, CaseIterable, Codable {
+        case system = "system"
+        case http   = "http"
+
+        var displayName: String {
+            switch self {
+            case .system: return "系統語音"
+            case .http:   return "HTTP TTS"
+            }
+        }
+    }
+
+    @Published var ttsEngine: TTSEngineType {
+        didSet { UserDefaults.standard.set(ttsEngine.rawValue, forKey: "yd_tts_engine") }
+    }
+    @Published var httpTtsUrlTemplate: String {
+        didSet { UserDefaults.standard.set(httpTtsUrlTemplate, forKey: "yd_http_tts_url_template") }
+    }
+
     // MARK: - 實驗性功能旗標
 
     /// 啟用 RenderableNode 渲染管道（TXT 路徑 A/B 驗收）。
@@ -329,6 +349,9 @@ class GlobalSettings: ObservableObject {
             (UserDefaults.standard.object(forKey: "yd_search_cache_days") as? Int) ?? 5
         useRenderableNodePipeline =
             UserDefaults.standard.bool(forKey: "yd_use_renderable_node_pipeline")
+        let rawTTSEngine = UserDefaults.standard.string(forKey: "yd_tts_engine") ?? ""
+        ttsEngine = TTSEngineType(rawValue: rawTTSEngine) ?? .system
+        httpTtsUrlTemplate = UserDefaults.standard.string(forKey: "yd_http_tts_url_template") ?? ""
     }
 
     /// App UI 字串本地化（繁→簡 用 ICU，繁→英 用字典）

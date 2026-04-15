@@ -125,7 +125,7 @@ struct ReaderView: View {
 
     // 自動閱讀 + TTS
     @StateObject private var autoReader = AutoReadController()  // TTS
-    @StateObject private var tts = TTSManager()
+    @StateObject private var ttsCoordinator = TTSCoordinator()
 
     // 時間與電池已移至 ReaderFooterView.swift (ClockBatteryModel)
     // 不再作為 ReaderView 的 @State，避免每分鐘觸發整個 body 重算
@@ -543,7 +543,7 @@ struct ReaderView: View {
             }
             if volumeHandler.isEnabled { volumeHandler.startListening() }
             autoReader.onNextPage = { goToNextPage() }
-            tts.onPageFinished = {
+            ttsCoordinator.onPageFinished = {
                 if !usesCoreTextEPUB, currentPage < allPages.count - 1 {
                     currentPage += 1
                     return allPages[currentPage].content
@@ -564,7 +564,7 @@ struct ReaderView: View {
             }
             volumeHandler.stopListening()
             autoReader.pause()
-            tts.stop()
+            ttsCoordinator.stop()
         }
         .onChange(of: scenePhase) { phase in
             if phase == .background || phase == .inactive {
@@ -670,7 +670,7 @@ struct ReaderView: View {
         .sheet(isPresented: $showTTSPanel) {
             AdaptiveSheetContainer(maxWidth: 760) {
                 TTSPanelView(
-                    tts: tts, currentText: currentPageText, chapterTitle: currentChapterTitle)
+                    tts: ttsCoordinator, currentText: currentPageText, chapterTitle: currentChapterTitle)
             }
         }
         .sheet(isPresented: $showAutoReadPanel) {
