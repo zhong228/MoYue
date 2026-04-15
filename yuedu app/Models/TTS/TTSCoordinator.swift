@@ -150,6 +150,11 @@ final class TTSCoordinator: ObservableObject {
         c.togglePlayPauseCommand.isEnabled = true
         c.stopCommand.isEnabled  = true
 
+        c.playCommand.removeTarget(nil)
+        c.pauseCommand.removeTarget(nil)
+        c.togglePlayPauseCommand.removeTarget(nil)
+        c.stopCommand.removeTarget(nil)
+
         c.playCommand.addTarget  { [weak self] _ in self?.resume(); return .success }
         c.pauseCommand.addTarget { [weak self] _ in self?.pause();  return .success }
         c.togglePlayPauseCommand.addTarget { [weak self] _ in self?.toggle(); return .success }

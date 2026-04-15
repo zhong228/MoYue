@@ -50,7 +50,10 @@ struct TTSSettingsView: View {
         }
         .navigationTitle(gs.t("語音朗讀設定"))
         .navigationBarTitleDisplayMode(.inline)
-        .onDisappear { testCoordinator.stop() }
+        .onDisappear {
+            testCoordinator.stop()
+            isTesting = false
+        }
     }
 
     // MARK: - Private

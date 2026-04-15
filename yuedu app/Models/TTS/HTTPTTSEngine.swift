@@ -44,9 +44,8 @@ final class HTTPTTSEngine: NSObject, TTSPlayable {
 
         // 監聽載入失敗
         itemObserver = item.observe(\.status, options: [.new]) { [weak self] item, _ in
-            if item.status == .failed {
-                DispatchQueue.main.async { self?.stop() }
-            }
+            guard item.status == .failed else { return }
+            DispatchQueue.main.async { self?.stop() }
         }
 
         if player == nil {
@@ -100,8 +99,10 @@ final class HTTPTTSEngine: NSObject, TTSPlayable {
     /// 將模板佔位符替換為實際值並回傳 URL。
     func buildURL(template: String, text: String, title: String, rate: Float) -> URL? {
         guard !template.isEmpty else { return nil }
-        let encodedText  = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
-        let encodedTitle = title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? title
+        var queryValueCS = CharacterSet.urlQueryAllowed
+        queryValueCS.remove(charactersIn: "&+=?#%")
+        let encodedText  = text.addingPercentEncoding(withAllowedCharacters: queryValueCS) ?? text
+        let encodedTitle = title.addingPercentEncoding(withAllowedCharacters: queryValueCS) ?? title
         let speedStr     = String(format: "%.2f", rate)
 
         let resolved = template
