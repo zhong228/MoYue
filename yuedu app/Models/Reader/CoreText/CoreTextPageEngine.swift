@@ -623,6 +623,29 @@ final class CoreTextPageEngine: PageRenderingProvider {
         await task.value
     }
 
+    func notifyChapterDataChanged(at spineIndex: Int) async {
+        guard (0..<chapterCount).contains(spineIndex) else { return }
+
+        // 1. 清除舊 layout 與進行中的 preload task
+        layouts[spineIndex] = nil
+        preloadTasks[spineIndex]?.cancel()
+        preloadTasks[spineIndex] = nil
+        chapterSnapshots.removeObject(forKey: NSNumber(value: spineIndex))
+
+        // 2. 增量更新該章節的 byte size（O(1)，不重掃全書）
+        if let builder = attributedBuilder {
+            let size = await builder.chapterDataSize(at: spineIndex)
+            if spineIndex < chapterByteSizes.count {
+                chapterByteSizes[spineIndex] = size
+            } else if chapterByteSizes.count == spineIndex {
+                chapterByteSizes.append(size)
+            }
+        }
+
+        // 3. 重新載入該章節（preloadChapter 會檢查 layouts[spineIndex] == nil 後執行）
+        await preloadChapter(at: spineIndex)
+    }
+
     private func preloadChapterInternal(at spineIndex: Int, generation: Int) async {
         guard (0..<chapterCount).contains(spineIndex),
               layouts[spineIndex] == nil else { return }
