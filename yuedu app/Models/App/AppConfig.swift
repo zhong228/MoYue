@@ -33,11 +33,22 @@ enum AppConfig {
     /// WebView 渲染類請求的預設超時秒數
     static let webViewFetchTimeout: TimeInterval = 15
 
-    /// WebView 頁面加載後等待 JS 渲染完成的預設額外秒數
+    /// WebView 頁面加載後等待 JS 渲染完成的預設額外秒數（書源規則等舊路徑保留此值）
     static let webViewJSRenderWait: TimeInterval = 2.0
 
     /// JS 規則引擎單次執行超時秒數
     static let jsRuleEngineExecutionTimeout: TimeInterval = 8
+
+    // MARK: - WebView 動態輪詢
+
+    /// JS 輪詢：每次探測間隔（毫秒）
+    static let webViewPollingIntervalMs: Int = 100
+
+    /// JS 輪詢：認定「內容已就緒」的最低字數（innerText.length）
+    static let webViewPollingMinTextLength: Int = 300
+
+    /// JS 輪詢：最多等待毫秒數，超過即強制繼續抓取
+    static let webViewPollingMaxWaitMs: Int = 1500
 
     // MARK: - 安全
 

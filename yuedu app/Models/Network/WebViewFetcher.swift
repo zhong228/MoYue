@@ -52,7 +52,37 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
 
     // MARK: - 公開 API
 
-    /// 載入 URL 並等待 JavaScript 渲染完成，回傳完整 HTML
+    // MARK: - 內部：JS 動態輪詢
+
+    /// 等待頁面內容就緒再返回 outerHTML，用 callAsyncJavaScript 在 JS 端輪詢，
+    /// 避免在 Swift 端做固定 sleep。快站 ~100ms 返回，慢站最多等 maxWaitMs。
+    @MainActor
+    private func pollForContent(
+        webView: WKWebView,
+        minLength: Int = AppConfig.webViewPollingMinTextLength,
+        maxWaitMs: Int = AppConfig.webViewPollingMaxWaitMs
+    ) async -> String {
+        let intervalMs = AppConfig.webViewPollingIntervalMs
+        let maxAttempts = maxWaitMs / intervalMs
+        let js = """
+            let attempts = 0;
+            while (attempts < \(maxAttempts)) {
+                await new Promise(r => setTimeout(r, \(intervalMs)));
+                const len = document.body ? document.body.innerText.length : 0;
+                if (len >= \(minLength)) break;
+                attempts++;
+            }
+            return document.documentElement.outerHTML;
+        """
+        let result = try? await webView.callAsyncJavaScript(
+            js, arguments: [:], in: nil, in: .page)
+        if let html = result as? String, !html.isEmpty { return html }
+        // 降級：直接取 outerHTML（輪詢本身失敗時的保底）
+        return (try? await webView.evaluateJavaScript(
+            "document.documentElement.outerHTML") as? String) ?? ""
+    }
+
+
     /// - Parameters:
     ///   - url: 目標網址
     ///   - headers: 自訂 HTTP 標頭
@@ -367,23 +397,20 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
                     self.loadingMap[webView] = cont
                     webView.load(request)
                 }
-                try await Task.sleep(nanoseconds: UInt64(jsWait * 1_000_000_000))
+                // 動態輪詢：等待 JS 渲染就緒，替代硬等 jsWait
+                _ = await self.pollForContent(webView: webView)
 
                 _ = try? await webView.evaluateJavaScript("window.scrollTo(0, document.body.scrollHeight);")
-                try await Task.sleep(nanoseconds: 300_000_000)
 
                 let first = try await webView.evaluateJavaScript(Self.contentExtractJS) as? String ?? ""
                 let firstTrimmed = first.trimmingCharacters(in: .whitespacesAndNewlines)
                 if firstTrimmed.count >= 100 { return firstTrimmed }
 
-                for _ in 0..<3 {
-                    try await Task.sleep(nanoseconds: 1_000_000_000)
-                    let result = try await webView.evaluateJavaScript(Self.contentExtractJS) as? String ?? ""
-                    let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if trimmed.count >= 100 { return trimmed }
-                }
-
-                return firstTrimmed
+                // 短暫補等後再試一次（動態輪詢後仍不足說明內容還在異步加載）
+                try await Task.sleep(nanoseconds: 500_000_000)
+                let retry = try await webView.evaluateJavaScript(Self.contentExtractJS) as? String ?? ""
+                let retryTrimmed = retry.trimmingCharacters(in: .whitespacesAndNewlines)
+                return retryTrimmed.isEmpty ? firstTrimmed : retryTrimmed
             }
 
             group.addTask {
@@ -425,9 +452,9 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
                     self.loadingMap[webView] = cont
                     webView.load(request)
                 }
-                try await Task.sleep(nanoseconds: UInt64(jsWait * 1_000_000_000))
+                // 動態輪詢：替代硬等 jsWait
+                _ = await self.pollForContent(webView: webView)
                 _ = try? await webView.evaluateJavaScript("window.scrollTo(0, document.body.scrollHeight);")
-                try await Task.sleep(nanoseconds: 300_000_000)
 
                 let jsonStr = try await webView.evaluateJavaScript(Self.contentAndNextPageJS) as? String ?? "{}"
                 guard let data = jsonStr.data(using: .utf8),
