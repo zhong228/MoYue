@@ -723,13 +723,25 @@ struct ReaderView: View {
             return
         }
 
-        Task {
-            _ = try? await store.refreshOnlineBookMetadata(
-                bookId: currentBook.id,
-                forceInfoRefresh: true
-            )
-            await MainActor.run {
-                loadContent()
+        // 書架有章節 → 秒開閱讀器，背景修復元資料
+        if currentBook.onlineChapters?.isEmpty == false {
+            loadContent()
+            Task {
+                _ = try? await store.refreshOnlineBookMetadata(
+                    bookId: currentBook.id,
+                    forceInfoRefresh: true
+                )
+            }
+        } else {
+            // 無章節 → 必須等待抓取
+            Task {
+                _ = try? await store.refreshOnlineBookMetadata(
+                    bookId: currentBook.id,
+                    forceInfoRefresh: true
+                )
+                await MainActor.run {
+                    loadContent()
+                }
             }
         }
     }

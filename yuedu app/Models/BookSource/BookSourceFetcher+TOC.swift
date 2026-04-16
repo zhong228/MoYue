@@ -22,7 +22,8 @@ extension BookSourceFetcher {
     func fetchTOCPackage(
         tocUrl: String,
         source: BookSource,
-        runtimeVariables: [String: String]? = nil
+        runtimeVariables: [String: String]? = nil,
+        onFirstPageReady: ((_ chapters: [OnlineChapterRef]) -> Void)? = nil
     ) async throws -> TOCPackage {
         if let cached = loadTOCPackageSync(tocUrl: tocUrl, source: source), !cached.chapters.isEmpty {
             let hasBadURL = cached.chapters.contains { ch in
@@ -138,6 +139,14 @@ extension BookSourceFetcher {
                 )
             }
             htmlForNext = delayedHtml
+        }
+
+        // Progressive loading: 第一頁解析完立即通知 caller，不等多頁抓取
+        if !chapters.isEmpty, let onFirstPageReady {
+            let firstPageNormalized = chapters.enumerated().map { i, ref in
+                var r = ref; r.index = i; return r
+            }
+            onFirstPageReady(firstPageNormalized)
         }
 
         // 多頁目錄 — 逐頁寫入磁碟，避免 rawHTMLPages 全部堆積在記憶體中

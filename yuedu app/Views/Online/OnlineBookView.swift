@@ -338,11 +338,24 @@ struct OnlineBookView: View {
                 let tocPackage = try await dependencies.bookSourceFetcher.fetchTOCPackage(
                     tocUrl: finalTocURL,
                     source: source,
-                    runtimeVariables: currentRuntimeVariables
+                    runtimeVariables: currentRuntimeVariables,
+                    onFirstPageReady: { firstChapters in
+                        // 第一頁就緒 → 立即顯示，不等多頁抓取完成
+                        Task { @MainActor in
+                            if self.chapters.isEmpty {
+                                self.chapters = firstChapters
+                                self.loadingTOC = false
+                            }
+                        }
+                    }
                 )
                 await MainActor.run {
                     chapters = tocPackage.chapters
                     loadingTOC = false
+                    // 如果已加入書架，同步更新儲存的完整目錄
+                    if let bookId = addedBookId {
+                        bookStore.updateOnlineChapters(bookId: bookId, chapters: tocPackage.chapters)
+                    }
                 }
             } catch {
                 await MainActor.run {

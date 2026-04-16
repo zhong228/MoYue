@@ -1132,6 +1132,13 @@ class BookStore: ObservableObject {
         saveMeta()
     }
 
+    // MARK: 更新線上書的目錄章節（漸進式 TOC 加載完成後呼叫）
+    func updateOnlineChapters(bookId: UUID, chapters: [OnlineChapterRef]) {
+        guard let idx = books.firstIndex(where: { $0.id == bookId }) else { return }
+        books[idx].onlineChapters = chapters
+        saveMeta()
+    }
+
     // MARK: 換源（更新線上書的書源與目錄，並清空章節快取）
     /// 將指定書籍切換到新書源：拉取新目錄、更新 bookSourceId/bookInfoURL/onlineChapters、清空該書章節快取。
     func updateOnlineBookSource(bookId: UUID, origin: BookOrigin) async throws {

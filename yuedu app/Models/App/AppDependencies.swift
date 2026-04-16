@@ -23,7 +23,8 @@ protocol BookSourceFetching {
     func fetchTOCPackage(
         tocUrl: String,
         source: BookSource,
-        runtimeVariables: [String: String]?
+        runtimeVariables: [String: String]?,
+        onFirstPageReady: (([OnlineChapterRef]) -> Void)?
     ) async throws -> TOCPackage
 
     func isChapterCached(
@@ -42,6 +43,21 @@ protocol BookSourceFetching {
         expectedSourceURL: String?,
         expectedTOCTitle: String?
     ) -> ChapterPackage?
+}
+
+extension BookSourceFetching {
+    func fetchTOCPackage(
+        tocUrl: String,
+        source: BookSource,
+        runtimeVariables: [String: String]?
+    ) async throws -> TOCPackage {
+        try await fetchTOCPackage(
+            tocUrl: tocUrl,
+            source: source,
+            runtimeVariables: runtimeVariables,
+            onFirstPageReady: nil
+        )
+    }
 }
 
 protocol ChapterFetching {
@@ -97,12 +113,14 @@ struct LiveBookSourceFetcher: BookSourceFetching {
     func fetchTOCPackage(
         tocUrl: String,
         source: BookSource,
-        runtimeVariables: [String: String]?
+        runtimeVariables: [String: String]?,
+        onFirstPageReady: (([OnlineChapterRef]) -> Void)?
     ) async throws -> TOCPackage {
         try await bookSourceFetcher.fetchTOCPackage(
             tocUrl: tocUrl,
             source: source,
-            runtimeVariables: runtimeVariables
+            runtimeVariables: runtimeVariables,
+            onFirstPageReady: onFirstPageReady
         )
     }
 
