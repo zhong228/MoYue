@@ -137,7 +137,9 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
                 throw WebViewError.timeout
             }
 
-            let result = try await group.next()!
+            guard let result = try await group.next() else {
+                throw CancellationError()
+            }
             group.cancelAll()
             return result
         }
@@ -168,7 +170,9 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
                 try await Task.sleep(nanoseconds: UInt64(jsWait * 1_000_000_000))
                 if !jsAfterLoad.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     _ = try? await webView.evaluateJavaScript(jsAfterLoad)
-                    try await Task.sleep(nanoseconds: 500_000_000) // 0.5s 讓 JS 生效
+                    try await Task.sleep(
+                        nanoseconds: UInt64(AppConfig.webViewPostLoadJSEffectDelay * 1_000_000_000)
+                    )
                 }
                 let html = try await webView.evaluateJavaScript("document.documentElement.outerHTML") as? String ?? ""
                 if LegadoJSBridge.isCloudflareChallengedBody(html) {
@@ -180,7 +184,9 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
                 try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                 throw WebViewError.timeout
             }
-            let result = try await group.next()!
+            guard let result = try await group.next() else {
+                throw CancellationError()
+            }
             group.cancelAll()
             return result
         }
@@ -287,7 +293,9 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
                 throw WebViewError.timeout
             }
 
-            let result = try await group.next()!
+            guard let result = try await group.next() else {
+                throw CancellationError()
+            }
             group.cancelAll()
             if result.isEmpty { throw WebViewError.emptyContent }
             return result
@@ -420,7 +428,9 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
                 throw WebViewError.timeout
             }
 
-            let result = try await group.next()!
+            guard let result = try await group.next() else {
+                throw CancellationError()
+            }
             group.cancelAll()
             if result.isEmpty { throw WebViewError.emptyContent }
             return result
@@ -480,7 +490,9 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
                 throw WebViewError.timeout
             }
 
-            let result = try await group.next()!
+            guard let result = try await group.next() else {
+                throw CancellationError()
+            }
             group.cancelAll()
             return result
         }
@@ -548,10 +560,12 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
                 return "loaded"
             }
             group.addTask {
-                try await Task.sleep(nanoseconds: 10_000_000_000)
+                try await Task.sleep(nanoseconds: AppConfig.webViewHTMLLoadTimeout * 1_000_000_000)
                 throw WebViewError.timeout
             }
-            _ = try await group.next()!
+            guard let _ = try await group.next() else {
+                throw CancellationError()
+            }
             group.cancelAll()
         }
     }

@@ -39,6 +39,7 @@ final class ReaderViewModel: ObservableObject {
         let priority: ChapterFetchPriority = (chapterIndex == currentChapterIndex) ? .jump : .immediate
         
         Task {
+            defer { self.fetchingChapters.remove(chapterIndex) }
             do {
                 let pkg = try await chapterFetcher.fetchChapter(
                     book: b,
@@ -46,12 +47,7 @@ final class ReaderViewModel: ObservableObject {
                     priority: priority,
                     store: store
                 )
-
-                guard !Task.isCancelled else {
-                    self.fetchingChapters.remove(chapterIndex)
-                    return
-                }
-                self.fetchingChapters.remove(chapterIndex)
+                guard !Task.isCancelled else { return }
                 if pkg.state == .cached && !pkg.content.isEmpty {
                     self.failedChapters.remove(chapterIndex)
                     onSuccess()
@@ -62,13 +58,9 @@ final class ReaderViewModel: ObservableObject {
                     onFailure(self.lastChapterError)
                 }
             } catch is CancellationError {
-                self.fetchingChapters.remove(chapterIndex)
+                // 取消屬正常流程，defer 會自動清理
             } catch {
-                guard !Task.isCancelled else {
-                    self.fetchingChapters.remove(chapterIndex)
-                    return
-                }
-                self.fetchingChapters.remove(chapterIndex)
+                guard !Task.isCancelled else { return }
                 self.failedChapters.insert(chapterIndex)
                 self.lastChapterError = "ch\(chapterIndex): \(error.localizedDescription)"
                 onFailure(self.lastChapterError)

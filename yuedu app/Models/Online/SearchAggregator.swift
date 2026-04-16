@@ -288,7 +288,9 @@ class SearchAggregator: ObservableObject {
                     try await Task.sleep(nanoseconds: timeout * 1_000_000_000)
                     throw SearchTimeoutError()
                 }
-                let result = try await group.next()!
+                guard let result = try await group.next() else {
+                    throw CancellationError()
+                }
                 group.cancelAll()
                 return .success(result)
             }

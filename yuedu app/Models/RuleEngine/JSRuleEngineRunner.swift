@@ -196,7 +196,9 @@ final class JSRuleEngineRunner: NSObject, WKScriptMessageHandler {
                 try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                 throw NSError(domain: "JSRuleEngineRunner", code: -9, userInfo: [NSLocalizedDescriptionKey: "JS 執行超時"])
             }
-            let result = try await group.next()!
+            guard let result = try await group.next() else {
+                throw CancellationError()
+            }
             group.cancelAll()
             return result
         }
@@ -226,7 +228,9 @@ final class JSRuleEngineRunner: NSObject, WKScriptMessageHandler {
                 try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                 throw NSError(domain: "JSRuleEngineRunner", code: -9, userInfo: [NSLocalizedDescriptionKey: "JS 執行超時"])
             }
-            let result = try await group.next()!
+            guard let result = try await group.next() else {
+                throw CancellationError()
+            }
             group.cancelAll()
             return result
         }

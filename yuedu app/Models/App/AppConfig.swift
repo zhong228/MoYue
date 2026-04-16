@@ -39,6 +39,15 @@ enum AppConfig {
     /// JS 規則引擎單次執行超時秒數
     static let jsRuleEngineExecutionTimeout: TimeInterval = 8
 
+    /// 章節封裝抓取的最大超時秒數（超過即拋出 FetchTimeoutError.chapterTimeout）
+    static let chapterFetchTimeoutSeconds: UInt64 = 35
+
+    /// WebView 執行 `jsAfterLoad` 後的額外等待秒數，讓動態頁面有時間套用 JS 結果
+    static let webViewPostLoadJSEffectDelay: TimeInterval = 0.5
+
+    /// HTML 字串載入 WKWebView 後等待完成的超時秒數
+    static let webViewHTMLLoadTimeout: UInt64 = 10
+
     // MARK: - WebView 動態輪詢
 
     /// JS 輪詢：每次探測間隔（毫秒）

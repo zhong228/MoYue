@@ -1631,7 +1631,9 @@ struct ReaderView: View {
         fetchingChapters.insert(chapterIndex)
 
         Task {
-            let isCurrentChapter = chapterIndex == currentChapterIndex
+            defer {
+                Task { @MainActor in self.fetchingChapters.remove(chapterIndex) }
+            }
             do {
                 let pkg = try await dependencies.chapterFetcher.fetchChapter(
                     book: b,
@@ -1640,7 +1642,6 @@ struct ReaderView: View {
                     store: store
                 )
                 await MainActor.run {
-                    fetchingChapters.remove(chapterIndex)
                     if pkg.state == .cached && !pkg.content.isEmpty {
                         failedChapters.remove(chapterIndex)
                     } else {
@@ -1652,7 +1653,6 @@ struct ReaderView: View {
                 }
             } catch {
                 await MainActor.run {
-                    fetchingChapters.remove(chapterIndex)
                     failedChapters.insert(chapterIndex)
                     lastChapterError = "ch\(chapterIndex): \(error.localizedDescription)"
                     rebuildPages()
