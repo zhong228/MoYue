@@ -1808,39 +1808,23 @@ struct ReaderView: View {
         allPages = []
 
         let settings = currentRenderSettings(marginH: marginH)
-        // ── Phase 6 A/B 分支 ─────────────────────────────────────────────────
-        if GlobalSettings.shared.useRenderableNodePipeline, !refs.isEmpty {
-            let builder = OnlineNodeAttributedStringBuilder(
-                refs: refs,
-                bookId: book.id,
-                fetcher: dependencies.bookSourceFetcher
-            )
-            epubRenderer.loadTXT(
-                attributedBuilder: builder,
-                bookIdentifier: "coretext-node-\(book.id.uuidString)",
-                renderSize: readerViewportSize,
-                settings: settings
-            )
-        } else {
-            guard let provider = BookContentProviderFactory.makeOnlineProvider(book: book, store: store) else {
-                applyDocument(nil)
-                isLoadingPipeline = false
-                isRestoringPosition = false
-                return
-            }
-            let chapterSourceHrefs = refs.map {
-                RuleEngine.sanitizeExtractedURL($0.url)
-            }
-            let scheme = "reader-online-\(book.id.uuidString.lowercased())"
-            epubRenderer.loadWithProvider(
-                contentProvider: provider,
-                chapterSourceHrefs: chapterSourceHrefs,
-                bookIdentifier: "coretext-\(book.id.uuidString)",
-                renderSize: readerViewportSize,
-                settings: settings,
-                customScheme: scheme
-            )
+        guard !refs.isEmpty else {
+            applyDocument(nil)
+            isLoadingPipeline = false
+            isRestoringPosition = false
+            return
         }
+        let builder = OnlineNodeAttributedStringBuilder(
+            refs: refs,
+            bookId: book.id,
+            fetcher: dependencies.bookSourceFetcher
+        )
+        epubRenderer.loadTXT(
+            attributedBuilder: builder,
+            bookIdentifier: "coretext-node-\(book.id.uuidString)",
+            renderSize: readerViewportSize,
+            settings: settings
+        )
 
         currentPage = 0
         isLoadingPipeline = false

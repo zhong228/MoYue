@@ -412,14 +412,7 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
                 _ = try? await webView.evaluateJavaScript("window.scrollTo(0, document.body.scrollHeight);")
 
                 let first = try await webView.evaluateJavaScript(Self.contentExtractJS) as? String ?? ""
-                let firstTrimmed = first.trimmingCharacters(in: .whitespacesAndNewlines)
-                if firstTrimmed.count >= 100 { return firstTrimmed }
-
-                // 短暫補等後再試一次（動態輪詢後仍不足說明內容還在異步加載）
-                try await Task.sleep(nanoseconds: 500_000_000)
-                let retry = try await webView.evaluateJavaScript(Self.contentExtractJS) as? String ?? ""
-                let retryTrimmed = retry.trimmingCharacters(in: .whitespacesAndNewlines)
-                return retryTrimmed.isEmpty ? firstTrimmed : retryTrimmed
+                return first.trimmingCharacters(in: .whitespacesAndNewlines)
             }
 
             group.addTask {
