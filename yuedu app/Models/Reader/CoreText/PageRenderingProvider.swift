@@ -58,6 +58,10 @@ protocol PageLayoutEngine: AnyObject {
     func warmUpNext(currentGlobalPage: Int)
     func cancelPendingWork()
 
+    /// 通知引擎：指定章節的底層資料已更新（如網路抓取完成）。
+    /// 引擎清除該章節的 layout 並重新載入，不影響其他章節。
+    func notifyChapterDataChanged(at spineIndex: Int) async
+
     // MARK: 樣式更新
     func applyThemeChange(textColor: UIColor, backgroundColor: UIColor)
     func updateRenderSettings(_ settings: ReaderRenderSettings)
@@ -112,6 +116,7 @@ extension PageLayoutEngine {
         set {}
     }
     func cancelPendingWork() {}
+    func notifyChapterDataChanged(at spineIndex: Int) async {}
     func updateRenderSettings(_ settings: ReaderRenderSettings) {}
 }
 
