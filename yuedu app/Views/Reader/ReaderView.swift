@@ -416,8 +416,14 @@ struct ReaderView: View {
                     pageTurnStyle: settings.pageTurnStyle,
                     currentPage: $currentPage,
                     onPageChanged: { newPage in
-                        currentChapterIndex = ctEngine.charOffset(forPage: newPage).spineIndex
+                        let newChapter = ctEngine.charOffset(forPage: newPage).spineIndex
+                        let chapterChanged = newChapter != currentChapterIndex
+                        currentChapterIndex = newChapter
                         progressTrace("onPageChanged page=\(newPage) chapter=\(currentChapterIndex)")
+                        // Lazy loading: 翻頁換章時自動抓取
+                        if chapterChanged {
+                            fetchChapterIfNeeded(chapterIndex: newChapter)
+                        }
                         guard ReaderProgressSyncPolicy.shouldPersistOnPageChanged(
                             isCoreTextReady: epubRenderer.isCoreTextReady,
                             totalPages: ctEngine.totalPages,
@@ -1428,6 +1434,8 @@ struct ReaderView: View {
     private func jumpToChapter(_ idx: Int, charOffset: Int = 0) {
         guard chapters.indices.contains(idx) else { return }
         if let engine = epubRenderer.engine, usesCoreTextEPUB {
+            // Lazy loading: 跳章時觸發網路抓取
+            fetchChapterIfNeeded(chapterIndex: idx)
             Task { @MainActor in
                 engine.cancelPendingWork()
                 await engine.preloadChapter(at: idx)
@@ -1840,6 +1848,13 @@ struct ReaderView: View {
         currentPage = 0
         isLoadingPipeline = false
         isRestoringPosition = false
+
+        // Lazy loading: 自動抓取初始章節（存檔位置或第 0 章）
+        let initialChapter = currentChapterIndex
+        fetchChapterIfNeeded(chapterIndex: initialChapter)
+        if initialChapter != 0 {
+            fetchChapterIfNeeded(chapterIndex: 0)
+        }
     }
 
     private func loadContent() {
