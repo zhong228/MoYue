@@ -171,6 +171,7 @@ enum WebNovelParser {
     }
 
     private static func extractedText(from element: Element) -> String? {
+        // 優先：找 <p> 段落（標準結構站點）
         let paragraphs = ((try? element.select("p").array()) ?? [])
             .compactMap { try? $0.text() }
             .map { normalizeWhitespace($0) }
@@ -178,6 +179,26 @@ enum WebNovelParser {
 
         if paragraphs.count >= 2 {
             return paragraphs.joined(separator: "\n")
+        }
+
+        // 中文小說常用 <br> 分段：把 outerHTML 做 block→\n 轉換再提取
+        if let html = try? element.outerHtml() {
+            var raw = html
+            // 將 block-level 結束標籤和 <br> 轉成換行
+            raw = raw.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
+            raw = raw.replacingOccurrences(
+                of: "</(?:p|div|li|blockquote|section|article|dt|dd|h[1-6]|tr)>",
+                with: "\n", options: .regularExpression)
+            // 移除剩餘標籤
+            raw = raw.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            // HTML 實體
+            raw = raw.replacingOccurrences(of: "&nbsp;", with: " ")
+                .replacingOccurrences(of: "&amp;", with: "&")
+                .replacingOccurrences(of: "&lt;", with: "<")
+                .replacingOccurrences(of: "&gt;", with: ">")
+                .replacingOccurrences(of: "&quot;", with: "\"")
+            let normalized = normalizeWhitespace(raw)
+            if !normalized.isEmpty { return normalized }
         }
 
         if let text = try? element.text() {

@@ -38,6 +38,13 @@ enum SearchEngine: String, CaseIterable, Identifiable {
         case .bing: return Color(red: 0.0, green: 0.5, blue: 0.7)
         }
     }
+    var faviconURL: String {
+        switch self {
+        case .google: return "https://www.google.com/favicon.ico"
+        case .baidu: return "https://www.baidu.com/favicon.ico"
+        case .bing: return "https://www.bing.com/favicon.ico"
+        }
+    }
 }
 
 // MARK: - 章節連結（瀏覽器目錄用）
@@ -229,13 +236,16 @@ private let contentExtractJS: String = {
 
     guard !readabilityScript.isEmpty else { return fallback }
 
-    // Readability 優先，失敗時用 fallback
+    // Readability 優先，失敗時用 fallback；直接回傳 article.content（含 HTML 標籤）
+    // TXTChapterParser.splitIntoParagraphs 會在 Swift 端處理 HTML→段落
     return readabilityScript + """
     ;(function(){
         if(typeof Readability!=='undefined'){
             try{
                 var a=new Readability(document.cloneNode(true)).parse();
-                if(a&&a.textContent&&a.textContent.trim().length>=200)return a.textContent.trim();
+                if(a&&a.content&&a.content.trim().length>=100){
+                    return a.content;
+                }
             }catch(e){}
         }
         return \(fallback);
@@ -311,10 +321,10 @@ private let contentExtractPayloadJS: String = {
         if (typeof Readability !== 'undefined') {
             try {
                 var article = new Readability(document.cloneNode(true)).parse();
-                if (article && article.textContent && article.textContent.trim().length >= 200) {
+                if (article && article.content && article.content.trim().length >= 100) {
                     payload = {
                         title: (article.title || document.title || '').trim(),
-                        text: article.textContent.trim(),
+                        text: article.content,
                         html: article.content || ''
                     };
                 }
@@ -771,25 +781,25 @@ struct BrowserView: View {
 
     // MARK: 首頁
     private var homePageView: some View {
-        VStack(spacing: 0) {
+        let iconGray = Color(red: 174/255, green: 174/255, blue: 178/255)   // #AEAEB2
+        let labelDark = Color(red: 60/255, green: 60/255, blue: 67/255)     // #3C3C43
+        return VStack(alignment: .leading, spacing: 0) {
             if browser.isLoading {
                 ProgressView().progressViewStyle(.linear).frame(height: 2)
             }
 
-            Spacer()
-
-            Text(gs.t("閱讀瀏覽器"))
-                .font(.system(size: 22, weight: .bold))
-                .foregroundColor(.primary)
-
-            Spacer().frame(height: browserHeroSpacing)
-
-            VStack(spacing: 0) {
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
-                        .font(.system(size: 16))
-                    TextField(gs.t("輸入網址或搜尋"), text: $addressText)
+            // 搜尋欄
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(iconGray)
+                    .font(.system(size: 16))
+                ZStack(alignment: .leading) {
+                    if addressText.isEmpty {
+                        Text(gs.t("網址或搜尋"))
+                            .font(.system(size: 16))
+                            .foregroundColor(iconGray)
+                    }
+                    TextField("", text: $addressText)
                         .font(.system(size: 16))
                         .disableAutocorrection(true)
                         .keyboardType(.URL)
@@ -798,66 +808,73 @@ struct BrowserView: View {
                             browser.load(addressText)
                             addressFocused = false
                         }
-                    if !addressText.isEmpty {
-                        Button { addressText = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(Color.secondary.opacity(0.6))
-                        }
+                }
+                if !addressText.isEmpty {
+                    Button { addressText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(iconGray)
                     }
                 }
             }
-            .frame(maxWidth: browserContentMaxWidth)
-            .padding(.horizontal, 16).padding(.vertical, 14)
-            .background(Color.secondary.opacity(0.15))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .shadow(color: .black.opacity(0.06), radius: 6, x: 0, y: 2)
-            .padding(.horizontal, horizontalSizeClass == .regular ? 20 : 28)
+            .padding(.horizontal, 12)
+            .frame(height: 44)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .shadow(color: .black.opacity(0.08), radius: 3, x: 0, y: 1)
+            .padding(.horizontal, 16)
 
-            Spacer().frame(height: browserHeroSpacing)
+            Spacer().frame(height: 16)
 
-            HStack(spacing: browserEngineSpacing) {
+            // 快捷搜尋列
+            HStack(alignment: .top, spacing: 20) {
                 ForEach(SearchEngine.allCases) { engine in
                     Button {
                         browser.loadEngine(engine)
                         addressFocused = false
                         addressText = engine.startURL
                     } label: {
-                        VStack(spacing: 8) {
-                            Text(engine.icon)
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(.white)
-                                .frame(width: 58, height: 58)
-                                .background(engine.color)
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
-                                .shadow(color: engine.color.opacity(0.35), radius: 8, x: 0, y: 4)
+                        VStack(spacing: 6) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.white)
+                                    .frame(width: 52, height: 52)
+                                    .shadow(color: .black.opacity(0.10), radius: 4, x: 0, y: 1)
+                                AsyncImage(url: URL(string: engine.faviconURL)) { phase in
+                                    if let image = phase.image {
+                                        image.resizable().scaledToFit()
+                                    } else {
+                                        Color.clear
+                                    }
+                                }
+                                .frame(width: 28, height: 28)
+                            }
                             Text(engine.rawValue)
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundColor(labelDark)
                         }
                     }.buttonStyle(.plain)
                 }
             }
-            .frame(maxWidth: browserContentMaxWidth)
+            .padding(.leading, 16)
 
-            Spacer().frame(height: browserHeroSpacing)
+            Spacer().frame(height: 20)
 
-            HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                    .font(.caption)
-                    .foregroundColor(.orange)
-                Text(gs.t("進入小說章節頁，點右下角按鈕轉碼閱讀"))
-                    .font(.caption)
-                    .foregroundColor(Color.secondary.opacity(0.8))
+            // 提示文字
+            HStack(spacing: 4) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 13))
+                    .foregroundColor(iconGray)
+                Text(gs.t("前往小說章節頁，點擊右下角即可轉碼閱讀"))
+                    .font(.system(size: 13))
+                    .foregroundColor(iconGray)
             }
-            .frame(maxWidth: browserContentMaxWidth)
-            .padding(.horizontal, 20)
+            .padding(.leading, 16)
 
-            Spacer()
             Spacer()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(UIColor.systemBackground))
-        .ignoresSafeArea()
+        .padding(.top, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(UIColor.systemGroupedBackground).ignoresSafeArea())
     }
 
     // MARK: 轉碼浮動按鈕
@@ -890,7 +907,7 @@ struct BrowserView: View {
                             title: title.isEmpty ? "網頁書籍" : title,
                             author: "網路",
                             sourceURL: browser.currentURL,
-                            format: html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .plainText : .html
+                            format: .plainText  // 一律存 .txt；TXTChapterParser.splitIntoParagraphs 會在 Swift 端解析 HTML 標籤
                         )
                         readerBookId = book.id
                         isExtracting = false

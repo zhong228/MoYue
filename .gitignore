@@ -5,3 +5,8 @@ DerivedData/
 .build/
 .worktrees/
 build/
+
+# Log captures from diff toolchain
+scripts/logs/*.txt
+scripts/logs/*.html
+

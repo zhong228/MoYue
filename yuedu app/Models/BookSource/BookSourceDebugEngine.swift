@@ -196,6 +196,29 @@ final class BookSourceDebugEngine: ObservableObject {
         logs.removeAll()
     }
 
+    /// Export the current pipeline logs as a plain-text file in legadoStyleLog format,
+    /// suitable for piping into `scripts/normalize_log.py --side ios` and then
+    /// `scripts/compare_logs.py` for diff-driven comparison against Android logs.
+    ///
+    /// Returns the file URL. Saved to the app's temporary directory.
+    @discardableResult
+    func exportLogsAsText() -> URL {
+        let lines = logs.map { entry -> String in
+            var line = "\(entry.step): \(entry.summary)"
+            if let detail = entry.detail {
+                line += "\n" + detail.split(separator: "\n").map { "  \($0)" }.joined(separator: "\n")
+            }
+            return line
+        }.joined(separator: "\n")
+
+        let ts = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let filename = "yuedu_pipeline_\(ts).txt"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+        try? lines.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
     // MARK: - Private
 
     /// Attaches the pipeline observer to `bridge` before each stage run.

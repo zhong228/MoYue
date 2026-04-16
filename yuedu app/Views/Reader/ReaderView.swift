@@ -1100,6 +1100,7 @@ struct ReaderView: View {
             totalProgressPercent: totalProgressPercent,
             chapterSliderProgressValue: { chapterSliderProgressValue() },
             applyChapterSliderProgress: { applyChapterSliderProgress($0) },
+            chapterTitleForProgress: { chapterTitle(forProgress: $0) },
             onPrevChapter: { jumpToChapter(currentChapterIndex - 1) },
             onNextChapter: { jumpToChapter(currentChapterIndex + 1) },
             onRefresh: { refreshCurrentChapter() },
@@ -1250,6 +1251,21 @@ struct ReaderView: View {
         }
     }
 
+    /// 根據進度值（0–1）反查對應的章節標題，用於拖動 HUD
+    private func chapterTitle(forProgress value: Double) -> String {
+        if let engine = epubRenderer.engine, usesCoreTextEPUB {
+            let pos = engine.position(forProgress: value)
+            if chapters.indices.contains(pos.spineIndex) {
+                return chapters[pos.spineIndex].title
+            }
+        }
+        guard allPages.count > 1 else { return chapters.first?.title ?? "" }
+        let pageIdx = max(0, min(Int(value * Double(allPages.count - 1)), allPages.count - 1))
+        let chIdx = allPages[pageIdx].chapterIndex
+        if chapters.indices.contains(chIdx) { return chapters[chIdx].title }
+        return ""
+    }
+
     private func chapterSliderProgressValue() -> Double {
         if let engine = epubRenderer.engine, usesCoreTextEPUB {
             let pos = engine.charOffset(forPage: currentPage)
@@ -1326,9 +1342,31 @@ struct ReaderView: View {
             }.disabled(!canGoNextChapter)
         }
         .background(readerTheme.barColor)
+        .overlay(alignment: .center) {
+            if let draft = chapterSliderDraft {
+                VStack(spacing: 4) {
+                    Text(String(format: "%.0f%%", draft * 100))
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.white.opacity(0.85))
+                    Text(chapterTitle(forProgress: draft))
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(
+                    Capsule()
+                        .fill(Color.black.opacity(0.62))
+                        .background(Capsule().fill(.ultraThinMaterial))
+                )
+                .clipShape(Capsule())
+                .allowsHitTesting(false)
+                .transition(.opacity.animation(.easeOut(duration: 0.15)))
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: chapterSliderDraft == nil)
     }
-
-    // MARK: 工具列
     private var toolRow: some View {
         HStack(spacing: 0) {
             toolBtn(icon: "list.bullet", label: settings.t("目錄")) { showTOC = true }
@@ -2024,6 +2062,7 @@ private struct ReaderBottomControlBar: View {
     let totalProgressPercent: String
     let chapterSliderProgressValue: () -> Double
     let applyChapterSliderProgress: (Double) -> Void
+    let chapterTitleForProgress: (Double) -> String
     let onPrevChapter: () -> Void
     let onNextChapter: () -> Void
     let onRefresh: () -> Void
@@ -2069,6 +2108,31 @@ private struct ReaderBottomControlBar: View {
                 .frame(maxWidth: overlayContentMaxWidth)
             }
             .background(readerTheme.barColor)
+            .overlay(alignment: .top) {
+                if let draft = chapterSliderDraft {
+                    VStack(spacing: 4) {
+                        Text(String(format: "%.0f%%", draft * 100))
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.white.opacity(0.85))
+                        Text(chapterTitleForProgress(draft))
+                            .font(.system(size: 15, weight: .regular))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(
+                        Capsule()
+                            .fill(Color.black.opacity(0.62))
+                            .background(Capsule().fill(.ultraThinMaterial))
+                    )
+                    .clipShape(Capsule())
+                    .allowsHitTesting(false)
+                    .transition(.opacity.animation(.easeOut(duration: 0.15)))
+                    .offset(y: -72)
+                }
+            }
+            .animation(.easeOut(duration: 0.15), value: chapterSliderDraft == nil)
         }
         .onChange(of: showBrightness) { isVisible in
             if isVisible && settings.followSystemBrightness {

@@ -680,7 +680,40 @@ struct TXTBookParser: BookParser {
                 return trimmedTitle + "\n" + body
             }
             .filter { !$0.isEmpty }
-        return ParsedBookDocument(title: title, author: "未知作者", chapters: chapters)
+        let author = Self.extractAuthor(from: text) ?? "未知作者"
+        return ParsedBookDocument(title: title, author: author, chapters: chapters)
+    }
+
+    /// Scans the preface area (first 3000 chars) for common author line patterns.
+    /// Matches: 作者：XXX / 著：XXX / Author: XXX / XXX 著 etc.
+    private static func extractAuthor(from text: String) -> String? {
+        let sample = String(text.prefix(3000))
+        let patterns = [
+            // 作者：XXX  /  作者:XXX
+            "作者\\s*[：:﹕]\\s*([^\\n\\r，,。！？]{1,30})",
+            // 著：XXX  /  著者：XXX
+            "著者?\\s*[：:﹕]\\s*([^\\n\\r，,。！？]{1,30})",
+            // Author: XXX  /  Written by XXX
+            "(?:Author|Written by)\\s*[：:﹕]?\\s*([A-Za-z\\u4E00-\\u9FFF\\u3400-\\u4DBF]{1,40})",
+            // 行尾 XXX 著  (e.g. 金庸 著)
+            "^([^\\n\\r，,。！？：:]{1,20})\\s+著\\s*$",
+        ]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(
+                pattern: pattern, options: [.anchorsMatchLines, .caseInsensitive]
+            ) else { continue }
+            let range = NSRange(sample.startIndex..., in: sample)
+            guard let match = regex.firstMatch(in: sample, range: range),
+                  match.numberOfRanges > 1,
+                  let captureRange = Range(match.range(at: 1), in: sample)
+            else { continue }
+            let candidate = sample[captureRange]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !candidate.isEmpty {
+                return String(candidate)
+            }
+        }
+        return nil
     }
 }
 

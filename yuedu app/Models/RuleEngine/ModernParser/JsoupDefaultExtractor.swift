@@ -334,7 +334,7 @@ struct JsoupDefaultExtractor: RuleExtractor {
         switch lowered {
         case "text":
             for element in elements.array() {
-                let text = try element.text()
+                let text = htmlElementToText(element)
                 if !text.isEmpty { results.append(text) }
             }
 
