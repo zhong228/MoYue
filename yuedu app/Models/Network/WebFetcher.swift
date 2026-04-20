@@ -42,12 +42,11 @@ actor WebFetcher {
         bodyCharset: String? = nil,
         allowInteractiveChallengeOn503: Bool = true
     ) async throws -> String {
+        let allCookies: [HTTPCookie]
         if let host = url.host {
-            let allCookies = await Self.harvestWebViewCookies(for: host)
-            for cookie in allCookies {
-                session.configuration.httpCookieStorage?.setCookie(cookie)
-                HTTPCookieStorage.shared.setCookie(cookie)
-            }
+            allCookies = await Self.harvestWebViewCookies(for: host)
+        } else {
+            allCookies = []
         }
 
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
@@ -72,6 +71,9 @@ actor WebFetcher {
         }
         for (key, value) in headers {
             request.setValue(value, forHTTPHeaderField: key)
+        }
+        if let wvCookieHeader = cookieHeaderString(from: allCookies) {
+            request.setValue(wvCookieHeader, forHTTPHeaderField: "Cookie")
         }
         if request.value(forHTTPHeaderField: "Cookie") == nil,
             let cookieHeader = cookieHeader(for: url)
@@ -134,18 +136,18 @@ actor WebFetcher {
                     // Present challenge; cookies are synced inside CloudflareChallengeView.passed()
                     _ = try await challengeHandler(url)
 
-                    // Harvest WKWebView cookies into the session for the retry.
-                    let allCookies = await Self.harvestWebViewCookies(for: host)
-                    for cookie in allCookies {
-                        session.configuration.httpCookieStorage?.setCookie(cookie)
-                        HTTPCookieStorage.shared.setCookie(cookie)
+                    // Harvest WKWebView cookies and inject via Cookie header for the retry.
+                    let retryCookies = await Self.harvestWebViewCookies(for: host)
+                    var retryRequest = requestCopy
+                    if let wvCookieHeader = cookieHeaderString(from: retryCookies) {
+                        retryRequest.setValue(wvCookieHeader, forHTTPHeaderField: "Cookie")
                     }
 
                     // Retry via URLSession with the new cookies.
                     let (retryData, retryResponse) = try await PerHostSemaphore.shared.withLock(
                         host: host
                     ) {
-                        try await self.session.data(for: requestCopy)
+                        try await self.session.data(for: retryRequest)
                     }
                     if let html = smartDecode(data: retryData, response: retryResponse) {
                         return html
@@ -175,15 +177,15 @@ actor WebFetcher {
                     let challengeHandler = cloudflareChallengeHandler
                 {
                     _ = try await challengeHandler(url)
-                    let allCookies = await Self.harvestWebViewCookies(for: host)
-                    for cookie in allCookies {
-                        session.configuration.httpCookieStorage?.setCookie(cookie)
-                        HTTPCookieStorage.shared.setCookie(cookie)
+                    let retryCookies = await Self.harvestWebViewCookies(for: host)
+                    var retryRequest = requestCopy
+                    if let wvCookieHeader = cookieHeaderString(from: retryCookies) {
+                        retryRequest.setValue(wvCookieHeader, forHTTPHeaderField: "Cookie")
                     }
                     let (retryData, retryResponse) = try await PerHostSemaphore.shared.withLock(
                         host: host
                     ) {
-                        try await self.session.data(for: requestCopy)
+                        try await self.session.data(for: retryRequest)
                     }
                     if let retryHtml = smartDecode(data: retryData, response: retryResponse) {
                         return retryHtml
@@ -397,6 +399,11 @@ actor WebFetcher {
                 continuation.resume(returning: cookies.filter { $0.domain.contains(host) })
             }
         }
+    }
+
+    private func cookieHeaderString(from cookies: [HTTPCookie]) -> String? {
+        guard !cookies.isEmpty else { return nil }
+        return cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
     }
 
     private func cookieHeader(for url: URL) -> String? {
