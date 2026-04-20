@@ -1,34 +1,21 @@
 import Foundation
 
-public enum ReaderOverlayState: Equatable {
+public enum ReaderChapterOverlayState: Equatable {
     case hidden
     case loading
     case failed(message: String)
 }
 
-public enum ReaderRefreshAction: Equatable {
+public enum ReaderChapterRefreshAction: Equatable {
     case none
     case notifyChapterDataChanged(index: Int)
     case rebuildPages
 }
 
-public struct ReaderChapterPresentation: Equatable {
-    public let chapterIndex: Int
-    public let isCurrent: Bool
-    public let hasContent: Bool
-    public let isCoreText: Bool
-    public let loadState: ChapterLoadState
-
-    public init(chapterIndex: Int, isCurrent: Bool, hasContent: Bool, isCoreText: Bool, loadState: ChapterLoadState) {
-        self.chapterIndex = chapterIndex
-        self.isCurrent = isCurrent
-        self.hasContent = hasContent
-        self.isCoreText = isCoreText
-        self.loadState = loadState
-    }
-
-    public var overlayState: ReaderOverlayState {
-        if hasContent { return .hidden }
+public enum ReaderChapterPresentation {
+    public static func overlayState(isContentAvailable: Bool, loadState: ChapterLoadState?) -> ReaderChapterOverlayState {
+        if isContentAvailable { return .hidden }
+        guard let loadState = loadState else { return .loading }
         switch loadState {
         case .idle, .loading:
             return .loading
@@ -40,10 +27,17 @@ public struct ReaderChapterPresentation: Equatable {
         }
     }
 
-    public var refreshAction: ReaderRefreshAction {
-        guard isCurrent, hasContent, loadState == .ready else { return .none }
-        if isCoreText {
-            return .notifyChapterDataChanged(index: chapterIndex)
+    public static func refreshAction(
+        changedChapterIndex: Int,
+        currentChapterIndex: Int,
+        usesCoreText: Bool,
+        newState: ChapterLoadState?,
+        isContentAvailable: Bool
+    ) -> ReaderChapterRefreshAction {
+        guard changedChapterIndex == currentChapterIndex else { return .none }
+        guard isContentAvailable, newState == .ready else { return .none }
+        if usesCoreText {
+            return .notifyChapterDataChanged(index: currentChapterIndex)
         } else {
             return .rebuildPages
         }

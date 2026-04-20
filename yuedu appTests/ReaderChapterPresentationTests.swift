@@ -1,37 +1,35 @@
-import XCTest
+import Testing
 @testable import yuedu_app
 
-final class ReaderChapterPresentationTests: XCTestCase {
+@Suite("ReaderChapterPresentation")
+struct ReaderChapterPresentationTests {
 
-    func test_contentAvailabilitySuppressesOverlays() {
-        let p1 = ReaderChapterPresentation(chapterIndex: 0, isCurrent: true, hasContent: true, isCoreText: true, loadState: .loading)
-        XCTAssertEqual(p1.overlayState, .hidden)
-
-        let p2 = ReaderChapterPresentation(chapterIndex: 0, isCurrent: true, hasContent: true, isCoreText: true, loadState: .failed(reason: "err"))
-        XCTAssertEqual(p2.overlayState, .hidden)
+    @Test("content availability suppresses overlays")
+    func contentAvailabilitySuppressesOverlays() {
+        #expect(ReaderChapterPresentation.overlayState(isContentAvailable: true, loadState: .loading) == ReaderChapterOverlayState.hidden)
+        #expect(ReaderChapterPresentation.overlayState(isContentAvailable: true, loadState: .failed(reason: "err")) == ReaderChapterOverlayState.hidden)
     }
 
-    func test_missingContentShowsLoadingForIdleAndLoading() {
-        let p1 = ReaderChapterPresentation(chapterIndex: 1, isCurrent: false, hasContent: false, isCoreText: false, loadState: .idle)
-        XCTAssertEqual(p1.overlayState, .loading)
-
-        let p2 = ReaderChapterPresentation(chapterIndex: 1, isCurrent: false, hasContent: false, isCoreText: false, loadState: .loading)
-        XCTAssertEqual(p2.overlayState, .loading)
+    @Test("missing content shows loading for idle and loading")
+    func missingContentShowsLoadingForIdleAndLoading() {
+        #expect(ReaderChapterPresentation.overlayState(isContentAvailable: false, loadState: .idle) == ReaderChapterOverlayState.loading)
+        #expect(ReaderChapterPresentation.overlayState(isContentAvailable: false, loadState: .loading) == ReaderChapterOverlayState.loading)
     }
 
-    func test_missingContentShowsFailureForFailedReason() {
-        let p = ReaderChapterPresentation(chapterIndex: 2, isCurrent: false, hasContent: false, isCoreText: false, loadState: .failed(reason: "network"))
-        XCTAssertEqual(p.overlayState, .failed(message: "network"))
+    @Test("missing content shows failure for failed reason")
+    func missingContentShowsFailureForFailedReason() {
+        #expect(ReaderChapterPresentation.overlayState(isContentAvailable: false, loadState: .failed(reason: "network")) == ReaderChapterOverlayState.failed(message: "network"))
     }
 
-    func test_readyOnCurrentTriggersCorrectRefreshAction() {
-        let coreText = ReaderChapterPresentation(chapterIndex: 3, isCurrent: true, hasContent: true, isCoreText: true, loadState: .ready)
-        XCTAssertEqual(coreText.refreshAction, .notifyChapterDataChanged(index: 3))
+    @Test("ready on current triggers correct refresh action")
+    func readyOnCurrentTriggersCorrectRefreshAction() {
+        #expect(ReaderChapterPresentation.refreshAction(changedChapterIndex: 3, currentChapterIndex: 3, usesCoreText: true, newState: .ready, isContentAvailable: true) == ReaderChapterRefreshAction.notifyChapterDataChanged(index: 3))
+        #expect(ReaderChapterPresentation.refreshAction(changedChapterIndex: 4, currentChapterIndex: 4, usesCoreText: false, newState: .ready, isContentAvailable: true) == ReaderChapterRefreshAction.rebuildPages)
+        #expect(ReaderChapterPresentation.refreshAction(changedChapterIndex: 5, currentChapterIndex: 5, usesCoreText: true, newState: .ready, isContentAvailable: false) == ReaderChapterRefreshAction.none)
+    }
 
-        let nonCore = ReaderChapterPresentation(chapterIndex: 4, isCurrent: true, hasContent: true, isCoreText: false, loadState: .ready)
-        XCTAssertEqual(nonCore.refreshAction, .rebuildPages)
-
-        let notCurrent = ReaderChapterPresentation(chapterIndex: 5, isCurrent: false, hasContent: true, isCoreText: true, loadState: .ready)
-        XCTAssertEqual(notCurrent.refreshAction, .none)
+    @Test("ready but missing content resolves to loading")
+    func readyButMissingContentResolvesToLoading() {
+        #expect(ReaderChapterPresentation.overlayState(isContentAvailable: false, loadState: .ready) == ReaderChapterOverlayState.loading)
     }
 }
