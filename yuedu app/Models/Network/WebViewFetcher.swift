@@ -21,6 +21,7 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
     private var loadingMap: [WKWebView: CheckedContinuation<String, Error>] = [:]
 
     private override init() {
+        assert(Thread.isMainThread, "WebViewFetcher must be initialized on the main thread")
         super.init()
         // 預建立 WebView 池
         for _ in 0..<poolSize {
