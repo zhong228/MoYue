@@ -60,55 +60,10 @@ actor WebFetcher {
         bodyCharset: String? = nil,
         allowInteractiveChallengeOn503: Bool = true
     ) async throws -> String {
-        let allCookies: [HTTPCookie]
-        if let host = url.host {
-            allCookies = await Self.harvestWebViewCookies(for: host)
-        } else {
-            allCookies = []
-        }
-
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
-        request.httpMethod = method
-        request.setValue(
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            forHTTPHeaderField: "User-Agent"
+        let request = await buildRequest(
+            url: url, method: method, body: body,
+            headers: headers, baseURL: baseURL, bodyCharset: bodyCharset
         )
-        request.setValue(
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            forHTTPHeaderField: "Accept"
-        )
-        request.setValue(
-            "zh-TW,zh;q=0.9,zh-CN;q=0.8,en;q=0.7",
-            forHTTPHeaderField: "Accept-Language"
-        )
-        request.setValue("gzip, deflate, br", forHTTPHeaderField: "Accept-Encoding")
-        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        request.setValue("no-cache", forHTTPHeaderField: "Pragma")
-        if !baseURL.isEmpty, let host = URL(string: baseURL)?.host, !host.isEmpty, url.host != nil {
-            request.setValue(baseURL, forHTTPHeaderField: "Referer")
-        }
-        for (key, value) in headers {
-            request.setValue(value, forHTTPHeaderField: key)
-        }
-        if let wvCookieHeader = cookieHeaderString(from: allCookies) {
-            request.setValue(wvCookieHeader, forHTTPHeaderField: "Cookie")
-        }
-        if request.value(forHTTPHeaderField: "Cookie") == nil,
-            let cookieHeader = cookieHeader(for: url)
-        {
-            request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
-        }
-        if let bodyStr = body, method == "POST" {
-            let encoding = encoding(forIANA: bodyCharset) ?? .utf8
-            request.httpBody = bodyStr.data(using: encoding)
-            if request.value(forHTTPHeaderField: "Content-Type") == nil {
-                let charsetSuffix = bodyCharset.map { "; charset=\($0)" } ?? ""
-                request.setValue(
-                    "application/x-www-form-urlencoded\(charsetSuffix)",
-                    forHTTPHeaderField: "Content-Type"
-                )
-            }
-        }
 
         Task { @MainActor in
             WebCrawlerDebugger.shared.logRequest(
@@ -127,87 +82,153 @@ actor WebFetcher {
             ]
         )
 
-        let requestCopy = request
-
         do {
             let (data, response) = try await PerHostSemaphore.shared.withLock(host: host) {
-                try await self.session.data(for: requestCopy)
+                try await self.session.data(for: request)
             }
-
             let latencyMs = Int((CFAbsoluteTimeGetCurrent() - fetchStart) * 1000)
 
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-                let isCFError =
-                    (http.statusCode == 503 || http.statusCode == 403)
-                    && allowInteractiveChallengeOn503
-                if isCFError {
-                    Task { @MainActor in
-                        WebCrawlerDebugger.shared.logError(
-                            FetchError.httpError(http.statusCode),
-                            url: url.absoluteString
-                        )
-                    }
-
-                    guard let challengeHandler = cloudflareChallengeHandler else {
-                        throw FetchError.cloudflareChallengeRequired(url.absoluteString)
-                    }
-                    return try await retryAfterCloudflareChallenge(
-                        handler: challengeHandler, originalRequest: requestCopy, url: url, host: host
-                    )
-                }
-
-                let err = FetchError.httpError(http.statusCode)
-                Task { @MainActor in
-                    WebCrawlerDebugger.shared.logError(err, url: url.absoluteString)
-                }
-                ReaderTelemetry.shared.log(
-                    "fetch_error",
-                    attributes: [
-                        "url": String(url.absoluteString.prefix(120)),
-                        "statusCode": "\(http.statusCode)",
-                        "latencyMs": "\(latencyMs)",
-                    ]
+                return try await handleNonSuccessStatus(
+                    http.statusCode, request: request, url: url, host: host,
+                    allowCFChallenge: allowInteractiveChallengeOn503, latencyMs: latencyMs
                 )
-                throw err
             }
 
-            if let html = smartDecode(data: data, response: response) {
-                // Even on HTTP 200, some CF-protected sites serve the challenge page body.
-                if allowInteractiveChallengeOn503,
-                    LegadoJSBridge.isCloudflareChallengedBody(html),
-                    let challengeHandler = cloudflareChallengeHandler
-                {
-                    return try await retryAfterCloudflareChallenge(
-                        handler: challengeHandler, originalRequest: requestCopy, url: url, host: host
-                    )
-                }
-
-                Task { @MainActor in
-                    WebCrawlerDebugger.shared.logResponse(
-                        url: url.absoluteString,
-                        statusCode: (response as? HTTPURLResponse)?.statusCode ?? 200,
-                        htmlBody: html
-                    )
-                }
-                ReaderTelemetry.shared.log(
-                    "fetch_done",
-                    attributes: [
-                        "url": String(url.absoluteString.prefix(120)),
-                        "statusCode": "\((response as? HTTPURLResponse)?.statusCode ?? 200)",
-                        "bytes": "\((response as? HTTPURLResponse)?.expectedContentLength ?? Int64(html.utf8.count))",
-                        "latencyMs": "\(latencyMs)",
-                    ]
-                )
-                return html
+            guard let html = smartDecode(data: data, response: response) else {
+                throw FetchError.encodingError
             }
 
-            throw FetchError.encodingError
+            if allowInteractiveChallengeOn503,
+                LegadoJSBridge.isCloudflareChallengedBody(html),
+                let challengeHandler = cloudflareChallengeHandler
+            {
+                return try await retryAfterCloudflareChallenge(
+                    handler: challengeHandler, originalRequest: request, url: url, host: host
+                )
+            }
+
+            Task { @MainActor in
+                WebCrawlerDebugger.shared.logResponse(
+                    url: url.absoluteString,
+                    statusCode: (response as? HTTPURLResponse)?.statusCode ?? 200,
+                    htmlBody: html
+                )
+            }
+            ReaderTelemetry.shared.log(
+                "fetch_done",
+                attributes: [
+                    "url": String(url.absoluteString.prefix(120)),
+                    "statusCode": "\((response as? HTTPURLResponse)?.statusCode ?? 200)",
+                    "bytes": "\((response as? HTTPURLResponse)?.expectedContentLength ?? Int64(html.utf8.count))",
+                    "latencyMs": "\(latencyMs)",
+                ]
+            )
+            return html
+
         } catch {
             Task { @MainActor in
                 WebCrawlerDebugger.shared.logError(error, url: url.absoluteString)
             }
             throw error
         }
+    }
+
+    /// Assemble a fully-configured URLRequest, including harvested WebView cookies,
+    /// custom headers, and optional POST body encoding.
+    private func buildRequest(
+        url: URL,
+        method: String,
+        body: String?,
+        headers: [String: String],
+        baseURL: String,
+        bodyCharset: String?
+    ) async -> URLRequest {
+        let allCookies: [HTTPCookie]
+        if let host = url.host {
+            allCookies = await Self.harvestWebViewCookies(for: host)
+        } else {
+            allCookies = []
+        }
+
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+        request.httpMethod = method
+        request.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            forHTTPHeaderField: "User-Agent"
+        )
+        request.setValue(
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            forHTTPHeaderField: "Accept"
+        )
+        request.setValue("zh-TW,zh;q=0.9,zh-CN;q=0.8,en;q=0.7", forHTTPHeaderField: "Accept-Language")
+        request.setValue("gzip, deflate, br", forHTTPHeaderField: "Accept-Encoding")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+        if !baseURL.isEmpty, let host = URL(string: baseURL)?.host, !host.isEmpty, url.host != nil {
+            request.setValue(baseURL, forHTTPHeaderField: "Referer")
+        }
+        for (key, value) in headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        if let wvCookieHeader = cookieHeaderString(from: allCookies) {
+            request.setValue(wvCookieHeader, forHTTPHeaderField: "Cookie")
+        }
+        if request.value(forHTTPHeaderField: "Cookie") == nil,
+            let cookieHeader = cookieHeader(for: url)
+        {
+            request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+        }
+        if let bodyStr = body, method == "POST" {
+            let enc = encoding(forIANA: bodyCharset) ?? .utf8
+            request.httpBody = bodyStr.data(using: enc)
+            if request.value(forHTTPHeaderField: "Content-Type") == nil {
+                let charsetSuffix = bodyCharset.map { "; charset=\($0)" } ?? ""
+                request.setValue(
+                    "application/x-www-form-urlencoded\(charsetSuffix)",
+                    forHTTPHeaderField: "Content-Type"
+                )
+            }
+        }
+        return request
+    }
+
+    /// Handle a non-2xx HTTP status code. Triggers Cloudflare challenge on 503/403
+    /// if a handler is registered; otherwise throws `FetchError.httpError`.
+    private func handleNonSuccessStatus(
+        _ statusCode: Int,
+        request: URLRequest,
+        url: URL,
+        host: String,
+        allowCFChallenge: Bool,
+        latencyMs: Int
+    ) async throws -> String {
+        let isCFError = (statusCode == 503 || statusCode == 403) && allowCFChallenge
+        if isCFError {
+            Task { @MainActor in
+                WebCrawlerDebugger.shared.logError(FetchError.httpError(statusCode), url: url.absoluteString)
+            }
+            guard let challengeHandler = cloudflareChallengeHandler else {
+                throw FetchError.cloudflareChallengeRequired(url.absoluteString)
+            }
+            return try await retryAfterCloudflareChallenge(
+                handler: challengeHandler, originalRequest: request, url: url, host: host
+            )
+        }
+
+        let err = FetchError.httpError(statusCode)
+        Task { @MainActor in
+            WebCrawlerDebugger.shared.logError(err, url: url.absoluteString)
+        }
+        ReaderTelemetry.shared.log(
+            "fetch_error",
+            attributes: [
+                "url": String(url.absoluteString.prefix(120)),
+                "statusCode": "\(statusCode)",
+                "latencyMs": "\(latencyMs)",
+            ]
+        )
+        throw err
     }
 
     /// Present a Cloudflare challenge, harvest the resulting cookies, then replay the

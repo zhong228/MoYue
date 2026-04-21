@@ -156,7 +156,6 @@ final class ModernRuleEngine {
         mContent: Any? = nil,
         isUrl: Bool = false
     ) -> String {
-        var result: Any? = nil
         let content = mContent ?? self.content
         guard content != nil, !ruleList.isEmpty else {
             return isUrl ? baseUrl : ""
@@ -164,22 +163,16 @@ final class ModernRuleEngine {
 
         let t0 = debugObserver != nil ? Date() : Date.distantPast
 
-        // Emit rule-parse event
         if let obs = debugObserver {
             let segs = ruleList.enumerated().map { i, sr in
                 RuleDebugEvent.RuleSegmentInfo(
-                    index: i,
-                    mode: "\(sr.mode)",
-                    rule: sr.rule,
-                    replacePattern: sr.replaceRegex
+                    index: i, mode: "\(sr.mode)", rule: sr.rule, replacePattern: sr.replaceRegex
                 )
             }
-            // Use first rule's original rule string as label
-            let ruleStr = ruleList.first.map { $0.rule } ?? ""
-            obs(.rulesParsed(ruleStr: ruleStr, segments: segs))
+            obs(.rulesParsed(ruleStr: ruleList.first.map { $0.rule } ?? "", segments: segs))
         }
 
-        result = content
+        var result: Any? = content
         for (idx, sourceRule) in ruleList.enumerated() {
             putRule(sourceRule.putMap)
             sourceRule.makeUpRule(
@@ -189,66 +182,19 @@ final class ModernRuleEngine {
                 analyzeRule: { self.getString(ruleStr: $0) }
             )
             guard result != nil else { continue }
-
-            let rule = sourceRule.rule
             if sourceRule.shouldPerformExtraction {
-                let inputPreview = String(Self.toString(result).prefix(200))
-
-                switch sourceRule.mode {
-                case .js:
-                    debugObserver?(.beforeExtract(
-                        segmentIndex: idx, mode: "js",
-                        qualifiedRule: String(rule.prefix(80)), inputPreview: inputPreview
-                    ))
-                    let jsResult = evalJS(rule, result: result)
-                    result = jsResult
-                    debugObserver?(.jsExecuted(
-                        segmentIndex: idx,
-                        script: String(rule.prefix(300)),
-                        inputPreview: inputPreview,
-                        result: Self.toString(jsResult)
-                    ))
-
-                case .regex:
-                    result = rule
-
-                case .json, .xpath, .default:
-                    let qualified = modeQualifiedRule(mode: sourceRule.mode, rule: rule)
-                    debugObserver?(.beforeExtract(
-                        segmentIndex: idx, mode: "\(sourceRule.mode)",
-                        qualifiedRule: qualified, inputPreview: inputPreview
-                    ))
-                    let extracted = extractStringViaExtractor(content: result!, rule: qualified)
-                    result = extracted
-                    debugObserver?(.afterExtractValue(
-                        segmentIndex: idx, result: Self.toString(extracted)
-                    ))
-                }
+                result = applyStringExtraction(sourceRule, result: result, idx: idx)
             }
-
             if result != nil, !sourceRule.replaceRegex.isEmpty {
-                let before = Self.toString(result)
-                result = replaceRegex(result: before, sourceRule: sourceRule)
-                debugObserver?(.regexApplied(
-                    segmentIndex: idx,
-                    pattern: sourceRule.replaceRegex,
-                    replacement: sourceRule.replacement,
-                    before: before,
-                    after: Self.toString(result)
-                ))
+                result = applyStringReplace(sourceRule, result: result, idx: idx)
             }
         }
 
         let resultStr = result == nil ? "" : Self.toString(result)
         if let obs = debugObserver {
-            let ms = Date().timeIntervalSince(t0) * 1000
-            obs(.finalResult(value: resultStr, elapsedMs: ms))
+            obs(.finalResult(value: resultStr, elapsedMs: Date().timeIntervalSince(t0) * 1000))
         }
-
-        if isUrl {
-            return resultStr.isEmpty ? baseUrl : resolveURL(resultStr)
-        }
-        return resultStr
+        return isUrl ? (resultStr.isEmpty ? baseUrl : resolveURL(resultStr)) : resultStr
     }
 
     // MARK: - getStringList (matching Legado AnalyzeRule.getStringList)
@@ -268,13 +214,12 @@ final class ModernRuleEngine {
         mContent: Any? = nil,
         isUrl: Bool = false
     ) -> [String] {
-        var result: Any? = nil
         let content = mContent ?? self.content
         guard content != nil, !ruleList.isEmpty else { return [] }
 
         let t0 = debugObserver != nil ? Date() : Date.distantPast
 
-        result = content
+        var result: Any? = content
         for (idx, sourceRule) in ruleList.enumerated() {
             putRule(sourceRule.putMap)
             sourceRule.makeUpRule(
@@ -284,76 +229,16 @@ final class ModernRuleEngine {
                 analyzeRule: { self.getString(ruleStr: $0) }
             )
             guard result != nil else { continue }
-
-            let rule = sourceRule.rule
-            if !rule.isEmpty {
-                let inputPreview = String(Self.toString(result).prefix(200))
-
-                switch sourceRule.mode {
-                case .js:
-                    debugObserver?(.beforeExtract(
-                        segmentIndex: idx, mode: "js",
-                        qualifiedRule: String(rule.prefix(80)), inputPreview: inputPreview
-                    ))
-                    let jsResult = evalJS(rule, result: result)
-                    result = jsResult
-                    debugObserver?(.jsExecuted(
-                        segmentIndex: idx,
-                        script: String(rule.prefix(300)),
-                        inputPreview: inputPreview,
-                        result: Self.toString(jsResult)
-                    ))
-
-                case .regex:
-                    result = rule
-
-                case .json, .xpath, .default:
-                    let qualified = modeQualifiedRule(mode: sourceRule.mode, rule: rule)
-                    debugObserver?(.beforeExtract(
-                        segmentIndex: idx, mode: "\(sourceRule.mode)",
-                        qualifiedRule: qualified, inputPreview: inputPreview
-                    ))
-                    let extracted = extractStringListViaExtractor(content: result!, rule: qualified)
-                    result = extracted
-                    let items = (extracted as? [Any])?.map { Self.toString($0) } ?? []
-                    debugObserver?(.afterExtractList(
-                        segmentIndex: idx,
-                        count: items.count,
-                        items: Array(items.prefix(10))
-                    ))
-                }
+            if !sourceRule.rule.isEmpty {
+                result = applyListExtraction(sourceRule, result: result, idx: idx)
             }
-
             if !sourceRule.replaceRegex.isEmpty {
-                if let list = result as? [Any] {
-                    let before = list.map { Self.toString($0) }
-                    result = before.map { replaceRegex(result: $0, sourceRule: sourceRule) }
-                    if let obs = debugObserver, let first = before.first {
-                        let after = (result as? [String])?.first ?? ""
-                        obs(.regexApplied(
-                            segmentIndex: idx,
-                            pattern: sourceRule.replaceRegex,
-                            replacement: sourceRule.replacement,
-                            before: first, after: after
-                        ))
-                    }
-                } else if result != nil {
-                    let before = Self.toString(result)
-                    result = replaceRegex(result: before, sourceRule: sourceRule)
-                    debugObserver?(.regexApplied(
-                        segmentIndex: idx,
-                        pattern: sourceRule.replaceRegex,
-                        replacement: sourceRule.replacement,
-                        before: before,
-                        after: Self.toString(result)
-                    ))
-                }
+                result = applyListReplace(sourceRule, result: result, idx: idx)
             }
         }
 
         guard let finalResult = result else { return [] }
 
-        // Convert result to [String]
         var stringList: [String]
         if let str = finalResult as? String {
             stringList = str.components(separatedBy: "\n").filter { !$0.isEmpty }
@@ -365,21 +250,18 @@ final class ModernRuleEngine {
         }
 
         if let obs = debugObserver {
-            let ms = Date().timeIntervalSince(t0) * 1000
-            obs(.finalResultList(values: stringList, elapsedMs: ms))
+            obs(.finalResultList(values: stringList, elapsedMs: Date().timeIntervalSince(t0) * 1000))
         }
 
-        if isUrl {
-            var urlList: [String] = []
-            for item in stringList {
-                let absoluteURL = resolveURL(item)
-                if !absoluteURL.isEmpty, !urlList.contains(absoluteURL) {
-                    urlList.append(absoluteURL)
-                }
+        guard isUrl else { return stringList }
+        var urlList: [String] = []
+        for item in stringList {
+            let absoluteURL = resolveURL(item)
+            if !absoluteURL.isEmpty, !urlList.contains(absoluteURL) {
+                urlList.append(absoluteURL)
             }
-            return urlList
         }
-        return stringList
+        return urlList
     }
 
     // MARK: - getElements (matching Legado AnalyzeRule.getElements)
@@ -689,6 +571,109 @@ final class ModernRuleEngine {
         default:
             return rule
         }
+    }
+
+    // MARK: - Private: Segment Processing
+
+    /// Mode-specific extraction step for a single-string pipeline.
+    private func applyStringExtraction(_ sourceRule: SourceRule, result: Any?, idx: Int) -> Any? {
+        let rule = sourceRule.rule
+        let inputPreview = String(Self.toString(result).prefix(200))
+        switch sourceRule.mode {
+        case .js:
+            debugObserver?(.beforeExtract(
+                segmentIndex: idx, mode: "js",
+                qualifiedRule: String(rule.prefix(80)), inputPreview: inputPreview
+            ))
+            let jsResult = evalJS(rule, result: result)
+            debugObserver?(.jsExecuted(
+                segmentIndex: idx, script: String(rule.prefix(300)),
+                inputPreview: inputPreview, result: Self.toString(jsResult)
+            ))
+            return jsResult
+        case .regex:
+            return rule
+        case .json, .xpath, .default:
+            let qualified = modeQualifiedRule(mode: sourceRule.mode, rule: rule)
+            debugObserver?(.beforeExtract(
+                segmentIndex: idx, mode: "\(sourceRule.mode)",
+                qualifiedRule: qualified, inputPreview: inputPreview
+            ))
+            let extracted = extractStringViaExtractor(content: result!, rule: qualified)
+            debugObserver?(.afterExtractValue(segmentIndex: idx, result: Self.toString(extracted)))
+            return extracted
+        }
+    }
+
+    /// Regex replace post-processing step for a single-string pipeline.
+    private func applyStringReplace(_ sourceRule: SourceRule, result: Any?, idx: Int) -> String {
+        let before = Self.toString(result)
+        let after = replaceRegex(result: before, sourceRule: sourceRule)
+        debugObserver?(.regexApplied(
+            segmentIndex: idx, pattern: sourceRule.replaceRegex,
+            replacement: sourceRule.replacement, before: before, after: after
+        ))
+        return after
+    }
+
+    /// Mode-specific extraction step for a string-list pipeline.
+    private func applyListExtraction(_ sourceRule: SourceRule, result: Any?, idx: Int) -> Any? {
+        let rule = sourceRule.rule
+        let inputPreview = String(Self.toString(result).prefix(200))
+        switch sourceRule.mode {
+        case .js:
+            debugObserver?(.beforeExtract(
+                segmentIndex: idx, mode: "js",
+                qualifiedRule: String(rule.prefix(80)), inputPreview: inputPreview
+            ))
+            let jsResult = evalJS(rule, result: result)
+            debugObserver?(.jsExecuted(
+                segmentIndex: idx, script: String(rule.prefix(300)),
+                inputPreview: inputPreview, result: Self.toString(jsResult)
+            ))
+            return jsResult
+        case .regex:
+            return rule
+        case .json, .xpath, .default:
+            let qualified = modeQualifiedRule(mode: sourceRule.mode, rule: rule)
+            debugObserver?(.beforeExtract(
+                segmentIndex: idx, mode: "\(sourceRule.mode)",
+                qualifiedRule: qualified, inputPreview: inputPreview
+            ))
+            let extracted = extractStringListViaExtractor(content: result!, rule: qualified)
+            let items = (extracted as? [Any])?.map { Self.toString($0) } ?? []
+            debugObserver?(.afterExtractList(
+                segmentIndex: idx, count: items.count, items: Array(items.prefix(10))
+            ))
+            return extracted
+        }
+    }
+
+    /// Regex replace post-processing step for a string-list pipeline.
+    /// Applies replacement element-wise when result is a list, or as a scalar otherwise.
+    private func applyListReplace(_ sourceRule: SourceRule, result: Any?, idx: Int) -> Any? {
+        if let list = result as? [Any] {
+            let before = list.map { Self.toString($0) }
+            let after: [Any] = before.map { replaceRegex(result: $0, sourceRule: sourceRule) }
+            if let obs = debugObserver, let firstBefore = before.first,
+               let firstAfter = after.first as? String {
+                obs(.regexApplied(
+                    segmentIndex: idx, pattern: sourceRule.replaceRegex,
+                    replacement: sourceRule.replacement,
+                    before: firstBefore, after: firstAfter
+                ))
+            }
+            return after
+        } else if result != nil {
+            let before = Self.toString(result)
+            let after = replaceRegex(result: before, sourceRule: sourceRule)
+            debugObserver?(.regexApplied(
+                segmentIndex: idx, pattern: sourceRule.replaceRegex,
+                replacement: sourceRule.replacement, before: before, after: after
+            ))
+            return after
+        }
+        return result
     }
 
     // MARK: - Private: Extractor Routing
