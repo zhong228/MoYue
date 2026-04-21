@@ -10,3 +10,4 @@ build/
 scripts/logs/*.txt
 scripts/logs/*.html
 
+docs/superpowers/
