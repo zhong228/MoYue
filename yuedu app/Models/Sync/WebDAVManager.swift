@@ -137,9 +137,10 @@ final class WebDAVManager: ObservableObject {
         try await backupFileIfExists(at: replaceURL, to: "/yuedu/replace_rules.json")
 
         // 4. manifest.json（衝突偵測用）
+        let deviceName = await MainActor.run { UIDevice.current.name }
         let manifest = SyncManifest(
             deviceId: Self.deviceId,
-            deviceName: UIDevice.current.name,
+            deviceName: deviceName,
             backupDate: Date(),
             appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
         )

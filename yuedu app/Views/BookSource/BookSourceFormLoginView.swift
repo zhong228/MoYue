@@ -177,10 +177,12 @@ struct BookSourceFormLoginView: View {
 
             // Wire java.toast / java.longToast — shows a UIAlertController auto-dismiss
             engine.toastHandler = { msg in
-                guard let topVC = BookSourceFormLoginView.topViewController() else { return }
-                let alert = UIAlertController(title: nil, message: msg, preferredStyle: .alert)
-                topVC.present(alert, animated: true)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { alert.dismiss(animated: true) }
+                Task { @MainActor in
+                    guard let topVC = BookSourceFormLoginView.topViewController() else { return }
+                    let alert = UIAlertController(title: nil, message: msg, preferredStyle: .alert)
+                    topVC.present(alert, animated: true)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { alert.dismiss(animated: true) }
+                }
             }
 
             // Wire CF challenge: present CloudflareChallengeView and call done() when cookies are ready
@@ -260,10 +262,12 @@ struct BookSourceFormLoginView: View {
                 }
             }
             engine.toastHandler = { msg in
-                guard let topVC = BookSourceFormLoginView.topViewController() else { return }
-                let alert = UIAlertController(title: nil, message: msg, preferredStyle: .alert)
-                topVC.present(alert, animated: true)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { alert.dismiss(animated: true) }
+                Task { @MainActor in
+                    guard let topVC = BookSourceFormLoginView.topViewController() else { return }
+                    let alert = UIAlertController(title: nil, message: msg, preferredStyle: .alert)
+                    topVC.present(alert, animated: true)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { alert.dismiss(animated: true) }
+                }
             }
             engine.cloudflareChallengeHandler = { url, done in
                 Task { @MainActor in

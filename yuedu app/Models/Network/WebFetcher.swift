@@ -251,7 +251,7 @@ actor WebFetcher {
         let retryCookieHeader = cookieHeaderString(from: retryCookies) ?? cookieHeader(for: url)
         retryRequest.setValue(retryCookieHeader, forHTTPHeaderField: "Cookie")
 
-        let (retryData, retryResponse) = try await PerHostSemaphore.shared.withLock(host: host) {
+        let (retryData, retryResponse) = try await PerHostSemaphore.shared.withLock(host: host) { [retryRequest] in
             try await self.session.data(for: retryRequest)
         }
         guard let html = smartDecode(data: retryData, response: retryResponse) else {

@@ -76,7 +76,7 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
             }
             return document.documentElement.outerHTML;
         """
-        let result = try? await webView.callAsyncJavaScript(
+        let result: Any? = try? await webView.callAsyncJavaScript(
             js, arguments: [:], in: nil, in: .page)
         if let html = result as? String, !html.isEmpty { return html }
         // 降級：直接取 outerHTML（輪詢本身失敗時的保底）
@@ -693,7 +693,7 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
         }
     }
 
-    nonisolated func webView(
+    func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
