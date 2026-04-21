@@ -1,6 +1,6 @@
 import Foundation
 import JavaScriptCore
-import CommonCrypto
+import CryptoKit
 
 // MARK: - JSExport Protocol
 
@@ -237,11 +237,8 @@ import CommonCrypto
 
     func md5Encode(_ str: String) -> String {
         guard let data = str.data(using: .utf8) else { return "" }
-        var digest = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
-        data.withUnsafeBytes { buffer in
-            _ = CC_MD5(buffer.baseAddress, CC_LONG(data.count), &digest)
-        }
-        return digest.map { String(format: "%02x", $0) }.joined()
+        let hash = Insecure.MD5.hash(data: data)
+        return hash.map { String(format: "%02x", $0) }.joined()
     }
 
     func md5Encode16(_ str: String) -> String {
