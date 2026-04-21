@@ -135,17 +135,17 @@ final class UniversalBookResourceAdapter: BookResourceProvider {
     }
 
     private func payloadForChapter(index: Int) async throws -> ChapterContentPayload {
-        lock.lock()
-        if let cached = chapterPayloadCache[index] {
-            lock.unlock()
+        let cached = lock.withLock {
+            chapterPayloadCache[index]
+        }
+        if let cached = cached {
             return cached
         }
-        lock.unlock()
 
         let payload = try await contentProvider.contentForChapter(index: index)
-        lock.lock()
-        chapterPayloadCache[index] = payload
-        lock.unlock()
+        lock.withLock {
+            chapterPayloadCache[index] = payload
+        }
         return payload
     }
 

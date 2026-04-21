@@ -62,7 +62,8 @@ class LegadoMigrationManager: ObservableObject {
         }
 
         var count = 0
-        await MainActor.run {
+        count = await MainActor.run { () -> Int in
+            var importCount = 0
             for book in legadoBooks {
                 let title  = book.name   ?? "未知書名"
                 let author = book.author ?? "未知作者"
@@ -97,8 +98,9 @@ class LegadoMigrationManager: ObservableObject {
                         chapters: []
                     )
                 }
-                count += 1
+                importCount += 1
             }
+            return importCount
         }
         return count
     }

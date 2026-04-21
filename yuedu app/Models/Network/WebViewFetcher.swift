@@ -7,7 +7,7 @@ import WebKit
 /// 使用方式：let html = try await WebViewFetcher.shared.fetchHTML(url: url, timeout: 15)
 @MainActor
 final class WebViewFetcher: NSObject, WKNavigationDelegate {
-    static let shared = WebViewFetcher()
+    nonisolated(unsafe) static let shared = WebViewFetcher()
 
     /// WebView 實例池（重複使用避免頻繁建立）
     private var pool: [WKWebView] = []

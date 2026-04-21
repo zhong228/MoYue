@@ -182,8 +182,10 @@ final class CoreTextPageEngine: PageRenderingProvider {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.chapterSnapshots.removeAllObjects()
-            self?.cancelPreloadTasks()
+            MainActor.assumeIsolated {
+                self?.chapterSnapshots.removeAllObjects()
+                self?.cancelPreloadTasks()
+            }
         }
     }
 
