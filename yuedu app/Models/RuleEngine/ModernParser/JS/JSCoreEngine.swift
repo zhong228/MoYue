@@ -160,6 +160,9 @@ class JSCoreEngine {
         ctx.exceptionHandler = { [weak self] _, exception in
             let msg = exception?.toString() ?? "Unknown JS error"
             self?.lastError = msg
+            if msg.contains("eval() is disabled") {
+                AppLogger.security("書源 JS 使用了被停用的 eval()，已攔截", context: ["error": msg])
+            }
             #if DEBUG
             print("[JSCoreEngine] JS Error: \(msg)")
             #endif
