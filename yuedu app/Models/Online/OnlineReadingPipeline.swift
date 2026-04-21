@@ -1025,3 +1025,8 @@ final class OnlineBookCoordinator {
         return true
     }
 }
+
+// MARK: - OnlineBookCoordinating 協定遵循
+// OnlineBookCoordinator 的 downloadBook(_:store:) 與 prefetchAround(book:center:store:) 方法
+// 簽名與協定完全一致，此 extension 僅聲明遵循，無需額外實作。
+extension OnlineBookCoordinator: OnlineBookCoordinating {}

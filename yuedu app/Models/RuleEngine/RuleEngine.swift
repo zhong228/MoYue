@@ -18,6 +18,23 @@ import SwiftUI  // withAnimation (SearchAggregator callers)
 
 enum RuleEngine {
 
+    // MARK: - 執行緒安全 Regex 快取
+    //
+    // NSRegularExpression 的初始化涉及 NFA 編譯，在大量章節解析時（每個捕獲組、每條替換規則
+    // 各呼叫一次 applyRegex / extractRegexAllInOneMatches）會造成明顯的 CPU 峰值。
+    // NSCache 是執行緒安全的，且在記憶體壓力時會自動驅逐條目。
+    private static let regexCache = NSCache<NSString, NSRegularExpression>()
+
+    /// 取得已編譯的 NSRegularExpression，優先從快取讀取。
+    /// - Returns: 編譯後的實例，pattern 非法時回傳 nil。
+    static func cachedRegex(pattern: String, options: NSRegularExpression.Options = []) -> NSRegularExpression? {
+        let cacheKey = "\(options.rawValue):\(pattern)" as NSString
+        if let cached = regexCache.object(forKey: cacheKey) { return cached }
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else { return nil }
+        regexCache.setObject(regex, forKey: cacheKey)
+        return regex
+    }
+
     // MARK: - 括號感知的規則分割（Legado RuleAnalyzer.splitRule 對應）
 
     /// 括號感知分割：在 `[...]` 和 `(...)` 內部不分割
@@ -942,7 +959,7 @@ enum RuleEngine {
         }
 
         // 嘗試從 href="..." 或 href='...' 提取
-        if let hrefRegex = try? NSRegularExpression(pattern: #"href\s*=\s*["']([^"']+)["']"#, options: .caseInsensitive) {
+        if let hrefRegex = cachedRegex(pattern: #"href\s*=\s*["']([^"']+)["']"#, options: .caseInsensitive) {
             let nsRange = NSRange(workingStr.startIndex..., in: workingStr)
             if let match = hrefRegex.firstMatch(in: workingStr, range: nsRange),
                let urlRange = Range(match.range(at: 1), in: workingStr) {
@@ -962,7 +979,7 @@ enum RuleEngine {
             }
         }
         // 嘗試從 src="..." 提取
-        if let srcRegex = try? NSRegularExpression(pattern: #"src\s*=\s*["']([^"']+)["']"#, options: .caseInsensitive) {
+        if let srcRegex = cachedRegex(pattern: #"src\s*=\s*["']([^"']+)["']"#, options: .caseInsensitive) {
             let nsRange = NSRange(workingStr.startIndex..., in: workingStr)
             if let match = srcRegex.firstMatch(in: workingStr, range: nsRange),
                let urlRange = Range(match.range(at: 1), in: workingStr) {
@@ -978,7 +995,7 @@ enum RuleEngine {
     /// Legado 正則 AllInOne：用正則從全文匹配，返回每筆 [完整匹配, 捕獲組1, 捕獲組2, ...]
     static func extractRegexAllInOneMatches(html: String, pattern: String) -> [[String]] {
         let p = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !p.isEmpty, let regex = try? NSRegularExpression(pattern: p) else { return [] }
+        guard !p.isEmpty, let regex = cachedRegex(pattern: p) else { return [] }
         let range = NSRange(html.startIndex..., in: html)
         let matches = regex.matches(in: html, range: range)
         return matches.map { match in
@@ -1266,14 +1283,14 @@ enum RuleEngine {
         if parts.count >= 2 {
             // 替換模式
             let replacement = parts[1]
-            if let regex = try? NSRegularExpression(pattern: pattern) {
+            if let regex = cachedRegex(pattern: pattern) {
                 let range = NSRange(text.startIndex..., in: text)
                 return regex.stringByReplacingMatches(
                     in: text, range: range, withTemplate: replacement)
             }
         } else {
             // Legado 相容：單 ##pattern 為移除模式（全部替換為空字串）
-            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+            if let regex = cachedRegex(pattern: pattern, options: .caseInsensitive) {
                 let range = NSRange(text.startIndex..., in: text)
                 return regex.stringByReplacingMatches(in: text, range: range, withTemplate: "")
             }

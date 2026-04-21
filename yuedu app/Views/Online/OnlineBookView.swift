@@ -416,21 +416,8 @@ struct OnlineBookView: View {
             readingBook = tempBook
         }
 
-        Task {
-            await MainActor.run {
-                openingReader = false
-                showReader = true
-            }
-
-            if let firstIndex = readingBook.onlineChapters?.first?.index {
-                _ = try? await dependencies.chapterFetcher.fetchChapter(
-                    book: readingBook,
-                    chapterIndex: firstIndex,
-                    priority: .jump,
-                    store: bookStore
-                )
-            }
-        }
+        openingReader = false
+        showReader = true
     }
 
     // MARK: 封面佔位

@@ -14,6 +14,24 @@ actor WebFetcher {
         )
     )
 
+    /// Per-host Cloudflare challenge barrier. When a challenge is in progress for a
+    /// host, subsequent requests that also receive a CF error await this task instead
+    /// of each launching their own challenge UI (thundering-herd prevention).
+    private var pendingChallenges: [String: Task<Void, Error>] = [:]
+
+    /// Pre-compiled charset detection patterns. Compiled once at app start; reused
+    /// for every `smartDecode` call to avoid O(n_requests × n_patterns) compilations.
+    private static let metaCharsetRegexes: [NSRegularExpression] = [
+        // <meta … charset="utf-8"> or <meta charset=utf-8>
+        try! NSRegularExpression(
+            pattern: #"<meta[^>]+charset\s*=\s*["\']?\s*([A-Za-z0-9_\-]+)"#
+        ),
+        // Fallback: bare charset= anywhere in the sniff window
+        try! NSRegularExpression(
+            pattern: #"charset\s*=\s*["\']?\s*([A-Za-z0-9_\-]+)"#
+        ),
+    ]
+
     init(session: URLSession? = nil) {
         if let session {
             self.session = session
@@ -133,25 +151,9 @@ actor WebFetcher {
                     guard let challengeHandler = cloudflareChallengeHandler else {
                         throw FetchError.cloudflareChallengeRequired(url.absoluteString)
                     }
-                    // Present challenge; cookies are synced inside CloudflareChallengeView.passed()
-                    _ = try await challengeHandler(url)
-
-                    // Harvest WKWebView cookies and inject via Cookie header for the retry.
-                    let retryCookies = await Self.harvestWebViewCookies(for: host)
-                    var retryRequest = requestCopy
-                    let retryCookieHeader = cookieHeaderString(from: retryCookies) ?? cookieHeader(for: url)
-                    retryRequest.setValue(retryCookieHeader, forHTTPHeaderField: "Cookie")
-
-                    // Retry via URLSession with the new cookies.
-                    let (retryData, retryResponse) = try await PerHostSemaphore.shared.withLock(
-                        host: host
-                    ) {
-                        try await self.session.data(for: retryRequest)
-                    }
-                    if let html = smartDecode(data: retryData, response: retryResponse) {
-                        return html
-                    }
-                    throw FetchError.emptyContent
+                    return try await retryAfterCloudflareChallenge(
+                        handler: challengeHandler, originalRequest: requestCopy, url: url, host: host
+                    )
                 }
 
                 let err = FetchError.httpError(http.statusCode)
@@ -175,20 +177,9 @@ actor WebFetcher {
                     LegadoJSBridge.isCloudflareChallengedBody(html),
                     let challengeHandler = cloudflareChallengeHandler
                 {
-                    _ = try await challengeHandler(url)
-                    let retryCookies = await Self.harvestWebViewCookies(for: host)
-                    var retryRequest = requestCopy
-                    let retryCookieHeader = cookieHeaderString(from: retryCookies) ?? cookieHeader(for: url)
-                    retryRequest.setValue(retryCookieHeader, forHTTPHeaderField: "Cookie")
-                    let (retryData, retryResponse) = try await PerHostSemaphore.shared.withLock(
-                        host: host
-                    ) {
-                        try await self.session.data(for: retryRequest)
-                    }
-                    if let retryHtml = smartDecode(data: retryData, response: retryResponse) {
-                        return retryHtml
-                    }
-                    throw FetchError.emptyContent
+                    return try await retryAfterCloudflareChallenge(
+                        handler: challengeHandler, originalRequest: requestCopy, url: url, host: host
+                    )
                 }
 
                 Task { @MainActor in
@@ -219,6 +210,62 @@ actor WebFetcher {
         }
     }
 
+    /// Present a Cloudflare challenge, harvest the resulting cookies, then replay the
+    /// original request with those cookies injected. Called from two distinct error paths
+    /// (HTTP 4xx/5xx status code and CF challenge body on HTTP 200).
+    ///
+    /// A per-host barrier prevents a thundering herd: if a challenge is already in
+    /// progress for `host`, this method awaits it instead of launching a second one.
+    /// At most one challenge UI is shown per host at any given time.
+    private func retryAfterCloudflareChallenge(
+        handler: @escaping CloudflareChallengeHandler,
+        originalRequest: URLRequest,
+        url: URL,
+        host: String
+    ) async throws -> String {
+        try await resolveCloudflareChallenge(handler: handler, url: url, host: host)
+
+        let retryCookies = await Self.harvestWebViewCookies(for: host)
+        var retryRequest = originalRequest
+        let retryCookieHeader = cookieHeaderString(from: retryCookies) ?? cookieHeader(for: url)
+        retryRequest.setValue(retryCookieHeader, forHTTPHeaderField: "Cookie")
+
+        let (retryData, retryResponse) = try await PerHostSemaphore.shared.withLock(host: host) {
+            try await self.session.data(for: retryRequest)
+        }
+        guard let html = smartDecode(data: retryData, response: retryResponse) else {
+            throw FetchError.emptyContent
+        }
+        return html
+    }
+
+    /// Ensure exactly one Cloudflare challenge UI runs per host at a time.
+    /// Concurrent callers for the same host await the first challenge task;
+    /// once it resolves (success or failure) they all proceed to retry with
+    /// the freshly harvested CF cookies.
+    private func resolveCloudflareChallenge(
+        handler: @escaping CloudflareChallengeHandler,
+        url: URL,
+        host: String
+    ) async throws {
+        if let existing = pendingChallenges[host] {
+            // A challenge is already running for this host — wait for it.
+            try await existing.value
+            return
+        }
+
+        // First caller: start the challenge and register it as the barrier.
+        let challengeTask = Task<Void, Error> { _ = try await handler(url) }
+        pendingChallenges[host] = challengeTask
+        do {
+            try await challengeTask.value
+            pendingChallenges.removeValue(forKey: host)
+        } catch {
+            pendingChallenges.removeValue(forKey: host)
+            throw error
+        }
+    }
+
     private func smartDecode(data: Data, response: URLResponse) -> String? {
         struct DecodeCandidate {
             let encoding: String.Encoding
@@ -243,7 +290,7 @@ actor WebFetcher {
             appendCandidate(encoding(forIANA: charsetInHeader(ct)), priority: 360)
         }
 
-        let sniff = String(data: data.prefix(4096), encoding: .isoLatin1) ?? ""
+        let sniff = String(data: data.prefix(DecodeScoreWeights.sampleSize), encoding: .isoLatin1) ?? ""
         appendCandidate(encoding(forIANA: metaCharset(sniff)), priority: 340)
 
         appendCandidate(.utf8, priority: 260)
@@ -287,25 +334,64 @@ actor WebFetcher {
         return nil
     }
 
+    // Scoring weights used by decodeQualityScore.
+    // Each constant is documented with its rationale so future tuning has a clear baseline.
+    private enum DecodeScoreWeights {
+        /// Penalty per U+FFFD replacement character.
+        /// Each replacement is a definitive proof of a mis-decoded byte.
+        static let replacementChar = 80
+
+        /// Penalty when a known mojibake token appears in the sample.
+        /// Tokens such as "锟斤拷" or "â€" only appear when code-pages are mixed.
+        static let mojibakeToken = 120
+
+        /// Penalty per unexpected control character (non-whitespace).
+        /// Stray control bytes indicate binary data or a mismatched single-byte encoding.
+        /// Lower than replacementChar because a few control chars may appear legitimately.
+        static let controlChar = 25
+
+        /// Cap on the CJK character bonus.
+        /// Prevents a CJK-dense page from completely drowning out a clean ASCII candidate
+        /// that was decoded in a slightly wrong single-byte encoding.
+        static let maxCJKBonus = 200
+
+        /// Bonus per recognised HTML structural tag (e.g. <html>, <body>).
+        /// Structural tags are strong evidence the string is valid HTML.
+        static let htmlTagBonus = 20
+
+        /// Cap on the newline bonus.
+        /// Rewards prose-like line breaks without over-weighting compact one-liners.
+        static let maxNewlineBonus = 40
+
+        /// Score returned immediately for an empty sample.
+        /// Ensures an empty string never "wins" over a non-empty but slightly garbled candidate.
+        static let emptyStringSentinel = -10_000
+
+        /// Number of leading characters sampled from the document.
+        /// Large enough to capture charset meta tags; small enough to stay fast.
+        static let sampleSize = 4096
+    }
+
     private func decodeQualityScore(_ text: String) -> Int {
-        // Sample only first 4096 chars to avoid scanning multi-MB documents
-        let sample = text.count > 4096 ? String(text.prefix(4096)) : text
-        if sample.isEmpty { return -10_000 }
+        let sample = text.count > DecodeScoreWeights.sampleSize
+            ? String(text.prefix(DecodeScoreWeights.sampleSize))
+            : text
+        if sample.isEmpty { return DecodeScoreWeights.emptyStringSentinel }
 
         var score = 0
 
         let replacementCount = sample.unicodeScalars.filter { $0.value == 0xFFFD }.count
-        score -= replacementCount * 80
+        score -= replacementCount * DecodeScoreWeights.replacementChar
 
         let suspiciousTokens = ["锟斤拷", "Ã", "Â", "â€", "â€œ", "â€\u{201D}", "ï»¿", "\u{FFFD}"]
         for token in suspiciousTokens {
-            score -= sample.components(separatedBy: token).count > 1 ? 120 : 0
+            score -= sample.components(separatedBy: token).count > 1 ? DecodeScoreWeights.mojibakeToken : 0
         }
 
         let controlCount = sample.unicodeScalars.filter {
             CharacterSet.controlCharacters.contains($0) && $0 != "\n" && $0 != "\r" && $0 != "\t"
         }.count
-        score -= controlCount * 25
+        score -= controlCount * DecodeScoreWeights.controlChar
 
         let cjkCount = sample.unicodeScalars.filter {
             switch $0.value {
@@ -313,15 +399,15 @@ actor WebFetcher {
             default: return false
             }
         }.count
-        score += min(cjkCount, 200)
+        score += min(cjkCount, DecodeScoreWeights.maxCJKBonus)
 
         let htmlHints = ["<html", "<body", "</html>", "<meta", "<title"]
         for hint in htmlHints where sample.localizedCaseInsensitiveContains(hint) {
-            score += 20
+            score += DecodeScoreWeights.htmlTagBonus
         }
 
         let newlineCount = sample.filter { $0 == "\n" }.count
-        score += min(newlineCount, 40)
+        score += min(newlineCount, DecodeScoreWeights.maxNewlineBonus)
 
         return score
     }
@@ -336,14 +422,11 @@ actor WebFetcher {
     }
 
     private func metaCharset(_ html: String) -> String? {
-        let patterns = [
-            #"<meta[^>]+charset\s*=\s*["\']?\s*([A-Za-z0-9_\-]+)"#,
-            #"charset\s*=\s*["\']?\s*([A-Za-z0-9_\-]+)"#,
-        ]
         let lower = html.lowercased()
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern),
-                let match = regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)),
+        let nsLower = lower as NSString
+        let fullRange = NSRange(location: 0, length: nsLower.length)
+        for regex in Self.metaCharsetRegexes {
+            guard let match = regex.firstMatch(in: lower, range: fullRange),
                 match.numberOfRanges > 1,
                 let range = Range(match.range(at: 1), in: lower)
             else { continue }

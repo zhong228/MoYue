@@ -110,6 +110,11 @@ final class WebDAVManager: ObservableObject {
     }
 
     /// 將三份本地資料備份至 WebDAV，同時上傳包含裝置資訊的 manifest.json。
+    ///
+    /// 檔案讀取策略：
+    /// - 若檔案不存在（首次使用前尚未產生），靜默略過該項目。
+    /// - 若檔案存在但讀取失敗（權限錯誤、磁碟故障），拋出錯誤並中斷備份，
+    ///   避免顯示不實的「備份成功」訊息。
     func backup() async throws {
         await setSync(true, message: "備份中…")
         defer { Task { @MainActor in self.isSyncing = false } }
@@ -117,24 +122,19 @@ final class WebDAVManager: ObservableObject {
         try? await mkcol(path: "/yuedu/")
 
         let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let libDir  = FileManager.default.urls(for: .libraryDirectory,  in: .userDomainMask).first!
 
         // 1. book_sources.json
         let bookSourcesURL = docsDir.appendingPathComponent("book_sources.json")
-        if let data = try? Data(contentsOf: bookSourcesURL) {
-            try await put(data: data, path: "/yuedu/book_sources.json")
-        }
+        try await backupFileIfExists(at: bookSourcesURL, to: "/yuedu/book_sources.json")
 
-        // 2. books.json
-        if let booksData = UserDefaults.standard.data(forKey: "yd_books_meta") {
-            try await put(data: booksData, path: "/yuedu/books.json")
-        }
+        // 2. books.json — read from the file-based store (mirrors BookStore.booksMetaFileURL)
+        let booksMetaURL = docsDir.appendingPathComponent("books_meta.json")
+        try await backupFileIfExists(at: booksMetaURL, to: "/yuedu/books.json")
 
         // 3. replace_rules.json
-        let libDir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
         let replaceURL = libDir.appendingPathComponent("replace_rules.json")
-        if let data = try? Data(contentsOf: replaceURL) {
-            try await put(data: data, path: "/yuedu/replace_rules.json")
-        }
+        try await backupFileIfExists(at: replaceURL, to: "/yuedu/replace_rules.json")
 
         // 4. manifest.json（衝突偵測用）
         let manifest = SyncManifest(
@@ -151,6 +151,14 @@ final class WebDAVManager: ObservableObject {
             self.lastSyncDate = Date()
             self.statusMessage = "備份成功"
         }
+    }
+
+    /// 若 `localURL` 指向的檔案存在，讀取並上傳；若檔案不存在則略過。
+    /// 檔案存在但讀取失敗時會拋出錯誤，防止靜默略過真實故障。
+    private func backupFileIfExists(at localURL: URL, to remotePath: String) async throws {
+        guard FileManager.default.fileExists(atPath: localURL.path) else { return }
+        let data = try Data(contentsOf: localURL)
+        try await put(data: data, path: remotePath)
     }
 
     /// 從 WebDAV 下載備份並覆寫本地資料（含衝突偵測）。
@@ -203,7 +211,10 @@ final class WebDAVManager: ObservableObject {
         }
 
         if let booksData = try? await get(path: "/yuedu/books.json") {
-            UserDefaults.standard.set(booksData, forKey: "yd_books_meta")
+            let booksMetaURL = docsDir.appendingPathComponent("books_meta.json")
+            try booksData.write(to: booksMetaURL, options: .atomic)
+            // Clean up any legacy UserDefaults entry from before the file migration.
+            UserDefaults.standard.removeObject(forKey: "yd_books_meta")
         }
 
         if let rulesData = try? await get(path: "/yuedu/replace_rules.json") {

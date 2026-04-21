@@ -55,7 +55,11 @@ struct ChapterCacheRepository {
             return false
         }
         let url = cachePath(bookId: bookId, chapterIndex: chapterIndex)
-        return FileManager.default.fileExists(atPath: url.path)
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        // Upgrade legacy entries that predate the .package.json artifact so that
+        // loadChapterPackageSync (which requires the artifact) can validate them.
+        upgradeLegacyChapterCacheIfNeeded(bookId: bookId, chapterIndex: chapterIndex)
+        return true
     }
 
     func clearChapterCache(bookId: UUID, chapterIndex: Int) {
@@ -188,11 +192,13 @@ struct ChapterCacheRepository {
         expectedTOCTitle: String? = nil
     ) -> ChapterPackage? {
         guard let metadata = loadCachedChapterMetadataSync(bookId: bookId, chapterIndex: chapterIndex) else {
+            print("[CacheDebug] ch=\(chapterIndex) FAIL: no metadata")
             return nil
         }
         if let expectedSourceURL,
             normalizedURLKey(metadata.sourceURL) != normalizedURLKey(expectedSourceURL)
         {
+            print("[CacheDebug] ch=\(chapterIndex) FAIL: URL mismatch saved=\(metadata.sourceURL ?? "nil") expected=\(expectedSourceURL)")
             return nil
         }
         if let expectedTOCTitle,
@@ -205,6 +211,7 @@ struct ChapterCacheRepository {
                 && !normalizedExpected.contains(normalizedCached)
                 && !normalizedCached.contains(normalizedExpected)
             {
+                print("[CacheDebug] ch=\(chapterIndex) FAIL: title mismatch saved='\(normalizedCached)' expected='\(normalizedExpected)'")
                 return nil
             }
         }
@@ -218,9 +225,11 @@ struct ChapterCacheRepository {
 
         if metadata.state == .cached {
             guard let artifact, !body.isEmpty, artifact.contentChecksum == cacheChecksum(for: body) else {
+                print("[CacheDebug] ch=\(chapterIndex) FAIL: artifact=\(artifact != nil) bodyLen=\(body.count) checksumMatch=\(artifact.map { $0.contentChecksum == cacheChecksum(for: body) } ?? false)")
                 return nil
             }
             if ChapterFetcher.shared.isRejectedChapterContent(body, title: cachedTitle) {
+                print("[CacheDebug] ch=\(chapterIndex) FAIL: content rejected bodyLen=\(body.count) title='\(cachedTitle)'")
                 return nil
             }
             return ChapterPackage(
@@ -333,6 +342,59 @@ struct ChapterCacheRepository {
     private func cacheChecksum(for content: String) -> String {
         let digest = SHA256.hash(data: Data(content.utf8))
         return digest.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Synthesises a missing `.package.json` artifact from the existing `.txt` and
+    /// `.meta.json` files.  Chapters cached by older app versions lack the artifact,
+    /// which makes `loadChapterPackageSync` (and therefore `isChapterContentAvailable`)
+    /// always return `nil` even though the content is valid — causing a permanent
+    /// "loading" state in the reader.
+    private func upgradeLegacyChapterCacheIfNeeded(bookId: UUID, chapterIndex: Int) {
+        let packageURL = chapterPackagePath(bookId: bookId, chapterIndex: chapterIndex)
+        guard !FileManager.default.fileExists(atPath: packageURL.path) else { return }
+
+        let bodyURL = cachePath(bookId: bookId, chapterIndex: chapterIndex)
+        guard
+            let body = try? String(contentsOf: bodyURL, encoding: .utf8),
+            !body.isEmpty,
+            let metadata = loadCachedChapterMetadataSync(bookId: bookId, chapterIndex: chapterIndex),
+            metadata.state == .cached || metadata.state == nil
+        else { return }
+
+        let checksum = cacheChecksum(for: body)
+
+        // Write upgraded .package.json using the existing body checksum.
+        let artifact = ChapterPackageArtifact(
+            sourceURL: metadata.sourceURL,
+            tocTitle: metadata.tocTitle,
+            canonicalTitle: metadata.extractedTitle,
+            contentChecksum: checksum,
+            rawHTMLFilename: nil,
+            normalizedHTMLFilename: nil,
+            savedAt: metadata.savedAt
+        )
+        if let data = try? JSONEncoder().encode(artifact) {
+            try? data.write(to: packageURL, options: .atomic)
+        }
+
+        // Backfill an empty checksum in very old metadata entries.
+        if metadata.contentChecksum.isEmpty {
+            let updated = CachedChapterMetadata(
+                sourceURL: metadata.sourceURL,
+                tocTitle: metadata.tocTitle,
+                extractedTitle: metadata.extractedTitle,
+                contentChecksum: checksum,
+                savedAt: metadata.savedAt,
+                state: .cached,
+                failureReason: nil
+            )
+            if let data = try? JSONEncoder().encode(updated) {
+                try? data.write(
+                    to: cacheMetadataPath(bookId: bookId, chapterIndex: chapterIndex),
+                    options: .atomic
+                )
+            }
+        }
     }
 
     private func saveChapterArtifact(

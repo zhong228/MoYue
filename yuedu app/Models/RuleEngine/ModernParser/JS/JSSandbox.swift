@@ -48,11 +48,21 @@ final class JSSandbox {
             return nil
         }
 
+        // Use a heap-allocated box so the background closure and the calling thread
+        // never share a raw mutable variable. The NSLock guarantees a happens-before
+        // edge on both the write (background) and the read (calling thread after wait),
+        // which eliminates the data race that Thread Sanitizer would flag on the
+        // unprotected `var result: JSValue?` pattern.
+        final class ResultBox {
+            let lock = NSLock()
+            var value: JSValue?
+        }
+        let box = ResultBox()
         let semaphore = DispatchSemaphore(value: 0)
-        var result: JSValue?
 
         DispatchQueue.global(qos: .userInitiated).async {
-            result = context.evaluateScript(script)
+            let r = context.evaluateScript(script)
+            box.lock.withLock { box.value = r }
             semaphore.signal()
         }
 
@@ -60,7 +70,7 @@ final class JSSandbox {
             logSecurity("Script execution timed out after \(timeout)s")
             return nil
         }
-        return result
+        return box.lock.withLock { box.value }
     }
 
     // MARK: - Security Measures

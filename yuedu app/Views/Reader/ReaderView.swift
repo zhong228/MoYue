@@ -159,15 +159,17 @@ struct ReaderView: View {
 
     // 換源
     @State private var showChangeSourceSheet = false
-    @State private var changeSourceOrigins: [BookOrigin] = []
-    @State private var changeSourceLoading = false
-    @State private var changeSourceError: String?
     @State private var runtimeState = ReaderRuntimeState()
     @State private var chapterSliderDraft: Double? = nil
     @State private var bookDocument: (any BookDocument)? = nil
     @State private var contentProvider: (any BookContentProvider)? = nil
     @State private var readerCapabilities: ReaderCapabilities = .reflowableText
     private let progressManager = ReaderProgressManager.shared
+
+    // 換源狀態由 ViewModel 管理，此處透過計算屬性橋接，避免 View 持有重複狀態
+    private var changeSourceOrigins: [BookOrigin] { readerViewModel.changeSourceOrigins }
+    private var changeSourceLoading: Bool { readerViewModel.changeSourceLoading }
+    private var changeSourceError: String? { readerViewModel.changeSourceError }
 
     private var systemBrightness: Double {
         get { runtimeState.systemBrightness }
@@ -311,8 +313,15 @@ struct ReaderView: View {
     }
 
     private func isChapterContentAvailable(at chapterIndex: Int) -> Bool {
-        guard let package = cachedChapterPackage(for: chapterIndex) else { return false }
-        return package.state == .cached && !package.content.isEmpty
+        guard let package = cachedChapterPackage(for: chapterIndex) else {
+            print("[CacheDebug] isChapterContentAvailable ch=\(chapterIndex) → false (no package)")
+            return false
+        }
+        let ok = package.state == .cached && !package.content.isEmpty
+        if !ok {
+            print("[CacheDebug] isChapterContentAvailable ch=\(chapterIndex) → false pkgState=\(package.state) contentLen=\(package.content.count)")
+        }
+        return ok
     }
 
     private var currentChapterOverlayState: ReaderChapterOverlayState {
@@ -634,7 +643,7 @@ struct ReaderView: View {
             saveProgress()
             if let b = book, b.isOnline {
                 Task {
-                    await ChapterFetchManager.shared.cancelAll(for: b.id)
+                    await readerViewModel.cancelAll(for: b.id)
                 }
             }
             volumeHandler.stopListening()
@@ -1313,7 +1322,7 @@ struct ReaderView: View {
                                     }
                                 } catch {
                                     await MainActor.run {
-                                        changeSourceError = error.localizedDescription
+                                        readerViewModel.reportChangeSourceError(error.localizedDescription)
                                     }
                                 }
                             }
@@ -1558,7 +1567,14 @@ struct ReaderView: View {
                 currentChapterIndex = idx
                 currentPage = targetPage
                 epubRenderer.currentEpubPage = targetPage
+                // 在 ensureChapterReady 之前捕捉狀態：若章節已是 .ready，
+                // ensureChapterReady 不會觸發 handleChapterStateChanges，
+                // engine 可能持有跳頁前預讀的佔位符 layout（資料未到磁碟時建立），需強制重建。
+                let alreadyReady = readerViewModel.chapterState(for: idx) == .ready
                 ensureChapterReady(chapterIndex: idx, priority: .jump)
+                if alreadyReady, isChapterContentAvailable(at: idx) {
+                    await engine.notifyChapterDataChanged(at: idx)
+                }
             }
         } else {
             currentChapterIndex = idx
@@ -1654,6 +1670,7 @@ struct ReaderView: View {
     private func refreshCurrentChapter() {
         guard let b = book, !(b.onlineChapters?.isEmpty ?? true) else { return }
         let idx = currentChapterIndex
+        print("[StateDebug] refreshCurrentChapter ch=\(idx) ← clearing cache and restarting fetch")
         dependencies.bookSourceFetcher.clearChapterCache(bookId: b.id, chapterIndex: idx)
         store.clearCachedChapter(bookId: b.id, chapterIndex: idx)
         readerViewModel.resetChapterState(for: idx)
@@ -1674,58 +1691,22 @@ struct ReaderView: View {
 
     private func handleDownloadAction() {
         guard let b = book, b.isOnline else { return }
-        switch b.offlineDownloadState {
-        case .none, .failed:
-            OnlineBookCoordinator.shared.downloadBook(b, store: store)
-        case .downloading:
-            break
-        case .available:
+        if b.offlineDownloadState == .available {
             store.clearOnlineDownload(bookId: b.id)
+            return
         }
+        readerViewModel.handleDownloadAction(book: b, store: store)
     }
 
+    /// 換源搜尋已移至 ReaderViewModel.loadOtherOrigins，此處只負責觸發並傳入所需資料
     private func loadOtherOrigins() {
         guard let b = book, let currentSourceId = b.bookSourceId else { return }
-        let key = SearchBook.makeKey(name: b.title, author: b.author)
-        let sources = BookSourceStore.shared.enabledSources.filter { $0.id != currentSourceId }
-        changeSourceLoading = true
-        changeSourceError = nil
-        changeSourceOrigins = []
-        Task {
-            var byKey: [String: [OnlineBook]] = [:]
-            for source in sources {
-                do {
-                    let list = try await dependencies.bookSourceFetcher.search(query: b.title, in: source)
-                    for ob in list {
-                        let k = SearchBook.makeKey(name: ob.name, author: ob.author)
-                        if byKey[k] == nil { byKey[k] = [] }
-                        byKey[k]?.append(ob)
-                    }
-                } catch { continue }
-            }
-            let candidates = byKey[key] ?? []
-            let origins: [BookOrigin] =
-                candidates
-                .filter { $0.sourceId != currentSourceId }
-                .map { ob in
-                    BookOrigin(
-                        sourceId: ob.sourceId,
-                        sourceName: ob.sourceName,
-                        bookUrl: ob.bookUrl,
-                        tocUrl: ob.tocUrl,
-                        coverUrl: ob.coverUrl,
-                        intro: ob.intro,
-                        lastChapter: ob.lastChapter,
-                        wordCount: ob.wordCount,
-                        kind: ob.kind,
-                        runtimeVariables: ob.runtimeVariables
-                    )
-                }
-            await MainActor.run {
-                changeSourceOrigins = origins
-                changeSourceLoading = false
-            }
-        }
+        readerViewModel.loadOtherOrigins(
+            book: b,
+            currentSourceId: currentSourceId,
+            enabledSources: BookSourceStore.shared.enabledSources,
+            store: store
+        )
     }
 
     // MARK: - 線上章節懶加載
@@ -1734,6 +1715,7 @@ struct ReaderView: View {
         priority: ChapterFetchPriority = .immediate
     ) {
         guard let currentBook = book else { return }
+        print("[StateDebug] ensureChapterReady ch=\(chapterIndex) priority=\(priority) currentCh=\(currentChapterIndex)")
         Task { @MainActor in
             await readerViewModel.ensureChapterReady(
                 book: currentBook,
@@ -1749,6 +1731,7 @@ struct ReaderView: View {
         observedChapterStates = states
 
         for (chapterIndex, newState) in states where previousStates[chapterIndex] != newState {
+            print("[StateDebug] chapterStates[\(chapterIndex)] \(String(describing: previousStates[chapterIndex])) → \(newState) currentChapter=\(currentChapterIndex) usesCoreText=\(usesCoreTextEPUB) isCoreTextReady=\(epubRenderer.isCoreTextReady)")
             if newState == .ready {
                 prefetchAdjacentChapters(around: chapterIndex)
             }
@@ -1757,30 +1740,38 @@ struct ReaderView: View {
     }
 
     private func applyChapterRefreshAction(for chapterIndex: Int, newState: ChapterLoadState) {
+        let contentAvailable = isChapterContentAvailable(at: chapterIndex)
         let action = ReaderChapterPresentation.refreshAction(
             changedChapterIndex: chapterIndex,
             currentChapterIndex: currentChapterIndex,
             usesCoreText: usesCoreTextEPUB,
             newState: newState,
-            isContentAvailable: isChapterContentAvailable(at: chapterIndex)
+            isContentAvailable: contentAvailable
         )
+        print("[StateDebug] applyRefreshAction ch=\(chapterIndex) newState=\(newState) contentAvailable=\(contentAvailable) currentCh=\(currentChapterIndex) → action=\(action)")
 
         switch action {
         case .none:
             break
         case .notifyChapterDataChanged(let visibleChapterIndex):
-            guard let engine = epubRenderer.engine else { return }
+            guard let engine = epubRenderer.engine else {
+                print("[StateDebug] notifyChapterDataChanged SKIPPED: engine is nil")
+                return
+            }
+            print("[StateDebug] notifyChapterDataChanged ch=\(visibleChapterIndex) launching Task")
             Task { await engine.notifyChapterDataChanged(at: visibleChapterIndex) }
         case .rebuildPages:
+            print("[StateDebug] rebuildPages()")
             rebuildPages()
+        case .resetAndRefetchChapter:
+            print("[StateDebug] resetAndRefetchChapter ch=\(chapterIndex) ← will clear cache and re-fetch")
+            refreshCurrentChapter()
         }
     }
 
     private func prefetchAdjacentChapters(around chapterIndex: Int) {
         guard let b = book, b.isOnline else { return }
-        Task {
-            await OnlineBookCoordinator.shared.prefetchAround(book: b, center: chapterIndex, store: store)
-        }
+        readerViewModel.prefetchAround(book: b, center: chapterIndex, store: store)
     }
 
     /// 當使用者翻到當前章節最後 25% 時，提前觸發下一章預加載，
@@ -1804,9 +1795,7 @@ struct ReaderView: View {
             ? allPages[currentPage].pageInChapter : 0
         guard currentPageInChapter >= (pagesInChapter.count * 3) / 4 else { return }
 
-        Task {
-            await OnlineBookCoordinator.shared.prefetchAround(book: b, center: chIdx, store: store)
-        }
+        readerViewModel.prefetchAround(book: b, center: chIdx, store: store)
     }
 
     // MARK: - 載入 & 建頁
@@ -1903,6 +1892,7 @@ struct ReaderView: View {
     }
 
     private func loadOnlineCoreText(_ book: ReadingBook, marginH: CGFloat) {
+        print("[StateDebug] loadOnlineCoreText enter bookId=\(book.id) chapters=\(book.onlineChapters?.count ?? -1)")
         print("[FetchTrace] loadOnlineCoreText enter bookId=\(book.id) chapters=\(book.onlineChapters?.count ?? -1)")
         guard let document = BookDocumentFactory.makeOnlineDocument(book: book, store: store) else {
             print("[FetchTrace] loadOnlineCoreText makeOnlineDocument returned nil")

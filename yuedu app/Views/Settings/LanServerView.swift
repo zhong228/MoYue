@@ -42,7 +42,7 @@ struct LanServerView: View {
                     if server.isRunning {
                         server.stop()
                     } else {
-                        server.bookStore = store
+                        server.bookProvider = store
                         server.start()
                     }
                 } label: {
@@ -69,7 +69,7 @@ struct LanServerView: View {
         .navigationTitle(gs.t("局域網服務"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            server.bookStore = store
+            server.bookProvider = store
         }
     }
 

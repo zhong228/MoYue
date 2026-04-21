@@ -541,11 +541,21 @@ final class ReaderTelemetry {
 }
 
 // MARK: - 書庫管理
-class BookStore: ObservableObject {
+class BookStore: ObservableObject, BookProvider {
     @Published var books: [ReadingBook] = []
 
-    private let metaKey = "yd_books_meta"
+    // Legacy UserDefaults key kept only for one-time migration.
+    private let legacyMetaKey = "yd_books_meta"
     private var saveWorkItem: DispatchWorkItem?
+
+    /// Persistent storage location for the book-library JSON.
+    /// Stored in Documents so it is included in iTunes / iCloud backups and is
+    /// excluded from the UserDefaults domain plist (which is loaded synchronously
+    /// at launch into memory in its entirety).
+    static var booksMetaFileURL: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("books_meta.json")
+    }
 
     init() { loadMeta() }
 
@@ -1353,26 +1363,39 @@ class BookStore: ObservableObject {
 
     private func saveMeta() {
         saveWorkItem?.cancel()
-        
+
         let workItem = DispatchWorkItem { [weak self] in
-            guard let self = self else { return }
-            if let data = try? JSONEncoder().encode(self.books) {
-                UserDefaults.standard.set(data, forKey: self.metaKey)
-            }
+            guard let self else { return }
+            guard let data = try? JSONEncoder().encode(self.books) else { return }
+            try? data.write(to: BookStore.booksMetaFileURL, options: .atomic)
         }
-        
+
         saveWorkItem = workItem
         // 延遲 2 秒寫入（防抖機制）避免頻繁觸發卡頓
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: workItem)
     }
 
     private func loadMeta() {
-        if let data = UserDefaults.standard.data(forKey: metaKey),
-            let decoded = try? JSONDecoder().decode([ReadingBook].self, from: data)
+        // Prefer the file-based store.
+        if let data = try? Data(contentsOf: BookStore.booksMetaFileURL),
+           let decoded = try? JSONDecoder().decode([ReadingBook].self, from: data)
         {
             books = decoded
-            // 修復舊版殘留的 HTML 片段 URL（如 <a href="...">第1章</a>）
             sanitizePersistedChapterURLs()
+            return
+        }
+
+        // One-time migration: pull legacy data out of UserDefaults, write to disk,
+        // then remove the UserDefaults entry so it no longer inflates the plist.
+        if let data = UserDefaults.standard.data(forKey: legacyMetaKey),
+           let decoded = try? JSONDecoder().decode([ReadingBook].self, from: data)
+        {
+            books = decoded
+            sanitizePersistedChapterURLs()
+            if let migrated = try? JSONEncoder().encode(books) {
+                try? migrated.write(to: BookStore.booksMetaFileURL, options: .atomic)
+            }
+            UserDefaults.standard.removeObject(forKey: legacyMetaKey)
         }
     }
 

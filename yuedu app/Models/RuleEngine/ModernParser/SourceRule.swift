@@ -50,6 +50,18 @@ final class SourceRule {
     /// Number of template parameters found during parsing.
     var paramSize: Int { ruleParam.count }
 
+    /// `true` when extraction should be performed for this segment.
+    ///
+    /// A segment whose rule is empty but whose `replaceRegex` is non-empty acts
+    /// as a *pure post-processor*: it applies the regex to the previous result
+    /// without running an extractor.  All other segments require extraction.
+    ///
+    /// Note: `rule` is guaranteed to be whitespace-trimmed after `makeUpRule`
+    /// runs (see the `trimmingCharacters` call there), so `.isEmpty` is sufficient.
+    var shouldPerformExtraction: Bool {
+        !rule.isEmpty || replaceRegex.isEmpty
+    }
+
     // MARK: Private storage
 
     /// Template parameter values (interleaved with literal segments).

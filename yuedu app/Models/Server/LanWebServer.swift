@@ -2,6 +2,13 @@ import Foundation
 import Network
 import Combine
 
+/// Provides a read-only snapshot of the user's book list.
+/// `LanWebServer` depends only on this protocol, keeping it independent of
+/// the concrete `BookStore` class and its persistence implementation.
+protocol BookProvider {
+    var books: [ReadingBook] { get }
+}
+
 class LanWebServer: ObservableObject {
     static let shared = LanWebServer()
 
@@ -11,8 +18,9 @@ class LanWebServer: ObservableObject {
 
     let port: UInt16 = 1122
 
-    /// Set from the view layer (environment object has no singleton)
-    var bookStore: BookStore?
+    /// Set from the view layer. Using a protocol decouples the server from the
+    /// concrete BookStore class so neither side needs to know the other's internals.
+    var bookProvider: BookProvider?
 
     private var listener: NWListener?
     private var cancellables = Set<AnyCancellable>()
@@ -245,7 +253,7 @@ class LanWebServer: ObservableObject {
 
         // GET / — book list
         if method == "GET" && path == "/" {
-            let books = bookStore?.books ?? []
+            let books = bookProvider?.books ?? []
             let dtos = books.map { BookDTO(book: $0) }
             let data = (try? encoder.encode(dtos)) ?? Data("[]".utf8)
             return (200, jsonType, data)
@@ -255,7 +263,7 @@ class LanWebServer: ObservableObject {
         if method == "GET" && path.hasPrefix("/book/") {
             let idStr = String(path.dropFirst("/book/".count))
             if let uuid = UUID(uuidString: idStr),
-               let book = bookStore?.books.first(where: { $0.id == uuid }) {
+               let book = bookProvider?.books.first(where: { $0.id == uuid }) {
                 let dto = BookDetailDTO(book: book)
                 let data = (try? encoder.encode(dto)) ?? Data("{}".utf8)
                 return (200, jsonType, data)

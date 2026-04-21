@@ -191,9 +191,7 @@ final class ModernRuleEngine {
             guard result != nil else { continue }
 
             let rule = sourceRule.rule
-            if !rule.trimmingCharacters(in: .whitespaces).isEmpty
-                || sourceRule.replaceRegex.isEmpty
-            {
+            if sourceRule.shouldPerformExtraction {
                 let inputPreview = String(Self.toString(result).prefix(200))
 
                 switch sourceRule.mode {

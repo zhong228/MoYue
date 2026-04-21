@@ -500,40 +500,81 @@ extension JSRuleEngineRunner: WKNavigationDelegate {
             return
         }
         // 以 evaluateJavaScript 注入 ruleEngine（使用 defaultClient 避免 .page 對 about:blank 的限制）
+        // 注意：WKUserScript 在 about:blank 首次載入時不執行（已知 iOS bug），
+        // 因此改在 didFinish 中序列執行：先鎖定危險 API，再注入 ruleEngine.js。
         let world = WKContentWorld.defaultClient
-        webView.evaluateJavaScript(scriptToInject, in: nil, in: world) { [weak self] injectRes in
-            switch injectRes {
-            case .failure(let e):
-                let nsErr = e as NSError
-                var errData: [String: Any] = ["err": e.localizedDescription]
-                if let msg = nsErr.userInfo["WKJavaScriptExceptionMessage"] as? String { errData["jsMsg"] = msg }
-                if let line = nsErr.userInfo["WKJavaScriptExceptionLineNumber"] as? Int { errData["line"] = line }
-                if let col = nsErr.userInfo["WKJavaScriptExceptionColumnNumber"] as? Int { errData["col"] = col }
-                errData["domain"] = nsErr.domain
-                errData["code"] = nsErr.code
-                _dbgLog(location: "JSRuleEngineRunner.swift:didFinish:inject", message: "script inject failed", data: errData, hypothesisId: "H8")
-                self?.loadContinuation?.resume(throwing: NSError(domain: "JSRuleEngineRunner", code: -10, userInfo: [NSLocalizedDescriptionKey: "BookSourceEngine 注入失敗: \(e.localizedDescription)"]))
-                self?.loadContinuation = nil
-                return
-            case .success:
-                break
+
+        // Step 1：注入 API 安全鎖定腳本，防止書源腳本存取網路或本地存儲
+        // 不阻止 eval/Function（ruleEngine.js 可能自身使用），但封閉所有資料滲漏管道
+        let apiLockdownScript = """
+        (function() {
+            'use strict';
+            const deny = { get: () => null, set: () => {}, configurable: false };
+            // 封鎖網路 API：書源腳本不應自行發起任何網路請求
+            try { Object.defineProperty(window, 'fetch', deny); } catch(_) {}
+            try { Object.defineProperty(window, 'XMLHttpRequest', deny); } catch(_) {}
+            try { Object.defineProperty(window, 'WebSocket', deny); } catch(_) {}
+            try { Object.defineProperty(window, 'EventSource', deny); } catch(_) {}
+            // 封鎖持久存儲
+            try { Object.defineProperty(window, 'localStorage', deny); } catch(_) {}
+            try { Object.defineProperty(window, 'sessionStorage', deny); } catch(_) {}
+            try { Object.defineProperty(window, 'indexedDB', deny); } catch(_) {}
+            try { Object.defineProperty(window, 'caches', deny); } catch(_) {}
+            // 封鎖 Beacon 與定位
+            try { Object.defineProperty(navigator, 'sendBeacon', deny); } catch(_) {}
+            try { Object.defineProperty(navigator, 'geolocation', deny); } catch(_) {}
+            // Cookie 清空（讀取恆為空、寫入無效）
+            try {
+                Object.defineProperty(document, 'cookie', {
+                    get: () => '',
+                    set: () => {},
+                    configurable: false
+                });
+            } catch(_) {}
+        })();
+        """
+        webView.evaluateJavaScript(apiLockdownScript, in: nil, in: world) { [weak self] lockRes in
+            guard let self else { return }
+            if case .failure(let e) = lockRes {
+                // 鎖定失敗記錄警告，但不中止引擎載入（部分環境可能已限制 Object.defineProperty）
+                AppLogger.security("API 鎖定腳本注入失敗", context: ["error": e.localizedDescription])
             }
-            webView.evaluateJavaScript("typeof window.BookSourceEngine", in: nil, in: world) { [weak self] res in
-                let typeStr: String
-                let errStr: String
-                switch res {
-                case .success(let v): typeStr = (v as? String) ?? "nil"; errStr = ""
-                case .failure(let e): typeStr = "nil"; errStr = e.localizedDescription
+            // Step 2：鎖定完成後再注入 ruleEngine.js
+            webView.evaluateJavaScript(scriptToInject, in: nil, in: world) { [weak self] injectRes in
+                switch injectRes {
+                case .failure(let e):
+                    let nsErr = e as NSError
+                    var errData: [String: Any] = ["err": e.localizedDescription]
+                    if let msg = nsErr.userInfo["WKJavaScriptExceptionMessage"] as? String { errData["jsMsg"] = msg }
+                    if let line = nsErr.userInfo["WKJavaScriptExceptionLineNumber"] as? Int { errData["line"] = line }
+                    if let col = nsErr.userInfo["WKJavaScriptExceptionColumnNumber"] as? Int { errData["col"] = col }
+                    errData["domain"] = nsErr.domain
+                    errData["code"] = nsErr.code
+                    _dbgLog(location: "JSRuleEngineRunner.swift:didFinish:inject", message: "script inject failed", data: errData, hypothesisId: "H8")
+                    self?.loadContinuation?.resume(throwing: NSError(domain: "JSRuleEngineRunner", code: -10, userInfo: [NSLocalizedDescriptionKey: "BookSourceEngine 注入失敗: \(e.localizedDescription)"]))
+                    self?.loadContinuation = nil
+                    return
+                case .success:
+                    break
                 }
-                _dbgLog(location: "JSRuleEngineRunner.swift:didFinish:verify", message: "BookSourceEngine check", data: ["typeof": typeStr, "err": errStr], hypothesisId: "H2")
-                let ok = (typeStr == "object" || typeStr == "function")
-                _dbgLog(location: "JSRuleEngineRunner.swift:didFinish:resume", message: "resume decision", data: ["ok": ok, "typeof": typeStr], hypothesisId: "H4")
-                if ok {
-                    self?.loadContinuation?.resume()
-                } else {
-                    self?.loadContinuation?.resume(throwing: NSError(domain: "JSRuleEngineRunner", code: -10, userInfo: [NSLocalizedDescriptionKey: "BookSourceEngine 未就緒 typeof=\(typeStr) err=\(errStr)"]))
+                // Step 3：驗證 BookSourceEngine 是否就緒
+                webView.evaluateJavaScript("typeof window.BookSourceEngine", in: nil, in: world) { [weak self] res in
+                    let typeStr: String
+                    let errStr: String
+                    switch res {
+                    case .success(let v): typeStr = (v as? String) ?? "nil"; errStr = ""
+                    case .failure(let e): typeStr = "nil"; errStr = e.localizedDescription
+                    }
+                    _dbgLog(location: "JSRuleEngineRunner.swift:didFinish:verify", message: "BookSourceEngine check", data: ["typeof": typeStr, "err": errStr], hypothesisId: "H2")
+                    let ok = (typeStr == "object" || typeStr == "function")
+                    _dbgLog(location: "JSRuleEngineRunner.swift:didFinish:resume", message: "resume decision", data: ["ok": ok, "typeof": typeStr], hypothesisId: "H4")
+                    if ok {
+                        self?.loadContinuation?.resume()
+                    } else {
+                        self?.loadContinuation?.resume(throwing: NSError(domain: "JSRuleEngineRunner", code: -10, userInfo: [NSLocalizedDescriptionKey: "BookSourceEngine 未就緒 typeof=\(typeStr) err=\(errStr)"]))
+                    }
+                    self?.loadContinuation = nil
                 }
-                self?.loadContinuation = nil
             }
         }
         // #endregion
