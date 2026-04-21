@@ -399,7 +399,7 @@ struct OnlineBookView: View {
             if existing.onlineChapters?.isEmpty != false, !chapters.isEmpty {
                 bookStore.updateOnlineChapters(bookId: existingId, chapters: chapters)
             }
-            readingBook = bookStore.books.first(where: { $0.id == existingId }) ?? existing
+            let readingBook = bookStore.books.first(where: { $0.id == existingId }) ?? existing
             temporaryReaderBookId = nil
         } else {
             let tempBook = bookStore.addOnlineBook(
@@ -413,7 +413,7 @@ struct OnlineBookView: View {
             )
             addedBookId = tempBook.id
             temporaryReaderBookId = tempBook.id
-            readingBook = tempBook
+            let readingBook = tempBook
         }
 
         openingReader = false

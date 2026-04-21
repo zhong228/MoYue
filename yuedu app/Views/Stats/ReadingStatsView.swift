@@ -92,7 +92,7 @@ struct ReadingStatsView: View {
     // MARK: - Filtered Sessions
 
     private var filteredSessions: [ReadingSession] {
-        let range = selectedPeriod.dateRange()
+        _ = selectedPeriod.dateRange()
         return store.sessionsInRange(from: range.from, to: range.to)
     }
 
@@ -180,7 +180,7 @@ struct ReadingStatsView: View {
 
     private func dailyMinutes() -> [DayEntry] {
         let cal = Calendar.current
-        let range = selectedPeriod.dateRange()
+        _ = selectedPeriod.dateRange()
         let sessions = filteredSessions
 
         switch selectedPeriod {

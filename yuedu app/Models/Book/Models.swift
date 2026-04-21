@@ -566,7 +566,6 @@ class BookStore: ObservableObject, BookProvider {
     }
 
     func package(forLocalBook book: ReadingBook) throws -> BookPackage {
-        let sourceURL = URL(string: book.source)
         switch book.resolvedPipelineKind {
         case .epub:
             let epubFilename = book.contentFilename.hasSuffix(".epub")

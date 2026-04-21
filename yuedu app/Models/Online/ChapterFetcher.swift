@@ -505,7 +505,7 @@ struct ChapterFetcher {
             "br,p,div,li,blockquote,section,article,dt,dd,figcaption,pre,header,footer,tr,h1,h2,h3,h4,h5,h6"
         if let nodes = try? document.select(lineBreakSelectors).array() {
             for node in nodes {
-                try? node.appendText(lineBreakMarker)
+                _ = try? node.appendText(lineBreakMarker)
             }
         }
 

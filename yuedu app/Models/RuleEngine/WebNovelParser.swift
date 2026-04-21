@@ -227,7 +227,7 @@ enum WebNovelParser {
         }.count)
         let paragraphCount = Double((try? element.select("p,br,li").size()) ?? 0)
 
-        let classId = (((try? element.className()) ?? "") + " " + ((try? element.id()) ?? ""))
+        let classId = ((element.className() ?? "") + " " + (element.id() ?? ""))
             .lowercased()
 
         var score = textLen / max(1, descendants)

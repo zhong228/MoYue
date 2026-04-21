@@ -186,7 +186,7 @@ final class UniversalBookResourceAdapter: BookResourceProvider {
                 let raw = (try? element.attr(item.attr)) ?? ""
                 guard !raw.isEmpty else { continue }
                 guard let absolute = makeAbsoluteResourceURL(raw, baseURLString: baseURLString) else { continue }
-                try? element.attr(item.attr, absolute)
+                _ = try? element.attr(item.attr, absolute)
             }
         }
 
@@ -195,7 +195,7 @@ final class UniversalBookResourceAdapter: BookResourceProvider {
             let raw = (try? element.attr("href")) ?? ""
             guard !raw.isEmpty, !raw.hasPrefix("#") else { continue }
             guard let absolute = makeAbsoluteResourceURL(raw, baseURLString: baseURLString) else { continue }
-            try? element.attr("href", absolute)
+            _ = try? element.attr("href", absolute)
         }
 
         let srcsetElements = (try? document.select("img[srcset],source[srcset]").array()) ?? []
@@ -221,7 +221,7 @@ final class UniversalBookResourceAdapter: BookResourceProvider {
                 .filter { !$0.isEmpty }
                 .joined(separator: ", ")
             if !rewritten.isEmpty {
-                try? element.attr("srcset", rewritten)
+                _ = try? element.attr("srcset", rewritten)
             }
         }
 

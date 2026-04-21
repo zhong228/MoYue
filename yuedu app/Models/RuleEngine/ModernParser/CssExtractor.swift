@@ -17,7 +17,7 @@ func htmlElementToText(_ element: Element) -> String {
     let blockSel =
         "br,p,div,li,blockquote,section,article,dt,dd,figcaption,pre,header,footer,tr,h1,h2,h3,h4,h5,h6"
     if let nodes = try? cloned.select(blockSel).array() {
-        for node in nodes { try? node.appendText(marker) }
+        for node in nodes { _ = try? node.appendText(marker) }
     }
     var text = (try? cloned.text()) ?? ""
     text = text.replacingOccurrences(of: marker, with: "\n")

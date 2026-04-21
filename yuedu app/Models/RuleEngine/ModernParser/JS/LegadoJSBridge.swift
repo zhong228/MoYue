@@ -350,7 +350,7 @@ import CommonCrypto
         let date = Date(timeIntervalSince1970: time / 1000)
         let fmt = DateFormatter()
         // Convert Java format → DateFormatter format
-        var fmtStr = format
+        let fmtStr = format
             .replacingOccurrences(of: "yyyy", with: "yyyy")
             .replacingOccurrences(of: "MM",   with: "MM")
             .replacingOccurrences(of: "dd",   with: "dd")

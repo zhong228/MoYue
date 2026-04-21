@@ -206,8 +206,8 @@ class JSCoreEngine {
         var obj: [String: Any] = [
             "bookSourceUrl": src.bookSourceUrl,
             "bookSourceName": src.bookSourceName,
-            "bookSourceGroup": src.bookSourceGroup ?? "",
-            "bookSourceComment": src.bookSourceComment ?? "",
+            "bookSourceGroup": src.bookSourceGroup,
+            "bookSourceComment": src.bookSourceComment,
             "loginUrl": src.loginUrl,
             "loginUi": src.loginUi,
             "loginCheckJs": src.loginCheckJs,

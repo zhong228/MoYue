@@ -1343,12 +1343,11 @@ enum RuleEngine {
         let doc = parseHTML(html)
         var current: [HTMLNode] = [doc]
         var contentSpec: String? = nil
-        for (i, seg) in segments.enumerated() {
+        for (_, seg) in segments.enumerated() {
             if isJsoupContentSpec(seg) {
                 contentSpec = seg.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 break
             }
-            let prev = current
             current = applyJsoupSegment(nodes: current, segment: seg)
             if current.isEmpty { break }
         }
