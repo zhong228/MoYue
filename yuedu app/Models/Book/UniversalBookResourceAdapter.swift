@@ -79,9 +79,9 @@ final class UniversalBookResourceAdapter: BookResourceProvider {
             }
         }
 
-        lock.lock()
-        let cachedPayloads = chapterPayloadCache
-        lock.unlock()
+        let cachedPayloads = lock.withLock {
+            chapterPayloadCache
+        }
 
         for (index, payload) in cachedPayloads where normalizedURLKey(payload.sourceHref) == normalizedTarget {
             return index
