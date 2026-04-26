@@ -18,6 +18,7 @@ struct HomeView: View {
     @State private var showAddToGroupSheet = false
     @AppStorage("bookLayoutIsGrid") private var isGridMode = false
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Namespace private var bookTransition
 
     // 左右留白隨設備動態調整
     private var hInset: CGFloat { sizeClass == .regular ? 32 : 20 }
@@ -204,7 +205,9 @@ struct HomeView: View {
             )
         ) {
             if let bookId = readerBookId {
-                ReaderView(bookId: bookId).environmentObject(store)
+                ReaderView(bookId: bookId)
+                    .environmentObject(store)
+                    .navigationTransition(.zoom(sourceID: bookId, in: bookTransition))
             }
         }
     }
@@ -276,6 +279,7 @@ struct HomeView: View {
                     book: book,
                     isEditing: editMode == .active,
                     isSelected: selectedBookIds.contains(book.id),
+                    transitionNamespace: bookTransition,
                     onTap: {
                         if editMode == .active {
                             if selectedBookIds.contains(book.id) {
@@ -316,11 +320,13 @@ struct HomeView: View {
                 spacing: 12
             ) {
                 ForEach(filteredBooks) { book in
-                    BookGridCell(book: book, onOpen: { readerBookId = book.id }) {
-                        editingBook = book
-                    } onDelete: {
-                        bookToDelete = book
-                    }
+                    BookGridCell(
+                        book: book,
+                        transitionNamespace: bookTransition,
+                        onOpen: { readerBookId = book.id },
+                        onEdit: { editingBook = book },
+                        onDelete: { bookToDelete = book }
+                    )
                 }
             }
             .padding(.horizontal, hInset)
@@ -476,6 +482,7 @@ struct BookRow: View {
     let book: ReadingBook
     var isEditing: Bool = false
     var isSelected: Bool = false
+    var transitionNamespace: Namespace.ID? = nil
     let onTap: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
@@ -495,7 +502,13 @@ struct BookRow: View {
                             .padding(.top, (coverH - 22) / 2)
                     }
 
-                    bookCover
+                    Group {
+                        if let ns = transitionNamespace {
+                            bookCover.matchedTransitionSource(id: book.id, in: ns)
+                        } else {
+                            bookCover
+                        }
+                    }
 
                     VStack(alignment: .leading, spacing: 5) {
                         Text(book.title)
@@ -612,6 +625,7 @@ struct BookRow: View {
 // MARK: - 書籍網格格子
 struct BookGridCell: View {
     let book: ReadingBook
+    var transitionNamespace: Namespace.ID? = nil
     let onOpen: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
@@ -622,7 +636,13 @@ struct BookGridCell: View {
             // 封面
             Button(action: onOpen) {
                 ZStack(alignment: .topTrailing) {
-                    coverView
+                    Group {
+                        if let ns = transitionNamespace {
+                            coverView.matchedTransitionSource(id: book.id, in: ns)
+                        } else {
+                            coverView
+                        }
+                    }
                     // 閱讀進度角標
                     if book.currentPosition > 0.01 && book.currentPosition < 0.99 {
                         Text("\(Int(book.currentPosition * 100))%")
