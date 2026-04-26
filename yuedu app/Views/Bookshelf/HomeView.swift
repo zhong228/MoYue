@@ -1,13 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-// MARK: - 排序方式
-enum BookSortOrder: String, CaseIterable {
-    case dateAdded = "加入時間"
-    case titleAZ = "書名 A-Z"
-    case progress = "閱讀進度"
-}
-
 // MARK: - 書架主頁
 struct HomeView: View {
     @EnvironmentObject var store: BookStore
@@ -15,12 +8,14 @@ struct HomeView: View {
 
     @State private var showAddSheet = false
     @State private var addSheetSessionID = UUID()
-    @State private var sortOrder = BookSortOrder.dateAdded
     @State private var editingBook: ReadingBook? = nil
     @State private var bookToDelete: ReadingBook? = nil
     @State private var editMode = EditMode.inactive
     @State private var showSearch = false
     @State private var selectedGroup: String = ""   // "" = 全部
+    @State private var selectedBookIds: Set<UUID> = []
+    @State private var showBulkDeleteAlert = false
+    @State private var showAddToGroupSheet = false
     @AppStorage("bookLayoutIsGrid") private var isGridMode = false
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -30,18 +25,17 @@ struct HomeView: View {
     // fullScreenCover 閱讀器（取代 NavigationLink，避免 SwiftUI NavLink 重建 @State bug）
     @State private var readerBookId: UUID? = nil
 
-    // 過濾 + 排序
+    // 依分組過濾，順序維持加入時間（books 陣列原順序）
     var filteredBooks: [ReadingBook] {
-        let grouped = selectedGroup.isEmpty ? store.books : store.books.filter { $0.group == selectedGroup }
-        switch sortOrder {
-        case .dateAdded: return grouped
-        case .titleAZ: return grouped.sorted { $0.title < $1.title }
-        case .progress: return grouped.sorted { $0.currentPosition > $1.currentPosition }
-        }
+        selectedGroup.isEmpty ? store.books : store.books.filter { $0.group == selectedGroup }
+    }
+
+    private var isAllSelected: Bool {
+        !filteredBooks.isEmpty && selectedBookIds.count == filteredBooks.count
     }
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             AdaptiveContentContainer(maxWidth: 920) {
                 Group {
                     if store.books.isEmpty {
@@ -53,68 +47,82 @@ struct HomeView: View {
                             if !store.allGroups.isEmpty {
                                 groupFilterBar
                             }
-                            // 排序選擇（僅在編輯模式顯示）
-                            if editMode == .active {
-                                sortBar
-                            }
                             // 書籍列表 / 網格
                             if isGridMode { bookGrid } else { bookList }
+                            // 編輯模式底部動作列
+                            if editMode == .active {
+                                editActionBar
+                            }
                         }
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     }
                 }
             }
             .animation(DSAnimation.standard, value: store.books.isEmpty)
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(localized("書架"))
+            .toolbarTitleDisplayMode(.inlineLarge)
             .toolbar {
-                // 標題用 principal 放在中間（比 leading 有空間，不會被 trailing 擠掉）
-                ToolbarItem(placement: .principal) {
-                    Text(localized("書架"))
-                        .font(.system(size: 34, weight: .bold))
-                        .foregroundColor(.primary)
-                }
 
-                // 1. 搜尋按鈕：套用你發現的「主按鈕組件 + 透明背景」方法，強制獨立
+                // 第一顆 trailing：編輯模式 = 全選；非編輯 = 搜尋
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { showSearch = true } label: {
-                        Image(systemName: "magnifyingglass")
-                            .font(DSFont.toolbarIcon)
-                            .foregroundColor(.black) // Hack 關鍵：因為 Prominent 預設圖標是白色，這裡強制改回黑色
+                    Group {
+                        if editMode == .active {
+                            Button {
+                                if isAllSelected {
+                                    selectedBookIds = []
+                                } else {
+                                    selectedBookIds = Set(filteredBooks.map(\.id))
+                                }
+                            } label: {
+                                Text(localized(isAllSelected ? "全不選" : "全選"))
+                                    .font(DSFont.subheadline.weight(.medium))
+                            }
+                        } else {
+                            Button { showSearch = true } label: {
+                                Image(systemName: "magnifyingglass")
+                                    .font(DSFont.toolbarIcon)
+                                    .foregroundColor(.black)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.clear)
+                        }
                     }
-                    .buttonStyle(.borderedProminent) // Hack 關鍵：設為主按鈕組件，系統就不會跟後面的普通按鈕融合
-                    .tint(.clear)                    // Hack 關鍵：把主按鈕原本的色塊背景變透明
                 }
 
-                // 2. 其他按鈕（佈局、新增、編輯）：維持普通按鈕組，它們之間會自動排列或融合
+                // 後續 trailing：編輯模式 = 完成；非編輯 = 佈局/新增/編輯
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    // 佈局切換
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { isGridMode.toggle() }
-                    } label: {
-                        Image(systemName: isGridMode ? "list.bullet" : "square.grid.2x2")
-                            .font(DSFont.toolbarIcon)
-                    }
-
-                    // 新增本地書籍
-                    Button {
-                        addSheetSessionID = UUID()
-                        showAddSheet = true
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(DSFont.toolbarIcon)
-                    }
-
-                    // 編輯模式
-                    Button {
-                        withAnimation {
-                            editMode = editMode == .active ? .inactive : .active
+                    if editMode == .active {
+                        Button {
+                            withAnimation {
+                                editMode = .inactive
+                                selectedBookIds = []
+                            }
+                        } label: {
+                            Image(systemName: "checkmark")
+                                .font(DSFont.toolbarIcon)
                         }
-                    } label: {
-                        Image(systemName: editMode == .active ? "xmark.circle" : "ellipsis.circle")
-                            .font(DSFont.toolbarIcon)
+                    } else {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) { isGridMode.toggle() }
+                        } label: {
+                            Image(systemName: isGridMode ? "list.bullet" : "square.grid.2x2")
+                                .font(DSFont.toolbarIcon)
+                        }
+                        Button {
+                            addSheetSessionID = UUID()
+                            showAddSheet = true
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(DSFont.toolbarIcon)
+                        }
+                        Button {
+                            withAnimation { editMode = .active }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(DSFont.toolbarIcon)
+                        }
+                        .id(gs.localeIdentifier + "_edit")
                     }
-                    .id(gs.localeIdentifier + (editMode == .active ? "_done" : "_edit"))
-                    .environment(\.editMode, $editMode)
                 }
             }
 
@@ -162,8 +170,33 @@ struct HomeView: View {
                     Text(localized("確定要從書架刪除") + "《\(b.title)》" + localized("嗎？"))
                 }
             }
+            // 批量刪除確認
+            .alert(localized("確認刪除"), isPresented: $showBulkDeleteAlert) {
+                Button(localized("刪除"), role: .destructive) {
+                    let ids = selectedBookIds
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        ids.forEach { store.delete(bookId: $0) }
+                        selectedBookIds = []
+                    }
+                }
+                Button(localized("取消"), role: .cancel) {}
+            } message: {
+                Text(localized("確定要刪除") + " \(selectedBookIds.count) " + localized("本書嗎？"))
+            }
+            // 批量加入分組
+            .sheet(isPresented: $showAddToGroupSheet) {
+                AdaptiveSheetContainer(maxWidth: 480) {
+                    BulkAddToGroupSheet(bookCount: selectedBookIds.count) { group in
+                        for id in selectedBookIds {
+                            store.setGroup(group, for: id)
+                        }
+                        selectedBookIds = []
+                        withAnimation { editMode = .inactive }
+                    }
+                    .environmentObject(store)
+                }
+            }
         }
-        .navigationViewStyle(.stack)
         .fullScreenCover(
             isPresented: Binding(
                 get: { readerBookId != nil },
@@ -193,21 +226,46 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - 排序欄
-    private var sortBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: DSSpacing.sm) {
-                Text(localized("排序：")).font(DSFont.caption).foregroundColor(DSColor.textSecondary)
-                ForEach(BookSortOrder.allCases, id: \.self) { order in
-                    DSChip(title: localized(order.rawValue), isSelected: sortOrder == order) {
-                        withAnimation { sortOrder = order }
-                    }
-                }
-                Spacer()
-                Text("\(filteredBooks.count) " + localized("本")).font(DSFont.caption).foregroundColor(DSColor.textSecondary)
+    // MARK: - 編輯模式底部動作列
+    private var editActionBar: some View {
+        HStack {
+            Button {
+                if !selectedBookIds.isEmpty { showBulkDeleteAlert = true }
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 20))
+                    .foregroundColor(selectedBookIds.isEmpty ? DSColor.textSecondary : .red)
+                    .frame(width: 44, height: 44)
+                    .background(Color(.secondarySystemBackground))
+                    .clipShape(Circle())
             }
-            .padding(.horizontal, DSSpacing.lg).padding(.vertical, 6)
+            .disabled(selectedBookIds.isEmpty)
+
+            Spacer()
+
+            Button {
+                if !selectedBookIds.isEmpty { showAddToGroupSheet = true }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus.circle")
+                    Text(localized("加入分組"))
+                }
+                .font(DSFont.subheadline.weight(.medium))
+                .foregroundColor(selectedBookIds.isEmpty ? DSColor.textSecondary : .primary)
+                .padding(.horizontal, 18).padding(.vertical, 10)
+                .background(Color(.secondarySystemBackground))
+                .clipShape(Capsule())
+            }
+            .disabled(selectedBookIds.isEmpty)
+
+            Spacer()
+
+            // 占位讓中間按鈕視覺置中（之後分享補回來）
+            Color.clear.frame(width: 44, height: 44)
         }
+        .padding(.horizontal, hInset)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 
     // MARK: - 書籍列表（條列式）
@@ -216,7 +274,19 @@ struct HomeView: View {
             ForEach(filteredBooks) { book in
                 BookRow(
                     book: book,
-                    onOpen: { readerBookId = book.id },
+                    isEditing: editMode == .active,
+                    isSelected: selectedBookIds.contains(book.id),
+                    onTap: {
+                        if editMode == .active {
+                            if selectedBookIds.contains(book.id) {
+                                selectedBookIds.remove(book.id)
+                            } else {
+                                selectedBookIds.insert(book.id)
+                            }
+                        } else {
+                            readerBookId = book.id
+                        }
+                    },
                     onEdit: { editingBook = book },
                     onDelete: { bookToDelete = book }
                 )
@@ -225,10 +295,11 @@ struct HomeView: View {
                 .listRowBackground(Color.clear)
                 .transition(.opacity.combined(with: .move(edge: .leading)))
             }
-            .onDelete { indexSet in
-                withAnimation(.easeOut(duration: 0.25)) {
-                    indexSet.forEach { store.delete(bookId: filteredBooks[$0].id) }
-                }
+            .onMove { src, dst in
+                let filtered = filteredBooks
+                let movingIds = src.map { filtered[$0].id }
+                let targetId: UUID? = dst < filtered.count ? filtered[dst].id : nil
+                store.moveBooks(ids: movingIds, before: targetId)
             }
         }
         .listStyle(.plain)
@@ -403,7 +474,9 @@ struct EmptyLibraryView: View {
 // MARK: - 書籍列表行（Apple Books 風格）
 struct BookRow: View {
     let book: ReadingBook
-    let onOpen: () -> Void
+    var isEditing: Bool = false
+    var isSelected: Bool = false
+    let onTap: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
     @ObservedObject private var gs = GlobalSettings.shared
@@ -413,8 +486,15 @@ struct BookRow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Button(action: onOpen) {
+            Button(action: onTap) {
                 HStack(alignment: .top, spacing: 12) {
+                    if isEditing {
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 22))
+                            .foregroundColor(isSelected ? DSColor.accent : DSColor.textSecondary.opacity(0.5))
+                            .padding(.top, (coverH - 22) / 2)
+                    }
+
                     bookCover
 
                     VStack(alignment: .leading, spacing: 5) {
@@ -436,28 +516,30 @@ struct BookRow: View {
 
                     Spacer(minLength: 0)
 
-                    // 右側雙 icon：雲端 + 三點選單，沉底對齊 badge
-                    VStack {
-                        Spacer(minLength: 0)
-                        HStack(spacing: 18) {
-                            Image(systemName: "cloud")
-                                .font(.system(size: 16))
-                                .foregroundColor(DSColor.textSecondary)
-
-                            Menu {
-                                Button { onEdit() } label: {
-                                    Label(localized("編輯書籍資訊"), systemImage: "pencil")
-                                }
-                                Button(role: .destructive) { onDelete() } label: {
-                                    Label(localized("刪除書籍"), systemImage: "trash")
-                                }
-                            } label: {
-                                Image(systemName: "ellipsis")
+                    // 右側雙 icon：雲端 + 三點選單；編輯模式隱藏（List 會出現拖曳把手）
+                    if !isEditing {
+                        VStack {
+                            Spacer(minLength: 0)
+                            HStack(spacing: 18) {
+                                Image(systemName: "cloud")
                                     .font(.system(size: 16))
                                     .foregroundColor(DSColor.textSecondary)
+
+                                Menu {
+                                    Button { onEdit() } label: {
+                                        Label(localized("編輯書籍資訊"), systemImage: "pencil")
+                                    }
+                                    Button(role: .destructive) { onDelete() } label: {
+                                        Label(localized("刪除書籍"), systemImage: "trash")
+                                    }
+                                } label: {
+                                    Image(systemName: "ellipsis")
+                                        .font(.system(size: 16))
+                                        .foregroundColor(DSColor.textSecondary)
+                                }
                             }
+                            .padding(.bottom, 2)
                         }
-                        .padding(.bottom, 2)
                     }
                 }
                 .padding(.vertical, 10)
@@ -631,4 +713,58 @@ struct BookGridCell: View {
         return UIImage(data: data)
     }
 
+}
+
+// MARK: - 批量加入分組 Sheet
+struct BulkAddToGroupSheet: View {
+    let bookCount: Int
+    let onConfirm: (String) -> Void
+
+    @EnvironmentObject private var store: BookStore
+    @Environment(\.presentationMode) private var dismiss
+    @State private var groupInput: String = ""
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text(localized("分組名稱"))) {
+                    TextField(localized("輸入分組名稱（留空＝未分組）"), text: $groupInput)
+                    if !store.allGroups.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(store.allGroups, id: \.self) { g in
+                                    Button(g) { groupInput = g }
+                                        .font(.caption)
+                                        .padding(.horizontal, 10).padding(.vertical, 4)
+                                        .background(groupInput == g ? DSColor.accent.opacity(0.2) : Color.secondary.opacity(0.1))
+                                        .foregroundColor(groupInput == g ? DSColor.accent : DSColor.textSecondary)
+                                        .clipShape(Capsule())
+                                }
+                            }
+                        }
+                    }
+                }
+                Section {
+                    Text(localized("將套用到") + " \(bookCount) " + localized("本書"))
+                        .font(.footnote)
+                        .foregroundColor(DSColor.textSecondary)
+                }
+            }
+            .navigationTitle(localized("加入分組"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(localized("取消")) { dismiss.wrappedValue.dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        onConfirm(groupInput)
+                        dismiss.wrappedValue.dismiss()
+                    } label: {
+                        Text(localized("確定")).font(.body.weight(.semibold))
+                    }
+                }
+            }
+        }
+    }
 }

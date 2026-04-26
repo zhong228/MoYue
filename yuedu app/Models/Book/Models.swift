@@ -1026,6 +1026,23 @@ class BookStore: ObservableObject, BookProvider {
     }
 
     // MARK: 刪除書籍
+    /// 將指定 id 的書籍移到 `targetId` 之前；`targetId == nil` 代表移到最後。
+    /// 用於拖曳排序，會保留多筆移動順序。
+    func moveBooks(ids: [UUID], before targetId: UUID?) {
+        guard !ids.isEmpty else { return }
+        let idSet = Set(ids)
+        // 依目前 books 順序保留 moving 內部相對順序
+        let moving = books.filter { idSet.contains($0.id) }
+        var rest = books.filter { !idSet.contains($0.id) }
+        if let targetId, let idx = rest.firstIndex(where: { $0.id == targetId }) {
+            rest.insert(contentsOf: moving, at: idx)
+        } else {
+            rest.append(contentsOf: moving)
+        }
+        books = rest
+        saveMeta()
+    }
+
     func delete(bookId: UUID) {
         if let idx = books.firstIndex(where: { $0.id == bookId }) {
             let book = books[idx]
