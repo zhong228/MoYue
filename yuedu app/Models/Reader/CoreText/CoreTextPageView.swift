@@ -628,6 +628,12 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
         selectionManager.clear()
         selectedTextForCopy = nil
         interactionOverlay.clearSelection()
+        // 同步關掉「拷貝」menu，否則點掉反白後 menu 會繼續黏在畫面上
+        if #available(iOS 13.0, *) {
+            UIMenuController.shared.hideMenu()
+        } else {
+            UIMenuController.shared.setMenuVisible(false, animated: true)
+        }
     }
 
     private func makeInteractionContext() -> InteractionContext? {

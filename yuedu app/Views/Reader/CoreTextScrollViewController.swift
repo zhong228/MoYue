@@ -25,6 +25,12 @@ final class CoreTextScrollViewController: UIViewController {
     private var pendingInitialCharOffset: Int = 0
     private var displayedCount: Int = 0
 
+    // 文字選取
+    private var selectionChapter: Int?
+    private var anchorIndex: Int?
+    private var focusIndex: Int?
+    private var selectedText: String?
+
     // MARK: - Init
 
     init(engine: CoreTextScrollEngine,
@@ -71,10 +77,125 @@ final class CoreTextScrollViewController: UIViewController {
         tap.cancelsTouchesInView = false
         tableView.addGestureRecognizer(tap)
 
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.4
+        longPress.cancelsTouchesInView = false
+        tableView.addGestureRecognizer(longPress)
+
         bindEngine()
     }
 
-    @objc private func handleTap() { onTap?() }
+    override var canBecomeFirstResponder: Bool { true }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        action == #selector(copy(_:)) && (selectedText?.isEmpty == false)
+    }
+
+    @objc override func copy(_ sender: Any?) {
+        guard let text = selectedText, !text.isEmpty else { return }
+        UIPasteboard.general.string = text
+    }
+
+    @objc private func handleTap() {
+        if anchorIndex != nil || focusIndex != nil {
+            clearSelection()
+            return
+        }
+        onTap?()
+    }
+
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        let point = gesture.location(in: tableView)
+        switch gesture.state {
+        case .began:
+            guard let (cell, chunk, localPoint) = hitTestChunk(at: point) else {
+                clearSelection()
+                return
+            }
+            guard let idx = chunk.stringIndex(atLocalPoint: localPoint) else { return }
+            selectionChapter = chunk.chapterIndex
+            anchorIndex = idx
+            focusIndex = idx
+            refreshSelectionOverlays()
+            _ = cell // 抑制未使用警告
+        case .changed:
+            guard let chapter = selectionChapter,
+                  let (_, chunk, localPoint) = hitTestChunk(at: point),
+                  chunk.chapterIndex == chapter,
+                  let idx = chunk.stringIndex(atLocalPoint: localPoint) else { return }
+            focusIndex = idx
+            refreshSelectionOverlays()
+        case .ended:
+            updateSelectedText()
+            guard let text = selectedText, !text.isEmpty else { clearSelection(); return }
+            becomeFirstResponder()
+            let menuRect = CGRect(x: point.x, y: point.y, width: 1, height: 1)
+            let viewPoint = tableView.convert(menuRect.origin, to: view)
+            UIMenuController.shared.showMenu(
+                from: view,
+                rect: CGRect(origin: viewPoint, size: menuRect.size)
+            )
+            _ = text
+        case .cancelled, .failed:
+            clearSelection()
+        default:
+            break
+        }
+    }
+
+    private func hitTestChunk(at pointInTableView: CGPoint) -> (cell: CoreTextChunkCell, chunk: CoreTextChunk, localPoint: CGPoint)? {
+        guard let path = tableView.indexPathForRow(at: pointInTableView),
+              let cell = tableView.cellForRow(at: path) as? CoreTextChunkCell,
+              let chunk = cell.currentChunk else { return nil }
+        let local = tableView.convert(pointInTableView, to: cell.drawView)
+        return (cell, chunk, local)
+    }
+
+    private var currentSelectionRange: NSRange? {
+        guard let a = anchorIndex, let f = focusIndex else { return nil }
+        let start = min(a, f)
+        let end = max(a, f)
+        return NSRange(location: start, length: end - start + 1)
+    }
+
+    private func refreshSelectionOverlays() {
+        let chapter = selectionChapter
+        let range = currentSelectionRange
+        for cell in tableView.visibleCells.compactMap({ $0 as? CoreTextChunkCell }) {
+            if let chapter = chapter {
+                cell.applySelection(chapterIndex: chapter, chapterRange: range)
+            } else {
+                cell.applySelection(chapterIndex: -1, chapterRange: nil)
+            }
+        }
+    }
+
+    private func updateSelectedText() {
+        guard let chapter = selectionChapter,
+              let range = currentSelectionRange,
+              range.length > 0 else { selectedText = nil; return }
+        // 章節層級的 attributedString 與所有同章 chunk 共享，取任一可見 chunk 即可
+        if let chunk = engine.chunks.first(where: { $0.chapterIndex == chapter }) {
+            let s = chunk.attributedString
+            guard range.location + range.length <= s.length else { selectedText = nil; return }
+            selectedText = (s.string as NSString).substring(with: range)
+        } else {
+            selectedText = nil
+        }
+    }
+
+    private func clearSelection() {
+        selectionChapter = nil
+        anchorIndex = nil
+        focusIndex = nil
+        selectedText = nil
+        refreshSelectionOverlays()
+        if #available(iOS 13.0, *) {
+            UIMenuController.shared.hideMenu()
+        } else {
+            UIMenuController.shared.setMenuVisible(false, animated: true)
+        }
+    }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
@@ -263,6 +384,10 @@ extension CoreTextScrollViewController: UITableViewDataSource, UITableViewDelega
     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
         guard indexPath.row < engine.chunks.count else { return }
         engine.chunks[indexPath.row].materializeFrameIfNeeded()
+        // 補上選取反白（捲到新 cell 時）
+        if let chunkCell = cell as? CoreTextChunkCell, let chapter = selectionChapter {
+            chunkCell.applySelection(chapterIndex: chapter, chapterRange: currentSelectionRange)
+        }
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
