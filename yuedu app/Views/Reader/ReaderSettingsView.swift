@@ -30,6 +30,10 @@ struct ReaderSettingsView: View {
         Color(red: 82 / 255, green: 99 / 255, blue: 84 / 255)
     }
 
+    private let previewTextHeight: CGFloat = 92
+    private let previewTextHorizontalPadding: CGFloat = 14
+    private let previewTextVerticalPadding: CGFloat = 10
+
     private enum MarginPreset: String, CaseIterable, Hashable {
         case narrow
         case medium
@@ -51,13 +55,6 @@ struct ReaderSettingsView: View {
             }
         }
 
-        var vertical: CGFloat {
-            switch self {
-            case .narrow: return 12
-            case .medium: return 16
-            case .wide: return 24
-            }
-        }
     }
 
     var body: some View {
@@ -236,9 +233,10 @@ struct ReaderSettingsView: View {
                 .tracking(readerConfig.letterSpacing)
                 .foregroundStyle(theme.textColor)
                 .lineLimit(3)
-                .padding(.horizontal, max(14, readerConfig.pageMarginH * 0.35))
-                .padding(.vertical, max(10, readerConfig.pageMarginV * 0.65))
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, previewTextHorizontalPadding)
+                .padding(.vertical, previewTextVerticalPadding)
+                .frame(maxWidth: .infinity, minHeight: previewTextHeight, maxHeight: previewTextHeight, alignment: .topLeading)
+                .clipped()
                 .background(theme.backgroundColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .padding(14)
@@ -339,14 +337,6 @@ struct ReaderSettingsView: View {
                 range: 8...48,
                 step: 2
             )
-
-            ValueSliderRow(
-                title: localized("上下"),
-                valueText: "\(Int(readerConfig.pageMarginV))",
-                value: $readerConfig.pageMarginV,
-                range: 8...48,
-                step: 2
-            )
         }
     }
 
@@ -371,7 +361,7 @@ struct ReaderSettingsView: View {
         Binding(
             get: { closestMarginPreset() },
             set: { preset in
-                setMargin(horizontal: preset.horizontal, vertical: preset.vertical)
+                readerConfig.pageMarginH = preset.horizontal
             }
         )
     }
@@ -447,16 +437,9 @@ struct ReaderSettingsView: View {
         settings.readerBrightness = Double(UIScreen.main.brightness)
     }
 
-    private func setMargin(horizontal: CGFloat, vertical: CGFloat) {
-        readerConfig.pageMarginH = horizontal
-        readerConfig.pageMarginV = vertical
-    }
-
     private func closestMarginPreset() -> MarginPreset {
         MarginPreset.allCases.min { lhs, rhs in
-            let lhsDistance = abs(readerConfig.pageMarginH - lhs.horizontal) + abs(readerConfig.pageMarginV - lhs.vertical)
-            let rhsDistance = abs(readerConfig.pageMarginH - rhs.horizontal) + abs(readerConfig.pageMarginV - rhs.vertical)
-            return lhsDistance < rhsDistance
+            abs(readerConfig.pageMarginH - lhs.horizontal) < abs(readerConfig.pageMarginH - rhs.horizontal)
         } ?? .medium
     }
 
