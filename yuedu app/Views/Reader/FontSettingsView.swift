@@ -7,6 +7,7 @@ struct FontSettingsView: View {
     @Binding var theme: ReaderTheme
     var capabilities: ReaderCapabilities = .reflowableText
     var allowsUserSelectedReaderFont = false
+    var allowsVerticalWritingMode = false
     @StateObject private var readerConfig = ReaderConfig.shared
     @ObservedObject private var settings = GlobalSettings.shared
     @ObservedObject private var gs = GlobalSettings.shared
@@ -201,11 +202,48 @@ struct FontSettingsView: View {
                         header: Text(localized("閱讀模式")),
                         footer: Text(localized(settings.scrollMode ? "上下滾動，連續閱讀" : "左右翻頁，按頁左右切換"))
                     ) {
-                        Picker(localized("閱讀模式"), selection: $settings.scrollMode) {
+                        Picker(
+                            localized("閱讀模式"),
+                            selection: Binding(
+                                get: { settings.scrollMode },
+                                set: { scrollMode in
+                                    settings.scrollMode = scrollMode
+                                    if scrollMode {
+                                        settings.readerWritingMode = .horizontal
+                                    }
+                                    readerConfig.refresh.send(.layout)
+                                }
+                            )
+                        ) {
                             Text(localized("左右翻頁")).tag(false)
                             Text(localized("上下滾動")).tag(true)
                         }
                         .pickerStyle(.menu)
+                    }
+                }
+
+                if supportsLineHeight && allowsVerticalWritingMode {
+                    Section(
+                        header: Text(localized("排版方向")),
+                        footer: Text(localized(settings.readerWritingMode.isVertical ? "直排目前使用左右翻頁" : "橫排支援翻頁與滾動"))
+                    ) {
+                        Picker(
+                            localized("排版方向"),
+                            selection: Binding(
+                                get: { settings.readerWritingMode },
+                                set: { mode in
+                                    settings.readerWritingMode = mode
+                                    if mode.isVertical {
+                                        settings.scrollMode = false
+                                    }
+                                    readerConfig.refresh.send(.layout)
+                                }
+                            )
+                        ) {
+                            Text(localized("橫排")).tag(ReaderWritingMode.horizontal)
+                            Text(localized("直排")).tag(ReaderWritingMode.verticalRTL)
+                        }
+                        .pickerStyle(.segmented)
                     }
                 }
 

@@ -135,20 +135,29 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
             height: max(1, layoutSize.height - insets.top - insets.bottom)
         )
         let path = CGPath(rect: contentPathRect, transform: nil)
-        let frame = CTFramesetterCreateFrame(layout.framesetter, range, path, nil)
+        let frame = CoreTextPaginator.makeFrame(
+            framesetter: layout.framesetter,
+            range: range,
+            path: path,
+            writingMode: layout.writingMode
+        )
         // Collect ranges that will be redrawn by drawBlockRenderableText so drawLines can skip them.
         let suppressedRanges = (layout.blockRenderables[pageIndex] ?? [])
             .flatMap { $0.attributedText != nil ? $0.sourceRanges : [] }
-        drawLines(
-            of: frame,
-            contentWidth: contentPathRect.width,
-            contentMinX: contentPathRect.minX,
-            contentMinY: contentPathRect.minY,
-            isLastPage: pageIndex == layout.pageRanges.count - 1,
-            attrStr: layout.attributedString,
-            suppressedRanges: suppressedRanges,
-            in: ctx
-        )
+        if layout.writingMode.isVertical {
+            CTFrameDraw(frame, ctx)
+        } else {
+            drawLines(
+                of: frame,
+                contentWidth: contentPathRect.width,
+                contentMinX: contentPathRect.minX,
+                contentMinY: contentPathRect.minY,
+                isLastPage: pageIndex == layout.pageRanges.count - 1,
+                attrStr: layout.attributedString,
+                suppressedRanges: suppressedRanges,
+                in: ctx
+            )
+        }
 
         // Phase 3: flip-back 後統一用 UIImage.draw() 繪製所有圖片
         // UIImage.draw() 需要 UIKit 標準環境（左上原點，Y 向下）
@@ -639,6 +648,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
     private func makeInteractionContext() -> InteractionContext? {
         guard let layout,
               localPageIndex < layout.pageRanges.count,
+              !layout.writingMode.isVertical,
               bounds.width > 0,
               bounds.height > 0
         else {
@@ -658,7 +668,12 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
         )
         let range = layout.pageRanges[localPageIndex]
         let path = CGPath(rect: contentPathRect, transform: nil)
-        let frame = CTFramesetterCreateFrame(layout.framesetter, range, path, nil)
+        let frame = CoreTextPaginator.makeFrame(
+            framesetter: layout.framesetter,
+            range: range,
+            path: path,
+            writingMode: layout.writingMode
+        )
         let lines = CTFrameGetLines(frame) as! [CTLine]
         var origins = [CGPoint](repeating: .zero, count: lines.count)
         CTFrameGetLineOrigins(frame, CFRangeMake(0, lines.count), &origins)

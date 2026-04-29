@@ -254,7 +254,8 @@ final class TXTPageEngine: PageRenderingProvider {
             lineSpacing: renderSettings.lineSpacing,
             paragraphSpacing: renderSettings.paragraphSpacing,
             letterSpacing: renderSettings.letterSpacing,
-            contentInsets: renderSettings.contentInsets
+            contentInsets: renderSettings.contentInsets,
+            writingMode: renderSettings.writingMode
         )
         let layout = await paginationManager.paginate(request).layout
         guard !shouldAbortPreload(generation: generation) else { return }

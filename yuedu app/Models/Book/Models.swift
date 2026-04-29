@@ -458,6 +458,23 @@ struct ReaderRenderSettings: Equatable {
     let marginV: CGFloat
     let footerHeight: CGFloat
     let contentInsets: UIEdgeInsets
+    var writingMode: ReaderWritingMode = .horizontal
+}
+
+enum ReaderWritingMode: String, CaseIterable, Codable {
+    case horizontal
+    case verticalRTL
+
+    var isVertical: Bool {
+        self == .verticalRTL
+    }
+}
+
+extension ReadingBook {
+    var allowsVerticalWritingMode: Bool {
+        if isOnline { return true }
+        return resolvedPipelineKind == .txt
+    }
 }
 
 enum ReaderLayoutMetrics {

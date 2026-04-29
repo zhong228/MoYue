@@ -45,6 +45,7 @@ final class CoreTextPaginator {
         let fontSize: CGFloat
         /// 排版時使用的四邊邊距（UIEdgeInsets；CoreText path 已按此偏移）
         let contentInsets: UIEdgeInsets
+        var writingMode: ReaderWritingMode = .horizontal
 
         /// 僅更新文字顏色，不重新分頁（顏色不影響換行）。
         /// CSS 明確指定前景色（帶 cssSpecifiedForegroundColorAttribute 標記）的 range 保留原色；
@@ -92,7 +93,8 @@ final class CoreTextPaginator {
                 anchorOffsets: anchorOffsets,
                 renderSize: renderSize,
                 fontSize: fontSize,
-                contentInsets: contentInsets
+                contentInsets: contentInsets,
+                writingMode: writingMode
             )
         }
     }
@@ -114,6 +116,7 @@ final class CoreTextPaginator {
         let lineSpacing: CGFloat
         let paragraphSpacing: CGFloat
         let letterSpacing: CGFloat
+        let writingMode: ReaderWritingMode
     }
 
     // MARK: - 公開 API
@@ -129,7 +132,8 @@ final class CoreTextPaginator {
         lineSpacing: CGFloat = 0,
         paragraphSpacing: CGFloat = 0,
         letterSpacing: CGFloat = 0,
-        contentInsets: UIEdgeInsets = .zero
+        contentInsets: UIEdgeInsets = .zero,
+        writingMode: ReaderWritingMode = .horizontal
     ) async -> ChapterLayout {
         let key = CacheKey(spineIndex: spineIndex,
                            width: renderSize.width,
@@ -139,7 +143,8 @@ final class CoreTextPaginator {
                            marginV: contentInsets.top,
                            lineSpacing: lineSpacing,
                            paragraphSpacing: paragraphSpacing,
-                           letterSpacing: letterSpacing)
+                           letterSpacing: letterSpacing,
+                           writingMode: writingMode)
         if let cached = cache[key] { return cached }
 
         let layout = await Task.detached(priority: .userInitiated) {
@@ -150,7 +155,8 @@ final class CoreTextPaginator {
                                anchorOffsets: anchorOffsets,
                                renderSize: renderSize,
                                fontSize: fontSize,
-                               contentInsets: contentInsets)
+                               contentInsets: contentInsets,
+                               writingMode: writingMode)
         }.value
 
         cache[key] = layout
@@ -177,8 +183,10 @@ final class CoreTextPaginator {
         anchorOffsets: [String: Int],
         renderSize: CGSize,
         fontSize: CGFloat,
-        contentInsets: UIEdgeInsets
+        contentInsets: UIEdgeInsets,
+        writingMode: ReaderWritingMode
     ) -> ChapterLayout {
+        let attrStr = preparedAttributedString(attrStr, writingMode: writingMode)
         // 有效內容區域（UIKit 座標：左上角原點）
         let contentRect = CGRect(
             x: contentInsets.left,
@@ -213,7 +221,8 @@ final class CoreTextPaginator {
                 anchorOffsets: anchorOffsets,
                 renderSize: renderSize,
                 fontSize: fontSize,
-                contentInsets: contentInsets
+                contentInsets: contentInsets,
+                writingMode: writingMode
             )
         }
 
@@ -225,11 +234,18 @@ final class CoreTextPaginator {
 
         while currentLocation < attrStr.length {
             let searchRange = CFRangeMake(currentLocation, 0)
-            let frame = CTFramesetterCreateFrame(framesetter, searchRange, pagePath, nil)
+            let frame = makeFrame(framesetter: framesetter, range: searchRange, path: pagePath, writingMode: writingMode)
             let visibleRange = CTFrameGetVisibleStringRange(frame)
 
             // 防止無限迴圈：若 visibleRange.length == 0，強制前進一個字符
-            let advance = visibleRange.length > 0 ? visibleRange.length : 1
+            let proposedAdvance = visibleRange.length > 0 ? visibleRange.length : 1
+            let proposedEnd = currentLocation + proposedAdvance
+            let protectedEnd = CJKTypographyProcessor.protectedLineBreakOffset(
+                proposedEnd,
+                in: attrStr.string,
+                lowerBound: currentLocation
+            )
+            let advance = max(1, protectedEnd - currentLocation)
             pageRanges.append(CFRangeMake(currentLocation, advance))
             currentLocation += advance
         }
@@ -238,7 +254,8 @@ final class CoreTextPaginator {
             framesetter: framesetter,
             pageRanges: &pageRanges,
             attrStr: attrStr,
-            contentPathRect: contentPathRect
+            contentPathRect: contentPathRect,
+            writingMode: writingMode
         )
 
         let (inlineAttachments, blockAttachments, pageKinds) = extractImages(
@@ -246,14 +263,16 @@ final class CoreTextPaginator {
             pageRanges: pageRanges,
             renderSize: renderSize,
             contentPathRect: contentPathRect,
-            attrStr: attrStr
+            attrStr: attrStr,
+            writingMode: writingMode
         )
         let blockRenderables = extractBlockRenderables(
             framesetter: framesetter,
             pageRanges: pageRanges,
             contentPathRect: contentPathRect,
             renderSize: renderSize,
-            attrStr: attrStr
+            attrStr: attrStr,
+            writingMode: writingMode
         )
 
         return ChapterLayout(
@@ -269,8 +288,45 @@ final class CoreTextPaginator {
             anchorOffsets: anchorOffsets,
             renderSize: renderSize,
             fontSize: fontSize,
-            contentInsets: contentInsets
+            contentInsets: contentInsets,
+            writingMode: writingMode
         )
+    }
+
+    static func frameAttributes(for writingMode: ReaderWritingMode) -> [String: Any] {
+        switch writingMode {
+        case .horizontal:
+            return [:]
+        case .verticalRTL:
+            return [
+                kCTFrameProgressionAttributeName as String: Int(CTFrameProgression.rightToLeft.rawValue)
+            ]
+        }
+    }
+
+    static func makeFrame(
+        framesetter: CTFramesetter,
+        range: CFRange,
+        path: CGPath,
+        writingMode: ReaderWritingMode
+    ) -> CTFrame {
+        let attributes = frameAttributes(for: writingMode)
+        let frameAttributes = attributes.isEmpty ? nil : attributes as CFDictionary
+        return CTFramesetterCreateFrame(framesetter, range, path, frameAttributes)
+    }
+
+    private static func preparedAttributedString(
+        _ attrStr: NSAttributedString,
+        writingMode: ReaderWritingMode
+    ) -> NSAttributedString {
+        guard writingMode.isVertical, attrStr.length > 0 else { return attrStr }
+        let mutable = NSMutableAttributedString(attributedString: attrStr)
+        mutable.addAttribute(
+            NSAttributedString.Key(kCTVerticalFormsAttributeName as String),
+            value: true,
+            range: NSRange(location: 0, length: mutable.length)
+        )
+        return mutable
     }
 
     /// 孤行控制：
@@ -280,7 +336,8 @@ final class CoreTextPaginator {
         framesetter: CTFramesetter,
         pageRanges: inout [CFRange],
         attrStr: NSAttributedString,
-        contentPathRect: CGRect
+        contentPathRect: CGRect,
+        writingMode: ReaderWritingMode
     ) {
         guard pageRanges.count > 1 else { return }
         let nsString = attrStr.string as NSString
@@ -290,7 +347,7 @@ final class CoreTextPaginator {
         // Pass 1: Orphan — 上一頁末行是段落首行
         var i = 0
         while i < pageRanges.count - 1 {
-            let frame = CTFramesetterCreateFrame(framesetter, pageRanges[i], pagePath, nil)
+            let frame = makeFrame(framesetter: framesetter, range: pageRanges[i], path: pagePath, writingMode: writingMode)
             let lines = CTFrameGetLines(frame) as! [CTLine]
             guard lines.count >= 2, let lastLine = lines.last else { i += 1; continue }
             let lastRange = CTLineGetStringRange(lastLine)
@@ -315,7 +372,7 @@ final class CoreTextPaginator {
         // Pass 2: Widow — 下一頁首行是段落末行（且該頁有 ≥2 行）
         for j in 1..<pageRanges.count {
             guard pageRanges[j].length > 0 else { continue }
-            let frame = CTFramesetterCreateFrame(framesetter, pageRanges[j], pagePath, nil)
+            let frame = makeFrame(framesetter: framesetter, range: pageRanges[j], path: pagePath, writingMode: writingMode)
             let lines = CTFrameGetLines(frame) as! [CTLine]
             guard lines.count >= 2 else { continue }
             let firstRange = CTLineGetStringRange(lines[0])
@@ -326,7 +383,7 @@ final class CoreTextPaginator {
                 || nsString.character(at: checkIdx) == 0x2029
             guard isWidow else { continue }
             // 把上一頁末行移到這頁
-            let prevFrame = CTFramesetterCreateFrame(framesetter, pageRanges[j - 1], pagePath, nil)
+            let prevFrame = makeFrame(framesetter: framesetter, range: pageRanges[j - 1], path: pagePath, writingMode: writingMode)
             let prevLines = CTFrameGetLines(prevFrame) as! [CTLine]
             guard prevLines.count >= 2, let prevLast = prevLines.last else { continue }
             let prevLastRange = CTLineGetStringRange(prevLast)
@@ -343,7 +400,8 @@ final class CoreTextPaginator {
         pageRanges: [CFRange],
         renderSize: CGSize,
         contentPathRect: CGRect,
-        attrStr: NSAttributedString
+        attrStr: NSAttributedString,
+        writingMode: ReaderWritingMode
     ) -> (inline: [Int: [RenderedAttachment]], block: [Int: [RenderedAttachment]], kinds: [PageKind]) {
         let pagePath = CGPath(rect: contentPathRect, transform: nil)
         var inlineAttachments: [Int: [RenderedAttachment]] = [:]
@@ -352,7 +410,7 @@ final class CoreTextPaginator {
         let delegateKey = NSAttributedString.Key(kCTRunDelegateAttributeName as String)
 
         for (pageIdx, range) in pageRanges.enumerated() { autoreleasepool {
-            let frame = CTFramesetterCreateFrame(framesetter, range, pagePath, nil)
+            let frame = makeFrame(framesetter: framesetter, range: range, path: pagePath, writingMode: writingMode)
             let lines = CTFrameGetLines(frame) as! [CTLine]
             var origins = [CGPoint](repeating: .zero, count: lines.count)
             CTFrameGetLineOrigins(frame, CFRangeMake(0, lines.count), &origins)
@@ -477,13 +535,14 @@ final class CoreTextPaginator {
         pageRanges: [CFRange],
         contentPathRect: CGRect,
         renderSize: CGSize,
-        attrStr: NSAttributedString
+        attrStr: NSAttributedString,
+        writingMode: ReaderWritingMode
     ) -> [Int: [RenderedBlockRenderable]] {
         let pagePath = CGPath(rect: contentPathRect, transform: nil)
         var pageRenderables: [Int: [RenderedBlockRenderable]] = [:]
 
         for (pageIdx, range) in pageRanges.enumerated() { autoreleasepool {
-            let frame = CTFramesetterCreateFrame(framesetter, range, pagePath, nil)
+            let frame = makeFrame(framesetter: framesetter, range: range, path: pagePath, writingMode: writingMode)
             let lines = CTFrameGetLines(frame) as! [CTLine]
             guard !lines.isEmpty else { return }
 

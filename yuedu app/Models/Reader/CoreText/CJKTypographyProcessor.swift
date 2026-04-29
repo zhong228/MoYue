@@ -47,6 +47,34 @@ enum CJKTypographyProcessor {
         return closingMarks.contains(first)
     }
 
+    static func protectedLineBreakOffset(
+        _ proposedOffset: Int,
+        in string: String,
+        lowerBound: Int
+    ) -> Int {
+        let nsString = string as NSString
+        let length = nsString.length
+        guard length > 0 else { return proposedOffset }
+
+        var adjusted = min(max(proposedOffset, lowerBound), length)
+        adjusted = avoidSurrogateSplit(at: adjusted, in: nsString, lowerBound: lowerBound)
+
+        if adjusted < length,
+           let next = unicodeScalar(atUTF16Offset: adjusted, in: string),
+           lineStartForbidden.contains(next),
+           adjusted > lowerBound {
+            adjusted = avoidSurrogateSplit(at: adjusted - 1, in: nsString, lowerBound: lowerBound)
+        }
+
+        if adjusted > lowerBound,
+           let previous = unicodeScalar(beforeUTF16Offset: adjusted, in: string),
+           lineEndForbidden.contains(previous) {
+            adjusted = avoidSurrogateSplit(at: adjusted - previous.utf16.count, in: nsString, lowerBound: lowerBound)
+        }
+
+        return max(lowerBound, adjusted)
+    }
+
     /// 對 `attrStr` 套用 CJK 標點擠壓與中英混排間距，回傳修改後的副本。
     static func apply(to attrStr: NSAttributedString) -> NSAttributedString {
         guard attrStr.length > 1 else { return attrStr }
@@ -108,6 +136,33 @@ enum CJKTypographyProcessor {
         let range = NSRange(location: utf16Offset, length: 1)
         let existing = mutable.attribute(.kern, at: utf16Offset, effectiveRange: nil) as? CGFloat ?? 0
         mutable.addAttribute(.kern, value: existing + delta, range: range)
+    }
+
+    private static func avoidSurrogateSplit(
+        at offset: Int,
+        in nsString: NSString,
+        lowerBound: Int
+    ) -> Int {
+        guard offset > lowerBound, offset < nsString.length else { return offset }
+        let previous = nsString.character(at: offset - 1)
+        let current = nsString.character(at: offset)
+        if CFStringIsSurrogateHighCharacter(previous) && CFStringIsSurrogateLowCharacter(current) {
+            return offset - 1
+        }
+        return offset
+    }
+
+    private static func unicodeScalar(atUTF16Offset offset: Int, in string: String) -> Unicode.Scalar? {
+        let index = String.Index(utf16Offset: offset, in: string)
+        guard index < string.endIndex else { return nil }
+        return string[index].unicodeScalars.first
+    }
+
+    private static func unicodeScalar(beforeUTF16Offset offset: Int, in string: String) -> Unicode.Scalar? {
+        guard offset > 0 else { return nil }
+        let index = String.Index(utf16Offset: offset, in: string)
+        guard index > string.startIndex else { return nil }
+        return string[string.index(before: index)].unicodeScalars.first
     }
 
     private static func shouldApplyCJKLatinSpacing(

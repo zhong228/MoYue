@@ -24,6 +24,7 @@ enum ReaderTheme: String, CaseIterable {
     case night = "夜間"
 
     private static let userDefaultsKey = "yd_reader_theme"
+    private static let lastLightThemeKey = "lastLightTheme"
 
     static func loadPersisted() -> ReaderTheme {
         let raw = UserDefaults.standard.string(forKey: userDefaultsKey) ?? ""
@@ -32,6 +33,9 @@ enum ReaderTheme: String, CaseIterable {
 
     func persist() {
         UserDefaults.standard.set(rawValue, forKey: Self.userDefaultsKey)
+        if self != .night {
+            UserDefaults.standard.set(rawValue, forKey: Self.lastLightThemeKey)
+        }
     }
 
     var backgroundColor: Color {
@@ -209,6 +213,9 @@ class GlobalSettings: ObservableObject {
     @Published var pageTurnStyle: PageTurnStyle {
         didSet { UserDefaults.standard.set(pageTurnStyle.rawValue, forKey: "yd_page_turn_style") }
     }
+    @Published var readerWritingMode: ReaderWritingMode {
+        didSet { UserDefaults.standard.set(readerWritingMode.rawValue, forKey: "yd_reader_writing_mode") }
+    }
     @Published var selectedReaderFontPostScript: String? {
         didSet {
             if let selectedReaderFontPostScript, !selectedReaderFontPostScript.isEmpty {
@@ -326,6 +333,8 @@ class GlobalSettings: ObservableObject {
             (UserDefaults.standard.object(forKey: "yd_page_margin_v") as? Double) ?? 16.0
         let rawPageTurn = UserDefaults.standard.string(forKey: "yd_page_turn_style") ?? ""
         pageTurnStyle = PageTurnStyle(rawValue: rawPageTurn) ?? .slide
+        let rawWritingMode = UserDefaults.standard.string(forKey: "yd_reader_writing_mode") ?? ""
+        readerWritingMode = ReaderWritingMode(rawValue: rawWritingMode) ?? .horizontal
         selectedReaderFontPostScript = UserDefaults.standard.string(forKey: "yd_reader_font_postscript")
         if let fontData = UserDefaults.standard.data(forKey: "yd_user_fonts"),
            let decodedFonts = try? JSONDecoder().decode([UserFontInfo].self, from: fontData) {

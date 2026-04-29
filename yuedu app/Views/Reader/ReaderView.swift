@@ -472,6 +472,7 @@ struct ReaderView: View {
                 CoreTextPageEngineView(
                     engine: ctEngine,
                     pageTurnStyle: settings.pageTurnStyle,
+                    theme: readerTheme,
                     currentPage: $currentPage,
                     onPageChanged: { newPage in
                         let newChapter = ctEngine.charOffset(forPage: newPage).spineIndex
@@ -681,22 +682,25 @@ struct ReaderView: View {
                 hasLoggedCurlInteractiveReady = false
             }
         }
+        .onChange(of: settings.readerWritingMode) { _ in
+            handleReaderConfigRefresh(.layout)
+        }
         .onChange(of: scrollVisibleChapter) { _ in
             autoSaveProgress()
         }
         .sheet(isPresented: $showSettings) {
             AdaptiveSheetContainer(maxWidth: 760) {
-                FontSettingsView(
+                ReaderSettingsView(
                     fontSize: Binding(
-                        get: { readerConfig.fontSize },
-                        set: { readerConfig.fontSize = $0 }
+                        get: { fontSize },
+                        set: { fontSize = $0 }
                     ),
                     theme: Binding(
-                        get: { readerConfig.theme },
-                        set: { readerConfig.theme = $0 }
+                        get: { readerTheme },
+                        set: { readerTheme = $0 }
                     ),
                     capabilities: readerCapabilities,
-                    allowsUserSelectedReaderFont: book?.allowsUserSelectedReaderFont ?? false
+                    allowsUserSelectedReaderFont: book?.allowsUserSelectedReaderFont == true
                 )
             }
         }
@@ -1125,8 +1129,17 @@ struct ReaderView: View {
                 left: effectivePageMarginH,
                 bottom: readerConfig.pageMarginV,
                 right: effectivePageMarginH
-            )
+            ),
+            writingMode: effectiveWritingMode
         )
+    }
+
+    private var effectiveWritingMode: ReaderWritingMode {
+        guard !settings.scrollMode,
+              book?.allowsVerticalWritingMode == true else {
+            return .horizontal
+        }
+        return settings.readerWritingMode
     }
 
     private var legacyScrollBody: some View {
@@ -1906,7 +1919,8 @@ struct ReaderView: View {
             marginH: marginH,
             marginV: systemVerticalPadding,
             footerHeight: footerOverlayHeight,
-            contentInsets: UIEdgeInsets(top: topInset, left: marginH, bottom: bottomInset, right: marginH)
+            contentInsets: UIEdgeInsets(top: topInset, left: marginH, bottom: bottomInset, right: marginH),
+            writingMode: effectiveWritingMode
         )
     }
 
@@ -2711,6 +2725,7 @@ private struct HideTabBarModifier: ViewModifier {
 private struct CoreTextPageEngineView: UIViewControllerRepresentable {
     let engine: any PageRenderingProvider
     let pageTurnStyle: PageTurnStyle
+    let theme: ReaderTheme
     @Binding var currentPage: Int
     let onPageChanged: (Int) -> Void
     let onTapZone: (String) -> Void
@@ -2781,6 +2796,17 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         context.coordinator.currentEngine = engine
         context.coordinator.bindEngineCallbacks(to: engine, pageViewController: uiViewController)
         let clampedPage = max(0, min(currentPage, max(engine.totalPages - 1, 0)))
+        if context.coordinator.currentTheme != theme {
+            context.coordinator.currentTheme = theme
+            engine.applyThemeChange(
+                textColor: UIColor(theme.textColor),
+                backgroundColor: UIColor(theme.backgroundColor)
+            )
+            let targetVC = engine.pageViewController(at: clampedPage)
+            uiViewController.setViewControllers([targetVC], direction: .forward, animated: false)
+            _ = context.coordinator.syncStablePosition(afterShowing: targetVC, notifyFallback: true)
+            return
+        }
 
         if let visible = uiViewController.viewControllers?.first as? (any PageIndexProviding & UIViewController) {
             guard visible.globalPageIndex != clampedPage else { return }
@@ -2849,6 +2875,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         Coordinator(
             engine: engine,
             pageTurnStyle: pageTurnStyle,
+            theme: theme,
             currentPage: $currentPage,
             onPageChanged: onPageChanged,
             onTapZone: onTapZone
@@ -2861,6 +2888,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
     {
         var currentEngine: any PageRenderingProvider
         let pageTurnStyle: PageTurnStyle
+        var currentTheme: ReaderTheme
         @Binding var currentPage: Int
         let onPageChanged: (Int) -> Void
         let onTapZone: (String) -> Void
@@ -2885,11 +2913,13 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
 
         init(engine: any PageRenderingProvider,
              pageTurnStyle: PageTurnStyle,
+             theme: ReaderTheme,
              currentPage: Binding<Int>,
              onPageChanged: @escaping (Int) -> Void,
              onTapZone: @escaping (String) -> Void) {
             self.currentEngine = engine
             self.pageTurnStyle = pageTurnStyle
+            self.currentTheme = theme
             self._currentPage = currentPage
             self.onPageChanged = onPageChanged
             self.onTapZone = onTapZone
