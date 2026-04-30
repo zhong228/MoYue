@@ -368,8 +368,11 @@
 "最近閱讀" = "Recently Read";
 "手動" = "Manual";
 "字體" = "Font";
+"字體選單" = "Font Menu";
 "系統字體" = "System Font";
+"已匯入字體" = "Imported Fonts";
 "匯入字體..." = "Import Font...";
+"刪除字體" = "Delete Font";
 "字體匯入失敗" = "Font Import Failed";
 "僅支援 TTF 或 OTF 字體" = "Only TTF and OTF fonts are supported";
 "無法讀取字體檔案" = "Could not read the font file";
@@ -380,11 +383,14 @@
 "直排目前使用左右翻頁" = "Vertical writing currently uses page turning";
 "橫排支援翻頁與滾動" = "Horizontal writing supports paging and scrolling";
 "閱讀外觀" = "Reading Appearance";
+"常用" = "Common";
 "頁面與主題" = "Page and Theme";
 "字體與排版" = "Font and Layout";
+"排版細節" = "Layout Details";
 "預覽" = "Preview";
 "夜雨剪春韭，新炊間黃粱。書頁展開時，字與紙都應該安靜下來，讓閱讀本身成為畫面中心。" = "When the page opens, the words and paper should settle quietly so reading stays at the center.";
 "主題" = "Theme";
+"背景" = "Background";
 "白天" = "Day";
 "護眼" = "Sepia";
 "夜間" = "Night";
@@ -399,7 +405,10 @@
 "原文" = "Original";
 "繁體" = "Traditional";
 "简体" = "Simplified";
+"翻頁" = "Page Turn";
 "滑動" = "Slide";
+"覆蓋" = "Cover";
+"仿真" = "Curl";
 "覆蓋翻頁" = "Cover";
 "仿真翻書" = "Page Curl";
 "無動畫" = "None";

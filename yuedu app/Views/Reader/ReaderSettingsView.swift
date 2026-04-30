@@ -27,12 +27,30 @@ struct ReaderSettingsView: View {
     }
 
     private var readerTint: Color {
-        Color(red: 82 / 255, green: 99 / 255, blue: 84 / 255)
+        Color(uiColor: .systemBlue)
     }
 
     private let previewTextHeight: CGFloat = 92
     private let previewTextHorizontalPadding: CGFloat = 14
     private let previewTextVerticalPadding: CGFloat = 10
+
+    private enum PageTurnOption: String, CaseIterable, Hashable {
+        case slide
+        case cover
+        case curl
+        case scroll
+        case none
+
+        var titleKey: String {
+            switch self {
+            case .slide: return "滑動"
+            case .cover: return "覆蓋"
+            case .curl: return "仿真"
+            case .scroll: return "上下"
+            case .none: return "無動畫"
+            }
+        }
+    }
 
     private enum MarginPreset: String, CaseIterable, Hashable {
         case narrow
@@ -63,29 +81,21 @@ struct ReaderSettingsView: View {
                 VStack(spacing: 14) {
                     previewCard
 
-                    if supportsBackground || supportsLineHeight {
-                        SettingSectionCard(title: localized("頁面與主題"), systemImage: "rectangle.on.rectangle") {
-                            if supportsBackground {
-                                themeSelector
-                            }
-
-                            if supportsBackground && supportsLineHeight {
-                                Divider().opacity(0.5)
-                            }
-
-                            if supportsLineHeight {
-                                marginSelector
-                            }
-                        }
-                    }
-
-                    if supportsFontSize || supportsSpacing || supportsUserFont {
-                        SettingSectionCard(title: localized("字體與排版"), systemImage: "textformat.size") {
+                    SettingSectionCard(title: localized("常用"), systemImage: "slider.horizontal.3") {
+                        VStack(spacing: 14) {
                             if supportsUserFont {
                                 fontSelector
                             }
 
-                            if supportsUserFont && (supportsFontSize || supportsSpacing) {
+                            if supportsUserFont && (supportsBackground || supportsFontSize || supportsLineHeight) {
+                                Divider().opacity(0.5)
+                            }
+
+                            if supportsBackground {
+                                themeSelector
+                            }
+
+                            if supportsBackground && (supportsFontSize || supportsLineHeight) {
                                 Divider().opacity(0.5)
                             }
 
@@ -99,6 +109,23 @@ struct ReaderSettingsView: View {
                                 )
                             }
 
+                            if supportsFontSize && supportsLineHeight {
+                                Divider().opacity(0.5)
+                            }
+
+                            if supportsLineHeight {
+                                SegmentedPickerRow(
+                                    title: localized("翻頁"),
+                                    selection: pageTurnOptionBinding,
+                                    items: PageTurnOption.allCases,
+                                    titleProvider: { localized($0.titleKey) }
+                                )
+                            }
+                        }
+                    }
+
+                    if supportsSpacing || supportsLineHeight {
+                        SettingSectionCard(title: localized("排版細節"), systemImage: "text.alignleft") {
                             if supportsSpacing {
                                 VStack(spacing: 14) {
                                     ValueSliderRow(
@@ -126,33 +153,14 @@ struct ReaderSettingsView: View {
                                     )
                                 }
                             }
-                        }
-                    }
 
-                    SettingSectionCard(title: localized("閱讀方式"), systemImage: "book.pages") {
-                        SegmentedPickerRow(
-                            title: localized("文字轉換"),
-                            selection: textConversionBinding,
-                            items: TextConversion.allCases,
-                            titleProvider: { localized($0.rawValue) }
-                        )
+                            if supportsSpacing && supportsLineHeight {
+                                Divider().opacity(0.5)
+                            }
 
-                        if supportsLineHeight {
-                            SegmentedPickerRow(
-                                title: localized("閱讀模式"),
-                                selection: scrollModeBinding,
-                                items: [false, true],
-                                titleProvider: { localized($0 ? "上下滾動" : "左右翻頁") }
-                            )
-                        }
-
-                        if !settings.scrollMode && supportsLineHeight {
-                            MenuPickerRow(
-                                title: localized("翻頁動畫"),
-                                selection: $settings.pageTurnStyle,
-                                items: PageTurnStyle.allCases,
-                                titleProvider: { localized($0.rawValue) }
-                            )
+                            if supportsLineHeight {
+                                marginSelector
+                            }
                         }
                     }
 
@@ -213,22 +221,22 @@ struct ReaderSettingsView: View {
     }
 
     private var previewCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text(localized("預覽"))
-                    .font(.subheadline)
+                    .font(.headline)
                     .foregroundStyle(theme.textColor.opacity(0.85))
                 Spacer()
                 Text(localized(theme.rawValue))
-                    .font(.caption)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
                     .background(theme.textColor.opacity(0.10), in: Capsule())
                     .foregroundStyle(theme.textColor.opacity(0.85))
             }
 
             Text(localized("夜雨剪春韭，新炊間黃粱。書頁展開時，字與紙都應該安靜下來，讓閱讀本身成為畫面中心。"))
-                .font(.system(size: fontSize))
+                .font(.system(size: fontSize, weight: .regular, design: .serif))
                 .lineSpacing(readerConfig.lineSpacing)
                 .tracking(readerConfig.letterSpacing)
                 .foregroundStyle(theme.textColor)
@@ -237,14 +245,11 @@ struct ReaderSettingsView: View {
                 .padding(.vertical, previewTextVerticalPadding)
                 .frame(maxWidth: .infinity, minHeight: previewTextHeight, maxHeight: previewTextHeight, alignment: .topLeading)
                 .clipped()
-                .background(theme.backgroundColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(theme.backgroundColor, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
-        .padding(14)
-        .background(theme.barColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(.black.opacity(0.04), lineWidth: 0.5)
-        }
+        .padding(16)
+        .background(theme.barColor, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .shadow(color: .black.opacity(0.06), radius: 16, x: 0, y: 8)
     }
 
     private var themeSelector: some View {
@@ -276,42 +281,53 @@ struct ReaderSettingsView: View {
 
                 Spacer()
 
-                Picker(localized("字體"), selection: selectedFontBinding) {
-                    Text(localized("系統字體")).tag("")
-                    ForEach(settings.userFonts, id: \.id) { font in
-                        Text(font.displayName).tag(font.postScriptName)
+                Menu {
+                    Button {
+                        settings.selectedReaderFontPostScript = nil
+                        readerConfig.refresh.send(.layout)
+                    } label: {
+                        Label(localized("系統字體"), systemImage: settings.selectedReaderFontPostScript == nil ? "checkmark" : "textformat")
                     }
-                }
-                .pickerStyle(.menu)
-            }
 
-            Button {
-                showingFontImporter = true
-            } label: {
-                Label(localized("匯入字體..."), systemImage: "plus")
-                    .font(.subheadline)
-            }
-
-            if !settings.userFonts.isEmpty {
-                ForEach(settings.userFonts) { font in
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(font.displayName)
-                                .font(.subheadline)
-                            Text(font.postScriptName)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    if !settings.userFonts.isEmpty {
+                        Divider()
+                        Section {
+                            ForEach(settings.userFonts, id: \.id) { font in
+                                Button {
+                                    settings.selectedReaderFontPostScript = font.postScriptName
+                                    readerConfig.refresh.send(.layout)
+                                } label: {
+                                    Label(
+                                        font.displayName,
+                                        systemImage: settings.selectedReaderFontPostScript == font.postScriptName ? "checkmark" : "textformat"
+                                    )
+                                }
+                            }
+                        } header: {
+                            Text(localized("已匯入字體"))
                         }
-                        Spacer()
-                        Button(role: .destructive) {
-                            settings.deleteReaderFont(font)
-                            readerConfig.refresh.send(.layout)
-                        } label: {
-                            Label(localized("刪除"), systemImage: "trash")
-                                .labelStyle(.iconOnly)
+
+                        Menu(localized("刪除字體")) {
+                            ForEach(settings.userFonts, id: \.id) { font in
+                                Button(role: .destructive) {
+                                    settings.deleteReaderFont(font)
+                                    readerConfig.refresh.send(.layout)
+                                } label: {
+                                    Label(font.displayName, systemImage: "trash")
+                                }
+                            }
                         }
                     }
-                    .padding(.vertical, 4)
+
+                    Divider()
+                    Button {
+                        showingFontImporter = true
+                    } label: {
+                        Label(localized("匯入字體..."), systemImage: "plus")
+                    }
+                } label: {
+                    Label(localized("字體選單"), systemImage: "chevron.up.chevron.down")
+                        .font(.subheadline)
                 }
             }
         }
@@ -347,16 +363,6 @@ struct ReaderSettingsView: View {
         )
     }
 
-    private var selectedFontBinding: Binding<String> {
-        Binding(
-            get: { settings.selectedReaderFontPostScript ?? "" },
-            set: { value in
-                settings.selectedReaderFontPostScript = value.isEmpty ? nil : value
-                readerConfig.refresh.send(.layout)
-            }
-        )
-    }
-
     private var marginPresetBinding: Binding<MarginPreset> {
         Binding(
             get: { closestMarginPreset() },
@@ -366,21 +372,36 @@ struct ReaderSettingsView: View {
         )
     }
 
-    private var textConversionBinding: Binding<TextConversion> {
+    private var pageTurnOptionBinding: Binding<PageTurnOption> {
         Binding(
-            get: { settings.textConversion },
-            set: { mode in
-                settings.textConversion = mode
-                readerConfig.refresh.send(.layout)
-            }
-        )
-    }
-
-    private var scrollModeBinding: Binding<Bool> {
-        Binding(
-            get: { settings.scrollMode },
-            set: { scrollMode in
-                settings.scrollMode = scrollMode
+            get: {
+                if settings.scrollMode {
+                    return .scroll
+                }
+                switch settings.pageTurnStyle {
+                case .slide: return .slide
+                case .cover: return .cover
+                case .curl: return .curl
+                case .none: return .none
+                }
+            },
+            set: { option in
+                switch option {
+                case .slide:
+                    settings.scrollMode = false
+                    settings.pageTurnStyle = .slide
+                case .cover:
+                    settings.scrollMode = false
+                    settings.pageTurnStyle = .cover
+                case .curl:
+                    settings.scrollMode = false
+                    settings.pageTurnStyle = .curl
+                case .scroll:
+                    settings.scrollMode = true
+                case .none:
+                    settings.scrollMode = false
+                    settings.pageTurnStyle = .none
+                }
                 readerConfig.refresh.send(.layout)
             }
         )
@@ -562,46 +583,6 @@ private struct SegmentedPickerRow<Item: Hashable>: View {
             .pickerStyle(.segmented)
             .controlSize(.regular)
         }
-    }
-}
-
-private struct MenuPickerRow<Item: Hashable>: View {
-    let title: String
-    @Binding var selection: Item
-    let items: [Item]
-    let titleProvider: (Item) -> String
-
-    private var selectedTitle: String {
-        guard let selected = items.first(where: { $0 == selection }) else {
-            return ""
-        }
-        return titleProvider(selected)
-    }
-
-    var body: some View {
-        Menu {
-            Picker(title, selection: $selection) {
-                ForEach(items, id: \.self) { item in
-                    Text(titleProvider(item)).tag(item)
-                }
-            }
-        } label: {
-            HStack(spacing: 10) {
-                Text(title)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-                Spacer()
-                Text(selectedTitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .controlSize(.regular)
     }
 }
 
