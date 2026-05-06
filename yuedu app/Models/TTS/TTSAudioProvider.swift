@@ -62,7 +62,8 @@ final class CustomHTTPProvider: TTSAudioProvider {
         queryValueCS.remove(charactersIn: "&+=?#%")
         let encodedText = text.addingPercentEncoding(withAllowedCharacters: queryValueCS) ?? text
         let encodedTitle = title.addingPercentEncoding(withAllowedCharacters: queryValueCS) ?? title
-        let speedStr = String(format: "%.2f", rate)
+        let speedStr = edgeTTSRateString(for: rate)
+            .addingPercentEncoding(withAllowedCharacters: queryValueCS) ?? "%2B0%25"
 
         let resolved = template
             .replacingOccurrences(of: "{{text}}", with: encodedText)
@@ -70,5 +71,13 @@ final class CustomHTTPProvider: TTSAudioProvider {
             .replacingOccurrences(of: "{{speakSpeed}}", with: speedStr)
 
         return URL(string: resolved)
+    }
+
+    private func edgeTTSRateString(for rate: Float) -> String {
+        let percentage = Int((((rate / 0.5) - 1) * 100).rounded())
+        if percentage >= 0 {
+            return "+\(percentage)%"
+        }
+        return "\(percentage)%"
     }
 }

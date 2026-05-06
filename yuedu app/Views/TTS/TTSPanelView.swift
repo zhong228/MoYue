@@ -48,6 +48,7 @@ struct TTSPanelView: View {
                         HStack {
                             Spacer()
                             Button {
+                                ttsLog("[TTS][Panel] previousSegmentButton tapped state=\(tts.playbackState) segment=\(tts.currentSegmentIndex)/\(tts.totalSegments)")
                                 tts.skipBackward()
                             } label: {
                                 VStack(spacing: 4) {
@@ -88,6 +89,7 @@ struct TTSPanelView: View {
                             Spacer()
 
                             Button {
+                                ttsLog("[TTS][Panel] nextSegmentButton tapped state=\(tts.playbackState) segment=\(tts.currentSegmentIndex)/\(tts.totalSegments)")
                                 tts.skipForward()
                             } label: {
                                 VStack(spacing: 4) {
@@ -102,6 +104,7 @@ struct TTSPanelView: View {
 
                             Spacer()
                         }
+                        .buttonStyle(.borderless)
                     }
                     .padding(.vertical, 8)
                 }

@@ -26,22 +26,84 @@ struct Bookmark: Identifiable, Codable, Equatable {
     let id: UUID
     let chapterIndex: Int
     let chapterTitle: String
-    let pageIndex: Int  // 在全部頁面中的索引
+    let position: CoreTextReadingPosition
     let date: Date
     var note: String
     let excerpt: String  // 書籤位置前幾個字的摘錄
 
     init(
-        chapterIndex: Int, chapterTitle: String, pageIndex: Int,
-        note: String = "", excerpt: String = ""
+        chapterIndex: Int,
+        chapterTitle: String,
+        position: CoreTextReadingPosition,
+        note: String = "",
+        excerpt: String = "",
+        id: UUID = UUID(),
+        date: Date = Date()
     ) {
-        self.id = UUID()
+        self.id = id
         self.chapterIndex = chapterIndex
         self.chapterTitle = chapterTitle
-        self.pageIndex = pageIndex
-        self.date = Date()
+        self.position = position
+        self.date = date
         self.note = note
         self.excerpt = excerpt
+    }
+
+    var isChapterStartBookmark: Bool {
+        position.spineIndex == chapterIndex && position.charOffset == 0
+    }
+
+    func hasSameStableLocation(as other: Bookmark) -> Bool {
+        position == other.position
+    }
+
+    static func stablePositionSort(_ lhs: Bookmark, _ rhs: Bookmark) -> Bool {
+        if lhs.position.spineIndex != rhs.position.spineIndex {
+            return lhs.position.spineIndex < rhs.position.spineIndex
+        }
+        if lhs.position.charOffset != rhs.position.charOffset {
+            return lhs.position.charOffset < rhs.position.charOffset
+        }
+        return lhs.date < rhs.date
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, chapterIndex, chapterTitle, position, date, note, excerpt
+        case spineIndex, charOffset, pageIndex
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decode(UUID.self, forKey: .id)) ?? UUID()
+        chapterIndex = try c.decode(Int.self, forKey: .chapterIndex)
+        chapterTitle = try c.decode(String.self, forKey: .chapterTitle)
+        if let decodedPosition = try? c.decode(CoreTextReadingPosition.self, forKey: .position) {
+            position = decodedPosition
+        } else {
+            let legacySpine = (try? c.decode(Int.self, forKey: .spineIndex)) ?? chapterIndex
+            let legacyOffset = (try? c.decode(Int.self, forKey: .charOffset)) ?? 0
+            position = CoreTextReadingPosition(spineIndex: legacySpine, charOffset: legacyOffset)
+        }
+        date = (try? c.decode(Date.self, forKey: .date)) ?? Date()
+        note = (try? c.decode(String.self, forKey: .note)) ?? ""
+        excerpt = (try? c.decode(String.self, forKey: .excerpt)) ?? ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(chapterIndex, forKey: .chapterIndex)
+        try c.encode(chapterTitle, forKey: .chapterTitle)
+        try c.encode(position, forKey: .position)
+        try c.encode(date, forKey: .date)
+        try c.encode(note, forKey: .note)
+        try c.encode(excerpt, forKey: .excerpt)
+    }
+}
+
+extension Array where Element == Bookmark {
+    func sortedByStablePosition() -> [Bookmark] {
+        sorted(by: Bookmark.stablePositionSort)
     }
 }
 
@@ -999,10 +1061,10 @@ class BookStore: ObservableObject, BookProvider {
 
     func addBookmark(bookId: UUID, bookmark: Bookmark) {
         guard let idx = books.firstIndex(where: { $0.id == bookId }) else { return }
-        // 避免同一頁重複書籤
-        if books[idx].bookmarks.contains(where: { $0.pageIndex == bookmark.pageIndex }) { return }
+        // 避免同一穩定座標重複書籤。Topbar 書籤會寫入章首座標，所以同章共用一個。
+        if books[idx].bookmarks.contains(where: { $0.hasSameStableLocation(as: bookmark) }) { return }
         books[idx].bookmarks.append(bookmark)
-        books[idx].bookmarks.sort { $0.pageIndex < $1.pageIndex }
+        books[idx].bookmarks = books[idx].bookmarks.sortedByStablePosition()
         saveMeta()
     }
 
@@ -1014,25 +1076,29 @@ class BookStore: ObservableObject, BookProvider {
 
     func toggleBookmark(
         bookId: UUID, chapterIndex: Int, chapterTitle: String,
-        pageIndex: Int, excerpt: String
+        position: CoreTextReadingPosition, excerpt: String
     ) {
         guard let idx = books.firstIndex(where: { $0.id == bookId }) else { return }
-        if let bmIdx = books[idx].bookmarks.firstIndex(where: { $0.pageIndex == pageIndex }) {
+        if let bmIdx = books[idx].bookmarks.firstIndex(where: { $0.position == position }) {
             books[idx].bookmarks.remove(at: bmIdx)
         } else {
             let bm = Bookmark(
                 chapterIndex: chapterIndex, chapterTitle: chapterTitle,
-                pageIndex: pageIndex, excerpt: excerpt)
+                position: position, excerpt: excerpt)
             books[idx].bookmarks.append(bm)
-            books[idx].bookmarks.sort { $0.pageIndex < $1.pageIndex }
+            books[idx].bookmarks = books[idx].bookmarks.sortedByStablePosition()
         }
         saveMeta()
     }
 
-    func isPageBookmarked(bookId: UUID, pageIndex: Int) -> Bool {
+    func isBookmark(bookId: UUID, position: CoreTextReadingPosition) -> Bool {
         books.first(where: { $0.id == bookId })?.bookmarks.contains(where: {
-            $0.pageIndex == pageIndex
+            $0.position == position
         }) ?? false
+    }
+
+    func isChapterStartBookmarked(bookId: UUID, chapterIndex: Int) -> Bool {
+        isBookmark(bookId: bookId, position: .chapterStart(chapterIndex))
     }
 
     // MARK: 增量更新書籍正文（下載中斷保護用）

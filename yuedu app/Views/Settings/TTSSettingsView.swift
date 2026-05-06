@@ -3,7 +3,7 @@ import SwiftUI
 struct TTSSettingsView: View {
     @ObservedObject private var gs = GlobalSettings.shared
     @StateObject private var testCoordinator = TTSCoordinator()
-    private let localTestTemplate = "http://192.168.1.16:5001/tts?text={{text}}"
+    private let localTestTemplate = "http://192.168.1.16:5001/tts?text={{text}}&rate={{speakSpeed}}"
 
     var body: some View {
         Form {
@@ -28,7 +28,7 @@ struct TTSSettingsView: View {
                         .foregroundColor(DSColor.textSecondary)
                     placeholderRow("{{text}}", desc: localized("段落文字（URL 編碼）"))
                     placeholderRow("{{title}}", desc: localized("章節標題（URL 編碼）"))
-                    placeholderRow("{{speakSpeed}}", desc: localized("語速，範圍 0.10–0.65"))
+                    placeholderRow("{{speakSpeed}}", desc: localized("語速，例如 +0%、+30%、-20%"))
                 }
                 .padding(.vertical, 4)
 

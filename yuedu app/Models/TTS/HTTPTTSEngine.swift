@@ -137,7 +137,7 @@ final class HTTPTTSEngine: NSObject, TTSPlayable {
         currentIndex = index
         publishSegmentChanged(index: index)
 
-        if let data = audioCache.removeValue(forKey: index) {
+        if let data = audioCache[index] {
             ttsLog("[TTS][HTTPEngine] playChunk cached index=\(index) bytes=\(data.count)")
             startPreloading(from: index + 1, token: token)
             playAudioData(data, index: index, token: token)
@@ -327,9 +327,12 @@ final class HTTPTTSEngine: NSObject, TTSPlayable {
         audioPlayer?.stop()
         audioPlayer = nil
         pendingPlaybackIndex = nil
+        currentIndex = index
+        publishSegmentChanged(index: index)
+
         isPaused = false
         isPlaying = true
-        currentIndex = index
+        beginBackgroundTask()
         playChunk(at: index, token: playbackToken)
     }
 
@@ -398,7 +401,20 @@ final class HTTPTTSEngine: NSObject, TTSPlayable {
     private func appendChunk(_ text: String, to result: inout [String]) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        guard containsSpeakableContent(trimmed) else {
+            if let lastIndex = result.indices.last {
+                result[lastIndex] += trimmed
+            }
+            return
+        }
         result.append(trimmed)
+    }
+
+    private func containsSpeakableContent(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            CharacterSet.letters.contains(scalar)
+                || CharacterSet.decimalDigits.contains(scalar)
+        }
     }
 
     // MARK: - Background task

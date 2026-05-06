@@ -56,7 +56,7 @@ struct FileImportTab: View {
     @State private var activeSessionID = UUID()
     @ObservedObject private var gs = GlobalSettings.shared
 
-    // 🟢 新增：用來記住 EPUB 檔案的暫存路徑，給「加入書架」按鈕使用
+    // 新增：用來記住 EPUB 檔案的暫存路徑，給「加入書架」按鈕使用
     @State private var pendingEpubURL: URL? = nil
     @State private var pendingMarkdownURL: URL? = nil
 
@@ -87,7 +87,7 @@ struct FileImportTab: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
                         }
 
-                        // 🟢 判斷顯示的是 TXT 字數還是 EPUB 提示
+                        //  判斷顯示的是 TXT 字數還是 EPUB 提示
                         if pendingEpubURL != nil {
                             Text(localized("已解析 EPUB 結構，點擊下方按鈕匯入"))
                                 .font(DSFont.caption).foregroundColor(DSColor.textSecondary)
@@ -613,4 +613,8 @@ struct HintCard: View {
         .background(Color.blue.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
+}
+#Preview{
+        AddBookView()
+            .environmentObject(BookStore())
 }

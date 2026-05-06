@@ -35,21 +35,41 @@ struct RSSFeedView: View {
             if fetcher.isLoading && fetcher.items.isEmpty {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+
             } else if let errorMsg = fetcher.error, fetcher.items.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.largeTitle)
                         .foregroundColor(DSColor.textSecondary)
+
                     Text(errorMsg)
                         .foregroundColor(DSColor.textSecondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
+
                     Button(localized("重試")) {
                         Task { await fetcher.fetchItems(from: source) }
                     }
                     .foregroundColor(DSColor.accent)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            } else if fetcher.items.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "newspaper")
+                        .font(.largeTitle)
+                        .foregroundColor(DSColor.textSecondary)
+
+                    Text(localized("目前沒有文章"))
+                        .foregroundColor(DSColor.textSecondary)
+
+                    Button(localized("重新載入")) {
+                        Task { await fetcher.fetchItems(from: source) }
+                    }
+                    .foregroundColor(DSColor.accent)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
             } else {
                 List(fetcher.items) { item in
                     Button {
@@ -88,7 +108,7 @@ struct RSSFeedView: View {
         }
         .navigationTitle(source.name)
         .navigationBarTitleDisplayMode(.inline)
-        .task {
+        .task(id: source.url) {
             await fetcher.fetchItems(from: source)
         }
         .sheet(item: $selectedURL) { url in
@@ -117,5 +137,15 @@ private extension String {
         }
         // Fallback: simple regex-style strip
         return replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+    }
+}
+
+#Preview {
+    NavigationStack {
+        RSSFeedView(source: RSSSource(
+            name: "科技新報",
+            url: "https://rss.app/feeds/l4SwxTn5krVuLDdr.xml",
+            sortOrder: 0
+        ))
     }
 }

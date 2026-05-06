@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import GoogleSignIn
 import SwiftUI
 
 // MARK: - 書本文字轉換（只在閱讀器使用）
@@ -181,6 +182,30 @@ func localized(_ key: String, bundle: Bundle = .main) -> String {
 // MARK: - 全局設定（App 語言 + 書本轉換 + 閱讀器）
 class GlobalSettings: ObservableObject {
     static let shared = GlobalSettings()
+
+    // MARK: - App 帳號狀態
+    @Published var isLoggedIn: Bool {
+        didSet { UserDefaults.standard.set(isLoggedIn, forKey: "yd_account_logged_in") }
+    }
+    @Published var accountDisplayName: String {
+        didSet { UserDefaults.standard.set(accountDisplayName, forKey: "yd_account_display_name") }
+    }
+    @Published var accountEmail: String {
+        didSet { UserDefaults.standard.set(accountEmail, forKey: "yd_account_email") }
+    }
+    @Published var accountProvider: String {
+        didSet { UserDefaults.standard.set(accountProvider, forKey: "yd_account_provider") }
+    }
+    @Published var accountAvatarData: Data? {
+        didSet {
+            if let accountAvatarData {
+                UserDefaults.standard.set(accountAvatarData, forKey: "yd_account_avatar_data")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "yd_account_avatar_data")
+            }
+        }
+    }
+
     @Published var textConversion: TextConversion {
         didSet { UserDefaults.standard.set(textConversion.rawValue, forKey: "yd_text_conv") }
     }
@@ -278,6 +303,11 @@ class GlobalSettings: ObservableObject {
 
     private init() {
         UserDefaults.standard.removeObject(forKey: "yd_app_lang")
+        isLoggedIn = UserDefaults.standard.bool(forKey: "yd_account_logged_in")
+        accountDisplayName = UserDefaults.standard.string(forKey: "yd_account_display_name") ?? ""
+        accountEmail = UserDefaults.standard.string(forKey: "yd_account_email") ?? ""
+        accountProvider = UserDefaults.standard.string(forKey: "yd_account_provider") ?? ""
+        accountAvatarData = UserDefaults.standard.data(forKey: "yd_account_avatar_data")
         let rawConv = UserDefaults.standard.string(forKey: "yd_text_conv") ?? ""
         textConversion = TextConversion(rawValue: rawConv) ?? .original
         let persistedFontSize =
@@ -355,5 +385,56 @@ class GlobalSettings: ObservableObject {
         if selectedReaderFontPostScript == font.postScriptName {
             selectedReaderFontPostScript = nil
         }
+    }
+
+    func signIn(displayName: String, email: String, provider: String) {
+        let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        accountDisplayName = trimmedName.isEmpty ? trimmedEmail : trimmedName
+        accountEmail = trimmedEmail
+        accountProvider = provider
+        isLoggedIn = true
+    }
+
+    func updateAccountAvatar(data: Data?) {
+        accountAvatarData = data
+    }
+
+    func signOut(
+        revokeGoogleAccess: Bool = false,
+        completion: ((Error?) -> Void)? = nil
+    ) {
+        let provider = accountProvider
+
+        guard provider == "Google" else {
+            clearAccountState()
+            completion?(nil)
+            return
+        }
+
+        if revokeGoogleAccess {
+            GIDSignIn.sharedInstance.disconnect { [weak self] error in
+                if error != nil {
+                    GIDSignIn.sharedInstance.signOut()
+                }
+                DispatchQueue.main.async {
+                    self?.clearAccountState()
+                    completion?(error)
+                }
+            }
+            return
+        }
+
+        GIDSignIn.sharedInstance.signOut()
+        clearAccountState()
+        completion?(nil)
+    }
+
+    private func clearAccountState() {
+        isLoggedIn = false
+        accountDisplayName = ""
+        accountEmail = ""
+        accountProvider = ""
+        accountAvatarData = nil
     }
 }

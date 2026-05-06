@@ -11,14 +11,14 @@ struct PageContent {
     var attributedContent: NSAttributedString? = nil
 }
 
-// MARK: - 翻頁動畫時長（TXT / EPUB 統一，對齊 Koodo/Legado）
+// MARK: - 翻頁動畫時長（TXT / EPUB 統一）
 private enum PageTurnAnimation {
     static let slideDuration: Double = 0.25  // 滑動：ease-in-out；EPUB index.html 同為 0.25s
 }
-/// UI 回饋動畫時長（主題、書籤、目錄高亮等）
+// UI 回饋動畫時長（主題、書籤、目錄高亮等）
 private let uiFeedbackDuration: Double = 0.25
 
-/// 用於把頂部 safe area 傳給閱讀器留白，避免留白最小時正文蓋住狀態列
+// 用於把頂部 safe area 傳給閱讀器留白，避免留白最小時正文蓋住狀態列
 private struct ReaderSafeAreaTopKey: PreferenceKey {
     static var defaultValue: CGFloat { 0 }
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
@@ -107,7 +107,6 @@ struct ReaderView: View {
     @State private var showBars = false
     @State private var showSettings = false
     @State private var showTOC = false
-    @State private var showBookmarkList = false
 
     // 線上章節懶加載
     @StateObject private var readerViewModel = ReaderViewModel()
@@ -122,9 +121,6 @@ struct ReaderView: View {
     // 自動閱讀 + TTS
     @StateObject private var autoReader = AutoReadController()  // TTS
     @StateObject private var ttsCoordinator = TTSCoordinator()
-
-    // 時間與電池已移至 ReaderFooterView.swift (ClockBatteryModel)
-    // 不再作為 ReaderView 的 @State，避免每分鐘觸發整個 body 重算
 
     private func syncReaderBrightnessFromSystem() {
         let current = Double(UIScreen.main.brightness)
@@ -390,9 +386,34 @@ struct ReaderView: View {
     /// Footer 文字區本體高度（pt），不含 safe area bottom
     private let footerOverlayHeight: CGFloat = ReaderLayoutMetrics.footerHeight
 
-    /// 當前頁是否有書籤
+    private var currentTopBarBookmarkPosition: CoreTextReadingPosition? {
+        if let engine = epubRenderer.engine, usesCoreTextEPUB {
+            let position = engine.readingPosition(forPage: currentPage)
+                ?? CoreTextReadingPosition(spineIndex: engine.charOffset(forPage: currentPage).spineIndex, charOffset: 0)
+            return .chapterStart(position.spineIndex)
+        }
+        if !allPages.isEmpty {
+            let page = allPages[min(currentPage, allPages.count - 1)]
+            return .chapterStart(page.chapterIndex)
+        }
+        guard chapters.indices.contains(currentChapterIndex) else { return nil }
+        return .chapterStart(currentChapterIndex)
+    }
+
+    /// 當前章節是否有 topbar 書籤
     var isCurrentPageBookmarked: Bool {
-        store.isPageBookmarked(bookId: bookId, pageIndex: currentPage)
+        guard let position = currentTopBarBookmarkPosition else { return false }
+        return store.isChapterStartBookmarked(bookId: bookId, chapterIndex: position.spineIndex)
+    }
+
+    private func bookmarkChapterTitle(for chapterIndex: Int) -> String {
+        if chapters.indices.contains(chapterIndex) {
+            return chapters[chapterIndex].title
+        }
+        if let page = allPages.first(where: { $0.chapterIndex == chapterIndex }) {
+            return page.chapterTitle
+        }
+        return currentChapterTitle
     }
 
     /// 當前頁摘錄（前 30 字）
@@ -717,26 +738,19 @@ struct ReaderView: View {
         }
         .sheet(isPresented: $showTOC) {
             AdaptiveSheetContainer(maxWidth: 760) {
-                TOCView(
+                ReaderMenuView(
                     chapters: chapters,
-                    currentIndex: Binding(get: { currentChapterIndex }, set: { jumpToChapter($0) }),
-                    isPresented: $showTOC
-                )
-            }
-        }
-        .sheet(isPresented: $showBookmarkList) {
-            AdaptiveSheetContainer(maxWidth: 760) {
-                BookmarkListView(
                     bookmarks: book?.bookmarks ?? [],
-                    onSelect: { bookmark in
-                        showBookmarkList = false
-                        if bookmark.pageIndex < renderedPageCount {
-                            withAnimation(.easeInOut(duration: PageTurnAnimation.slideDuration)) {
-                                currentPage = bookmark.pageIndex
-                            }
-                        }
+                    currentIndex: Binding(
+                        get: { currentChapterIndex },
+                        set: { jumpToChapter($0) }
+                    ),
+                    isPresented: $showTOC,
+                    onSelectBookmark: { bookmark in
+                        showTOC = false
+                        jumpToBookmark(bookmark)
                     },
-                    onDelete: { bookmark in
+                    onDeleteBookmark: { bookmark in
                         store.removeBookmark(bookId: bookId, bookmarkId: bookmark.id)
                     }
                 )
@@ -1266,12 +1280,13 @@ struct ReaderView: View {
                 presentationMode.wrappedValue.dismiss()
             },
             onToggleBookmark: {
+                guard let position = currentTopBarBookmarkPosition else { return }
                 withAnimation(.easeInOut(duration: uiFeedbackDuration)) {
                     store.toggleBookmark(
                         bookId: bookId,
-                        chapterIndex: currentChapterIndex,
-                        chapterTitle: currentChapterTitle,
-                        pageIndex: currentPage,
+                        chapterIndex: position.spineIndex,
+                        chapterTitle: bookmarkChapterTitle(for: position.spineIndex),
+                        position: position,
                         excerpt: currentPageExcerpt
                     )
                 }
@@ -1467,6 +1482,19 @@ struct ReaderView: View {
     // MARK: - 邏輯
     private func findChapterFirstPage(_ chapterIdx: Int) -> Int? {
         return allPages.firstIndex(where: { $0.chapterIndex == chapterIdx })
+    }
+
+    private func jumpToBookmark(_ bookmark: Bookmark) {
+        let position = bookmark.position
+        guard chapters.indices.contains(position.spineIndex) else { return }
+        if settings.scrollMode, epubRenderer.scrollEngine != nil {
+            currentChapterIndex = position.spineIndex
+            scrollVisibleChapter = position.spineIndex
+            savedCoreTextRestoreTarget = (position.spineIndex, position.charOffset)
+            scrollResliceToken &+= 1
+            return
+        }
+        jumpToChapter(position.spineIndex, charOffset: position.charOffset)
     }
 
     private func jumpToChapter(_ idx: Int, charOffset: Int = 0) {
@@ -2124,131 +2152,208 @@ extension Color {
     }
 }
 
-// MARK: - 書籤列表視圖
-struct BookmarkListView: View {
-    let bookmarks: [Bookmark]
-    let onSelect: (Bookmark) -> Void
-    let onDelete: (Bookmark) -> Void
-    @Environment(\.presentationMode) var dismiss
-    @ObservedObject private var gs = GlobalSettings.shared
+// MARK: - 書籤view和目錄view合併面板
+enum ReaderMenuTab: String, CaseIterable {
+    case toc
+    case bookmarks
 
-    var body: some View {
-        NavigationView {
-            Group {
-                if bookmarks.isEmpty {
-                    VStack(spacing: 16) {
-                        Spacer()
-                        Image(systemName: "bookmark").font(.system(size: 48)).foregroundColor(
-                            Color.secondary.opacity(0.3))
-                        Text(localized("尚無書籤")).font(.headline).foregroundColor(.secondary)
-                        Text(localized("在閱讀時點擊右上角書籤按鈕添加")).font(.subheadline).foregroundColor(
-                            Color.secondary.opacity(0.7))
-                        Spacer()
-                    }
-                } else {
-                    List {
-                        ForEach(bookmarks) { bm in
-                            Button {
-                                onSelect(bm)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack {
-                                        Text(bm.chapterTitle).font(
-                                            .system(size: 15, weight: .medium)
-                                        ).foregroundColor(.primary).lineLimit(1)
-                                        Spacer()
-                                        Text(bm.date, style: .date).font(.system(size: 11))
-                                            .foregroundColor(.secondary)
-                                    }
-                                    if !bm.excerpt.isEmpty {
-                                        Text(bm.excerpt + "…").font(.system(size: 13))
-                                            .foregroundColor(.secondary).lineLimit(2)
-                                    }
-                                }
-                                .padding(.vertical, 4)
-                            }.buttonStyle(.plain)
-                        }.onDelete { idxs in
-                            for idx in idxs {
-                                if idx < bookmarks.count { onDelete(bookmarks[idx]) }
-                            }
-                        }
-                    }.listStyle(.plain)
-                }
-            }
-            .navigationTitle(localized("書籤") + "（\(bookmarks.count)）")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(localized("關閉")) { dismiss.wrappedValue.dismiss() }
-                }
-            }
-        }.navigationViewStyle(.stack)
+    var title: String {
+        switch self {
+        case .toc:
+            return localized("目錄")
+        case .bookmarks:
+            return localized("書籤")
+        }
     }
 }
 
-// MARK: - 目錄視圖
-struct TOCView: View {
+struct ReaderMenuView: View {
     let chapters: [BookChapter]
+    let bookmarks: [Bookmark]
+
     @Binding var currentIndex: Int
     @Binding var isPresented: Bool
-    @ObservedObject private var gs = GlobalSettings.shared
+
+    let onSelectBookmark: (Bookmark) -> Void
+    let onDeleteBookmark: (Bookmark) -> Void
+
+    @State private var selectedTab: ReaderMenuTab = .toc
 
     var body: some View {
         NavigationView {
-            ScrollViewReader { proxy in
-                List(chapters) { chapter in
-                    Button {
-                        currentIndex = chapter.index
-                        isPresented = false
-                    } label: {
-                        HStack(spacing: 0) {
-                            // 子章節縮排：每層 16pt
-                            if chapter.level > 0 {
-                                Color.clear.frame(width: CGFloat(chapter.level) * 16)
-                            }
-                            Text(chapter.title)
-                                .font(
-                                    chapter.level == 0
-                                        ? .system(size: 15, weight: .medium)
-                                        : .system(size: 13)
-                                )
-                                .foregroundColor(chapter.level == 0 ? .primary : .secondary)
-                                .lineLimit(2)
-                            Spacer()
-                            if chapter.index == currentIndex {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.blue)
-                            }
-                        }
-                        .padding(.vertical, chapter.level == 0 ? 2 : 0)
-                    }
-                    .listRowBackground(
-                        chapter.index == currentIndex ? Color.blue.opacity(0.08) : Color.clear
-                    )
-                    .animation(.easeInOut(duration: 0.2), value: currentIndex)
-                    .id(chapter.index)
-                }
-                .listStyle(.plain)
-                .onAppear {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        if chapters.first(where: { $0.index == currentIndex }) != nil {
-                            withAnimation { proxy.scrollTo(currentIndex, anchor: .center) }
-                        }
+            VStack(spacing: 0) {
+                tabBar
+
+                Divider()
+
+                Group {
+                    switch selectedTab {
+                    case .toc:
+                        tocContent
+
+                    case .bookmarks:
+                        bookmarkContent
                     }
                 }
             }
-            .navigationTitle(localized("目錄"))
+            .navigationTitle(localized("目錄") + " / " + localized("書籤")) //這裡要改成書名
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(localized("關閉")) { isPresented = false }
+                    Button(localized("關閉")) {
+                        isPresented = false
+                    }
                 }
             }
-        }.navigationViewStyle(.stack)
+        }
+        .navigationViewStyle(.stack)
+    }
+
+    private var tabBar: some View {
+        HStack(spacing: 12) {
+            ForEach(ReaderMenuTab.allCases, id: \.self) { tab in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedTab = tab
+                    }
+                } label: {
+                    Text(tab.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(selectedTab == tab ? .white : .primary)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 9)
+                        .background(
+                            selectedTab == tab ? Color.accentColor : Color.clear
+                        )
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+    }
+
+    private var tocContent: some View {
+        ScrollViewReader { proxy in
+            List(chapters) { chapter in
+                Button {
+                    currentIndex = chapter.index
+                    isPresented = false
+                } label: {
+                    HStack(spacing: 0) {
+                        if chapter.level > 0 {
+                            Color.clear
+                                .frame(width: CGFloat(chapter.level) * 16)
+                        }
+
+                        Text(chapter.title)
+                            .font(
+                                chapter.level == 0
+                                ? .system(size: 15, weight: .medium)
+                                : .system(size: 13)
+                            )
+                            .foregroundColor(chapter.level == 0 ? .primary : .secondary)
+                            .lineLimit(2)
+
+                        Spacer()
+
+                        if chapter.index == currentIndex {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 12))
+                                .foregroundColor(.blue)
+                        }
+                    }
+                    .padding(.vertical, chapter.level == 0 ? 2 : 0)
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(
+                    chapter.index == currentIndex
+                    ? Color.blue.opacity(0.08)
+                    : Color.clear
+                )
+                .animation(.easeInOut(duration: 0.2), value: currentIndex)
+                .id(chapter.index)
+            }
+            .listStyle(.plain)
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    if chapters.first(where: { $0.index == currentIndex }) != nil {
+                        withAnimation {
+                            proxy.scrollTo(currentIndex, anchor: .center)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var bookmarkContent: some View {
+        Group {
+            if bookmarks.isEmpty {
+                VStack(spacing: 16) {
+                    Spacer()
+
+                    Image(systemName: "bookmark")
+                        .font(.system(size: 48))
+                        .foregroundColor(Color.secondary.opacity(0.3))
+
+                    Text(localized("尚無書籤"))
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+
+                    Text(localized("在閱讀時點擊右上角書籤按鈕添加"))
+                        .font(.subheadline)
+                        .foregroundColor(Color.secondary.opacity(0.7))
+
+                    Spacer()
+                }
+            } else {
+                List {
+                    ForEach(bookmarks) { bm in
+                        Button {
+                            onSelectBookmark(bm)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(bm.chapterTitle)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundColor(.primary)
+                                        .lineLimit(1)
+
+                                    Spacer()
+
+                                    Text(bm.date, style: .date)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.secondary)
+                                }
+
+                                if !bm.excerpt.isEmpty {
+                                    Text(bm.excerpt + "…")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(2)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .onDelete { idxs in
+                        for idx in idxs {
+                            if idx < bookmarks.count {
+                                onDeleteBookmark(bookmarks[idx])
+                            }
+                        }
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
     }
 }
-
 // MARK: - 隱藏 TabBar（iOS 15 / 16 相容）
 private struct HideTabBarModifier: ViewModifier {
     func body(content: Content) -> some View {
@@ -2273,8 +2378,6 @@ private struct HideTabBarModifier: ViewModifier {
         }
     }
 }
-
-// 舊 WebView 閱讀橋接已移除，正式路徑統一由 CoreText 引擎負責。
 
 // MARK: - CoreText UIPageViewController 橋接
 

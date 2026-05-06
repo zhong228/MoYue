@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Full-screen vertical-scroll comic/manga reader.
-/// Presented for book sources with `bookSourceType == 2`.
+// Full-screen vertical-scroll comic/manga reader.
+// Presented for book sources with `bookSourceType == 2`.
 struct ComicChapterReaderView: View {
     let chapter: OnlineChapterRef
     let source: BookSource

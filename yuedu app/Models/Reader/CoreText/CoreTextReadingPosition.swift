@@ -1,6 +1,6 @@
 import Foundation
 
-struct CoreTextReadingPosition: Equatable {
+struct CoreTextReadingPosition: Codable, Equatable {
     let spineIndex: Int
     let charOffset: Int
 

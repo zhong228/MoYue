@@ -13,7 +13,6 @@ struct SettingsView: View {
     @State private var showRSSReader = false
     @State private var showLegadoMigration = false
     @State private var showTTSSettings = false
-
     private let feedbackEmail = "r3212239269@gmail.com"
 
     private var feedbackMailURL: URL? {
@@ -21,7 +20,7 @@ struct SettingsView: View {
         components.scheme = "mailto"
         components.path = feedbackEmail
         components.queryItems = [
-            URLQueryItem(name: "subject", value: "yuedu app 反饋")
+            URLQueryItem(name: "subject", value: localized("yuedu app 反饋"))
         ]
         return components.url
     }
@@ -36,6 +35,11 @@ struct SettingsView: View {
         NavigationView {
             AdaptiveContentContainer(maxWidth: 760) {
                 Form {
+                    Section {
+                        NavigationLink(destination: UserDetailView()) {
+                            AccountRowContent()
+                        }
+                    }
                     // ── App 語言 ──
                     Section(
                         header: Text(localized("App 語言")),
@@ -134,14 +138,10 @@ struct SettingsView: View {
                             HStack {
                                 Text(localized("反饋"))
                                 Spacer()
+                                    .foregroundColor(DSColor.accent)
                                 Image(systemName: "envelope.fill")
                                     .font(.caption)
                                     .foregroundColor(DSColor.accent)
-                                Text(feedbackEmail)
-                                    .foregroundColor(DSColor.accent)
-                                Image(systemName: "arrow.up.right.square")
-                                    .font(.caption)
-                                    .foregroundColor(DSColor.textSecondary)
                             }
                             .contentShape(Rectangle())
                         }
@@ -173,7 +173,9 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showRSSReader) {
                 AdaptiveSheetContainer(maxWidth: 820) {
-                    RSSListView()
+                    NavigationStack {
+                        RSSListView()
+                    }
                 }
             }
             .sheet(isPresented: $showWebDAVSync) {
@@ -208,4 +210,25 @@ struct SettingsView: View {
     private var downloadedBooksCount: Int {
         store.books.filter { $0.isOnline && $0.offlineDownloadState == .available }.count
     }
+
+    @ViewBuilder func AccountRowContent() -> some View {
+        HStack(spacing: 15) {
+            AccountAvatarView(size: 50)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(gs.isLoggedIn ? (gs.accountDisplayName.isEmpty ? localized("已登入") : gs.accountDisplayName) : localized("尚未登入"))
+                    .font(.headline)
+                Text(gs.isLoggedIn ? gs.accountEmail : localized("登入後可同步進度"))
+                    .font(.caption).foregroundColor(.secondary)
+            }
+
+            Spacer()
+        }
+    }
+
+}
+
+#Preview {
+    SettingsView()
+        .environmentObject(BookStore())
 }

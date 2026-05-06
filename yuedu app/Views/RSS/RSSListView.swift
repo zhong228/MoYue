@@ -97,3 +97,9 @@ private struct AddRSSSourceSheet: View {
         }
     }
 }
+
+#Preview {
+    NavigationStack {
+        RSSListView()
+    }
+}

@@ -2,14 +2,25 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>zh-Hant</string>
 	<key>CFBundleLocalizations</key>
 	<array>
 		<string>zh-Hant</string>
 		<string>zh-Hans</string>
 		<string>en</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.303059321609-aapbvd37l5kgtv3lpu9d0pr33bin0vm8</string>
+			</array>
+		</dict>
+	</array>
+	<key>GIDClientID</key>
+	<string>303059321609-aapbvd37l5kgtv3lpu9d0pr33bin0vm8.apps.googleusercontent.com</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
@@ -17,13 +28,11 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>用於連接同一 Wi-Fi 下的本機語音測試服務。</string>
-	<key>UIPrefersShowingLanguageSettings</key>
-	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
 	</array>
+	<key>UIPrefersShowingLanguageSettings</key>
+	<true/>
 </dict>
 </plist>
