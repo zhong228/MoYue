@@ -22,4 +22,5 @@ protocol TTSPlayable: AnyObject {
     func stop()
     func skipForward()
     func skipBackward()
+    func seekToSegment(_ index: Int)
 }

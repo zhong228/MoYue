@@ -10,7 +10,6 @@ struct SettingsView: View {
     @State private var showReadingStats = false
     @State private var showWebDAVSync = false
     @State private var showLanServer = false
-    @State private var showRSSReader = false
     @State private var showLegadoMigration = false
     @State private var showTTSSettings = false
     private let feedbackEmail = "r3212239269@gmail.com"
@@ -86,11 +85,6 @@ struct SettingsView: View {
                             icon: "chart.bar.fill",
                             title: localized("閱讀統計"),
                             action: { showReadingStats = true }
-                        )
-                        DSSettingsRow(
-                            icon: "dot.radiowaves.left.and.right",
-                            title: localized("RSS 訂閱"),
-                            action: { showRSSReader = true }
                         )
                         DSSettingsRow(
                             icon: "waveform",
@@ -169,13 +163,6 @@ struct SettingsView: View {
             .sheet(isPresented: $showReadingStats) {
                 AdaptiveSheetContainer(maxWidth: 760) {
                     ReadingStatsView()
-                }
-            }
-            .sheet(isPresented: $showRSSReader) {
-                AdaptiveSheetContainer(maxWidth: 820) {
-                    NavigationStack {
-                        RSSListView()
-                    }
                 }
             }
             .sheet(isPresented: $showWebDAVSync) {

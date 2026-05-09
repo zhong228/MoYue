@@ -294,6 +294,12 @@ class GlobalSettings: ObservableObject {
     @Published var httpTtsUrlTemplate: String {
         didSet { UserDefaults.standard.set(httpTtsUrlTemplate, forKey: "yd_http_tts_url_template") }
     }
+    @Published var httpTtsHeaders: [String: String] {
+        didSet { Self.saveTTSHeaders(httpTtsHeaders) }
+    }
+    @Published var importedTTSSources: [ImportedTTSSource] {
+        didSet { Self.saveImportedTTSSources(importedTTSSources) }
+    }
 
     // MARK: - 實驗性功能旗標
 
@@ -367,6 +373,44 @@ class GlobalSettings: ObservableObject {
         useRenderableNodePipeline =
             UserDefaults.standard.bool(forKey: "yd_use_renderable_node_pipeline")
         httpTtsUrlTemplate = UserDefaults.standard.string(forKey: "yd_http_tts_url_template") ?? ""
+        httpTtsHeaders = Self.loadTTSHeaders()
+        importedTTSSources = Self.loadImportedTTSSources()
+    }
+
+    private static func loadImportedTTSSources() -> [ImportedTTSSource] {
+        guard let data = UserDefaults.standard.data(forKey: "yd_imported_tts_sources"),
+              let decoded = try? JSONDecoder().decode([ImportedTTSSource].self, from: data) else {
+            return []
+        }
+        return decoded
+    }
+
+    private static func saveImportedTTSSources(_ sources: [ImportedTTSSource]) {
+        if sources.isEmpty {
+            UserDefaults.standard.removeObject(forKey: "yd_imported_tts_sources")
+            return
+        }
+        if let data = try? JSONEncoder().encode(sources) {
+            UserDefaults.standard.set(data, forKey: "yd_imported_tts_sources")
+        }
+    }
+
+    private static func loadTTSHeaders() -> [String: String] {
+        guard let data = UserDefaults.standard.data(forKey: "yd_http_tts_headers"),
+              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else {
+            return [:]
+        }
+        return decoded
+    }
+
+    private static func saveTTSHeaders(_ headers: [String: String]) {
+        if headers.isEmpty {
+            UserDefaults.standard.removeObject(forKey: "yd_http_tts_headers")
+            return
+        }
+        if let data = try? JSONEncoder().encode(headers) {
+            UserDefaults.standard.set(data, forKey: "yd_http_tts_headers")
+        }
     }
 
     @discardableResult

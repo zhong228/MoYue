@@ -118,6 +118,30 @@ final class HTTPTTSEngine: NSObject, TTSPlayable {
         jumpToChunk(at: max(currentIndex - 1, 0))
     }
 
+    func seekToSegment(_ index: Int) {
+        guard !chunks.isEmpty else { return }
+        let targetIndex = max(0, min(index, chunks.count - 1))
+        ttsLog("[TTS][HTTPEngine] seekToSegment requested index=\(targetIndex) current=\(currentIndex) isPlaying=\(isPlaying) isPaused=\(isPaused)")
+
+        if isPlaying {
+            jumpToChunk(at: targetIndex)
+            return
+        }
+
+        audioPlayer?.delegate = nil
+        audioPlayer?.stop()
+        audioPlayer = nil
+        pendingPlaybackIndex = nil
+        currentIndex = targetIndex
+        isPaused = true
+        publishSegmentChanged(index: targetIndex)
+
+        if audioCache[targetIndex] == nil {
+            downloadChunk(at: targetIndex, token: playbackToken, priority: .preload)
+        }
+        startPreloading(from: targetIndex + 1, token: playbackToken)
+    }
+
     // MARK: - Queue
 
     private func playChunk(at index: Int, token: UUID) {

@@ -141,6 +141,9 @@ struct ReaderView: View {
 
     @State private var showTTSPanel = false
     @State private var showAutoReadPanel = false
+    @State private var ttsChapterIndex: Int? = nil
+    @State private var showTTSJumpPrompt = false
+    @State private var ttsJumpPromptChapterIndex: Int? = nil
 
     // EPUB 章節導航狀態
     @State private var currentChapterIndex = 0
@@ -466,6 +469,12 @@ struct ReaderView: View {
         return allPages[min(currentPage, allPages.count - 1)].content
     }
 
+    private var activeTTSChapterTitle: String {
+        let index = ttsChapterIndex ?? currentChapterIndex
+        guard chapters.indices.contains(index) else { return currentChapterTitle }
+        return chapters[index].title
+    }
+
     // ── 主體 ──
     var body: some View {
         ZStack(alignment: .top) {
@@ -568,6 +577,20 @@ struct ReaderView: View {
             }
             if showBars { topBar }
             if showBars { bottomBar }
+            if showTTSJumpPrompt {
+                VStack {
+                    Spacer()
+                    ttsJumpPromptView(alignment: showBars ? .trailing : .center)
+                        .padding(.horizontal, showBars ? 20 : 120)
+                        .padding(.bottom, showBars ? 150 : ttsJumpPromptCollapsedBottomPadding)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(20)
+            }
+            if showBars {
+                TTSFloatingPlayerOverlay()
+                    .zIndex(40)
+            }
         }
         .background(
             GeometryReader { g in
@@ -620,22 +643,22 @@ struct ReaderView: View {
             }
             if volumeHandler.isEnabled { volumeHandler.startListening() }
             autoReader.onNextPage = { goToNextPage() }
+            ttsCoordinator.showsGlobalFloatingPlayer = true
+            setTTSFloatingOverlayVisible(showBars)
             ttsCoordinator.onPageFinished = {
-                ttsLog("[TTS][Reader] onPageFinished currentPage=\(currentPage) allPages=\(allPages.count) usesCoreTextEPUB=\(usesCoreTextEPUB)")
-                if let engine = epubRenderer.engine,
-                   epubRenderer.isCoreTextReady,
-                   currentPage < engine.totalPages - 1 {
-                    currentPage += 1
-                    ttsLog("[TTS][Reader] onPageFinished advancedCoreTextPage=\(currentPage)")
-                    return engine.plainText(forPage: currentPage)
-                }
-                if !usesCoreTextEPUB, currentPage < allPages.count - 1 {
-                    currentPage += 1
-                    ttsLog("[TTS][Reader] onPageFinished advancedToPage=\(currentPage) nextTextCount=\(allPages[currentPage].content.count)")
-                    return allPages[currentPage].content
-                }
-                ttsLog("[TTS][Reader] onPageFinished no next text")
-                return nil
+                ttsLog("[TTS][Reader] onChapterFinished ttsChapter=\(ttsChapterIndex.map(String.init) ?? "nil") currentChapter=\(currentChapterIndex)")
+                return advanceTTSChapterFromEngine()
+            }
+            ttsCoordinator.onNextTrackRequested = {
+                startAdjacentTTSChapter(delta: 1)
+            }
+            ttsCoordinator.onPreviousTrackRequested = {
+                startAdjacentTTSChapter(delta: -1)
+            }
+            ttsCoordinator.onStop = {
+                ttsChapterIndex = nil
+                showTTSJumpPrompt = false
+                ttsJumpPromptChapterIndex = nil
             }
         }
         .onDisappear {
@@ -652,6 +675,7 @@ struct ReaderView: View {
             }
             volumeHandler.stopListening()
             autoReader.pause()
+            setTTSFloatingOverlayVisible(false)
         }
         .onChange(of: scenePhase) { phase in
             ttsLog("[TTS][Reader] scenePhase=\(String(describing: phase)) ttsPlaying=\(ttsCoordinator.isPlaying)")
@@ -717,6 +741,15 @@ struct ReaderView: View {
         .onChange(of: settings.readerWritingMode) { _ in
             handleReaderConfigRefresh(.layout)
         }
+        .onChange(of: showBars) { visible in
+            setTTSFloatingOverlayVisible(visible)
+        }
+        .onChange(of: currentChapterIndex) { newChapter in
+            handleReaderChapterChangedForTTS(newChapter)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ttsFloatingPlayerOpenPanel)) { _ in
+            showTTSPanel = true
+        }
         .onChange(of: scrollVisibleChapter) { _ in
             autoSaveProgress()
         }
@@ -759,7 +792,16 @@ struct ReaderView: View {
         .sheet(isPresented: $showTTSPanel) {
             AdaptiveSheetContainer(maxWidth: 760) {
                 TTSPanelView(
-                    tts: ttsCoordinator, currentText: currentPageText, chapterTitle: currentChapterTitle)
+                    tts: ttsCoordinator,
+                    chapters: chapters,
+                    currentReaderChapterIndex: currentChapterIndex,
+                    activeTTSChapterIndex: ttsChapterIndex,
+                    activeChapterTitle: activeTTSChapterTitle,
+                    onPlayPause: { handleTTSPlayPause() },
+                    onPreviousChapter: { startAdjacentTTSChapter(delta: -1) },
+                    onNextChapter: { startAdjacentTTSChapter(delta: 1) },
+                    onSelectChapter: { startTTSChapter($0, syncReader: true) }
+                )
             }
         }
         .sheet(isPresented: $showAutoReadPanel) {
@@ -1324,6 +1366,60 @@ struct ReaderView: View {
         )
     }
 
+    private func ttsJumpPromptView(alignment: Alignment) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                jumpBackToTTSChapter()
+            } label: {
+                Label(localized("原進度"), systemImage: "arrow.uturn.backward")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+            }
+            .buttonStyle(.borderless)
+
+            Divider()
+                .frame(height: 18)
+                .overlay(Color.white.opacity(0.18))
+
+            Button {
+                startTTSFromCurrentReadingPosition()
+            } label: {
+                Label(localized("從本頁聽"), systemImage: "headphones")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+            }
+            .buttonStyle(.borderless)
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(Color.black.opacity(0.48), in: Capsule())
+        .frame(maxWidth: 520, alignment: alignment)
+        .accessibilityLabel(ttsJumpPromptMessage)
+    }
+
+    private var ttsJumpPromptCollapsedBottomPadding: CGFloat {
+        let footerBandBottomFromBottom = max(
+            0,
+            windowSafeBottom
+            + ReaderLayoutMetrics.footerVisualBottomPadding
+        )
+        let footerBandCenterFromBottom = footerBandBottomFromBottom
+            + ReaderLayoutMetrics.footerHeight / 2
+        let estimatedPromptHeight: CGFloat = 36
+        return max(8, footerBandCenterFromBottom - estimatedPromptHeight / 2)
+    }
+
+    private var ttsJumpPromptMessage: String {
+        guard let ttsChapterIndex, chapters.indices.contains(ttsChapterIndex) else {
+            return localized("你已移到其他章節，可以選擇回到正在朗讀的位置，或從目前章節重新開始。")
+        }
+        return String(
+            format: localized("聽書仍在「%@」，可以選擇回去，或改從目前章節開始。"),
+            chapters[ttsChapterIndex].title
+        )
+    }
+
     // MARK: - 換源 Sheet
     private var changeSourceSheetContent: some View {
         NavigationView {
@@ -1477,6 +1573,165 @@ struct ReaderView: View {
                 max(allPages.count - 1, 0)
             )
         )
+    }
+
+    private func handleTTSPlayPause() {
+        switch ttsCoordinator.playbackState {
+        case .playing:
+            ttsCoordinator.pause()
+        case .paused:
+            ttsCoordinator.resume()
+        case .stopped:
+            startTTSChapter(currentChapterIndex, syncReader: false)
+        }
+    }
+
+    private func setTTSFloatingOverlayVisible(_ visible: Bool) {
+        Task { @MainActor in
+            TTSFloatingPlayerState.shared.setReaderOverlayVisible(visible)
+        }
+    }
+
+    @discardableResult
+    private func startTTSChapter(_ chapterIndex: Int, syncReader: Bool) -> Bool {
+        guard chapters.indices.contains(chapterIndex) else { return false }
+        let text = textForTTSChapter(chapterIndex)
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            ttsLog("[TTS][Reader] startTTSChapter ignored empty chapter=\(chapterIndex)")
+            if syncReader {
+                jumpToChapter(chapterIndex)
+            }
+            ensureChapterReady(chapterIndex: chapterIndex, priority: .jump)
+            return false
+        }
+
+        ttsChapterIndex = chapterIndex
+        showTTSJumpPrompt = false
+        ttsJumpPromptChapterIndex = nil
+        ensureChapterReady(chapterIndex: chapterIndex, priority: .jump)
+        if syncReader {
+            jumpToChapter(chapterIndex)
+        }
+        ttsCoordinator.speak(text: text, title: chapters[chapterIndex].title)
+        return true
+    }
+
+    @discardableResult
+    private func startAdjacentTTSChapter(delta: Int) -> Bool {
+        let baseChapter = ttsChapterIndex ?? currentChapterIndex
+        let target = baseChapter + delta
+        guard chapters.indices.contains(target) else { return false }
+        return startTTSChapter(target, syncReader: true)
+    }
+
+    private func advanceTTSChapterFromEngine() -> String? {
+        let baseChapter = ttsChapterIndex ?? currentChapterIndex
+        let target = baseChapter + 1
+        guard chapters.indices.contains(target) else {
+            ttsChapterIndex = nil
+            return nil
+        }
+        let text = textForTTSChapter(target)
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            ensureChapterReady(chapterIndex: target, priority: .jump)
+            return nil
+        }
+        ttsChapterIndex = target
+        showTTSJumpPrompt = false
+        ttsJumpPromptChapterIndex = nil
+        ttsCoordinator.updateNowPlayingTitle(chapters[target].title)
+        jumpToChapter(target)
+        return text
+    }
+
+    private func handleReaderChapterChangedForTTS(_ chapterIndex: Int) {
+        guard ttsCoordinator.playbackState != .stopped,
+              let ttsChapterIndex,
+              chapterIndex != ttsChapterIndex
+        else {
+            if chapterIndex == ttsChapterIndex {
+                showTTSJumpPrompt = false
+                ttsJumpPromptChapterIndex = nil
+            }
+            return
+        }
+        ttsJumpPromptChapterIndex = chapterIndex
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showTTSJumpPrompt = true
+        }
+    }
+
+    private func jumpBackToTTSChapter() {
+        guard let ttsChapterIndex, chapters.indices.contains(ttsChapterIndex) else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showTTSJumpPrompt = false
+            ttsJumpPromptChapterIndex = nil
+        }
+        jumpToChapter(ttsChapterIndex)
+    }
+
+    private func startTTSFromCurrentReadingPosition() {
+        let target = ttsJumpPromptChapterIndex ?? currentChapterIndex
+        guard chapters.indices.contains(target) else { return }
+        let text = textForTTSCurrentReadingPosition(chapterIndex: target)
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            _ = startTTSChapter(target, syncReader: false)
+            return
+        }
+
+        ttsChapterIndex = target
+        showTTSJumpPrompt = false
+        ttsJumpPromptChapterIndex = nil
+        ensureChapterReady(chapterIndex: target, priority: .jump)
+        ttsCoordinator.speak(text: text, title: chapters[target].title)
+    }
+
+    private func textForTTSChapter(_ chapterIndex: Int) -> String {
+        guard chapters.indices.contains(chapterIndex) else { return "" }
+        if let engine = epubRenderer.engine,
+           usesCoreTextEPUB,
+           let layout = engine.layouts[chapterIndex],
+           layout.attributedString.length > 0 {
+            return layout.attributedString.string
+        }
+        let pageText = allPages
+            .filter { $0.chapterIndex == chapterIndex }
+            .map(\.content)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !pageText.isEmpty { return pageText }
+        return chapters[chapterIndex].content
+    }
+
+    private func textForTTSCurrentReadingPosition(chapterIndex: Int) -> String {
+        guard chapters.indices.contains(chapterIndex) else { return "" }
+        if let engine = epubRenderer.engine,
+           usesCoreTextEPUB,
+           let layout = engine.layouts[chapterIndex],
+           layout.attributedString.length > 0 {
+            let position = engine.charOffset(forPage: currentPage)
+            guard position.spineIndex == chapterIndex else {
+                return textForTTSChapter(chapterIndex)
+            }
+            let start = max(0, min(position.charOffset, layout.attributedString.length))
+            let range = NSRange(location: start, length: layout.attributedString.length - start)
+            return layout.attributedString.attributedSubstring(from: range).string
+        }
+
+        if !settings.scrollMode, !allPages.isEmpty {
+            let startPage = max(0, min(currentPage, max(allPages.count - 1, 0)))
+            let text = allPages
+                .enumerated()
+                .filter { index, page in
+                    index >= startPage && page.chapterIndex == chapterIndex
+                }
+                .map { $0.element.content }
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { return text }
+        }
+
+        return textForTTSChapter(chapterIndex)
     }
 
     // MARK: - 邏輯

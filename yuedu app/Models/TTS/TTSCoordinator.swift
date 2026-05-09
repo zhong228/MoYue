@@ -9,6 +9,101 @@ enum TTSPlaybackState {
     case paused
 }
 
+extension Notification.Name {
+    static let ttsFloatingPlayerOpenPanel = Notification.Name("ttsFloatingPlayerOpenPanel")
+}
+
+@MainActor
+final class TTSFloatingPlayerState: ObservableObject {
+    static let shared = TTSFloatingPlayerState()
+
+    @Published private(set) var isVisible = false
+    @Published private(set) var title = ""
+    @Published private(set) var playbackState: TTSPlaybackState = .stopped
+    @Published private(set) var currentSegmentIndex = 0
+    @Published private(set) var totalSegments = 0
+    @Published var isPanelPresented = false
+
+    private weak var coordinator: TTSCoordinator?
+    private var allowsReaderOverlay = false
+
+    var progressText: String {
+        guard totalSegments > 0 else { return "" }
+        return "\(currentSegmentIndex + 1)/\(totalSegments)"
+    }
+
+    func attach(_ coordinator: TTSCoordinator) {
+        self.coordinator = coordinator
+        update(from: coordinator)
+    }
+
+    func update(from coordinator: TTSCoordinator) {
+        guard self.coordinator === coordinator else { return }
+        title = coordinator.floatingTitle
+        playbackState = coordinator.playbackState
+        currentSegmentIndex = coordinator.currentSegmentIndex
+        totalSegments = coordinator.totalSegments
+        isVisible = allowsReaderOverlay && coordinator.playbackState != .stopped
+    }
+
+    func detach(_ coordinator: TTSCoordinator) {
+        guard self.coordinator === coordinator else { return }
+        self.coordinator = nil
+        title = ""
+        playbackState = .stopped
+        currentSegmentIndex = 0
+        totalSegments = 0
+        isVisible = false
+        isPanelPresented = false
+    }
+
+    func setReaderOverlayVisible(_ visible: Bool) {
+        allowsReaderOverlay = visible
+        if let coordinator {
+            update(from: coordinator)
+        } else {
+            isVisible = false
+        }
+    }
+
+    func openPanel() {
+        NotificationCenter.default.post(name: .ttsFloatingPlayerOpenPanel, object: nil)
+        isPanelPresented = true
+    }
+
+    func togglePlayback() {
+        coordinator?.toggle()
+    }
+
+    func skipBackward() {
+        coordinator?.skipBackward()
+    }
+
+    func skipForward() {
+        coordinator?.skipForward()
+    }
+
+    func stop() {
+        coordinator?.stop(reason: "floating player stop")
+    }
+
+#if DEBUG
+    func configurePreview(
+        title: String,
+        playbackState: TTSPlaybackState,
+        currentSegmentIndex: Int,
+        totalSegments: Int
+    ) {
+        self.title = title
+        self.playbackState = playbackState
+        self.currentSegmentIndex = currentSegmentIndex
+        self.totalSegments = totalSegments
+        allowsReaderOverlay = true
+        isVisible = playbackState != .stopped
+    }
+#endif
+}
+
 // MARK: - TTS 協調器
 //
 // 統一對外介面：ReaderView 和 TTSPanelView 只依賴 TTSCoordinator。
@@ -25,6 +120,7 @@ final class TTSCoordinator: ObservableObject {
     @Published private(set) var currentSegmentText = ""
     @Published var speechRate: Float = 0.5
     @Published var sleepMinutes: Int = 0
+    var showsGlobalFloatingPlayer = false
 
     // MARK: - 回調（ReaderView 設定）
     var onPageFinished: (() -> String?)? {
@@ -33,6 +129,8 @@ final class TTSCoordinator: ObservableObject {
     var onStop: (() -> Void)? {
         didSet { rewireCallbacks() }
     }
+    var onNextTrackRequested: (() -> Bool)?
+    var onPreviousTrackRequested: (() -> Bool)?
     // MARK: - 引擎
     private let httpEngine = HTTPTTSEngine()
     private var currentEngine: TTSPlayable { httpEngine }
@@ -48,6 +146,10 @@ final class TTSCoordinator: ObservableObject {
     private var routeChangeCancellable: AnyCancellable?
     private var shouldResumeAfterInterruption = false
     private var isStoppingFromCoordinator = false
+
+    var floatingTitle: String {
+        nowPlayingTitle
+    }
 
     init() {
         rewireCallbacks()
@@ -86,6 +188,7 @@ final class TTSCoordinator: ObservableObject {
         isPlaying = true
         playbackState = .playing
         updateNowPlaying()
+        publishFloatingPlayerState()
         if sleepMinutes > 0 { startSleepTimer() }
     }
 
@@ -100,6 +203,7 @@ final class TTSCoordinator: ObservableObject {
         isPlaying = currentEngine.isPlaying
         playbackState = .paused
         updateNowPlaying()
+        publishFloatingPlayerState()
         ttsLog("[TTS][Coordinator] pause done coordinatorPlaying=\(isPlaying) enginePlaying=\(currentEngine.isPlaying)")
     }
 
@@ -118,6 +222,7 @@ final class TTSCoordinator: ObservableObject {
             nowPlayingStartedAt = Date()
         }
         updateNowPlaying()
+        publishFloatingPlayerState()
         ttsLog("[TTS][Coordinator] resume done coordinatorPlaying=\(isPlaying) enginePlaying=\(currentEngine.isPlaying)")
     }
 
@@ -136,21 +241,54 @@ final class TTSCoordinator: ObservableObject {
     func skipForward() {
         ttsLog("[TTS][Coordinator] skipForward requested state=\(playbackState)")
         guard hasActivePlaybackSession else { return }
+        if onNextTrackRequested?() == true {
+            resetNowPlayingClockForCurrentAudio()
+            updateNowPlaying()
+            publishFloatingPlayerState()
+            return
+        }
         currentEngine.skipForward()
         isPlaying = currentEngine.isPlaying
         playbackState = isPlaying ? .playing : .paused
         resetNowPlayingClockForCurrentAudio()
         updateNowPlaying()
+        publishFloatingPlayerState()
     }
 
     func skipBackward() {
         ttsLog("[TTS][Coordinator] skipBackward requested state=\(playbackState)")
         guard hasActivePlaybackSession else { return }
+        if onPreviousTrackRequested?() == true {
+            resetNowPlayingClockForCurrentAudio()
+            updateNowPlaying()
+            publishFloatingPlayerState()
+            return
+        }
         currentEngine.skipBackward()
         isPlaying = currentEngine.isPlaying
         playbackState = isPlaying ? .playing : .paused
         resetNowPlayingClockForCurrentAudio()
         updateNowPlaying()
+        publishFloatingPlayerState()
+    }
+
+    func seekToProgress(_ progress: Double) {
+        ttsLog("[TTS][Coordinator] seekToProgress requested progress=\(progress) totalSegments=\(totalSegments)")
+        guard hasActivePlaybackSession, totalSegments > 0 else { return }
+        let clamped = min(max(progress, 0), 1)
+        let segment = Int(round(clamped * Double(max(totalSegments - 1, 0))))
+        currentEngine.seekToSegment(segment)
+        isPlaying = currentEngine.isPlaying
+        playbackState = isPlaying ? .playing : .paused
+        resetNowPlayingClockForCurrentAudio()
+        updateNowPlaying()
+        publishFloatingPlayerState()
+    }
+
+    func updateNowPlayingTitle(_ title: String) {
+        nowPlayingTitle = title.isEmpty ? "正在朗讀" : title
+        updateNowPlaying()
+        publishFloatingPlayerState()
     }
 
     private func finishStopped(reason: String) {
@@ -171,6 +309,10 @@ final class TTSCoordinator: ObservableObject {
         currentSegmentIndex = 0
         totalSegments = 0
         currentSegmentText = ""
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            TTSFloatingPlayerState.shared.detach(self)
+        }
         if ownsSystemMedia {
             setRemoteCommandsEnabled(false)
             deactivateAudioSession()
@@ -222,9 +364,23 @@ final class TTSCoordinator: ObservableObject {
         }
         httpEngine.onSegmentChanged = { [weak self] index, total, text in
             DispatchQueue.main.async {
-                self?.currentSegmentIndex = index
-                self?.totalSegments = total
-                self?.currentSegmentText = text
+                guard let self else { return }
+                self.currentSegmentIndex = index
+                self.totalSegments = total
+                self.currentSegmentText = text
+                self.publishFloatingPlayerState()
+            }
+        }
+    }
+
+    private func publishFloatingPlayerState() {
+        guard showsGlobalFloatingPlayer else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if self.playbackState == .stopped {
+                TTSFloatingPlayerState.shared.detach(self)
+            } else {
+                TTSFloatingPlayerState.shared.attach(self)
             }
         }
     }
@@ -444,6 +600,7 @@ final class TTSCoordinator: ObservableObject {
         nowPlayingDuration = max(duration, 1)
         resetNowPlayingClockForCurrentAudio()
         updateNowPlaying()
+        publishFloatingPlayerState()
     }
 
     private func resetNowPlayingClockForCurrentAudio() {

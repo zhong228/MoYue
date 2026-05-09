@@ -4,13 +4,39 @@ import SwiftUI
 
 struct TTSPanelView: View {
     @ObservedObject var tts: TTSCoordinator
-    let currentText: String
-    let chapterTitle: String
+    let chapters: [BookChapter]
+    let currentReaderChapterIndex: Int
+    let activeTTSChapterIndex: Int?
+    let activeChapterTitle: String
+    let onPlayPause: () -> Void
+    let onPreviousChapter: () -> Bool
+    let onNextChapter: () -> Bool
+    let onSelectChapter: (Int) -> Void
     @Environment(\.dismiss) var dismiss
     @ObservedObject private var gs = GlobalSettings.shared
+    @State private var isScrubbing = false
+    @State private var scrubProgress = 0.0
+    @State private var showChapterPicker = false
 
     private var hasAudioSource: Bool {
         !gs.httpTtsUrlTemplate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var controlChapterIndex: Int {
+        activeTTSChapterIndex ?? currentReaderChapterIndex
+    }
+
+    private var canGoPreviousChapter: Bool {
+        controlChapterIndex > 0
+    }
+
+    private var canGoNextChapter: Bool {
+        controlChapterIndex < chapters.count - 1
+    }
+
+    private var playbackProgress: Double {
+        guard tts.totalSegments > 1 else { return 0 }
+        return Double(tts.currentSegmentIndex) / Double(tts.totalSegments - 1)
     }
 
     var body: some View {
@@ -38,9 +64,9 @@ struct TTSPanelView: View {
 
                 // 播放控制
                 Section {
-                    VStack(spacing: 12) {
+                    VStack(spacing: 16) {
                         if tts.playbackState != .stopped, tts.totalSegments > 0 {
-                            Text("\(localized("段落進度")) \(tts.currentSegmentIndex + 1) / \(tts.totalSegments)")
+                            Text("\(localized("章節進度")) \(tts.currentSegmentIndex + 1) / \(tts.totalSegments)")
                                 .font(DSFont.caption)
                                 .foregroundColor(DSColor.textSecondary)
                         }
@@ -48,34 +74,28 @@ struct TTSPanelView: View {
                         HStack {
                             Spacer()
                             Button {
-                                ttsLog("[TTS][Panel] previousSegmentButton tapped state=\(tts.playbackState) segment=\(tts.currentSegmentIndex)/\(tts.totalSegments)")
-                                tts.skipBackward()
+                                ttsLog("[TTS][Panel] previousChapterButton tapped state=\(tts.playbackState) chapter=\(controlChapterIndex)")
+                                _ = onPreviousChapter()
                             } label: {
                                 VStack(spacing: 4) {
                                     Image(systemName: "backward.fill")
                                         .font(.system(size: 24))
-                                    Text(localized("上一段"))
+                                    Text(localized("上一章"))
                                         .font(DSFont.caption)
                                 }
                                 .foregroundColor(DSColor.textSecondary)
                             }
-                            .disabled(tts.playbackState == .stopped || tts.currentSegmentIndex <= 0)
+                            .disabled(!hasAudioSource || !canGoPreviousChapter)
 
                             Spacer()
 
                             // 播放 / 暫停
                             Button {
-                                ttsLog("[TTS][Panel] playButton tapped coordinatorPlaying=\(tts.isPlaying) engine=http textCount=\(currentText.count) title=\(chapterTitle)")
-                                if tts.playbackState == .playing {
-                                    tts.pause()
-                                } else if tts.playbackState == .paused {
-                                    tts.resume()
-                                } else if hasAudioSource, !currentText.isEmpty {
-                                    tts.speak(text: currentText, title: chapterTitle)
-                                } else if !hasAudioSource {
-                                    ttsLog("[TTS][Panel] ignored play tap because audio source is not configured")
+                                ttsLog("[TTS][Panel] playButton tapped coordinatorPlaying=\(tts.isPlaying) state=\(tts.playbackState) chapter=\(controlChapterIndex)")
+                                if hasAudioSource {
+                                    onPlayPause()
                                 } else {
-                                    ttsLog("[TTS][Panel] ignored play tap because currentText is empty")
+                                    ttsLog("[TTS][Panel] ignored play tap because audio source is not configured")
                                 }
                             } label: {
                                 Image(
@@ -89,24 +109,73 @@ struct TTSPanelView: View {
                             Spacer()
 
                             Button {
-                                ttsLog("[TTS][Panel] nextSegmentButton tapped state=\(tts.playbackState) segment=\(tts.currentSegmentIndex)/\(tts.totalSegments)")
-                                tts.skipForward()
+                                ttsLog("[TTS][Panel] nextChapterButton tapped state=\(tts.playbackState) chapter=\(controlChapterIndex)")
+                                _ = onNextChapter()
                             } label: {
                                 VStack(spacing: 4) {
                                     Image(systemName: "forward.fill")
                                         .font(.system(size: 24))
-                                    Text(localized("下一段"))
+                                    Text(localized("下一章"))
                                         .font(DSFont.caption)
                                 }
                                 .foregroundColor(DSColor.textSecondary)
                             }
-                            .disabled(tts.playbackState == .stopped || tts.totalSegments <= 0)
+                            .disabled(!hasAudioSource || !canGoNextChapter)
 
                             Spacer()
                         }
                         .buttonStyle(.borderless)
+
+                        if tts.playbackState != .stopped, tts.totalSegments > 1 {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Slider(
+                                    value: Binding(
+                                        get: { isScrubbing ? scrubProgress : playbackProgress },
+                                        set: { scrubProgress = $0 }
+                                    ),
+                                    in: 0...1,
+                                    onEditingChanged: { editing in
+                                        isScrubbing = editing
+                                        if editing {
+                                            scrubProgress = playbackProgress
+                                        } else {
+                                            tts.seekToProgress(scrubProgress)
+                                        }
+                                    }
+                                )
+                                HStack {
+                                    Text(localized("章節開始"))
+                                    Spacer()
+                                    Text(localized("章節結尾"))
+                                }
+                                .font(DSFont.caption)
+                                .foregroundColor(DSColor.textSecondary)
+                            }
+                        }
                     }
                     .padding(.vertical, 8)
+                }
+
+                Section {
+                    Button {
+                        showChapterPicker = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "list.bullet")
+                                .foregroundColor(DSColor.accent)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(localized("目錄"))
+                                Text(activeChapterTitle)
+                                    .font(DSFont.caption)
+                                    .foregroundColor(DSColor.textSecondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(DSColor.textSecondary)
+                        }
+                    }
                 }
 
                 // 語速
@@ -154,6 +223,38 @@ struct TTSPanelView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(localized("完成")) { dismiss() }
+                }
+            }
+            .sheet(isPresented: $showChapterPicker) {
+                NavigationView {
+                    List(chapters.indices, id: \.self) { index in
+                        Button {
+                            showChapterPicker = false
+                            onSelectChapter(index)
+                        } label: {
+                            HStack {
+                                Text(chapters[index].title)
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                if index == controlChapterIndex {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                        }
+                    }
+                    .navigationTitle(localized("目錄"))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button(localized("關閉")) { showChapterPicker = false }
+                        }
+                    }
+                }
+            }
+            .onChange(of: tts.currentSegmentIndex) { _ in
+                if !isScrubbing {
+                    scrubProgress = playbackProgress
                 }
             }
         }
