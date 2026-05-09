@@ -113,57 +113,73 @@ struct ReaderInlineFooter: View {
 
 #if DEBUG
 private struct FooterPreview: View {
-    @State private var contentBottomInset: CGFloat = 20
-    @State private var footerPadding: CGFloat = 6
+    @State private var footerPadding: CGFloat = 4
 
     var body: some View {
         VStack(spacing: 0) {
-            ZStack(alignment: .bottom) {
-                Color(.systemGray6)
-                VStack {
-                    Text("第 42 頁").font(.system(size: 14)).foregroundColor(.secondary)
-                    Text("正文最後一行").foregroundColor(.primary)
+            // Simulated page
+            GeometryReader { geo in
+                ZStack(alignment: .bottom) {
+                    Color(.systemGray6)
+
+                    // Simulated text content
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(0..<15, id: \.self) { i in
+                            Text("這是模擬的第 \(i + 1) 行正文內容，用來展示排版區底部到 footer 之間的距離關係。")
+                                .font(.system(size: 12))
+                                .foregroundColor(.primary.opacity(0.7))
+                                .lineLimit(1)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, ReaderLayoutMetrics.footerHeight + footerPadding)
+
+                    // Footer area boundary
+                    Rectangle()
+                        .fill(.clear)
+                        .frame(height: ReaderLayoutMetrics.footerHeight + 2)
+                        .overlay(alignment: .top) {
+                            Rectangle().frame(height: 1).foregroundColor(.red.opacity(0.5))
+                        }
+                        .overlay(alignment: .bottom) {
+                            Rectangle().frame(height: 1).foregroundColor(.red.opacity(0.5))
+                        }
+                        .padding(.bottom, footerPadding)
+
+                    // Footer
+                    VStack {
+                        Spacer()
+                        ReaderOverlayFooter(
+                            pageInfo: "42 / 156",
+                            progress: "26.9%",
+                            textColor: .white,
+                            footerPadding: footerPadding
+                        )
+                    }
                 }
-                .padding(.bottom, contentBottomInset)
             }
-
-            ZStack(alignment: .bottom) {
-                Color(.systemGray5)
-                Rectangle().frame(height: 1).foregroundColor(.red.opacity(0.5))
-
-                ReaderOverlayFooter(
-                    pageInfo: "42 / 156",
-                    progress: "26.9%",
-                    textColor: .white,
-                    footerPadding: footerPadding
-                )
-            }
-            .frame(height: max(30, contentBottomInset + 4))
 
             Divider()
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("參數").font(.headline).padding(.top, 8)
-
+                Text("footerPadding").font(.headline)
                 HStack {
-                    Text("文字底部留白: \(Int(contentBottomInset))pt")
-                    Slider(value: $contentBottomInset, in: 0...80, step: 2)
-                }
-                HStack {
-                    Text("footer 離底: \(Int(footerPadding))pt")
-                    Slider(value: $footerPadding, in: 0...40, step: 1)
+                    Text("\(Int(footerPadding))pt")
+                        .font(.system(size: 24, weight: .bold, design: .monospaced))
+                        .frame(width: 50, alignment: .trailing)
+                    Slider(value: $footerPadding, in: 0...24, step: 1)
                 }
 
-                Text("紅線 = 排版區域底部").font(.caption).foregroundColor(.red.opacity(0.5))
-                Text("contentInsets.bottom = safeBottom + 16(footerHeight) + footerPadding").font(.caption).foregroundColor(.secondary)
+                Text("紅框 = footer 區域 (高度 16pt)").font(.caption).foregroundColor(.red.opacity(0.5))
+                Text("文字結束位置 = footer頂部，下方空白 = footerPadding").font(.caption).foregroundColor(.secondary)
             }
-            .padding(.horizontal)
+            .padding(12)
         }
         .preferredColorScheme(.dark)
     }
 }
 
-#Preview("Footer Position Tester") {
+#Preview("Footer") {
     FooterPreview()
 }
 #endif

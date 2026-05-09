@@ -2,7 +2,7 @@ import Foundation
 import Combine
 import UIKit
 
-// MARK: - WebDAV 錯誤類型
+// MARK: - WebDAV Error Types
 
 enum WebDAVError: LocalizedError {
     case invalidURL
@@ -22,7 +22,7 @@ enum WebDAVError: LocalizedError {
     }
 }
 
-// MARK: - 同步清單（隨每次備份上傳至 /yuedu/manifest.json）
+// MARK: - Sync Manifest (uploaded to /yuedu/manifest.json with each backup)
 
 struct SyncManifest: Codable {
     var deviceId: String
@@ -31,20 +31,20 @@ struct SyncManifest: Codable {
     var appVersion: String
 }
 
-// MARK: - 衝突資訊
+// MARK: - Conflict Info
 
 struct SyncConflict {
     let remote: SyncManifest
     let localLastSync: Date
 }
 
-// MARK: - WebDAV 管理器
+// MARK: - WebDAV Manager
 
 final class WebDAVManager: ObservableObject {
 
     static let shared = WebDAVManager()
 
-    // MARK: 設定（持久化至 UserDefaults）
+    // MARK: Settings (persisted to UserDefaults)
 
     @Published var serverUrl: String {
         didSet { UserDefaults.standard.set(serverUrl, forKey: "webdav_url") }
@@ -56,7 +56,7 @@ final class WebDAVManager: ObservableObject {
         didSet { UserDefaults.standard.set(password, forKey: "webdav_password") }
     }
 
-    // MARK: 狀態
+    // MARK: State
 
     @Published var isSyncing: Bool = false
     @Published var lastSyncDate: Date? {
@@ -67,12 +67,12 @@ final class WebDAVManager: ObservableObject {
         }
     }
     @Published var statusMessage: String = ""
-    /// 偵測到跨裝置衝突時非 nil；View 監聽並彈出選擇對話框。
+    /// Non-nil when a cross-device conflict is detected; the view observes and shows a selection dialog.
     @Published var pendingConflict: SyncConflict?
 
-    // MARK: 私有
+    // MARK: Private
 
-    /// 每台裝置唯一 ID，首次產生後存入 UserDefaults。
+    /// Unique per-device ID stored in UserDefaults on first generation.
     private static var deviceId: String {
         let key = "sync_device_id"
         if let id = UserDefaults.standard.string(forKey: key) { return id }
@@ -81,7 +81,7 @@ final class WebDAVManager: ObservableObject {
         return id
     }
 
-    // MARK: 初始化
+    // MARK: Initialization
 
     private init() {
         serverUrl    = UserDefaults.standard.string(forKey: "webdav_url") ?? ""
@@ -90,7 +90,7 @@ final class WebDAVManager: ObservableObject {
         lastSyncDate = UserDefaults.standard.object(forKey: "webdav_last_sync") as? Date
     }
 
-    // MARK: - 認證
+    // MARK: - Authentication
 
     private var authHeader: String {
         let credentials = "\(username):\(password)"
@@ -98,9 +98,9 @@ final class WebDAVManager: ObservableObject {
         return "Basic \(encoded)"
     }
 
-    // MARK: - 公開介面
+    // MARK: - Public Interface
 
-    /// 測試 WebDAV 連線，回傳是否成功。
+    /// Test WebDAV connection; returns whether successful.
     func testConnection() async -> Bool {
         do {
             return try await propfind(path: "/")
@@ -109,12 +109,12 @@ final class WebDAVManager: ObservableObject {
         }
     }
 
-    /// 將三份本地資料備份至 WebDAV，同時上傳包含裝置資訊的 manifest.json。
+    /// Back up three local data files to WebDAV, along with a manifest.json containing device info.
     ///
-    /// 檔案讀取策略：
-    /// - 若檔案不存在（首次使用前尚未產生），靜默略過該項目。
-    /// - 若檔案存在但讀取失敗（權限錯誤、磁碟故障），拋出錯誤並中斷備份，
-    ///   避免顯示不實的「備份成功」訊息。
+    /// File reading strategy:
+    /// - If a file does not exist (not yet generated before first use), silently skip it.
+    /// - If a file exists but fails to read (permission error, disk failure), throw an error
+    ///   and abort the backup to avoid displaying a false "backup successful" message.
     func backup() async throws {
         await setSync(true, message: "備份中…")
         defer { Task { @MainActor in self.isSyncing = false } }
@@ -136,7 +136,7 @@ final class WebDAVManager: ObservableObject {
         let replaceURL = libDir.appendingPathComponent("replace_rules.json")
         try await backupFileIfExists(at: replaceURL, to: "/yuedu/replace_rules.json")
 
-        // 4. manifest.json（衝突偵測用）
+        // 4. manifest.json (for conflict detection)
         let deviceName = await MainActor.run { UIDevice.current.name }
         let manifest = SyncManifest(
             deviceId: Self.deviceId,
@@ -154,41 +154,43 @@ final class WebDAVManager: ObservableObject {
         }
     }
 
-    /// 若 `localURL` 指向的檔案存在，讀取並上傳；若檔案不存在則略過。
-    /// 檔案存在但讀取失敗時會拋出錯誤，防止靜默略過真實故障。
+    /// If the file at `localURL` exists, read and upload it; skip if the file does not exist.
+    /// If the file exists but fails to read, an error is thrown to prevent silently ignoring real failures.
     private func backupFileIfExists(at localURL: URL, to remotePath: String) async throws {
         guard FileManager.default.fileExists(atPath: localURL.path) else { return }
         let data = try Data(contentsOf: localURL)
         try await put(data: data, path: remotePath)
     }
 
-    /// 從 WebDAV 下載備份並覆寫本地資料（含衝突偵測）。
-    /// 若偵測到跨裝置衝突，設定 `pendingConflict` 並提前返回，由 UI 決定是否繼續。
+    /// Download backup from WebDAV and overwrite local data (includes conflict detection).
+    /// If a cross-device conflict is detected, sets `pendingConflict` and returns early;
+    /// the UI decides whether to proceed.
     func restore() async throws {
         try await performRestore(skipConflictCheck: false)
     }
 
-    /// 使用者確認後呼叫：強制以雲端備份覆蓋本地。
+    /// Called after user confirmation: forcefully overwrite local data with the cloud backup.
     func resolveConflict(keepRemote: Bool) async throws {
         await MainActor.run { pendingConflict = nil }
         if keepRemote {
             try await performRestore(skipConflictCheck: true)
         }
-        // keepRemote == false：保留本地，什麼都不做
+        // keepRemote == false: keep local, do nothing
     }
 
-    // MARK: - 私有還原實作
+    // MARK: - Private Restore Implementation
 
     private func performRestore(skipConflictCheck: Bool) async throws {
         await setSync(true, message: "還原中…")
         defer { Task { @MainActor in self.isSyncing = false } }
 
-        // ── 衝突偵測 ────────────────────────────────────────────────────────────
+        // ── Conflict Detection ──────────────────────────────────────────────────────
         if !skipConflictCheck {
             if let manifestData = try? await get(path: "/yuedu/manifest.json"),
                let remote = try? JSONDecoder().decode(SyncManifest.self, from: manifestData) {
                 let isOtherDevice = remote.deviceId != Self.deviceId
-                // 本地曾同步過 → 雲端可能是另一台裝置的舊備份，可能覆蓋本地較新資料
+                // Local has synced before → cloud may be an older backup from another device,
+                // potentially overwriting newer local data.
                 if isOtherDevice, let localSync = lastSyncDate {
                     await MainActor.run {
                         self.pendingConflict = SyncConflict(remote: remote, localLastSync: localSync)
@@ -199,7 +201,7 @@ final class WebDAVManager: ObservableObject {
             }
         }
 
-        // ── 正式還原 ─────────────────────────────────────────────────────────────
+        // ── Perform Restore ─────────────────────────────────────────────────────────
         let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let libDir  = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
 
@@ -229,9 +231,9 @@ final class WebDAVManager: ObservableObject {
         }
     }
 
-    // MARK: - 私有 HTTP 方法
+    // MARK: - Private HTTP Methods
 
-    /// PROPFIND：確認路徑存在（HTTP 200 或 207）。
+    /// PROPFIND: Check if path exists (HTTP 200 or 207).
     private func propfind(path: String) async throws -> Bool {
         var request = try makeRequest(path: path)
         request.httpMethod = "PROPFIND"
@@ -243,7 +245,7 @@ final class WebDAVManager: ObservableObject {
         return http.statusCode == 200 || http.statusCode == 207
     }
 
-    /// MKCOL：建立目錄（忽略 405 = 已存在）。
+    /// MKCOL: Create directory (ignore 405 = already exists).
     private func mkcol(path: String) async throws {
         var request = try makeRequest(path: path)
         request.httpMethod = "MKCOL"
@@ -255,7 +257,7 @@ final class WebDAVManager: ObservableObject {
         }
     }
 
-    /// PUT：上傳資料至指定路徑。
+    /// PUT: Upload data to the specified path.
     private func put(data: Data, path: String) async throws {
         var request = try makeRequest(path: path)
         request.httpMethod = "PUT"
@@ -270,7 +272,7 @@ final class WebDAVManager: ObservableObject {
         }
     }
 
-    /// GET：從指定路徑下載資料。
+    /// GET: Download data from the specified path.
     private func get(path: String) async throws -> Data {
         var request = try makeRequest(path: path)
         request.httpMethod = "GET"
@@ -285,7 +287,7 @@ final class WebDAVManager: ObservableObject {
         return data
     }
 
-    // MARK: - 工具
+    // MARK: - Utilities
 
     private func makeRequest(path: String) throws -> URLRequest {
         let base = serverUrl.hasSuffix("/") ? String(serverUrl.dropLast()) : serverUrl
