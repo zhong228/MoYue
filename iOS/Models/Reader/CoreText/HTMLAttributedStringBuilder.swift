@@ -411,15 +411,15 @@ final class HTMLAttributedStringBuilder {
             }
             let rendered = await renderNode(nodeToRender, inheritedStyle: parentStyle, config: config)
             if rendered.length == 0 {
-                // HR 分隔線可能產生空長度的 attributed string
+                // HR divider may produce a zero-length attributed string
                 if case .element(let el) = node, el.tag == "hr" {
                     let fallback = makeHRDivider(style: el.resolvedStyle, config: config)
                     output.append(fallback)
                 }
                 continue
             }
-            // 跳過 block 頂層的純空白 text node（body 與 block 元素之間的縮排空白），
-            // 避免它們被 CoreText 歸入下一個 paragraph，污染該段落的 paragraphStyle
+            // Skip whitespace-only text nodes between block-level elements (indentation whitespace between body and block elements),
+            // to prevent them from being merged into the next paragraph by CoreText, which would corrupt that paragraph's paragraphStyle
             if rendered.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                !containsRenderableMetadata(rendered) {
                 continue
@@ -587,7 +587,7 @@ final class HTMLAttributedStringBuilder {
         _ element: ElementNode,
         config: Config
     ) async -> NSAttributedString {
-        // hr: 回傳帶有 hrDividerAttribute 的分隔線佔位
+        // hr: returns a divider placeholder carrying hrDividerAttribute
         if element.tag == "hr" {
             return makeHRDivider(style: element.resolvedStyle, config: config)
         }
@@ -601,7 +601,7 @@ final class HTMLAttributedStringBuilder {
         var paragraphIndex = 0
         let blockRenderID = UUID().uuidString
 
-        // 列表項：前置 bullet 字串（hanging indent 由 makeParagraphStyle 處理）
+        // List item: prepend bullet string (hanging indent handled by makeParagraphStyle)
         if let bullet = element.resolvedStyle.listBullet {
             let bulletAttrs = baseTextAttributes(style: element.resolvedStyle, config: config)
             segment.append(NSAttributedString(string: bullet, attributes: bulletAttrs))
@@ -897,7 +897,7 @@ final class HTMLAttributedStringBuilder {
             // do not inherit paragraphSpacingBefore, to prevent repeated margin-top application.
             style.paragraphSpacingBefore = 0
             style.visualOffsetBefore = 0
-            // 列表項的後續段落不加 bullet，但保留 hanging indent（marginLeft 不變）
+            // Subsequent paragraphs of a list item omit the bullet but keep the hanging indent (marginLeft unchanged)
             style.listBullet = nil
         }
         if !isLast {
@@ -1028,7 +1028,7 @@ final class HTMLAttributedStringBuilder {
             font: font,
             targetLineHeight: lineHeight
         )
-        // sup / sub 的額外基線偏移
+        // Extra baseline offset for superscript / subscript
         switch style.verticalAlign {
         case .super: baselineOffset += style.fontSize * 0.4
         case .sub:   baselineOffset -= style.fontSize * 0.25

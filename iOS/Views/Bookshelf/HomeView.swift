@@ -1,7 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-// MARK: - 書架主頁
+// MARK: - Bookshelf Home
 struct HomeView: View {
     @EnvironmentObject var store: BookStore
 
@@ -11,7 +11,7 @@ struct HomeView: View {
     @State private var bookToDelete: ReadingBook? = nil
     @State private var editMode = EditMode.inactive
     @State private var showSearch = false
-    @State private var selectedGroup: String = ""   // "" = 全部
+    @State private var selectedGroup: String = ""
     @State private var selectedBookIds: Set<UUID> = []
     @State private var showBulkDeleteAlert = false
     @State private var showAddToGroupSheet = false
@@ -20,10 +20,8 @@ struct HomeView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Namespace private var bookTransition
 
-    // 左右留白隨設備動態調整
     private var hInset: CGFloat { sizeClass == .regular ? 32 : 20 }
 
-    // fullScreenCover 閱讀器（取代 NavigationLink，避免 SwiftUI NavLink 重建 @State bug）
     @State private var readerBookId: UUID? = nil
 
     var sortedFilteredBooks: [ReadingBook] {
@@ -51,13 +49,10 @@ struct HomeView: View {
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     } else {
                         VStack(spacing: 0) {
-                            // 分組篩選（有分組時顯示）
                             if !store.allGroups.isEmpty {
                                 groupFilterBar
                             }
-                            // 書籍列表 / 網格
                             if isGridMode { bookGrid } else { bookList }
-                            // 編輯模式底部動作列
                             if editMode == .active {
                                 editActionBar
                             }
@@ -71,7 +66,6 @@ struct HomeView: View {
             .toolbarTitleDisplayMode(.inlineLarge)
             .toolbar {
 
-                // 第一顆 trailing：編輯模式 = 全選；非編輯 = 搜尋
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Group {
                         if editMode == .active {
@@ -100,7 +94,6 @@ struct HomeView: View {
                     }
                 }
 
-                // 後續 trailing：編輯模式 = 完成；非編輯 = 新增 + 選單
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     if editMode == .active {
                         Button {
@@ -172,7 +165,6 @@ struct HomeView: View {
                     BookSearchView().environmentObject(store)
                 }
             }
-            // 編輯書籍資訊 Sheet
             .sheet(item: $editingBook) { book in
                 AdaptiveSheetContainer(maxWidth: 640) {
                     EditBookSheet(book: book) { newTitle, newAuthor, newGroup in
@@ -182,7 +174,6 @@ struct HomeView: View {
                     .environmentObject(store)
                 }
             }
-            // 刪除確認對話框
             .alert(
                 localized("確認刪除"),
                 isPresented: Binding(
@@ -199,7 +190,6 @@ struct HomeView: View {
                     Text(localized("確定要從書架刪除") + "《\(b.title)》" + localized("嗎？"))
                 }
             }
-            // 批量刪除確認
             .alert(localized("確認刪除"), isPresented: $showBulkDeleteAlert) {
                 Button(localized("刪除"), role: .destructive) {
                     let ids = selectedBookIds
@@ -212,7 +202,6 @@ struct HomeView: View {
             } message: {
                 Text(localized("確定要刪除") + " \(selectedBookIds.count) " + localized("本書嗎？"))
             }
-            // 批量加入分組
             .sheet(isPresented: $showAddToGroupSheet) {
                 AdaptiveSheetContainer(maxWidth: 480) {
                     BulkAddToGroupSheet(bookCount: selectedBookIds.count) { group in
@@ -240,7 +229,7 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - 分組篩選欄
+    // MARK: - Group Filter Bar
     private var groupFilterBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DSSpacing.sm) {
@@ -257,7 +246,7 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - 編輯模式底部動作列
+    // MARK: - Edit Mode Action Bar
     private var editActionBar: some View {
         HStack {
             Button {
@@ -291,7 +280,6 @@ struct HomeView: View {
 
             Spacer()
 
-            // 占位讓中間按鈕視覺置中（之後分享補回來）
             Color.clear.frame(width: 44, height: 44)
         }
         .padding(.horizontal, hInset)
@@ -299,7 +287,7 @@ struct HomeView: View {
         .padding(.bottom, 4)
     }
 
-    // MARK: - 書籍列表（條列式）
+    // MARK: - Book List
     private var bookList: some View {
         List {
             ForEach(sortedFilteredBooks) { book in
@@ -342,7 +330,7 @@ struct HomeView: View {
         .accessibilityIdentifier("home_book_list")
     }
 
-    // MARK: - 書籍網格（網格式）
+    // MARK: - Book Grid
     private var bookGrid: some View {
         ScrollView {
             LazyVGrid(
@@ -369,7 +357,7 @@ struct HomeView: View {
     }
 }
 
-// MARK: - 編輯書籍資訊 Sheet
+// MARK: - Edit Book Info Sheet
 struct EditBookSheet: View {
     let book: ReadingBook
     let onSave: (String, String, String) -> Void
@@ -468,7 +456,7 @@ struct EditBookSheet: View {
     }
 }
 
-// MARK: - 空書架
+// MARK: - Empty Bookshelf
 struct EmptyLibraryView: View {
     @Binding var showAdd: Bool
     @Binding var showSearch: Bool
@@ -508,7 +496,7 @@ struct EmptyLibraryView: View {
     }
 }
 
-// MARK: - 書籍列表行（Apple Books 風格）
+// MARK: - Book Row (Apple Books Style)
 struct BookRow: View {
     let book: ReadingBook
     var isEditing: Bool = false
@@ -559,7 +547,6 @@ struct BookRow: View {
 
                     Spacer(minLength: 0)
 
-                    // 右側雙 icon：雲端 + 三點選單；編輯模式隱藏（List 會出現拖曳把手）
                     if !isEditing {
                         VStack {
                             Spacer(minLength: 0)
@@ -590,7 +577,6 @@ struct BookRow: View {
             }
             .buttonStyle(.plain)
 
-            // 自訂分隔線：從封面左緣開始，全寬
             Rectangle()
                 .fill(Color(uiColor: .separator))
                 .frame(height: 0.5)
@@ -652,7 +638,7 @@ struct BookRow: View {
 
 }
 
-// MARK: - 書籍網格格子
+// MARK: - Book Grid Cell
 struct BookGridCell: View {
     let book: ReadingBook
     var transitionNamespace: Namespace.ID? = nil
@@ -662,7 +648,6 @@ struct BookGridCell: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // 封面
             Button(action: onOpen) {
                 ZStack(alignment: .topTrailing) {
                     Group {
@@ -672,7 +657,6 @@ struct BookGridCell: View {
                             coverView
                         }
                     }
-                    // 閱讀進度角標
                     if book.currentPosition > 0.01 && book.currentPosition < 0.99 {
                         Text("\(Int(book.currentPosition * 100))%")
                             .font(.system(size: 10, weight: .semibold))
@@ -687,7 +671,6 @@ struct BookGridCell: View {
             }
             .buttonStyle(.plain)
 
-            // 書名 + 選單
             HStack(alignment: .top, spacing: 4) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(book.title)
@@ -764,7 +747,7 @@ struct BookGridCell: View {
 
 }
 
-// MARK: - 批量加入分組 Sheet
+// MARK: - Bulk Add to Group Sheet
 struct BulkAddToGroupSheet: View {
     let bookCount: Int
     let onConfirm: (String) -> Void

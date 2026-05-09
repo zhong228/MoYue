@@ -91,7 +91,7 @@ protocol PageViewControllerVending: AnyObject {
     func renderSnapshot(forPage globalPage: Int) -> UIImage?
 }
 
-// MARK: - PageRenderingProvider（組合型別別名）
+// MARK: - PageRenderingProvider (Composite type alias)
 
 /// The complete engine type that ReaderView depends on.
 /// Equivalent to the union of "layout engine + ViewController factory".

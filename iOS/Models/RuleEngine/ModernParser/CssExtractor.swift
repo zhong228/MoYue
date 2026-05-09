@@ -9,7 +9,7 @@ import SwiftSoup
 /// SwiftSoup's built-in `text()` inserts a **space** (not `\n`) at block boundaries,
 /// which causes chapter paragraphs to be crammed into a single line.
 func htmlElementToText(_ element: Element) -> String {
-    // 使用 element.copy() 避免污染原始 DOM，操作 clone 來插入換行標記
+    // Clone the element to avoid mutating the original DOM; insert line-break markers on the clone
     guard let cloned = element.copy() as? Element else {
         return (try? element.text()) ?? ""
     }

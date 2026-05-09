@@ -39,7 +39,7 @@ struct SettingsView: View {
                             AccountRowContent()
                         }
                     }
-                    // ── App 語言 ──
+                    // ── App Language ──
                     Section(
                         header: Text(localized("App 語言")),
                         footer: Text(appLanguageFooter)
@@ -57,7 +57,7 @@ struct SettingsView: View {
                         )
                     }
 
-                    // ── 書源管理 ──
+                    // ── Book Source Management ──
                     Section(header: Text(localized("書源管理"))) {
                         DSSettingsRow(
                             icon: "books.vertical.fill",
@@ -79,7 +79,7 @@ struct SettingsView: View {
                         )
                     }
 
-                    // ── 閱讀工具 ──
+                    // ── Reading Tools ──
                     Section(header: Text(localized("閱讀工具"))) {
                         DSSettingsRow(
                             icon: "chart.bar.fill",
@@ -93,7 +93,7 @@ struct SettingsView: View {
                         )
                     }
 
-                    // ── 資料管理 ──
+                    // ── Data Management ──
                     Section(header: Text(localized("資料管理"))) {
                         DSSettingsRow(
                             icon: "icloud.and.arrow.up.fill",
@@ -112,7 +112,7 @@ struct SettingsView: View {
                         )
                     }
 
-                    // ── 關於 ──
+                    // ── About ──
                     Section(header: Text(localized("關於"))) {
                         HStack {
                             Text(localized("版本"))

@@ -5,17 +5,15 @@ import WebKit
 
 @MainActor
 enum CloudflareChallengePresenter {
-    // MARK: - 去重狀態
-    // 只允許一個 CF 挑戰 UI 同時存在。
-    // 其他並發呼叫等待第一個完成後共享結果（不重複彈視窗）。
+    // MARK: - Deduplication State
+    // Only one Cloudflare challenge UI can be presented at a time.
+    // Concurrent callers wait for the first to complete and share the result.
     private static var isPresenting = false
     private static var pendingContinuations: [CheckedContinuation<String, Error>] = []
 
     static func present(url: URL) async throws -> String {
-        // 若已有 cf_clearance 對應此 domain，直接略過，無需顯示 UI
         if await hasClearance(for: url) { return "" }
 
-        // 若已有進行中的挑戰，排隊等待而不重複彈視窗
         if isPresenting {
             return try await withCheckedThrowingContinuation { continuation in
                 pendingContinuations.append(continuation)
@@ -33,7 +31,7 @@ enum CloudflareChallengePresenter {
         }
     }
 
-    // MARK: - 內部
+    // MARK: - Internal
 
     private static func hasClearance(for url: URL) async -> Bool {
         let host = url.host ?? ""
@@ -70,8 +68,6 @@ enum CloudflareChallengePresenter {
                 return
             }
 
-            // 預先 retain hostVC 供 callback dismiss 自己用，避免 dismiss rootVC
-            // 把底下的閱讀器 fullScreenCover 一起關掉。
             var hostVCRef: UIHostingController<CloudflareChallengeView>?
 
             let challengeView = CloudflareChallengeView(

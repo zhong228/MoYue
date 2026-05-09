@@ -1,6 +1,6 @@
 import SwiftUI
 
-// MARK: - 書籍搜索視圖
+// MARK: - Book Search View
 
 struct BookSearchView: View {
     @EnvironmentObject var bookStore: BookStore
@@ -9,9 +9,9 @@ struct BookSearchView: View {
     @Environment(\.presentationMode) var dismiss
 
     @State private var query = ""
-    @State private var selectedSourceId: UUID? = nil  // nil = 全部
+    @State private var selectedSourceId: UUID? = nil  // nil = all
     @State private var selectedBook: SearchBook? = nil
-    @State private var openingOnlineBook: OnlineBook? = nil  // 用於打開書籍詳情
+    @State private var openingOnlineBook: OnlineBook? = nil
     @State private var errorMsg: String? = nil
     @FocusState private var searchFocused: Bool
     @ObservedObject private var gs = GlobalSettings.shared
@@ -22,19 +22,16 @@ struct BookSearchView: View {
         NavigationView {
             AdaptiveSheetContainer(maxWidth: 900) {
                 VStack(spacing: 0) {
-                    // 搜索欄
                     searchBar
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
 
-                    // 書源選擇
                     if enabledSources.count > 1 {
                         sourceSelector
                     }
 
                     Divider()
 
-                    // 結果或提示
                     ZStack {
                         if !aggregator.results.isEmpty {
                             resultList
@@ -92,7 +89,7 @@ struct BookSearchView: View {
         .onAppear { searchFocused = true }
     }
 
-    // MARK: 搜索欄
+    // MARK: Search Bar
     private var searchBar: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass").foregroundColor(.secondary)
@@ -114,7 +111,7 @@ struct BookSearchView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
-    // MARK: 進度條
+    // MARK: Progress Bar
     private var progressBar: some View {
         VStack(spacing: 0) {
             ProgressView(value: aggregator.progress.fraction)
@@ -145,7 +142,7 @@ struct BookSearchView: View {
         }
     }
 
-    // MARK: 書源選擇器
+    // MARK: Source Selector
     private var sourceSelector: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -175,15 +172,13 @@ struct BookSearchView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: 結果列表
+    // MARK: Result List
     private var resultList: some View {
         List(aggregator.results) { book in
             Button {
                 if book.origins.count == 1 {
-                    // 只有一個來源，直接打開書籍詳情
                     openOnlineBook(from: book, origin: book.origins[0])
                 } else {
-                    // 多個來源，顯示來源選擇
                     selectedBook = book
                 }
             } label: {
@@ -196,7 +191,7 @@ struct BookSearchView: View {
         .listStyle(.plain)
     }
 
-    // MARK: 空狀態
+    // MARK: Empty State
     private var emptyResultView: some View {
         VStack(spacing: 16) {
             Spacer()
@@ -228,7 +223,7 @@ struct BookSearchView: View {
         }
     }
 
-    // MARK: 搜索邏輯
+    // MARK: Search Logic
     private func doSearch() {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return }
@@ -244,7 +239,7 @@ struct BookSearchView: View {
         aggregator.search(query: q, sources: sources)
     }
 
-    // MARK: 打開書籍詳情
+    // MARK: Open Book Details
     private func openOnlineBook(from book: SearchBook, origin: BookOrigin) {
         let onlineBook = OnlineBook(
             name: book.name,
@@ -259,7 +254,7 @@ struct BookSearchView: View {
             sourceId: origin.sourceId,
             sourceName: origin.sourceName
         )
-        // 先關閉 SourcePickerSheet（如果有打開的話），再打開書籍詳情
+        // Dismiss SourcePickerSheet first, then open book details.
         selectedBook = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             openingOnlineBook = onlineBook
@@ -267,7 +262,7 @@ struct BookSearchView: View {
     }
 }
 
-// MARK: - 聚合搜索結果行
+// MARK: - Aggregated Result Row
 
 struct AggregatedResultRow: View {
     @ObservedObject var book: SearchBook
@@ -275,7 +270,7 @@ struct AggregatedResultRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            // ── 封面 ──
+            // ── Cover ──
             AsyncImage(url: URL(string: book.coverUrl)) { phase in
                 switch phase {
                 case .success(let img):
@@ -289,7 +284,7 @@ struct AggregatedResultRow: View {
             }
             .frame(width: 72, height: 96)
 
-            // ── 資訊區 ──
+            // ── Info ──
             VStack(alignment: .leading, spacing: 3) {
                 Text(book.displayName)
                     .font(.system(size: 16, weight: .semibold))
@@ -317,7 +312,7 @@ struct AggregatedResultRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // ── 來源數量標籤 ──
+            // ── Source Count Badge ──
             VStack(alignment: .trailing) {
                 HStack(spacing: 3) {
                     Image(systemName: "globe").font(.system(size: 9))
@@ -355,7 +350,7 @@ struct AggregatedResultRow: View {
     }
 }
 
-// MARK: - 來源選擇 Sheet
+// MARK: - Source Picker Sheet
 
 struct SourcePickerSheet: View {
     @Environment(\.presentationMode) var dismiss
@@ -366,7 +361,6 @@ struct SourcePickerSheet: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // 書籍基本資訊
                 HStack(alignment: .top, spacing: 12) {
                     AsyncImage(url: URL(string: searchBook.coverUrl)) { phase in
                         switch phase {
@@ -397,7 +391,6 @@ struct SourcePickerSheet: View {
 
                 Divider()
 
-                // 來源列表
                 List(searchBook.origins) { origin in
                     Button {
                         dismiss.wrappedValue.dismiss()
@@ -438,7 +431,7 @@ struct SourcePickerSheet: View {
     }
 }
 
-// MARK: - OnlineBook Identifiable (用於 sheet item)
+// MARK: - OnlineBook Identifiable (for sheet item)
 extension OnlineBook: Hashable {
     static func == (lhs: OnlineBook, rhs: OnlineBook) -> Bool {
         lhs.id == rhs.id
@@ -448,7 +441,7 @@ extension OnlineBook: Hashable {
     }
 }
 
-// MARK: - SearchBook Identifiable (用於 sheet item)
+// MARK: - SearchBook Identifiable (for sheet item)
 extension SearchBook: Hashable {
     static func == (lhs: SearchBook, rhs: SearchBook) -> Bool {
         lhs.id == rhs.id

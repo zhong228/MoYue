@@ -179,7 +179,7 @@ class JSCoreEngine {
             let msg = exception?.toString() ?? "Unknown JS error"
             self?.lastError = msg
             if msg.contains("eval() is disabled") {
-                AppLogger.security("書源 JS 使用了被停用的 eval()，已攔截", context: ["error": msg])
+                AppLogger.security("Book source JS attempted to use disabled eval(); blocked", context: ["error": msg])
             }
             self?.errorHandler?(msg, "js exception")
             #if DEBUG
@@ -224,7 +224,7 @@ class JSCoreEngine {
             }
         """)
 
-        // Legado helper functions frequently used by complex sources (e.g. 晴天系列).
+        // Legado helper functions frequently used by complex sources.
         // getArgument(key) reads source-level variables; setArgument(key, val) writes them.
         ctx.evaluateScript("""
             function getArgument(key) { return java.get(key) || ''; }

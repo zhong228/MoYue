@@ -13,9 +13,9 @@ enum ModernRuleEngineError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedRule(let rule):
-            return "ModernRuleEngine 不支持的規則語法：\(rule)"
+            return "ModernRuleEngine unsupported rule syntax: \(rule)"
         case .extractionFailed(let rule, let err):
-            return "ModernRuleEngine 提取失敗（規則：\(rule)）：\(err.localizedDescription)"
+            return "ModernRuleEngine extraction failed (rule: \(rule)): \(err.localizedDescription)"
         }
     }
 }

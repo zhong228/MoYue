@@ -13,9 +13,9 @@ enum LoginUiBuilder {
     /// Expected format:
     /// ```json
     /// [
-    ///   {"name":"用户名","type":"text"},
-    ///   {"name":"密码","type":"password"},
-    ///   {"name":"登录","type":"button","action":"login()"}
+    ///   {"name":"username","type":"text"},
+    ///   {"name":"password","type":"password"},
+    ///   {"name":"login","type":"button","action":"login()"}
     /// ]
     /// ```
     static func parseFields(from json: String) -> [LoginField] {

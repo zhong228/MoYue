@@ -557,7 +557,7 @@ extension ReadingBook {
 
 enum ReaderLayoutMetrics {
     static let footerHeight: CGFloat = 16
-    static let footerBottomGap: CGFloat = 8
+    static let footerBottomGap: CGFloat = 4
     /// Negative value pulls the footer closer to the screen bottom.
     /// A value of 0 leaves the footer at safeAreaBottom (≈34pt on notch devices),
     /// which sits higher than desired. -14 places it just above the home indicator

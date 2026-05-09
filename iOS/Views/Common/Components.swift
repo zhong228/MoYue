@@ -1,8 +1,8 @@
 import SwiftUI
 
-// MARK: - 設計系統：共用元件
+// MARK: - Design System: Shared Components
 
-/// 通用搜索欄（HomeView、BookSourceListView 共用模式）
+/// Common search bar shared by HomeView and BookSourceListView.
 struct DSSearchBar: View {
     let placeholder: String
     @Binding var text: String
@@ -29,7 +29,7 @@ struct DSSearchBar: View {
     }
 }
 
-/// 設置頁面導航行（Label + 右側信息 + chevron）
+/// Settings navigation row with icon, title, optional detail, and chevron.
 struct DSSettingsRow: View {
     let icon: String
     let title: String
@@ -55,7 +55,7 @@ struct DSSettingsRow: View {
     }
 }
 
-/// 卡片容器（統一 padding、圓角、陰影）
+/// Card container with uniform padding, rounded corners, and shadow.
 struct DSCard<Content: View>: View {
     let content: Content
 
@@ -74,7 +74,7 @@ struct DSCard<Content: View>: View {
     }
 }
 
-/// 選中標籤按鈕（排序欄、篩選欄共用）
+/// Selectable chip button for filter and sort bars.
 struct DSChip: View {
     let title: String
     let isSelected: Bool
@@ -93,7 +93,7 @@ struct DSChip: View {
     }
 }
 
-/// Toast 橫幅（成功/錯誤提示）
+/// Toast banner for success/error messages.
 struct DSToast: View {
     let message: String
     let color: Color
@@ -111,7 +111,7 @@ struct DSToast: View {
     }
 }
 
-/// 空狀態佔位視圖
+/// Empty state placeholder view.
 struct DSEmptyState: View {
     let icon: String
     let title: String
