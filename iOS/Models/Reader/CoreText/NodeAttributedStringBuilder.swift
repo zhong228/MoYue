@@ -6,7 +6,7 @@ import UIKit
 // Takes [UnifiedChapter] as input, produces NSAttributedString via the RenderableNode IR path.
 // Implements AttributedStringBuilding, directly replacing TXTAttributedStringBuilder.
 //
-// Migration strategy (Phase 4/5):
+// Migration strategy:
 //   TXTPageEngine.init selects either NodeAttributedStringBuilder or TXTAttributedStringBuilder
 //   based on GlobalSettings.shared.useRenderableNodePipeline,
 //   allowing both pipelines to run in the same session for comparison.
@@ -94,7 +94,7 @@ struct NodeAttributedStringBuilder: AttributedStringBuilding {
 // Behavior matches TXTAttributedStringBuilder:
 //   - Chapter title → heading level 2 (centered)
 //   - Each paragraph → paragraph, prefixed with \u{3000}\u{3000} for 2em first-line indent
-//     Phase 9 cleanup can replace this with RenderStyle.textIndent.
+//     Can be replaced with RenderStyle.textIndent in a future cleanup.
 
 enum TXTRenderableNodeConverter {
 
@@ -115,7 +115,7 @@ enum TXTRenderableNodeConverter {
             let trimmed = para.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
             // Preserving \u{3000}\u{3000} prefix for visual consistency with the old pipeline.
-            // Phase 9: remove this prefix and use RenderStyle.textIndent instead.
+            // Future work: remove this prefix and use RenderStyle.textIndent instead.
             nodes.append(.paragraph([.text("\u{3000}\u{3000}" + trimmed)], style: .body))
         }
 
@@ -125,7 +125,7 @@ enum TXTRenderableNodeConverter {
 
 // MARK: - OnlineNodeAttributedStringBuilder
 //
-// AttributedStringBuilding implementation for online novel chapters (Phase 6).
+// AttributedStringBuilding implementation for online novel chapters.
 // Reads cached ChapterPackages from BookSourceFetcher,
 // converts via TXTRenderableNodeConverter to RenderableNode, then renders to NSAttributedString.
 // Uncached chapters return an empty string; once fetched, CoreTextPageEngine rebuilds the page.

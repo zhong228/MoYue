@@ -6,7 +6,8 @@ import SwiftUI
 final class ReaderViewModel: ObservableObject {
     @Published private(set) var chapterStates: [Int: ChapterLoadState] = [:]
 
-    // MARK: - 換源狀態（從 ReaderView 移入，由 ViewModel 統一管理）
+    // MARK: - Source Change State
+
     @Published private(set) var changeSourceOrigins: [BookOrigin] = []
     @Published private(set) var changeSourceLoading: Bool = false
     @Published private(set) var changeSourceError: String? = nil
@@ -55,7 +56,7 @@ final class ReaderViewModel: ObservableObject {
         chapterStates.removeValue(forKey: chapterIndex)
     }
 
-    // MARK: - 章節加載
+    // MARK: - Chapter Loading
 
     func ensureChapterReady(
         book: ReadingBook?,
@@ -116,37 +117,37 @@ final class ReaderViewModel: ObservableObject {
         inFlightRequests[chapterIndex] = InFlightRequest(token: token, priority: priority, task: task)
     }
 
-    // MARK: - 章節取消
+    // MARK: - Chapter Cancellation
 
-    /// 取消指定書籍的所有進行中章節請求
+    /// Cancels all in-flight chapter requests for the given book.
     func cancelAll(for bookId: UUID) async {
         await chapterFetcher.cancelAll(for: bookId)
     }
 
-    // MARK: - 下載動作
+    // MARK: - Download Actions
 
-    /// 啟動或取消書籍離線下載，取代 View 直接呼叫 OnlineBookCoordinator.shared
+    /// Starts or cancels offline download for a book, replacing direct OnlineBookCoordinator.shared calls from the view.
     func handleDownloadAction(book: ReadingBook, store: BookStore) {
         switch book.offlineDownloadState {
         case .none, .failed:
             bookCoordinator.downloadBook(book, store: store)
         case .downloading, .available:
-            break  // .available 由 View 層透過 store.clearOnlineDownload 處理
+            break  // .available is handled by the view layer via store.clearOnlineDownload
         }
     }
 
-    // MARK: - 鄰域預加載
+    // MARK: - Neighbour Prefetch
 
-    /// 預加載指定章節的前後章節，取代 View 直接呼叫 OnlineBookCoordinator.shared
+    /// Prefetches chapters around the given center index, replacing direct OnlineBookCoordinator.shared calls from the view.
     func prefetchAround(book: ReadingBook, center: Int, store: BookStore) {
         Task {
             await bookCoordinator.prefetchAround(book: book, center: center, store: store)
         }
     }
 
-    // MARK: - 換源搜尋
+    // MARK: - Source Change Search
 
-    /// 搜尋同書名的替代書源，結果更新至 changeSourceOrigins/@Published，取代 View 內 Task
+    /// Searches for alternative book sources with the same title. Results update changeSourceOrigins.
     func loadOtherOrigins(
         book: ReadingBook,
         currentSourceId: UUID,
@@ -193,7 +194,7 @@ final class ReaderViewModel: ObservableObject {
         }
     }
 
-    /// 由 View 回報換源操作（切換書源按鈕）所產生的錯誤
+    /// Reports an error from a source change operation.
     func reportChangeSourceError(_ message: String?) {
         changeSourceError = message
     }

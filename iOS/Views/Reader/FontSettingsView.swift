@@ -76,7 +76,8 @@ struct FontSettingsView: View {
                     }
                 }
 
-                // 字體大小
+                // MARK: - Font Size
+
                 if supportsFontSize {
                     Section(header: Text(localized("字體大小"))) {
                         HStack {
@@ -90,7 +91,8 @@ struct FontSettingsView: View {
                     }
                 }
 
-                // 行距
+                // MARK: - Line Spacing
+
                 if supportsSpacing {
                     Section(header: Text(localized("行距"))) {
                         HStack {
@@ -107,7 +109,8 @@ struct FontSettingsView: View {
                     }
                 }
 
-                // 字距
+                // MARK: - Letter Spacing
+
                 if supportsSpacing {
                     Section(header: Text(localized("字距"))) {
                         HStack {
@@ -122,7 +125,8 @@ struct FontSettingsView: View {
                     }
                 }
 
-                // 段距
+                // MARK: - Paragraph Spacing
+
                 if supportsSpacing {
                     Section(header: Text(localized("段落間距"))) {
                         HStack {
@@ -139,7 +143,8 @@ struct FontSettingsView: View {
                     }
                 }
 
-                // 頁面留白
+                // MARK: - Page Margins
+
                 if supportsLineHeight {
                     Section(header: Text(localized("頁面留白"))) {
                         VStack(alignment: .leading, spacing: 8) {
@@ -152,7 +157,8 @@ struct FontSettingsView: View {
                     }
                 }
 
-                // 閱讀亮度
+                // MARK: - Reading Brightness
+
                 Section(
                     header: Text(localized("閱讀亮度")),
                     footer: Text(localized("退出閱讀器後自動恢復原始亮度"))
@@ -196,7 +202,8 @@ struct FontSettingsView: View {
                         .foregroundColor(DSColor.textSecondary)
                 }
 
-                // 滾動模式
+                // MARK: - Scroll Mode
+
                 if supportsLineHeight {
                     Section(
                         header: Text(localized("閱讀模式")),
@@ -247,7 +254,7 @@ struct FontSettingsView: View {
                     }
                 }
 
-                // 翻頁動畫（僅左右翻頁時有效）
+                // Page-turn animation (only for horizontal paged mode)
                 if !settings.scrollMode && supportsLineHeight {
                     Section(header: Text(localized("翻頁動畫"))) {
                         Picker(localized("動畫樣式"), selection: $settings.pageTurnStyle) {
@@ -259,7 +266,8 @@ struct FontSettingsView: View {
                     }
                 }
 
-                // 文字轉換
+                // MARK: - Text Conversion
+
                 Section(header: Text(localized("文字轉換"))) {
                     Picker(localized("轉換模式"), selection: $settings.textConversion) {
                         ForEach(TextConversion.allCases, id: \.self) { mode in
@@ -271,7 +279,8 @@ struct FontSettingsView: View {
                         .font(DSFont.caption).foregroundColor(DSColor.textSecondary)
                 }
 
-                // 背景主題
+                // MARK: - Background Theme
+
                 if supportsBackground {
                     Section(header: Text(localized("背景主題"))) {
                         ForEach(ReaderTheme.allCases, id: \.self) { t in

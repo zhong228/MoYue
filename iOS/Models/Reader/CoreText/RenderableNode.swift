@@ -3,76 +3,76 @@ import UIKit
 
 // MARK: - RenderableNode
 //
-// 渲染管道的統一中介表示（IR, Intermediate Representation）。
+// Unified intermediate representation (IR) for the rendering pipeline.
 //
-// 設計目標：
-//   - 所有格式的 Parser（TXT / EPUB / Web / Markdown / PDF）都輸出此型別
-//   - 所有渲染器（CoreText 翻頁 / UIScrollView 捲動 / 未來的 PDF 匯出）都消費此型別
-//   - 格式與渲染容器完全解耦，加新格式只需寫 Converter，渲染層一行不動
+// Design goals:
+//   - All format parsers (TXT / EPUB / Web / Markdown / PDF) output this type
+//   - All renderers (CoreText paged / UIScrollView scrolling / future PDF export) consume this type
+//   - Format and rendering container are fully decoupled; adding a new format only requires a Converter, with zero renderer changes
 //
-// 遷移策略：
-//   `HTMLAttributedStringBuilder.ASTNode` 透過橋接 extension 轉成 RenderableNode，
-//   讓 HTML 路徑在過渡期繼續正常工作，不做大爆炸重寫。
+// Migration strategy:
+//   `HTMLAttributedStringBuilder.ASTNode` is converted to RenderableNode via a bridging extension,
+//   allowing the HTML path to continue working during the transition without a big-bang rewrite.
 
-/// 渲染 IR 節點。`indirect` 支援巢狀容器（block 內有 inline 等）。
+/// Rendering IR node. `indirect` supports nested containers (block containing inline, etc.).
 public indirect enum RenderableNode: Sendable {
 
-    // MARK: 區塊（Block-level）
+    // MARK: Block-level
 
-    /// 段落。由一組行內節點組成，前後各有段落間距。
+    /// Paragraph. Composed of a set of inline nodes, with paragraph spacing before and after.
     case paragraph([RenderableNode], style: RenderStyle = .body)
 
-    /// 標題（h1-h6）。
+    /// Heading (h1-h6).
     case heading([RenderableNode], level: Int, style: RenderStyle = .none)
 
-    /// 分隔線（<hr>）。
+    /// Horizontal rule (<hr>).
     case horizontalRule(style: RenderStyle = .none)
 
-    /// 引言區塊（<blockquote>）。
+    /// Blockquote (<blockquote>).
     case blockquote([RenderableNode])
 
-    /// 列表項目（<li>）。bullet 為文字前綴（"•" / "1."）。
+    /// List item (<li>). bullet is the text prefix ("•" / "1.").
     case listItem([RenderableNode], bullet: String)
 
-    /// 通用容器（<div>/<section>/<article> 等，或格式轉換時的包裝節點）。
+    /// Generic container (<div>/<section>/<article> etc., or wrapping node for format conversion).
     case block(tag: String, children: [RenderableNode], style: RenderStyle = .none)
 
-    // MARK: 行內（Inline-level）
+    // MARK: Inline-level
 
-    /// 純文字片段。
+    /// Plain text fragment.
     case text(String)
 
-    /// 換行（<br>）。
+    /// Line break (<br>).
     case lineBreak
 
-    /// 行內容器（<span>/<em>/<strong>/<code> 等）。
+    /// Inline container (<span>/<em>/<strong>/<code> etc.).
     case inline(tag: String, children: [RenderableNode], style: RenderStyle = .none)
 
-    /// 連結（<a>），href 為目標 URL 或 anchor ID。
+    /// Link (<a>), href is the target URL or anchor ID.
     case anchor(href: String, children: [RenderableNode])
 
-    /// Anchor 目標（對應任意元素的 id）。Renderer 會在輸出結果上標記 anchor offset。
+    /// Anchor target (corresponds to any element's id). The Renderer marks the anchor offset on the output.
     case anchorTarget(id: String, child: RenderableNode)
 
-    // MARK: 媒體
+    // MARK: Media
 
-    /// 圖片。src 為相對或絕對路徑，imageLoader 在 Renderer 階段負責非同步載入。
+    /// Image. src is a relative or absolute path; imageLoader handles async loading at the Renderer stage.
     case image(src: String, alt: String, style: RenderStyle = .none)
 
-    // MARK: 特殊
+    // MARK: Special
 
-    /// EPUB 強制分頁（page-break-before / page-break-after）。
+    /// EPUB forced page break (page-break-before / page-break-after).
     case pageBreak
 
-    /// 降級節點：無法解析的 HTML 片段，交由舊 HTMLAttributedStringBuilder 路徑處理。
+    /// Fallback node: unparseable HTML fragment, routed through the legacy HTMLAttributedStringBuilder path.
     case rawHTML(String)
 }
 
-// MARK: - RenderStyle（節點樣式屬性）
+// MARK: - RenderStyle (Node Style Attributes)
 //
-// 有意設計為輕量 value type（struct + Sendable），
-// 可以跨 actor / Task 邊界傳遞，不依賴 UIKit（UIColor → RenderColor）。
-// Renderer 階段才把 RenderColor 轉成 UIColor。
+// Intentionally designed as a lightweight value type (struct + Sendable),
+// transferable across actor / Task boundaries, with no UIKit dependency (UIColor → RenderColor).
+// The Renderer stage converts RenderColor to UIColor.
 
 public struct RenderStyle: Sendable {
     public var fontSizeMultiplier: CGFloat
@@ -82,24 +82,24 @@ public struct RenderStyle: Sendable {
     public var italic: Bool
     public var color: RenderColor?
     public var backgroundColor: RenderColor?
-    /// CSS text-indent（em 單位）
+    /// CSS text-indent (em units)
     public var textIndent: CGFloat
     public var textAlign: RenderTextAlignment
     public var lineHeightMultiplier: CGFloat
-    /// CSS margin-left（blockquote、list 縮排）
+    /// CSS margin-left (blockquote, list indent)
     public var marginLeft: CGFloat
     /// CSS padding-left
     public var paddingLeft: CGFloat
     /// CSS padding-right
     public var paddingRight: CGFloat
-    /// 段落前間距（段距乘數，由 Renderer 套用 baseFontSize 換算）
+    /// Paragraph spacing before (multiplied by baseFontSize at render time)
     public var paragraphSpacingBefore: CGFloat
-    /// 段落後間距
+    /// Paragraph spacing after
     public var paragraphSpacingAfter: CGFloat
-    /// 顯式寬高（常見於圖片 / 卡片區塊）
+    /// Explicit width/height (common for images / card blocks)
     public var width: CGFloat?
     public var height: CGFloat?
-    /// 透明度（常見於圖片 / 裝飾）
+    /// Opacity (common for images / decoration)
     public var opacity: CGFloat
     public var borderTopWidth: CGFloat
     public var borderBottomWidth: CGFloat
@@ -169,10 +169,10 @@ public struct RenderStyle: Sendable {
         self.isHorizontallyCentered = isHorizontallyCentered
     }
 
-    /// 無任何樣式覆蓋（行內 case 預設）。
+    /// No style override (default for inline cases).
     public static let none = RenderStyle()
 
-    /// 正文段落樣式（block case 預設）。
+    /// Body paragraph style (default for block cases).
     public static let body = RenderStyle()
 }
 
@@ -186,7 +186,7 @@ public enum RenderTextAlignment: Sendable {
     case justify
 }
 
-// MARK: - RenderColor（UIKit 無關的顏色型別）
+// MARK: - RenderColor (UIKit-independent color type)
 
 public struct RenderColor: Sendable {
     public let red: CGFloat
@@ -201,17 +201,17 @@ public struct RenderColor: Sendable {
         self.alpha = alpha
     }
 
-    /// 從 UIColor 轉換。
+    /// Convert from UIColor.
     ///
-    /// - Note: UIColor.getRed(_:green:blue:alpha:) 對程式碼建立的顏色（RGB/hex）在任何 thread 均安全。
-    ///   動態系統色（.systemBackground 等）若需要 trait solution 時應在 Main thread 呼叫。
+    /// - Note: UIColor.getRed(_:green:blue:alpha:) is safe on any thread for programmatically created colors (RGB/hex).
+    ///   Dynamic system colors (.systemBackground etc.) that need trait resolution should be called on the main thread.
     public init?(uiColor: UIColor) {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         guard uiColor.getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
         self.red = r; self.green = g; self.blue = b; self.alpha = a
     }
 
-    /// 轉回 UIColor（在 Renderer 階段使用）。
+    /// Convert back to UIColor (used at Renderer stage).
     public var uiColor: UIColor {
         UIColor(red: red, green: green, blue: blue, alpha: alpha)
     }

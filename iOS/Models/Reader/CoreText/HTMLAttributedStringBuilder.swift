@@ -12,10 +12,10 @@ final class HTMLAttributedStringBuilder {
     static let blockBackgroundColorAttribute = NSAttributedString.Key("ReaderBlockBackgroundColor")
     static let blockRenderStyleAttribute = NSAttributedString.Key("ReaderBlockRenderStyle")
     static let blockRenderIDAttribute = NSAttributedString.Key("ReaderBlockRenderID")
-    /// 容器層裝飾（與 blockRenderStyle 並存，用於父 div 的 border/background 跨越 block 子元素）。
+    /// Container-level decoration (coexists with blockRenderStyle). Used for parent div border/background that spans across block children.
     static let containerBlockRenderStyleAttribute = NSAttributedString.Key("ReaderContainerBlockRenderStyle")
     static let containerBlockRenderIDAttribute = NSAttributedString.Key("ReaderContainerBlockRenderID")
-    /// Marker attribute: CSS 明確指定的前景色。withUpdatedColors() 不會覆蓋帶有此標記的 range。
+    /// Marker attribute for CSS-explicit foreground color. Ranges with this attribute are not overwritten by withUpdatedColors().
     static let cssSpecifiedForegroundColorAttribute = NSAttributedString.Key("ReaderCSSSpecifiedForegroundColor")
     private static let paragraphSeparator = "\n"
     private static let lineSeparator = "\u{2028}"
@@ -72,14 +72,14 @@ final class HTMLAttributedStringBuilder {
         var textAlign: NSTextAlignment
         var textIndent: CGFloat
         var lineHeight: CGFloat
-        /// CSS 是否明確指定了 line-height（true = 不做 clamp）
+        /// Whether CSS explicitly specifies line-height (true = skip clamping)
         var lineHeightExplicit: Bool
         var paragraphSpacing: CGFloat
         var paragraphSpacingBefore: CGFloat
         var visualOffsetBefore: CGFloat
-        /// margin-left（blockquote / 巢狀列表縮排）
+        /// margin-left (blockquote / nested list indent)
         var marginLeft: CGFloat
-        /// list item 的 bullet 或序號字串（如 "•" / "1."），nil 表示非列表項
+        /// List item bullet or ordinal string (e.g. "•" / "1."). nil means not a list item.
         var listBullet: String?
         var verticalAlign: VerticalAlign
         var isBlock: Bool
@@ -102,17 +102,17 @@ final class HTMLAttributedStringBuilder {
         var borderLeftColor: UIColor?
         var borderRightColor: UIColor?
         var opacity: CGFloat
-        /// CSS letter-spacing（px 值），nil = 使用預設字距
+        /// CSS letter-spacing (px value). nil means use default tracking.
         var letterSpacing: CGFloat?
-        /// CSS 是否明確指定了 `color`（含繼承自 CSS 父層），
-        /// withUpdatedColors() 會據此判斷是否保留原色。
+        /// Whether CSS explicitly specifies `color` (including inherited from CSS parent).
+        /// withUpdatedColors() uses this to determine whether to preserve the original color.
         var hasCSSColor: Bool
-        /// 使用者設定的段距，從 root 傳播，不受 CSS margin 覆蓋。
-        /// 用於確保 <p> 預設段距不被 EPUB CSS body/div margin:0 歸零。
+        /// User-configured paragraph spacing, propagated from root and not overridden by CSS margin.
+        /// Ensures the default <p> spacing is not zeroed out by EPUB CSS body/div margin:0.
         var configParagraphSpacing: CGFloat
     }
 
-    /// HR 分隔線的視覺樣式（儲存在 hrDividerAttribute 中）。
+    /// Visual style for HR dividers (stored in hrDividerAttribute).
     struct HRDividerStyle {
         let color: UIColor?
         let lineWidth: CGFloat?
@@ -189,7 +189,7 @@ final class HTMLAttributedStringBuilder {
     private let coreTextRenderer = HTMLBuilderCoreTextRenderer()
     private let cssPropertyRegistry = HTMLCSSPropertyApplierRegistry.defaultRegistry
     private static let dirtyCJKSpaceRegex: NSRegularExpression? = {
-        // 清洗「漢字 + 空白(含 NBSP / &nbsp;) + 漢字」的轉檔髒資料，避免 justify 拉爆間距。
+        // Clean up spaces (including NBSP / &nbsp;) between CJK characters that may come from conversion artifacts, preventing excessive justified spacing.
         let pattern = "(?<=\\p{Han})(?:[\\s\\u{00A0}]+|&nbsp;+|&#160;+)+(?=\\p{Han})"
         return try? NSRegularExpression(pattern: pattern, options: [])
     }()
@@ -560,13 +560,13 @@ final class HTMLAttributedStringBuilder {
         paragraph.minimumLineHeight = style.fontSize
         paragraph.maximumLineHeight = style.fontSize
 
-        // 從 CSS 推斷 HR 顏色：border-top-color > border-bottom-color > text color > separator
+            // Determine color from CSS: border-top-color > border-bottom-color > text color > separator
         let hrColor = style.borderTopColor
             ?? style.borderBottomColor
             ?? (style.hasCSSColor ? style.textColor : nil)
             ?? style.backgroundFillColor
             ?? UIColor.separator
-        // 從 CSS 推斷 HR 粗細：border-top-width > height > 預設 0.5pt
+        // Determine width from CSS: border-top-width > height > default 0.5pt
         let hrLineWidth = style.borderTopWidth > 0
             ? style.borderTopWidth
             : (style.height.flatMap { $0 > 0 ? $0 : nil } ?? 0.5)
@@ -610,7 +610,7 @@ final class HTMLAttributedStringBuilder {
         func appendSegment(isLast: Bool) {
             guard segment.length > 0 else { return }
 
-            // ⚠️【關鍵修復 2】：剔除段落開頭與結尾的半形空白與換行，避免排版大亂。
+            // Truncate leading and trailing whitespace and newlines at paragraph boundaries to prevent layout disruption.
             let trimCharSet = CharacterSet(charactersIn: " \n\r\t\u{000C}")
             while segment.length > 0, let first = segment.string.unicodeScalars.first, trimCharSet.contains(first) {
                 segment.deleteCharacters(in: NSRange(location: 0, length: 1))
@@ -691,12 +691,12 @@ final class HTMLAttributedStringBuilder {
             }
         }
 
-        // 若 segment 只有空白字元但元素有視覺裝飾（如 border-top），
-        // 把空白 segment 換成受控高度的 spacer，避免空白被 appendNode 丟棄，
-        // 也避免 \n 字元撐出不必要的高度。
-        // ⚠️ 有 block 子元素時不做 spacer：容器裝飾透過 union block 子元素的行
-        // 已能正確包覆整體範圍。若仍建 spacer，appendSegment 會套上 blockRenderStyleAttribute
-        // 形成額外的 decoration group，導致多畫一個空白框。
+        // When the segment is whitespace-only but the element has visual decoration (e.g. border-top),
+        // replace the empty segment with a controlled-height spacer to avoid the whitespace being
+        // discarded by appendNode, and to prevent a \n character from creating unintended height.
+        // When there are block children, skip the spacer: container decoration already correctly
+        // encompasses the union of child block lines. Adding a spacer here would create an extra
+        // decoration group, drawing an empty rectangle.
         let segStyle0 = paragraphSegmentStyle(base: element.resolvedStyle, paragraphIndex: 0, isLast: true)
         if !hasBlockChild,
            segment.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -722,10 +722,10 @@ final class HTMLAttributedStringBuilder {
 
         appendSegment(isLast: true)
 
-        // ── 容器層裝飾 ──
-        // 僅當此元素包含 block 子元素時，才套用容器層 attribute，
-        // 讓 extractBlockRenderables 能將所有行 union 成一個完整的矩形。
-        // 若無 block 子元素，inline segment 的 blockRenderStyle 已足夠。
+        // ── Container-level decoration ──
+        // Only apply container-level attributes when this element contains block children,
+        // so extractBlockRenderables can union all lines into a complete rectangle.
+        // If there are no block children, the inline segment's blockRenderStyle is sufficient.
         if hasBlockChild,
            output.length > 0,
            let containerStyle = makeBlockRenderStyle(from: element.resolvedStyle),
@@ -760,7 +760,7 @@ final class HTMLAttributedStringBuilder {
         var attachmentStyle = element.resolvedStyle
         resolveSVGPresentationAttributes(imageElement, style: &attachmentStyle, config: config)
 
-        // Fix percentage width: CSS resolves % relative to font size, but images need render width
+        // Convert percentages relative to font size for images (need render width instead)
         let percentWidth = imageElement.resolvedStyle.rawWidthPercent ?? attachmentStyle.rawWidthPercent
         if let pct = percentWidth {
             attachmentStyle.width = config.renderWidth * pct / 100.0
@@ -893,8 +893,8 @@ final class HTMLAttributedStringBuilder {
         var style = base
         if paragraphIndex > 0 {
             style.textIndent = 0
-            // 連續段（同一 block element 被 <br display:block> 切開後的第 2+ 段）
-            // 不繼承 paragraphSpacingBefore，避免 margin-top 重複施加
+            // Subsequent segments (2nd+ within the same block element, separated by <br display:block>)
+            // do not inherit paragraphSpacingBefore, to prevent repeated margin-top application.
             style.paragraphSpacingBefore = 0
             style.visualOffsetBefore = 0
             // 列表項的後續段落不加 bullet，但保留 hanging indent（marginLeft 不變）
@@ -1023,7 +1023,7 @@ final class HTMLAttributedStringBuilder {
         let lineHeight = style.lineHeightExplicit
             ? max(style.fontSize, style.lineHeight)
             : clampLineHeight(absolute: style.lineHeight, fontSize: style.fontSize)
-        // 讓文字在鎖定行高中垂直居中，減少不同字體內建 leading 造成的視覺偏移。
+        // Allow text to vertically center in locked line height, reducing visual offset caused by different font built-in leading.
         var baselineOffset = ReaderTypographyCorrection.baselineOffset(
             font: font,
             targetLineHeight: lineHeight
@@ -1139,7 +1139,7 @@ final class HTMLAttributedStringBuilder {
         paragraph.paragraphSpacingBefore = style.paragraphSpacingBefore
 
         if let bullet = style.listBullet {
-            // 列表項：懸掛縮排（bullet 在 marginLeft，續行縮排 bullet 寬度）
+            // List item: hanging indent (bullet at marginLeft, continuation lines indented by bullet width)
             let bulletWidth = bulletMeasuredWidth(bullet, fontSize: style.fontSize)
             paragraph.firstLineHeadIndent = style.marginLeft
             paragraph.headIndent = style.marginLeft + bulletWidth
@@ -1160,7 +1160,7 @@ final class HTMLAttributedStringBuilder {
             paragraph.tailIndent = -rightInset
         }
 
-        // 用 min/maxLineHeight 固定行高，不再重複設 lineSpacing（會導致行距雙重計算）
+        // Use min/maxLineHeight to fix line height, without also setting lineSpacing (which would double the spacing).
         let lineHeight = style.lineHeightExplicit
             ? max(style.fontSize, style.lineHeight)
             : clampLineHeight(absolute: style.lineHeight, fontSize: style.fontSize)
@@ -1169,12 +1169,12 @@ final class HTMLAttributedStringBuilder {
         return paragraph
     }
 
-    /// 估算 bullet 字串的渲染寬度（用於計算懸掛縮排距離）
+    /// Estimate the rendered width of a bullet string (used for computing hanging indent distance).
     private func bulletMeasuredWidth(_ bullet: String, fontSize: CGFloat) -> CGFloat {
         let font = UIFont.systemFont(ofSize: fontSize)
         let str = bullet + "\t"
         let size = (str as NSString).size(withAttributes: [.font: font])
-        // 預留一個半形空格的額外間距
+        // Reserve extra spacing equivalent to one half-width space
         return ceil(size.width) + fontSize * 0.25
     }
 
@@ -1191,9 +1191,9 @@ final class HTMLAttributedStringBuilder {
         config: Config,
         style: ResolvedStyle
     ) -> ImageMetrics {
-        // 1. 計算可用最大寬度
+        // 1. Compute available max width
         let maxDrawWidth = max(1, config.renderWidth - style.paddingLeft - style.paddingRight)
-        // ⚠️ 預估最大安全高度，防止直式長圖超出螢幕上下邊界 (以寬度的 1.5 倍為極限)
+        // Estimated max safe height to prevent tall vertical images from exceeding screen bounds (capped at 1.5x width)
         let maxDrawHeight = max(1, config.renderWidth * 1.5)
         
         var dWidth: CGFloat
@@ -1221,14 +1221,14 @@ final class HTMLAttributedStringBuilder {
             dHeight = fallbackHeight
         }
         
-        // ⚠️【關鍵修復 3】：雙重限制，寬度與高度都不可越界
-        // 先限制寬度
+        // Double clamp: both width and height must not exceed bounds.
+        // Clamp width first
         if dWidth > maxDrawWidth {
             let scale = maxDrawWidth / max(dWidth, 1)
             dWidth = maxDrawWidth
             dHeight = dHeight * scale
         }
-        // 再限制高度
+        // Then clamp height
         if dHeight > maxDrawHeight {
             let scale = maxDrawHeight / max(dHeight, 1)
             dHeight = maxDrawHeight
@@ -1340,7 +1340,7 @@ final class HTMLAttributedStringBuilder {
             rootFontSize: rootFontSize
         )
 
-        // 列表項：根據父元素類型決定 bullet 字串
+        // Determine bullet string based on parent element type
         if element.tagName().lowercased() == "li" {
             let parentTag = parentElement?.tagName().lowercased() ?? ""
             if parentTag == "ol" {
@@ -1461,7 +1461,7 @@ final class HTMLAttributedStringBuilder {
             return [
                 "display": "block",
                 "line-height": "\(config.lineHeight / max(config.fontSize, 1))",
-                // 使用者設定段距作為 <p> 預設值，不受 EPUB CSS body/div margin:0 影響
+                // User-configured paragraph spacing as <p> default, unaffected by EPUB CSS body/div margin:0
                 "paragraph-spacing": "\(config.configParagraphSpacing)",
             ]
         case "blockquote":
@@ -1617,7 +1617,7 @@ final class HTMLAttributedStringBuilder {
         }
         if !handledProperties.contains("line-height"), let lineHeight = declarations["line-height"] {
             if let resolved = resolveLineHeight(lineHeight, fontSize: style.fontSize, rootFontSize: rootFontSize) {
-                // CSS 明確指定時不做 clamp，尊重 EPUB 排版意圖
+                // When CSS explicitly specifies line-height, skip clamping to respect EPUB layout intent.
                 style.lineHeight = resolved
                 style.lineHeightExplicit = true
             }

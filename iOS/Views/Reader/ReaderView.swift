@@ -1173,7 +1173,9 @@ struct ReaderView: View {
     }
 
     private func buildRenderSettings() -> ReaderRenderSettings {
-        ReaderRenderSettings(
+        let topInset = ReaderLayoutMetrics.topInset(safeTop: effectiveReaderSafeTop)
+        let bottomInset = ReaderLayoutMetrics.bottomInset(safeBottom: windowSafeBottom)
+        return ReaderRenderSettings(
             theme: readerTheme.rawValue,
             textColor: UIColor(readerTheme.textColor),
             backgroundColor: UIColor(readerTheme.backgroundColor),
@@ -1186,9 +1188,9 @@ struct ReaderView: View {
             marginV: readerConfig.pageMarginV,
             footerHeight: ReaderLayoutMetrics.footerHeight,
             contentInsets: UIEdgeInsets(
-                top: readerConfig.pageMarginV,
+                top: topInset,
                 left: effectivePageMarginH,
-                bottom: readerConfig.pageMarginV,
+                bottom: bottomInset,
                 right: effectivePageMarginH
             ),
             writingMode: effectiveWritingMode
@@ -2596,7 +2598,7 @@ struct ReaderMenuView: View {
         }
     }
 }
-// MARK: - 隱藏 TabBar（iOS 15 / 16 相容）
+// MARK: - 隱藏 TabBar
 private struct HideTabBarModifier: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 16.0, *) {

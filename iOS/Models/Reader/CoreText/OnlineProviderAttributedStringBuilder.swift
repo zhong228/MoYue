@@ -1,12 +1,12 @@
 import Foundation
 import UIKit
 
-/// 把 `BookContentProvider`（線上書源）包成 `AttributedStringBuilding`，
-/// 讓 `CoreTextScrollEngine` 能直接消費線上章節。
+/// Wraps `BookContentProvider` (online book source) as `AttributedStringBuilding`,
+/// allowing `CoreTextScrollEngine` to directly consume online chapters.
 ///
-/// 內容處理：
-///   - 若 `payload.renderHTML` 有值 → 走 `HTMLAttributedStringBuilder`（保留樣式）
-///   - 否則 → 套用 TXT pattern（標題 + 段落 + indent）
+/// Content handling:
+///   - If `payload.renderHTML` is non-nil → use `HTMLAttributedStringBuilder` (preserves styling)
+///   - Otherwise → fall back to TXT pattern (title + paragraphs + indent)
 @MainActor
 final class OnlineProviderAttributedStringBuilder: @preconcurrency AttributedStringBuilding {
 
@@ -31,7 +31,7 @@ final class OnlineProviderAttributedStringBuilder: @preconcurrency AttributedStr
     }
 
     func chapterSourceHref(at index: Int) -> String? {
-        // 沒有可靠來源；不對外提供。
+        // No reliable source; not exposed externally.
         nil
     }
 
@@ -75,7 +75,7 @@ final class OnlineProviderAttributedStringBuilder: @preconcurrency AttributedStr
             )
         }
 
-        // TXT-style fallback：標題 + 段落
+        // TXT-style fallback: title + paragraphs
         let titleFont = UserReaderFontResolver.titleFont(size: settings.fontSize + 8)
         let bodyFont = UserReaderFontResolver.bodyFont(size: settings.fontSize)
         let bodyTargetLineHeight = ReaderTypographyCorrection.targetLineHeight(

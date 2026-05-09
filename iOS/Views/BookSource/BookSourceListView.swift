@@ -1,7 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-// MARK: - 書源列表主頁（Legado 風格）
+// MARK: - Book Source List (Legado Style)
 
 struct BookSourceListView: View {
     @ObservedObject private var store = BookSourceStore.shared
@@ -19,13 +19,11 @@ struct BookSourceListView: View {
     @State private var loginSource: BookSource? = nil
     @Environment(\.presentationMode) var dismiss
 
-    // 批量操作
     @State private var selectedIds: Set<UUID> = []
     @State private var searchText = ""
     @State private var showDeleteConfirm = false
     @State private var showMoreMenu = false
 
-    // 過濾後的書源列表
     private var filteredSources: [BookSource] {
         if searchText.isEmpty { return store.sources }
         let q = searchText.lowercased()
@@ -39,12 +37,10 @@ struct BookSourceListView: View {
         NavigationView {
             AdaptiveSheetContainer(maxWidth: 980) {
                 VStack(spacing: 0) {
-                    // 搜索欄
                     searchBar
 
                     Divider()
 
-                    // 列表
                     if store.sources.isEmpty {
                         emptyView
                     } else {
@@ -53,7 +49,6 @@ struct BookSourceListView: View {
 
                     Divider()
 
-                    // 底部工具欄
                     bottomToolbar
                 }
             }
@@ -83,7 +78,6 @@ struct BookSourceListView: View {
                     } label: {
                         Image(systemName: "plus")
                     }
-                    // 更多選項
                     Menu {
                         Button {
                             enableAll()
@@ -138,12 +132,10 @@ struct BookSourceListView: View {
             }
             .sheet(item: $loginSource) { src in
                 if src.loginUi.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    // No form fields → interactive WebView login (captures cookies)
                     BookSourceLoginWebView(source: src) {
                         loginSource = nil
                     }
                 } else {
-                    // Has loginUi form fields → credential form + JS execution
                     BookSourceFormLoginView(source: src) {
                         loginSource = nil
                     }
@@ -181,12 +173,12 @@ struct BookSourceListView: View {
         .navigationViewStyle(.stack)
     }
 
-    // MARK: - 搜索欄
+    // MARK: - Search Bar
     private var searchBar: some View {
         DSSearchBar(placeholder: localized("搜索書源"), text: $searchText)
     }
 
-    // MARK: - 書源列表
+    // MARK: - Source List
     private var sourceList: some View {
         List {
             ForEach(filteredSources) { source in
@@ -201,7 +193,6 @@ struct BookSourceListView: View {
     @ViewBuilder
     private func sourceRow(source: BookSource) -> some View {
         HStack(spacing: 0) {
-            // ── 勾選框 ──
             Button {
                 toggleSelection(source.id)
             } label: {
@@ -216,7 +207,6 @@ struct BookSourceListView: View {
             .padding(.leading, 16)
             .padding(.trailing, 12)
 
-            // ── 書源名稱 ──
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(source.bookSourceName.isEmpty ? localized("未命名書源") : source.bookSourceName)
@@ -224,7 +214,6 @@ struct BookSourceListView: View {
                         .foregroundColor(source.enabled ? .primary : .secondary)
                         .lineLimit(1)
 
-                    // 分組標籤
                     if !source.bookSourceGroup.isEmpty {
                         Text("(\(source.bookSourceGroup))")
                             .font(.system(size: 13))
@@ -242,7 +231,6 @@ struct BookSourceListView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // ── 啟用開關 ──
             Toggle(
                 "",
                 isOn: Binding(
@@ -254,7 +242,6 @@ struct BookSourceListView: View {
             .scaleEffect(0.85)
             .padding(.trailing, 4)
 
-            // ── 編輯按鈕 ──
             Button {
                 editingSource = source
             } label: {
@@ -265,7 +252,6 @@ struct BookSourceListView: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 8)
 
-            // ── 更多選單 ──
             Menu {
                 Button {
                     editingSource = source
@@ -273,7 +259,6 @@ struct BookSourceListView: View {
                     Label(localized("編輯"), systemImage: "pencil")
                 }
                 Button {
-                    // 複製書源 JSON
                     if let data = try? JSONEncoder().encode(source),
                         let str = String(data: data, encoding: .utf8)
                     {
@@ -316,10 +301,9 @@ struct BookSourceListView: View {
         .opacity(source.enabled ? 1 : 0.6)
     }
 
-    // MARK: - 底部工具欄
+    // MARK: - Bottom Toolbar
     private var bottomToolbar: some View {
         HStack(spacing: 0) {
-            // 全選
             Button {
                 toggleSelectAll()
             } label: {
@@ -343,7 +327,6 @@ struct BookSourceListView: View {
 
             Spacer()
 
-            // 反選
             Button {
                 invertSelection()
             } label: {
@@ -358,7 +341,6 @@ struct BookSourceListView: View {
 
             Spacer().frame(width: 10)
 
-            // 刪除
             Button {
                 if !selectedIds.isEmpty {
                     showDeleteConfirm = true
@@ -377,7 +359,6 @@ struct BookSourceListView: View {
 
             Spacer().frame(width: 10)
 
-            // 批量操作選單
             Menu {
                 Button {
                     enableSelected()
@@ -404,7 +385,7 @@ struct BookSourceListView: View {
         .background(Color(UIColor.systemBackground))
     }
 
-    // MARK: - 批量操作
+    // MARK: - Batch Operations
 
     private func toggleSelection(_ id: UUID) {
         if selectedIds.contains(id) {
@@ -479,7 +460,7 @@ struct BookSourceListView: View {
         withAnimation { importSuccess = localized("已複製全部") + " \(store.sources.count) " + localized("個書源到剪貼簿") }
     }
 
-    // MARK: - 空狀態
+    // MARK: - Empty State
     private var emptyView: some View {
         VStack(spacing: 24) {
             Spacer()
@@ -504,7 +485,7 @@ struct BookSourceListView: View {
         .padding()
     }
 
-    // MARK: - 匯入 Sheet
+    // MARK: - Import Sheet
     private var importSheet: some View {
         NavigationView {
             VStack(spacing: 0) {
@@ -609,7 +590,7 @@ struct BookSourceListView: View {
         }
     }
 
-    // MARK: - 網路導入 Sheet
+    // MARK: - Network Import Sheet
 
     private var networkImportSheet: some View {
         NavigationView {
@@ -687,7 +668,7 @@ struct BookSourceListView: View {
         }.resume()
     }
 
-    // MARK: - 工具
+    // MARK: - Utilities
     @ViewBuilder
     private func toastBanner(_ msg: String, color: Color) -> some View {
         Text(msg)

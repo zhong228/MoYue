@@ -1,17 +1,17 @@
 import Foundation
 
-// MARK: - 輕量 HTML 解析器（純 Swift，無依賴）
-// 支援 CSS 選擇器：tag、.class、#id、[attr]、後代、直接子
-// 支援偽類：:nth-child(n)、:eq(n)、:first-child、:last-child、:contains(text)
+// MARK: - Lightweight HTML Parser (Pure Swift, No Dependencies)
+// Supports CSS selectors: tag, .class, #id, [attr], descendant, direct child
+// Supports pseudo-classes: :nth-child(n), :eq(n), :first-child, :last-child, :contains(text)
 
-// MARK: HTML 節點
+// MARK: HTML Node
 
 final class HTMLNode {
-    var tag: String           // 小寫，文字節點為 "#text"
+    var tag: String           // Lowercase; "#text" for text nodes
     var attrs: [String: String]
     var children: [HTMLNode]
     weak var parent: HTMLNode?
-    var rawText: String       // 僅文字節點有效
+    var rawText: String       // Valid only for text nodes
 
     init(tag: String, attrs: [String: String] = [:]) {
         self.tag = tag
@@ -20,7 +20,7 @@ final class HTMLNode {
         self.rawText = ""
     }
 
-    // 直接子節點文字（對應 JSoup ownText）
+    // Direct child text (corresponds to Jsoup ownText)
     var directText: String {
         children.filter { $0.tag == "#text" }
             .map { $0.rawText.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -29,7 +29,7 @@ final class HTMLNode {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // 直接子節點文字，每個文字節點用換行分隔（對應 Legado textNodes）
+    // Direct child text, one text node per line (corresponds to Legado textNodes)
     var textNodesContent: String {
         children.filter { $0.tag == "#text" }
             .map { $0.rawText.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -38,7 +38,7 @@ final class HTMLNode {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // 遞歸取全部文字
+    // Recursively collect all text content
     var innerText: String {
         if tag == "#text" { return rawText }
         let parts = children.map { $0.innerText }.filter { !$0.isEmpty }
@@ -46,12 +46,12 @@ final class HTMLNode {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // 取屬性
+    // Retrieve an attribute value
     func attr(_ name: String) -> String {
         attrs[name.lowercased()] ?? ""
     }
 
-    // CSS 選擇器查詢（返回所有匹配）
+    // CSS selector query (returns all matches)
     func select(_ css: String) -> [HTMLNode] {
         let selectors = parseSelectorList(css)
         var result: [HTMLNode] = []
@@ -67,7 +67,7 @@ final class HTMLNode {
     var elements: [HTMLNode] { children.filter { $0.tag != "#text" } }
 }
 
-// MARK: - Selector 解析
+// MARK: - Selector Parsing
 
 private struct AttrFilter {
     var name: String
@@ -81,8 +81,8 @@ private struct SimpleSelector {
     var classes: [String]
     var childOnly: Bool
     var attrFilters: [AttrFilter] = []
-    // 偽類
-    var nthChild: Int? = nil       // 1-indexed；-1 = last-child
+    // Pseudo-classes
+    var nthChild: Int? = nil       // 1-indexed; -1 = last-child
     var containsText: String? = nil
 }
 
@@ -93,7 +93,7 @@ private func parseSelectorList(_ css: String) -> [[SimpleSelector]] {
         .map { parseSelectorChain($0) }
 }
 
-/// 按空格 / > 拆分，但不進入 [] 和 () 內部
+/// Split by space / > without entering [] and () delimiters
 private func parseSelectorChain(_ chain: String) -> [SimpleSelector] {
     var parts: [SimpleSelector] = []
     let tokens = splitTopLevel(chain, by: " ")
@@ -119,7 +119,7 @@ private func parseSingleSelector(_ token: String) -> SimpleSelector {
     var nthChild: Int? = nil
     var containsText: String? = nil
 
-    // 1. 提取 [...] 屬性選擇器
+    // 1. Extract [...] attribute selectors
     var cleanToken = ""
     var rest = token
     while let lbIdx = rest.firstIndex(of: "["),
@@ -131,12 +131,11 @@ private func parseSingleSelector(_ token: String) -> SimpleSelector {
     }
     cleanToken += rest
 
-    // 2. 解析偽類（:nth-child / :eq / :first-child / :last-child / :contains / :not 等）
+    // 2. Parse pseudo-classes (:nth-child / :eq / :first-child / :last-child / :contains / :not, etc.)
     while let colonIdx = cleanToken.firstIndex(of: ":") {
         let beforeColon = String(cleanToken[..<colonIdx])
         let afterColon  = String(cleanToken[cleanToken.index(after: colonIdx)...])
 
-        // 找偽類名稱和可能的括號參數
         var pseudoName = ""
         var pseudoArg  = ""
         var remainder  = ""
@@ -144,7 +143,7 @@ private func parseSingleSelector(_ token: String) -> SimpleSelector {
         if let parenOpen = afterColon.firstIndex(of: "(") {
             pseudoName = String(afterColon[..<parenOpen]).lowercased()
             let insideStart = afterColon.index(after: parenOpen)
-            // 找對應的 )，計算括號深度
+            // Find matching closing paren with bracket depth tracking
             var depth = 1
             var scanIdx = insideStart
             while scanIdx < afterColon.endIndex {
@@ -162,7 +161,7 @@ private func parseSingleSelector(_ token: String) -> SimpleSelector {
                 ? afterColon.index(after: scanIdx) : afterColon.endIndex
             remainder = String(afterColon[afterParen...])
         } else {
-            // 無括號偽類（:first-child 等）
+            // Pseudo-class without parentheses (:first-child, etc.)
             let nameEnd = afterColon.firstIndex(of: ":") ?? afterColon.endIndex
             pseudoName = String(afterColon[..<nameEnd]).lowercased()
             remainder  = nameEnd < afterColon.endIndex
@@ -175,7 +174,7 @@ private func parseSingleSelector(_ token: String) -> SimpleSelector {
         case "nth-child", "nth-of-type":
             nthChild = Int(pseudoArg)
         case "eq":
-            // JSoup 0-indexed → 1-indexed
+            // Jsoup 0-indexed to 1-indexed
             if let n = Int(pseudoArg) { nthChild = n + 1 }
         case "first-child", "first-of-type":
             nthChild = 1
@@ -185,16 +184,16 @@ private func parseSingleSelector(_ token: String) -> SimpleSelector {
             containsText = pseudoArg
         case "not", "link", "hover", "focus", "active", "visited",
              "checked", "disabled", "enabled", "empty", "root":
-            break  // 忽略
+            break  // Ignored pseudo-classes
         default:
             break
         }
 
-        // 避免無限迴圈
+        // Prevent infinite loop
         if cleanToken.firstIndex(of: ":") == colonIdx { cleanToken = beforeColon; break }
     }
 
-    // 3. 解析 tag / .class / #id
+    // 3. Parse tag / .class / #id
     var buf = ""
     var mode: Character = "t"
 
@@ -236,7 +235,7 @@ private func parseAttrFilter(_ s: String) -> AttrFilter {
     return AttrFilter(name: s.lowercased().trimmingCharacters(in: .whitespaces), op: "exists", val: "")
 }
 
-/// 按指定分隔符拆分頂層（忽略 ()、[] 內部的分隔符）
+/// Split at the top level by a given separator (ignoring delimiters inside (), [])
 private func splitTopLevel(_ s: String, by sep: Character) -> [String] {
     var result: [String] = []
     var buf = ""
@@ -251,7 +250,7 @@ private func splitTopLevel(_ s: String, by sep: Character) -> [String] {
     return result
 }
 
-// MARK: - 選擇器匹配
+// MARK: - Selector Matching
 
 extension HTMLNode {
 
@@ -261,8 +260,8 @@ extension HTMLNode {
         for (i, sel) in chain.enumerated() {
             var next: [HTMLNode] = []
             for node in results {
-                // 第一步：候選集包含節點自身（與 JSoup Element.select 行為一致）
-                // 後續步驟只搜索後代，不再包含自身
+                // Step 1: candidate set includes the node itself (consistent with Jsoup Element.select)
+                // Subsequent steps only search descendants, no longer include self
                 var candidates: [HTMLNode]
                 if sel.childOnly {
                     candidates = node.elements
@@ -311,7 +310,7 @@ private func matches(_ node: HTMLNode, sel: SimpleSelector) -> Bool {
         default:       if v != f.val { return false }
         }
     }
-    // 偽類：:nth-child / :first-child / :last-child
+    // Pseudo-class: :nth-child / :first-child / :last-child
     if let nth = sel.nthChild {
         guard let parent = node.parent else { return false }
         let siblings = parent.elements
@@ -322,14 +321,14 @@ private func matches(_ node: HTMLNode, sel: SimpleSelector) -> Bool {
             guard idx >= 0, idx < siblings.count, siblings[idx] === node else { return false }
         }
     }
-    // 偽類：:contains(text)
+    // Pseudo-class: :contains(text)
     if let text = sel.containsText, !text.isEmpty {
         if !node.innerText.localizedCaseInsensitiveContains(text) { return false }
     }
     return true
 }
 
-// MARK: - HTML 解析器
+// MARK: - HTML Parser
 
 private let voidTags: Set<String> = [
     "area","base","br","col","embed","hr","img","input","link","meta",
@@ -346,7 +345,7 @@ func parseHTML(_ html: String) -> HTMLNode {
 
     func appendText(_ t: String) {
         let decoded = decodeHTMLEntities(t)
-        // 保留全形空格，只去除 \r\n
+        // Preserve fullwidth spaces, strip \r\n only
         let trimmed = decoded.trimmingCharacters(in: CharacterSet.newlines)
         guard !trimmed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let node = HTMLNode(tag: "#text")
@@ -360,11 +359,11 @@ func parseHTML(_ html: String) -> HTMLNode {
             let next = html.index(after: i)
             guard next < html.endIndex else { break }
 
-            // 找標籤結束 >（要能正確跳過屬性內的引號）
+            // Find tag close > (skipping quoted attribute values)
             guard let closeAngle = findTagClose(html, from: next) else { break }
             let tagContent = String(html[next..<closeAngle])
 
-            // 跳過注釋 <!-- -->
+            // Skip HTML comments <!-- -->
             if tagContent.hasPrefix("!--") {
                 if let commentEnd = html[i...].range(of: "-->") {
                     i = commentEnd.upperBound; continue
@@ -417,7 +416,7 @@ func parseHTML(_ html: String) -> HTMLNode {
     return root
 }
 
-/// 找 > 結束位置，跳過屬性值內的引號（避免 href="a>b" 誤判）
+/// Find the > closing position, skipping quoted values (prevents misparsing href="a>b")
 private func findTagClose(_ html: String, from start: String.Index) -> String.Index? {
     var i = start
     var inQuote: Character? = nil
@@ -435,7 +434,7 @@ private func findTagClose(_ html: String, from start: String.Index) -> String.In
     return nil
 }
 
-// MARK: 解析標籤屬性
+// MARK: Parse Tag Attributes
 
 private func parseTagAttributes(_ raw: String) -> (String, [String: String]) {
     var scanner = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -493,11 +492,11 @@ private func parseTagAttributes(_ raw: String) -> (String, [String: String]) {
     return (tag, attrs)
 }
 
-// MARK: HTML 實體解碼
+// MARK: HTML Entity Decoding
 
 private func decodeHTMLEntities(_ s: String) -> String {
     var result = s
-    // 常見命名實體（含中文小說常用的 &emsp;、&mdash; 等）
+    // Common named entities (includes &emsp; and &mdash; used in web novels)
     let entities: [(String, String)] = [
         ("&amp;",    "&"),
         ("&lt;",     "<"),
@@ -507,7 +506,7 @@ private func decodeHTMLEntities(_ s: String) -> String {
         ("&apos;",   "'"),
         ("&nbsp;",   "\u{00A0}"),
         ("&ensp;",   "\u{2002}"),   // EN SPACE
-        ("&emsp;",   "\u{2003}"),   // EM SPACE（小說常用縮進）
+        ("&emsp;",   "\u{2003}"),   // EM SPACE (used for indentation in web novels)
         ("&thinsp;", "\u{2009}"),
         ("&mdash;",  "—"),
         ("&ndash;",  "–"),
@@ -533,7 +532,7 @@ private func decodeHTMLEntities(_ s: String) -> String {
     for (entity, char) in entities {
         result = result.replacingOccurrences(of: entity, with: char, options: .caseInsensitive)
     }
-    // 數字實體 &#123; 或 &#x7B;
+    // Numeric entities &#123; or &#x7B;
     if let regex = try? NSRegularExpression(pattern: "&#(x[0-9a-fA-F]+|[0-9]+);") {
         let ns = result as NSString
         let matches = regex.matches(in: result, range: NSRange(location: 0, length: ns.length))

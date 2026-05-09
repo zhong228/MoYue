@@ -1,7 +1,7 @@
 import Combine
 import UIKit
 
-/// 把 `CoreTextScrollEngine` 渲染成垂直 UITableView 的 view controller。
+/// Renders CoreTextScrollEngine into a vertical UITableView.
 final class CoreTextScrollViewController: UIViewController {
 
     // MARK: - Inputs
@@ -9,9 +9,9 @@ final class CoreTextScrollViewController: UIViewController {
     private let engine: CoreTextScrollEngine
     private var horizontalInset: CGFloat
     private var verticalInset: CGFloat
-    /// 進度回呼：可見的最上 chunk 對應的 (chapter, charOffset, percentage)
+    /// Progress callback: (chapter, charOffset, percentage) for the topmost visible chunk.
     var onProgressChange: ((Int, Int, Double) -> Void)?
-    /// 點擊：通知外部切換頂底欄
+    /// Tap callback: notifies the parent to toggle top/bottom bars.
     var onTap: (() -> Void)?
 
     // MARK: - State
@@ -25,7 +25,7 @@ final class CoreTextScrollViewController: UIViewController {
     private var pendingInitialCharOffset: Int = 0
     private var displayedCount: Int = 0
 
-    // 文字選取
+    // Text selection state
     private var selectionChapter: Int?
     private var anchorIndex: Int?
     private var focusIndex: Int?
@@ -57,7 +57,7 @@ final class CoreTextScrollViewController: UIViewController {
         tableView.separatorStyle = .none
         tableView.showsVerticalScrollIndicator = false
         tableView.contentInsetAdjustmentBehavior = .never
-        // 由 heightForRowAt 直接給精確高度，不走 self-sizing
+        // Use precise heightForRowAt instead of self-sizing for exact layout control.
         tableView.estimatedRowHeight = 0
         tableView.estimatedSectionHeaderHeight = 0
         tableView.estimatedSectionFooterHeight = 0
@@ -117,7 +117,7 @@ final class CoreTextScrollViewController: UIViewController {
             anchorIndex = idx
             focusIndex = idx
             refreshSelectionOverlays()
-            _ = cell // 抑制未使用警告
+            _ = cell // suppress unused warning
         case .changed:
             guard let chapter = selectionChapter,
                   let (_, chunk, localPoint) = hitTestChunk(at: point),
@@ -174,7 +174,7 @@ final class CoreTextScrollViewController: UIViewController {
         guard let chapter = selectionChapter,
               let range = currentSelectionRange,
               range.length > 0 else { selectedText = nil; return }
-        // 章節層級的 attributedString 與所有同章 chunk 共享，取任一可見 chunk 即可
+        // The chapter-level attributedString is shared across all chunks of the same chapter.
         if let chunk = engine.chunks.first(where: { $0.chapterIndex == chapter }) {
             let s = chunk.attributedString
             guard range.location + range.length <= s.length else { selectedText = nil; return }
@@ -225,7 +225,7 @@ final class CoreTextScrollViewController: UIViewController {
             }
             .store(in: &cancellables)
 
-        // 初次：若 chunks 已有值（例如 reuse engine）也要同步
+        // If chunks already exist (e.g., reused engine), sync immediately.
         displayedCount = engine.chunks.count
         if !engine.chunks.isEmpty {
             tableView.reloadData()
@@ -240,10 +240,10 @@ final class CoreTextScrollViewController: UIViewController {
         case .insertedAtBottom(let count, _):
             let total = engine.chunks.count
             let expectedOld = max(0, total - count)
-            // 不信事件給的 count，用實際 displayedCount 與 chunks.count 的差來算，避免 race
+            // Calculate delta from actual displayedCount vs chunks.count to avoid races.
             let actualOld = displayedCount
             guard actualOld == expectedOld else {
-                // 不一致：直接 reload 保險
+                // Mismatch: reload as a safety net.
                 displayedCount = total
                 tableView.reloadData()
                 applyPendingInitialScrollIfPossible()
@@ -284,14 +284,14 @@ final class CoreTextScrollViewController: UIViewController {
 
     // MARK: - Public
 
-    /// 初始定位（章節 + 字元偏移），須在引擎切完該章後才生效
+    /// Sets the initial scroll position (chapter + char offset). Takes effect once the engine has sliced the target chapter.
     func setInitialPosition(chapter: Int, charOffset: Int) {
         pendingInitialScroll = (chapter, charOffset)
         pendingInitialChapter = chapter
         applyPendingInitialScrollIfPossible()
     }
 
-    /// 設定變動：水平/垂直 inset 變了就重排
+    /// Updates horizontal/vertical insets, triggers a reslice if the width changed.
     func updateInsets(horizontal: CGFloat, vertical: CGFloat) {
         let widthChanged = abs(horizontal - horizontalInset) > 0.5
         horizontalInset = horizontal
@@ -305,7 +305,7 @@ final class CoreTextScrollViewController: UIViewController {
         }
     }
 
-    /// 重切（字級 / 行高 / 字距 / 段距 / 主題變動）
+    /// Reslices text when font size, line height, spacing, paragraph spacing, or theme changes.
     func requestReslice(at chapter: Int) {
         let width = view.bounds.width - 2 * horizontalInset
         guard width > 0 else { return }
@@ -371,7 +371,7 @@ extension CoreTextScrollViewController: UITableViewDataSource, UITableViewDelega
         return cell
     }
 
-    /// 跨章節時的視覺空白（pt）。第一個 chunk 不加；同章接續不加。
+    /// Returns the visual gap (in points) between chapters. The first chunk and consecutive same-chapter chunks get 0.
     private func chapterTopSpacing(for row: Int) -> CGFloat {
         guard row > 0, row < engine.chunks.count else { return 0 }
         let curr = engine.chunks[row].chapterIndex
@@ -384,7 +384,7 @@ extension CoreTextScrollViewController: UITableViewDataSource, UITableViewDelega
     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
         guard indexPath.row < engine.chunks.count else { return }
         engine.chunks[indexPath.row].materializeFrameIfNeeded()
-        // 補上選取反白（捲到新 cell 時）
+        // Restore selection highlight when scrolling to a new cell.
         if let chunkCell = cell as? CoreTextChunkCell, let chapter = selectionChapter {
             chunkCell.applySelection(chapterIndex: chapter, chapterRange: currentSelectionRange)
         }
@@ -394,7 +394,7 @@ extension CoreTextScrollViewController: UITableViewDataSource, UITableViewDelega
         let chunks = engine.chunks
         guard !chunks.isEmpty else { return }
 
-        // 預載：剩餘 < 1.5 螢幕 → 載下一章
+        // Prefetch: when remaining content is less than 1.5 screen heights, load the next chapter.
         let remaining = scrollView.contentSize.height - (scrollView.contentOffset.y + scrollView.bounds.height)
         if remaining < scrollView.bounds.height * 1.5,
            let lastChapter = chunks.last?.chapterIndex {
@@ -405,7 +405,7 @@ extension CoreTextScrollViewController: UITableViewDataSource, UITableViewDelega
             engine.ensureChapterBehind(of: firstChapter)
         }
 
-        // 進度：取最上方可見 cell
+        // Progress: report based on the topmost visible chunk.
         let visibleY = scrollView.contentOffset.y + scrollView.adjustedContentInset.top
         if let topPath = tableView.indexPathForRow(at: CGPoint(x: 0, y: max(0, visibleY))),
            topPath.row < chunks.count {

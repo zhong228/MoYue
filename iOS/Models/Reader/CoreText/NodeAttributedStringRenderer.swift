@@ -3,18 +3,18 @@ import UIKit
 
 // MARK: - NodeAttributedStringRenderer
 //
-// 消費 [RenderableNode] → NSAttributedString。
+// Consumes [RenderableNode] → NSAttributedString.
 //
-// 設計原則：
-//   - 純轉換函式，無副作用，無儲存狀態（struct）
-//   - 透過 RenderContext 把字形系列、大小、顏色等「繼承屬性」往下傳遞
-//   - 每個 block node 自己決定 NSParagraphStyle；inline node 只改 font/color
-//   - `.rawHTML` 降級：在 Debug 顯示佔位符，在 Release 靜默忽略
-//   - `.image` 透過 RunDelegate placeholder 進入現有 paginator / page view 管道
+// Design principles:
+//   - Pure conversion function, no side effects, no stored state (struct)
+//   - Passes "inherited attributes" (font family, size, color) down the tree via RenderContext
+//   - Each block node determines its own NSParagraphStyle; inline nodes only modify font/color
+//   - `.rawHTML` fallback: displays placeholder in Debug, silently ignored in Release
+//   - `.image` enters existing paginator / page view pipeline via RunDelegate placeholder
 
 struct NodeAttributedStringRenderer {
 
-    // MARK: - 渲染設定
+    // MARK: - Rendering Config
 
     struct Config {
         let baseFontSize: CGFloat
@@ -50,9 +50,9 @@ struct NodeAttributedStringRenderer {
 
     let config: Config
 
-    // MARK: - 入口
+    // MARK: - Entry Point
 
-    /// 把一組頂層節點轉成可分頁的 NSAttributedString。
+    /// Converts a set of top-level nodes into a pageable NSAttributedString.
     func render(_ nodes: [RenderableNode]) async -> NSAttributedString {
         let result = NSMutableAttributedString()
         let ctx = RenderContext.makeBody(config: config)
@@ -62,18 +62,18 @@ struct NodeAttributedStringRenderer {
         return CJKTypographyProcessor.apply(to: result)
     }
 
-    // MARK: - 節點渲染（遞迴）
+    // MARK: - Node Rendering (Recursive)
 
     private func render(node: RenderableNode, ctx: RenderContext) async -> NSAttributedString {
         switch node {
 
-        // ──────────────── 葉節點 ────────────────
+        // ──────────────── Leaf nodes ────────────────
 
         case .text(let str):
             return NSAttributedString(string: str, attributes: ctx.baseAttributes)
 
         case .lineBreak:
-            // \u{2028} = Unicode Line Separator（同 HTMLAttributedStringBuilder 慣例）
+            // \u{2028} = Unicode Line Separator (matching HTMLAttributedStringBuilder convention)
             return NSAttributedString(string: "\u{2028}", attributes: ctx.baseAttributes)
 
         case .horizontalRule(let style):
@@ -107,12 +107,12 @@ struct NodeAttributedStringRenderer {
             return NSAttributedString()
             #endif
 
-        // ──────────────── 圖片（降級：顯示 alt-text） ────────────────
+        // ──────────────── Image (fallback: show alt-text) ────────────────
 
         case .image(let src, let alt, let style):
             return await renderInlineImage(src: src, alt: alt, style: style, ctx: ctx)
 
-        // ──────────────── 段落 ────────────────
+        // ──────────────── Paragraph ────────────────
 
         case .paragraph(let children, let style):
             return await renderBlock(children: children, style: style, ctx: ctx, isHeading: false)
@@ -132,12 +132,12 @@ struct NodeAttributedStringRenderer {
             result.append(NSAttributedString(string: "\n", attributes: ctx.baseAttributes))
             return result
 
-        // ──────────────── 標題 ────────────────
+        // ──────────────── Heading ────────────────
 
         case .heading(let children, let level, let style):
             return await renderBlock(children: children, style: style, ctx: ctx, isHeading: true, headingLevel: level)
 
-        // ──────────────── 容器 ────────────────
+        // ──────────────── Container ────────────────
 
         case .block(_, let children, let style):
             return await renderBlock(children: children, style: style, ctx: ctx, isHeading: false)
@@ -163,7 +163,7 @@ struct NodeAttributedStringRenderer {
         }
     }
 
-    // MARK: - 輔助：Block 渲染
+    // MARK: - Block Rendering
 
     private func renderBlock(
         children: [RenderableNode],
@@ -207,7 +207,7 @@ struct NodeAttributedStringRenderer {
         return result
     }
 
-    // MARK: - 輔助：Inline 子節點
+    // MARK: - Inline Children
 
     private func renderInlineChildren(_ children: [RenderableNode], ctx: RenderContext) async -> NSAttributedString {
         let result = NSMutableAttributedString()
@@ -217,7 +217,7 @@ struct NodeAttributedStringRenderer {
         return result
     }
 
-    // MARK: - 輔助：套用 Block 風格到 Context
+    // MARK: - Apply Block Style to Context
 
     private func applyBlockStyle(
         _ style: RenderStyle,
@@ -227,7 +227,7 @@ struct NodeAttributedStringRenderer {
     ) -> RenderContext {
         var newCtx = ctx
 
-        // ── 字形大小 ──
+        // ── Font size ──
         let sizeMultiplier: CGFloat
         if isHeading {
             switch headingLevel {
@@ -243,7 +243,7 @@ struct NodeAttributedStringRenderer {
         }
         let newSize = ctx.baseSize * sizeMultiplier
 
-        // ── 字重與斜體 ──
+        // ── Weight and italic ──
         let families = style.fontFamilies.isEmpty ? ctx.fontFamilies : style.fontFamilies
         let bold = isHeading || style.bold
         let weight = bold ? max(style.fontWeight, 700) : max(style.fontWeight, ctx.fontWeight)
@@ -255,7 +255,7 @@ struct NodeAttributedStringRenderer {
             newCtx.lineHeightMultiple = style.lineHeightMultiplier
         }
 
-        // ── 顏色 ──
+        // ── Color ──
         if let c = style.color { newCtx.textColor = c.uiColor; newCtx.hasCSSColor = true }
 
         // ── Paragraph Style ──
@@ -279,7 +279,7 @@ struct NodeAttributedStringRenderer {
         return newCtx
     }
 
-    // MARK: - 輔助：套用 Inline 風格到 Context
+    // MARK: - Apply Inline Style to Context
 
     private func applyInlineStyle(_ style: RenderStyle, to ctx: RenderContext) -> RenderContext {
         guard style.bold || style.italic || style.color != nil || !style.fontFamilies.isEmpty else { return ctx }
@@ -294,7 +294,7 @@ struct NodeAttributedStringRenderer {
         return newCtx
     }
 
-    // MARK: - 輔助：行高計算
+    // MARK: - Line Height Calculation
 
     private func targetLineHeight(ctx: RenderContext) -> CGFloat {
         ReaderTypographyCorrection.targetLineHeight(
@@ -304,7 +304,7 @@ struct NodeAttributedStringRenderer {
         )
     }
 
-    // MARK: - 輔助：字形
+    // MARK: - Font
 
     private func makeFont(families: [String], size: CGFloat, weight: Int, italic: Bool) -> UIFont {
         let bold = weight >= 600
@@ -343,7 +343,7 @@ struct NodeAttributedStringRenderer {
         return UIFont(descriptor: descriptor, size: size)
     }
 
-    // MARK: - 圖片 / 區塊裝飾
+    // MARK: - Images / Block Decoration
 
     private struct SingleImagePayload {
         let src: String
@@ -663,7 +663,7 @@ struct NodeAttributedStringRenderer {
         var lineHeightMultiple: CGFloat
         var linkHref: String?
 
-        /// 記錄 body 的基準字號，供 heading 按比例放大用。
+        /// Records the body's base font size for heading proportional scaling.
         var baseSize: CGFloat
 
         var baseAttributes: [NSAttributedString.Key: Any] {
@@ -714,7 +714,7 @@ struct NodeAttributedStringRenderer {
     }
 }
 
-// MARK: - UIFont 輔助（判斷目前字重 / 斜體）
+// MARK: - UIFont Helpers (check weight / italic)
 
 private extension UIFont {
     var isBold: Bool {

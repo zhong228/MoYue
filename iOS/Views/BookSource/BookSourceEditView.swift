@@ -1,6 +1,6 @@
 import SwiftUI
 
-// MARK: - 書源編輯頁
+// MARK: - Book Source Editor
 
 struct BookSourceEditView: View {
     @State private var source: BookSource
@@ -71,7 +71,7 @@ struct BookSourceEditView: View {
         .navigationViewStyle(.stack)
     }
 
-    // MARK: 基本資訊
+    // MARK: Basic Info
     private var basicSection: some View {
         Section(header: Text(localized("基本資訊"))) {
             ruleField(localized("書源名稱"), placeholder: localized("如：某某小說網"), text: $source.bookSourceName)
@@ -81,7 +81,7 @@ struct BookSourceEditView: View {
         }
     }
 
-    // MARK: 搜索設定
+    // MARK: Search Settings
     private var searchSection: some View {
         Section(
             header: Text(localized("搜索設定")),
@@ -93,7 +93,7 @@ struct BookSourceEditView: View {
         }
     }
 
-    // MARK: 搜索規則
+    // MARK: Search Rules
     private var searchRuleSection: some View {
         Section(
             header: Text(localized("搜索結果規則")),
@@ -110,7 +110,7 @@ struct BookSourceEditView: View {
         }
     }
 
-    // MARK: 書籍詳情規則
+    // MARK: Book Detail Rules
     private var bookInfoSection: some View {
         Section(
             header: Text(localized("書籍詳情規則")),
@@ -124,7 +124,7 @@ struct BookSourceEditView: View {
         }
     }
 
-    // MARK: 目錄規則
+    // MARK: TOC Rules
     private var tocSection: some View {
         Section(
             header: Text(localized("目錄規則")),
@@ -138,7 +138,7 @@ struct BookSourceEditView: View {
         }
     }
 
-    // MARK: 正文規則
+    // MARK: Content Rules
     private var contentSection: some View {
         Section(
             header: Text(localized("正文規則")),
@@ -156,7 +156,7 @@ struct BookSourceEditView: View {
         }
     }
 
-    // MARK: 自定 Header
+    // MARK: Custom Headers
     private var headerSection: some View {
         Section(
             header: Text(localized("自定 HTTP Header")),
@@ -168,7 +168,7 @@ struct BookSourceEditView: View {
         }
     }
 
-    // MARK: 進階（Legado 相容）
+    // MARK: Advanced (Legado Compatibility)
     private var advancedSection: some View {
         Section(
             header: Text(localized("進階")),
@@ -179,7 +179,7 @@ struct BookSourceEditView: View {
         }
     }
 
-    // MARK: 表單欄位
+    // MARK: Form Field
     @ViewBuilder
     private func ruleField(_ label: String, placeholder: String, text: Binding<String>) -> some View
     {

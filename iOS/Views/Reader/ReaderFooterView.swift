@@ -1,10 +1,10 @@
 import SwiftUI
 import Combine
 
-// MARK: - 時鐘 + 電池 ViewModel（獨立 invalidation 邊界）
+// MARK: - Clock + Battery ViewModel (independent invalidation boundary)
 //
-// 把 displayTime / displayBatteryIcon 從 ReaderView 的 @State 移出，
-// 避免每分鐘 / 每次電量事件觸發整個 1500 行 body 的重新計算。
+// Extracts displayTime / displayBatteryIcon out of ReaderView's @State
+// to prevent the entire 1500+ line body from recomputing on every minute / battery event.
 
 @MainActor
 final class ClockBatteryModel: ObservableObject {
@@ -61,7 +61,7 @@ final class ClockBatteryModel: ObservableObject {
     }
 }
 
-// MARK: - 底部 Overlay Footer（slide / cover / tab 模式）
+// MARK: - Bottom Overlay Footer (slide / cover / tab modes)
 
 struct ReaderOverlayFooter: View {
     let pageInfo: String
@@ -91,7 +91,7 @@ struct ReaderOverlayFooter: View {
     }
 }
 
-// MARK: - 頁內 Footer（curl 模式：烘進頁面紋理）
+// MARK: - Inline Footer (curl mode: baked into page texture)
 
 struct ReaderInlineFooter: View {
     let pageInfo: String

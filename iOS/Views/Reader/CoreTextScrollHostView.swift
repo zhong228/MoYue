@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// SwiftUI 入口：包裝 `CoreTextScrollViewController`，把 engine、insets、theme 推進去。
+/// Wraps CoreTextScrollViewController as a SwiftUI representable, forwarding engine, insets, and theme.
 struct CoreTextScrollHostView: UIViewControllerRepresentable {
 
     @ObservedObject var engine: CoreTextScrollEngine

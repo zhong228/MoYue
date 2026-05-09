@@ -1,7 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-// MARK: - 添加書籍入口
+// MARK: - Add Book Entry
 struct AddBookView: View {
     @EnvironmentObject var store: BookStore
     @Environment(\.presentationMode) var presentationMode
@@ -41,7 +41,7 @@ struct AddBookView: View {
     }
 }
 
-// MARK: - 文件匯入頁
+// MARK: - File Import Tab
 struct FileImportTab: View {
     @EnvironmentObject var store: BookStore
     var onDismiss: () -> Void
@@ -56,7 +56,7 @@ struct FileImportTab: View {
     @State private var activeSessionID = UUID()
     @ObservedObject private var gs = GlobalSettings.shared
 
-    // 新增：用來記住 EPUB 檔案的暫存路徑，給「加入書架」按鈕使用
+    // Stores the EPUB temporary file URL for the "Add to Shelf" button
     @State private var pendingEpubURL: URL? = nil
     @State private var pendingMarkdownURL: URL? = nil
 
@@ -87,7 +87,7 @@ struct FileImportTab: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
                         }
 
-                        //  判斷顯示的是 TXT 字數還是 EPUB 提示
+                        // Determine whether to show TXT word count or EPUB confirmation
                         if pendingEpubURL != nil {
                             Text(localized("已解析 EPUB 結構，點擊下方按鈕匯入"))
                                 .font(DSFont.caption).foregroundColor(DSColor.textSecondary)
@@ -120,7 +120,7 @@ struct FileImportTab: View {
                             let markdownURLForImport = pendingMarkdownURL
                             let startUptime = ProcessInfo.processInfo.systemUptime
 
-                            // 🟢 核心修改：判斷是存成 EPUB 還是 TXT
+                            // Determine whether to import as EPUB, Markdown, or TXT
                             importTask = Task {
                                 do {
                                     await MainActor.run {
@@ -250,7 +250,7 @@ struct FileImportTab: View {
                 let sessionID = nextSessionID()
                 isLoading = true
                 errorMsg = nil
-                pendingEpubURL = nil  // 每次選檔先清空
+                pendingEpubURL = nil
                 pendingMarkdownURL = nil
                 let ext = url.pathExtension.lowercased()
                 let sizeBytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
@@ -277,7 +277,7 @@ struct FileImportTab: View {
         }
     }
 
-    // MARK: - TXT 匯入
+    // MARK: - TXT Import
     private func importTXT(url: URL, sessionID: UUID) {
         parseTask = Task(priority: .userInitiated) {
             let startUptime = ProcessInfo.processInfo.systemUptime
@@ -338,7 +338,7 @@ struct FileImportTab: View {
         }
     }
 
-    // MARK: - EPUB 匯入
+    // MARK: - EPUB Import
     private func importEPUB(url: URL, sessionID: UUID) {
         let startUptime = ProcessInfo.processInfo.systemUptime
         importTrace("importEPUB stage=begin session=\(sessionID) file=\(url.lastPathComponent)")
@@ -371,10 +371,12 @@ struct FileImportTab: View {
         }
 
         isLoading = false
-        pendingContent = "EPUB_READY"  // 假字串，只為了觸發 UI 顯示確認卡片
+        // Placeholder string to trigger the confirmation card UI
+        pendingContent = "EPUB_READY"
         titleInput = url.deletingPathExtension().lastPathComponent
         authorInput = "未知作者"
-        pendingEpubURL = tempURL  // 把路徑存起來，按下「加入書架」時再真正匯入
+        // Store the temp path; actual import happens when "Add to Shelf" is tapped
+        pendingEpubURL = tempURL
         importTrace(
             "importEPUB stage=prepared session=\(sessionID) elapsedMs=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - startUptime) * 1000)) tempFile=\(tempURL.lastPathComponent)"
         )
@@ -417,7 +419,7 @@ struct FileImportTab: View {
     }
 }
 
-// MARK: - 網址匯入頁
+// MARK: - URL Import Tab
 struct URLImportTab: View {
     @EnvironmentObject var store: BookStore
     @Environment(\.appDependencies) private var dependencies
@@ -594,7 +596,7 @@ struct URLImportTab: View {
     }
 }
 
-// MARK: - 提示卡片
+// MARK: - Hint Card
 struct HintCard: View {
     let icon: String
     let title: String
