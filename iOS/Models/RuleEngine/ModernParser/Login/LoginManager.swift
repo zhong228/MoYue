@@ -343,7 +343,7 @@ final class LoginManager {
 
     /// Parse the source's `loginUi` JSON into an array of `LoginField`.
     ///
-    /// Legado format: `[{"name":"用户名","type":"text"},{"name":"密码","type":"password"}]`
+    /// Legado format. Example: `[{"name":"用户名(username)","type":"text"},{"name":"密码(password)","type":"password"}]`
     func parseLoginUi(_ loginUiJson: String) -> [LoginField] {
         let trimmed = loginUiJson.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,

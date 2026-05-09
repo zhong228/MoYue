@@ -3,7 +3,7 @@ import WebKit
 import Combine
 // Modal WebView launched by `java.startBrowser` / `java.startBrowserAwait`.
 // Syncs WKWebView cookies into CookieStore and HTTPCookieStorage when the user
-// taps "完成" (and also on each navigation finish for non-CF scenarios).
+// taps "Done" (and also on each navigation finish for non-CF scenarios).
 
 struct JsBridgeBrowserView: View {
     let urlString: String

@@ -3,7 +3,7 @@ import UIKit
 
 // MARK: - BookSourceFormLoginView
 // Handles book sources whose `loginUi` JSON defines form fields (text/password/button).
-// After the user fills in credentials and taps "確認", the loginUrl JS is executed
+// After the user fills in credentials and taps "Confirm", the loginUrl JS is executed
 // with those credentials stored via LoginManager — mirroring Legado's SourceLoginDialog.
 
 struct BookSourceFormLoginView: View {

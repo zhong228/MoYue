@@ -27,7 +27,7 @@ public enum ReaderChapterPresentation {
         case .ready:
             // State claims ready but validated content is unavailable (e.g. a legacy
             // cache entry without the .package.json artifact).  Return .failed so the
-            // "點擊重試" button is shown and the auto-reset path in refreshAction can
+            // "Tap to Retry" button is shown and the auto-reset path in refreshAction can
             // clear and re-fetch — avoids a permanent "loading" deadlock.
             return .failed(message: "資料不一致，請點擊重試")
         }

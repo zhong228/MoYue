@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import SwiftUI
 
-// MARK: - 書籍來源連結（單個書源提供的連結資訊）
+// MARK: - Book Origin (link info provided by a single book source)
 
 struct BookOrigin: Identifiable {
     let id = UUID()
@@ -18,7 +18,7 @@ struct BookOrigin: Identifiable {
     let runtimeVariables: [String: String]?
 }
 
-// MARK: - 聚合搜尋結果（合併同名書籍的多來源資訊）
+// MARK: - Aggregated Search Results (merge info from multiple sources for the same book)
 
 class SearchBook: Identifiable, ObservableObject {
     let id = UUID()
@@ -26,19 +26,19 @@ class SearchBook: Identifiable, ObservableObject {
     let author: String
     @Published var origins: [BookOrigin]
 
-    /// 去重用的標準化 key
+    /// Normalized key for deduplication
     var deduplicationKey: String {
         Self.makeKey(name: name, author: author)
     }
 
-    /// 產生去重 key：統一全形半形、去除空白
+    /// Generate dedup key: normalize fullwidth/halfwidth, strip whitespace
     static func makeKey(name: String, author: String) -> String {
         let n = normalize(name)
         let a = normalize(author)
         return "\(n)||||\(a)"
     }
 
-    /// 標準化字串：去除空白/標點、統一全半形
+    /// Normalize string: strip whitespace/punctuation, convert fullwidth to halfwidth
     private static func normalize(_ s: String) -> String {
         s.lowercased()
             .applyingTransform(.fullwidthToHalfwidth, reverse: false)?
@@ -47,27 +47,28 @@ class SearchBook: Identifiable, ObservableObject {
             ?? s.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 主要封面 URL（取第一個非空的）
+    /// Primary cover URL (first non-empty one)
     var coverUrl: String {
         origins.first(where: { !$0.coverUrl.isEmpty })?.coverUrl ?? ""
     }
 
-    /// 主要簡介（取最長的）
+    /// Primary intro (longest one)
     var intro: String {
         origins.max(by: { $0.intro.count < $1.intro.count })?.intro ?? ""
     }
 
-    /// 主要最新章節
+    /// Primary latest chapter
     var lastChapter: String {
         origins.first(where: { !$0.lastChapter.isEmpty })?.lastChapter ?? ""
     }
 
-    /// 主要分類
+    /// Primary category
     var kind: String {
         origins.first(where: { !$0.kind.isEmpty })?.kind ?? ""
     }
 
-    /// 列表用簡介：過濾「标签:」「#xxx」等標籤行、截斷過長內容，避免整屏標籤
+    /// Intro for list display: filter out tag lines (e.g. "标签 (tags):", "#xxx") and truncate
+    /// overly long content to avoid flooding the screen with tags.
     var displayIntro: String {
         let raw = intro.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return "" }
@@ -86,8 +87,9 @@ class SearchBook: Identifiable, ObservableObject {
         return String(joined[..<end]) + "…"
     }
 
-    /// 顯示用書名：有書名用書名，否則用最新章節或簡介前 N 字，減少「未知書名」
-    /// 會清理前綴的 ？、... 與無意義符號，避免顯示「？... 诡秘之主...」
+    /// Display name: prefer the book name, otherwise use the latest chapter or the first N
+    /// characters of the intro to reduce "unknown title" results.
+    /// Cleans leading ?, ..., and meaningless symbols (e.g. "?... 诡秘之主 (Book Title)...").
     var displayName: String {
         let n = Self.cleanDisplayTitle(name.trimmingCharacters(in: .whitespacesAndNewlines))
         if !n.isEmpty && !Self.isOnlyListNumber(n) { return n }
@@ -103,7 +105,7 @@ class SearchBook: Identifiable, ObservableObject {
         return name.isEmpty ? "未知書名" : n
     }
 
-    /// 清理顯示用標題：去掉前綴的 ？、...、全形空格等
+    /// Clean display title: strip leading ?, ..., fullwidth spaces, etc.
     private static func cleanDisplayTitle(_ s: String) -> String {
         var t = s.trimmingCharacters(in: .whitespacesAndNewlines)
         while true {
@@ -118,7 +120,7 @@ class SearchBook: Identifiable, ObservableObject {
         return t
     }
 
-    /// 是否為純列表序號（如 "1."、"2、"）
+    /// Whether the string is a pure list number (e.g. "1.", "2、")
     private static func isOnlyListNumber(_ s: String) -> Bool {
         let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return true }
@@ -135,7 +137,7 @@ class SearchBook: Identifiable, ObservableObject {
     }
 }
 
-// MARK: - 非同步信號量（限制併發數量）
+// MARK: - Async Semaphore (limits concurrency)
 
 actor AsyncSemaphore {
     private let limit: Int
@@ -166,13 +168,13 @@ actor AsyncSemaphore {
     }
 }
 
-// MARK: - 搜尋聚合引擎
+// MARK: - Search Aggregation Engine
 //
-// 核心設計：
-// 1. TaskGroup + AsyncSemaphore 管理 maxConcurrency=30 的併發
-// 2. 每個書源獨立綁定 15s 超時，逾時即 cancel 釋放資源
-// 3. 任何 1 個書源回傳結果就立即 mergeItems + 重新排序 + 刷新 UI
-// 4. 使用 @Published 搭配 SwiftUI 自動觸發畫面更新（串流機制）
+// Core design:
+// 1. TaskGroup + AsyncSemaphore manages concurrency with maxConcurrency=30
+// 2. Each book source independently bound to a 15s timeout; timed-out tasks are cancelled to free resources
+// 3. As soon as any single source returns results, immediately mergeItems + re-sort + refresh UI
+// 4. Uses @Published with SwiftUI to automatically trigger view updates (streaming mechanism)
 
 @MainActor
 class SearchAggregator: ObservableObject {
@@ -180,7 +182,7 @@ class SearchAggregator: ObservableObject {
     @Published var isSearching = false
     @Published var progress: SearchProgress = SearchProgress()
 
-    /// 搜尋進度
+    /// Search progress
     struct SearchProgress {
         var total: Int = 0
         var completed: Int = 0
@@ -193,25 +195,25 @@ class SearchAggregator: ObservableObject {
         }
     }
 
-    /// 併發限制（最大同時請求數）- 降低可減少超時/失敗
+    /// Concurrency limit (max simultaneous requests) — lower reduces timeouts/failures
     private let maxConcurrency = 12
 
-    /// 每個書源的超時秒數 - 延長可減少超時失敗
+    /// Timeout seconds per book source — increasing reduces timeout failures
     private let perSourceTimeout: UInt64 = 25
 
-    /// 目前搜尋任務（用於取消）
+    /// Current search task (used for cancellation)
     private var searchTask: Task<Void, Never>?
 
-    /// 去重表：key → results 陣列索引
+    /// Dedup table: key → results array index
     private var deduplicationMap: [String: Int] = [:]
 
-    // MARK: - 開始搜尋
+    // MARK: - Start Search
 
     func search(query: String, sources: [BookSource]) {
-        // 取消上一次搜尋
+        // Cancel previous search
         searchTask?.cancel()
 
-        // 重置狀態（書源已驗證，全部納入搜尋）
+        // Reset state (sources are validated, all included in search)
         results = []
         deduplicationMap = [:]
         progress = SearchProgress(total: sources.count)
@@ -224,17 +226,17 @@ class SearchAggregator: ObservableObject {
             await withTaskGroup(of: SearchBatchResult.self) { group in
                 for source in sources {
                     group.addTask {
-                        // 取得信號量 → 控制併發上限
+                        // Acquire semaphore → cap concurrency
                         await semaphore.acquire()
                         defer { Task { await semaphore.release() } }
-                        // 每個書源獨立超時，逾時即 cancel
+                        // Each source has its own timeout; cancel on expiry
                         return await Self.searchSingleSource(
                             query: q, source: source, timeout: self?.perSourceTimeout ?? 25
                         )
                     }
                 }
 
-                // 串流處理：每收到一個結果就立即 merge + 排序 + 刷新 UI
+                // Streaming: on each result, immediately merge + sort + refresh UI
                 for await batchResult in group {
                     guard !Task.isCancelled, let self = self else { break }
 
@@ -247,7 +249,7 @@ class SearchAggregator: ObservableObject {
                     case .failed:
                         self.progress.failed += 1
                     }
-                    // 每次有新結果都重新排序（SwiftUI @Published 自動觸發 UI 更新）
+                    // Re-sort every time new results arrive (SwiftUI @Published auto-triggers UI update)
                     self.sortResults(query: q)
                 }
             }
@@ -256,19 +258,19 @@ class SearchAggregator: ObservableObject {
         }
     }
 
-    // MARK: - 取消搜尋
+    // MARK: - Cancel Search
 
     func cancel() {
         searchTask?.cancel()
         isSearching = false
     }
 
-    // MARK: - 帶超時的單源搜尋（靜態方法，無 actor 隔離問題）
+    // MARK: - Single-source search with timeout (static method, no actor isolation issues)
     //
-    // 用 withThrowingTaskGroup 實現超時：
-    // - 任務 A：實際搜尋
-    // - 任務 B：sleep(timeout) 後拋 TimeoutError
-    // 誰先完成就回傳誰，另一個 cancelAll()
+    // Uses withThrowingTaskGroup for timeout:
+    // - Task A: actual search
+    // - Task B: sleep(timeout) then throw TimeoutError
+    // Whichever completes first is returned; the other is cancelAll()
 
     private enum SearchBatchResult: Sendable {
         case success([OnlineBook])
@@ -303,13 +305,13 @@ class SearchAggregator: ObservableObject {
         }
     }
 
-    // MARK: - 合併一批結果（去重 + 聚合）
+    // MARK: - Merge a batch of results (dedup + aggregate)
     //
-    // 任何 1 個書源回傳結果就立即執行：
-    // 1. 建立 BookOrigin
-    // 2. 用 name+author 去重 key 查表
-    // 3. 已存在 → 合併到 origins 陣列
-    // 4. 不存在 → 新增 SearchBook
+    // Executed immediately whenever any single source returns results:
+    // 1. Build BookOrigin
+    // 2. Check dedup table by name+author key
+    // 3. Already exists → merge into origins array
+    // 4. Does not exist → create new SearchBook
 
     private func mergeBatch(_ books: [OnlineBook], query: String) {
         let q = query.lowercased()
@@ -319,7 +321,7 @@ class SearchAggregator: ObservableObject {
             ?? query.lowercased()
 
         for book in books {
-            // 過濾掉與搜索關鍵字完全無關的結果
+            // Filter out results completely unrelated to the search keyword
             let normalizedName = book.name.lowercased()
                 .applyingTransform(.fullwidthToHalfwidth, reverse: false)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -356,12 +358,12 @@ class SearchAggregator: ObservableObject {
             if let existingIndex = deduplicationMap[key],
                 existingIndex < results.count
             {
-                // 同名同作者 → 合併到已有結果的來源陣列
+                // Same name + same author → merge into existing result's origin array
                 withAnimation(.easeInOut(duration: 0.25)) {
                     results[existingIndex].origins.append(origin)
                 }
             } else {
-                // 新書 → 建立新的 SearchBook
+                // New book → create new SearchBook
                 let searchBook = SearchBook(
                     name: book.name,
                     author: book.author,
@@ -375,7 +377,7 @@ class SearchAggregator: ObservableObject {
         }
     }
 
-    // MARK: - 三層排序
+    // MARK: - Three-tier Sorting
 
     private func sortResults(query: String) {
         let q =
@@ -392,7 +394,8 @@ class SearchAggregator: ObservableObject {
 
                 if aScore != bScore { return aScore > bScore }
 
-                // 同分時：書名越短越精確（如「斗罗大陆」優於「斗罗大陆,普通魂师...」）
+                // Tie-breaker: shorter name is more precise
+                // (e.g. a short precise name beats a long one with extra description)
                 if a.name.count != b.name.count { return a.name.count < b.name.count }
 
                 return a.origins.count > b.origins.count
@@ -402,8 +405,10 @@ class SearchAggregator: ObservableObject {
         }
     }
 
-    /// 匹配分數：3 = 書名完全等於關鍵字，2 = 書名以關鍵字開頭，1 = 書名包含關鍵字，0 = 不匹配
-    /// 簡體書源搜簡體，同名排最前；要搜繁體請導入繁體書源
+    /// Match score: 3 = name exactly equals keyword, 2 = name starts with keyword,
+    /// 1 = name contains keyword, 0 = no match.
+    /// Simplified-Chinese sources search simplified Chinese; for traditional Chinese
+    /// search, import traditional-Chinese sources.
     private func matchScore(name: String, query: String) -> Int {
         let normalized =
             name.lowercased()
@@ -421,7 +426,7 @@ class SearchAggregator: ObservableObject {
         return 0
     }
 
-    /// 重建去重表（排序後索引會改變）
+    /// Rebuild dedup table (indices change after sorting)
     private func rebuildDeduplicationMap() {
         deduplicationMap.removeAll(keepingCapacity: true)
         for (index, book) in results.enumerated() {
@@ -430,5 +435,5 @@ class SearchAggregator: ObservableObject {
     }
 }
 
-// MARK: - 超時錯誤
+// MARK: - Timeout Error
 private struct SearchTimeoutError: Error {}

@@ -4,7 +4,7 @@ import Combine
 
 /// Interactive WebView login for book sources that require cookie authentication.
 /// Shows the book source's `loginUrl` (or `bookSourceUrl` as fallback) in a real
-/// browser. Cookies are captured **when the user taps "完成"** — NOT on `didFinish` —
+/// browser. Cookies are captured **when the user taps "Done"** — NOT on `didFinish` —
 /// so that Cloudflare `cf_clearance` and other async-set cookies are captured
 /// after all JS challenges have resolved.
 struct BookSourceLoginWebView: View {
@@ -62,7 +62,7 @@ struct BookSourceLoginWebView: View {
 
 // MARK: - LoginWebBridge
 
-/// Reference-type bridge that lets the SwiftUI "完成" button trigger the WKWebView's
+/// Reference-type bridge that lets the SwiftUI "Done" button trigger the WKWebView's
 /// cookie extraction inside the UIKit Coordinator.
 final class LoginWebBridge: ObservableObject {
     /// Set by the Coordinator after the WKWebView is created.
@@ -143,7 +143,7 @@ struct BookSourceLoginWebViewRepresentable: UIViewRepresentable {
         init(source: BookSource) { self.source = source }
 
         /// Intermediate sync on each page load — catches non-Cloudflare cookies early.
-        /// The definitive sync always happens when the user taps "完成".
+        /// The definitive sync always happens when the user taps "Done".
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             syncCookies(from: webView, completion: nil)
         }

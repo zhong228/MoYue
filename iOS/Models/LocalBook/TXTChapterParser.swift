@@ -417,9 +417,10 @@ enum TXTChapterParser {
         }
 
         // chapterPatterns index mapping:
-        //   0=第X章  1=第X節  2=第X卷  3=第X回  4=第X篇  5=第X部  6=卷X
-        // If the winning pattern is chapter-level (章/節/回),
-        // also include volume-level matches (卷/篇/部) as structural markers.
+        //   0=第X章 (Chapter)  1=第X節 (Section)  2=第X卷 (Volume)  3=第X回 (Chapter)
+        //   4=第X篇 (Part)  5=第X部 (Book)  6=卷X (Volume)
+        // If the winning pattern is chapter-level (e.g. 章/節/回),
+        // also include volume-level matches (e.g. 卷/篇/部) as structural markers.
         let chapterLevelIndexes: Set<Int> = [0, 1, 3]
         let volumeLevelIndexes: Set<Int> = [2, 4, 5, 6]
         if let idx = selectedBucketIndex, chapterLevelIndexes.contains(idx) {
@@ -689,9 +690,9 @@ struct TXTBookParser: BookParser {
     private static func extractAuthor(from text: String) -> String? {
         let sample = String(text.prefix(3000))
         let patterns = [
-            // Author：XXX  /  Author:XXX
+            // Author: XXX (e.g. 作者: XXX)
             "作者\\s*[：:﹕]\\s*([^\\n\\r，,。！？]{1,30})",
-            // 著：XXX  /  著者：XXX (Writer: XXX)
+            // Written by: XXX (e.g. 著/著者: XXX)
             "著者?\\s*[：:﹕]\\s*([^\\n\\r，,。！？]{1,30})",
             // Author: XXX  /  Written by XXX
             "(?:Author|Written by)\\s*[：:﹕]?\\s*([A-Za-z\\u4E00-\\u9FFF\\u3400-\\u4DBF]{1,40})",

@@ -1153,7 +1153,9 @@ struct ReaderView: View {
     }
 
     private func buildRenderSettings() -> ReaderRenderSettings {
-        ReaderRenderSettings(
+        let topInset = ReaderLayoutMetrics.topInset(safeTop: effectiveReaderSafeTop)
+        let bottomInset = ReaderLayoutMetrics.bottomInset(safeBottom: windowSafeBottom)
+        return ReaderRenderSettings(
             theme: readerTheme.rawValue,
             textColor: UIColor(readerTheme.textColor),
             backgroundColor: UIColor(readerTheme.backgroundColor),
@@ -1166,9 +1168,9 @@ struct ReaderView: View {
             marginV: readerConfig.pageMarginV,
             footerHeight: ReaderLayoutMetrics.footerHeight,
             contentInsets: UIEdgeInsets(
-                top: readerConfig.pageMarginV,
+                top: topInset,
                 left: effectivePageMarginH,
-                bottom: readerConfig.pageMarginV,
+                bottom: bottomInset,
                 right: effectivePageMarginH
             ),
             writingMode: effectiveWritingMode
@@ -1996,7 +1998,7 @@ struct ReaderView: View {
     // MARK: - Loading & Page Building
     private func currentRenderSettings(marginH: CGFloat) -> ReaderRenderSettings {
         let topInset = ReaderLayoutMetrics.topInset(safeTop: effectiveReaderSafeTop)
-        let bottomInset = max(20, ReaderLayoutMetrics.bottomInset(safeBottom: windowSafeBottom))
+        let bottomInset = ReaderLayoutMetrics.bottomInset(safeBottom: windowSafeBottom)
         let lineHeightMultiple = max(1.0, readerConfig.lineHeightMultiple)
         return ReaderRenderSettings(
             theme: readerTheme.epubJSName,

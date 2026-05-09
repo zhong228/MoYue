@@ -41,7 +41,7 @@ enum WebNovelParser {
     )
 
     /// Text patterns for "next page" links.
-    /// Excludes "next chapter" (下一章/下一节/下一節) — that links to a different
+    /// Excludes next-chapter link text (下一章/下一节/下一節, meaning "next chapter/section") — that links to a different
     /// chapter, not a continuation of the current one. Including it would cause
     /// fetchWebContent's while loop to concatenate the next entire chapter onto
     /// the current one, inflating single-chapter caches to 10+ chapters and 100+ pages.
