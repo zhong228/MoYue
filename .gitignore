@@ -22,3 +22,6 @@ docs/superpowers/
 
 # CocoaPods (if added later)
 Pods/
+
+# Claude Code skills (local dev only)
+.claude/
