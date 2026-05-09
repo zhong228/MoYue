@@ -280,6 +280,20 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
         in ctx: CGContext
     ) {
         let lines = CTFrameGetLines(frame) as! [CTLine]
+
+        // Count HR attributes in the full string for debugging
+        var hrCount = 0
+        attrStr.enumerateAttribute(
+            HTMLAttributedStringBuilder.hrDividerAttribute,
+            in: NSRange(location: 0, length: attrStr.length),
+            options: []
+        ) { value, _, _ in
+            if value != nil { hrCount += 1 }
+        }
+        if hrCount > 0 {
+            print("[HR] drawLines entry: \(hrCount) HR attributes found in attrStr(len=\(attrStr.length)), lines.count=\(lines.count)")
+        }
+
         guard !lines.isEmpty else { return }
 
         var origins = [CGPoint](repeating: .zero, count: lines.count)
