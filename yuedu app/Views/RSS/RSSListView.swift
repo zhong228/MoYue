@@ -1,46 +1,275 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct RSSListView: View {
     @StateObject private var store = RSSStore.shared
     @ObservedObject private var gs = GlobalSettings.shared
 
     @State private var showAddSheet = false
-    @State private var newName = ""
-    @State private var newURL = ""
+    @State private var showOPMLImporter = false
+    @State private var showOPMLExporter = false
+    @State private var searchText = ""
+    @State private var importMessage = ""
+    @State private var showImportResult = false
+    @State private var didBackfillSourceMetadata = false
+
+    private let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private var sortedSources: [RSSSource] {
+        store.sources.sorted(by: { $0.sortOrder < $1.sortOrder })
+    }
+
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var searchResults: [RSSArticleRecord] {
+        store.searchArticles(query: trimmedSearchText)
+    }
 
     var body: some View {
         List {
-            ForEach(store.sources.sorted(by: { $0.sortOrder < $1.sortOrder })) { source in
-                NavigationLink(destination: RSSFeedView(source: source)) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(source.name)
-                            .foregroundColor(DSColor.textPrimary)
-                        Text(source.url)
-                            .font(.caption)
-                            .foregroundColor(DSColor.textSecondary)
-                            .lineLimit(1)
+            if !trimmedSearchText.isEmpty {
+                Section(localized("搜尋結果")) {
+                    if searchResults.isEmpty {
+                        ContentUnavailableView(
+                            localized("沒有搜尋結果"),
+                            systemImage: "magnifyingglass"
+                        )
+                    } else {
+                        ForEach(searchResults) { article in
+                            NavigationLink(destination: RSSArticleReaderView(articleID: article.id)) {
+                                RSSSearchResultRow(
+                                    article: article,
+                                    source: source(for: article.sourceId),
+                                    dateFormatter: dateFormatter
+                                )
+                            }
+                            .simultaneousGesture(TapGesture().onEnded {
+                                store.markRead(articleId: article.id, isRead: true)
+                            })
+                        }
                     }
-                    .padding(.vertical, 4)
                 }
             }
-            .onDelete(perform: store.removeSource)
+
+            if sortedSources.isEmpty && trimmedSearchText.isEmpty {
+                ContentUnavailableView(
+                    localized("沒有訂閱源"),
+                    systemImage: "newspaper",
+                    description: Text(localized("新增第一個 RSS 訂閱"))
+                )
+            }
+
+            ForEach(sortedSources) { source in
+                NavigationLink(destination: RSSFeedView(source: source)) {
+                    RSSSourceRow(
+                        source: source,
+                        unreadCount: store.unreadCount(for: source.id),
+                        lastFetchedAt: store.lastFetchedAt(for: source.id),
+                        dateFormatter: dateFormatter
+                    )
+                }
+            }
+            .onDelete(perform: deleteSources)
         }
         .navigationTitle(localized("RSS 訂閱"))
+        .searchable(text: $searchText, prompt: localized("搜尋 RSS"))
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    newName = ""
-                    newURL = ""
-                    showAddSheet = true
+                Menu {
+                    Button {
+                        showAddSheet = true
+                    } label: {
+                        Label(localized("新增 RSS 訂閱"), systemImage: "plus")
+                    }
+
+                    Button {
+                        showOPMLImporter = true
+                    } label: {
+                        Label(localized("匯入 OPML"), systemImage: "square.and.arrow.down")
+                    }
+
+                    Button {
+                        showOPMLExporter = true
+                    } label: {
+                        Label(localized("匯出 OPML"), systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(sortedSources.isEmpty)
                 } label: {
-                    Image(systemName: "plus")
-                        .foregroundColor(DSColor.accent)
+                    Image(systemName: "ellipsis.circle")
                 }
+                .foregroundColor(DSColor.accent)
             }
         }
         .sheet(isPresented: $showAddSheet) {
             AddRSSSourceSheet(isPresented: $showAddSheet, store: store, gs: gs)
         }
+        .fileImporter(
+            isPresented: $showOPMLImporter,
+            allowedContentTypes: [.xml, .data],
+            allowsMultipleSelection: false,
+            onCompletion: importOPML
+        )
+        .fileExporter(
+            isPresented: $showOPMLExporter,
+            document: RSSOPMLDocument(sources: sortedSources),
+            contentType: .xml,
+            defaultFilename: "yuedu-rss.opml"
+        ) { _ in }
+        .alert(localized("RSS 訂閱"), isPresented: $showImportResult) {
+            Button(localized("確定"), role: .cancel) {}
+        } message: {
+            Text(importMessage)
+        }
+        .task {
+            await backfillMissingSourceMetadata()
+        }
+    }
+
+    private func deleteSources(at offsets: IndexSet) {
+        let ids = offsets.compactMap { index -> String? in
+            guard sortedSources.indices.contains(index) else { return nil }
+            return sortedSources[index].id
+        }
+        store.removeSources(ids: ids)
+    }
+
+    private func source(for id: String) -> RSSSource? {
+        store.sources.first { $0.id == id }
+    }
+
+    @MainActor
+    private func backfillMissingSourceMetadata() async {
+        guard !didBackfillSourceMetadata else { return }
+        didBackfillSourceMetadata = true
+
+        let candidates = sortedSources.filter { source in
+            source.homepageURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false ||
+                source.faviconURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+        }
+
+        for source in candidates {
+            let fetcher = RSSFetcher()
+            await fetcher.fetchItems(from: source, metadata: store.feedMetadata(for: source.id))
+            guard let response = fetcher.response else { continue }
+            store.applyFeedResponse(response, for: source.id)
+        }
+    }
+
+    private func importOPML(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else { return }
+            let shouldStopAccessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if shouldStopAccessing {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let data = try Data(contentsOf: url)
+            let sources = try RSSOPMLParser.parse(data: data)
+            let addedCount = store.addSources(sources)
+            importMessage = String(format: localized("已匯入 %d 個訂閱源"), addedCount)
+            showImportResult = true
+        } catch {
+            importMessage = String(format: localized("OPML 匯入失敗：%@"), error.localizedDescription)
+            showImportResult = true
+        }
+    }
+}
+
+private struct RSSSearchResultRow: View {
+    let article: RSSArticleRecord
+    let source: RSSSource?
+    let dateFormatter: DateFormatter
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            if let source {
+                RSSFaviconView(source: source, size: 26)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(article.title)
+                    .font(.headline)
+                    .fontWeight(article.isRead ? .regular : .semibold)
+                    .foregroundColor(DSColor.textPrimary)
+                    .multilineTextAlignment(.leading)
+
+                HStack(spacing: 8) {
+                    if let source {
+                        Text(source.name)
+                    }
+                    if let pubDate = article.pubDate {
+                        Text(dateFormatter.string(from: pubDate))
+                    }
+                }
+                .font(.caption)
+                .foregroundColor(DSColor.textSecondary)
+
+                if !article.summary.isEmpty {
+                    Text(article.summary)
+                        .font(.subheadline)
+                        .foregroundColor(DSColor.textSecondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+}
+
+private struct RSSSourceRow: View {
+    let source: RSSSource
+    let unreadCount: Int
+    let lastFetchedAt: Date?
+    let dateFormatter: DateFormatter
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            RSSFaviconView(source: source, size: 30)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(source.name)
+                        .font(.headline)
+                        .foregroundColor(DSColor.textPrimary)
+
+                    if unreadCount > 0 {
+                        Text("\(unreadCount) \(localized("未讀"))")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(DSColor.accent, in: Capsule())
+                    }
+                }
+
+                Text(source.url)
+                    .font(.caption)
+                    .foregroundColor(DSColor.textSecondary)
+                    .lineLimit(1)
+
+                Text(lastFetchedText)
+                    .font(.caption2)
+                    .foregroundColor(DSColor.textSecondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var lastFetchedText: String {
+        guard let lastFetchedAt else {
+            return localized("尚未更新")
+        }
+        return "\(localized("最後更新")) \(dateFormatter.string(from: lastFetchedAt))"
     }
 }
 

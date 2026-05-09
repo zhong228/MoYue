@@ -1,31 +1,35 @@
 import Foundation
 import Combine
+import SwiftSoup
 
 // MARK: - RSSFetcher
 
 @MainActor
 final class RSSFetcher: ObservableObject {
     @Published var items: [RSSItem] = []
+    @Published var response: RSSFeedResponse?
     @Published var isLoading: Bool = false
     @Published var error: String? = nil
 
-    func fetchItems(from source: RSSSource) async {
+    func fetchItems(from source: RSSSource, metadata: RSSFeedFetchMetadata? = nil) async {
         isLoading = true
         error = nil
+        response = nil
         defer { isLoading = false }
 
-        guard let url = URL(string: source.url) else {
+        guard let request = RSSRequestFactory.feedRequest(for: source, metadata: metadata) else {
             error = localized("RSS URL 無效")
             return
         }
 
         do {
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 20
-            request.cachePolicy = .reloadIgnoringLocalCacheData
-            request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-
             let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse, http.statusCode == 304 {
+                self.response = .notModified
+                items = []
+                return
+            }
 
             if let http = response as? HTTPURLResponse,
                !(200...299).contains(http.statusCode) {
@@ -43,6 +47,13 @@ final class RSSFetcher: ObservableObject {
             }
 
             items = parsedItems
+            let http = response as? HTTPURLResponse
+            let metadata = RSSFeedFetchMetadata(
+                etag: http?.value(forHTTPHeaderField: "ETag"),
+                lastModified: http?.value(forHTTPHeaderField: "Last-Modified"),
+                lastFetchedAt: Date()
+            )
+            self.response = .updated(items: parsedItems, metadata: metadata, feedInfo: parser.feedInfo)
 
             if parsedItems.isEmpty {
                 error = localized("RSS 解析成功，但沒有找到文章。")
@@ -55,17 +66,33 @@ final class RSSFetcher: ObservableObject {
 
 // MARK: - RSSXMLParser
 
-private final class RSSXMLParser: NSObject, XMLParserDelegate {
+final class RSSXMLParser: NSObject, XMLParserDelegate {
     private let sourceId: String
     private var parsedItems: [RSSItem] = []
 
     private var isAtom = false
+    private var insideChannel = false
+    private var insideChannelImage = false
     private var insideItem = false
     private var currentItem: [String: String] = [:]
     private var characterBuffer = ""
     private var currentLinkHref: String?
+    private var currentLinkRel: String?
+    private var feedTitle: String?
+    private var feedHomepageURL: String?
+    private var feedFaviconURL: String?
 
     private(set) var error: String?
+
+    var feedInfo: RSSFeedInfo? {
+        let title = cleanOptionalText(feedTitle)
+        let homepageURL = cleanOptionalText(feedHomepageURL)
+        let faviconURL = cleanOptionalText(feedFaviconURL)
+        guard title != nil || homepageURL != nil || faviconURL != nil else {
+            return nil
+        }
+        return RSSFeedInfo(title: title, homepageURL: homepageURL, faviconURL: faviconURL)
+    }
 
     private let dateFormatters: [DateFormatter] = {
         let formats = [
@@ -73,6 +100,7 @@ private final class RSSXMLParser: NSObject, XMLParserDelegate {
             "EEE, dd MMM yyyy HH:mm:ss zzz",
             "EEE, d MMM yyyy HH:mm:ss Z",
             "EEE, d MMM yyyy HH:mm:ss zzz",
+            "yyyy-MM-dd HH:mm:ss",
             "yyyy-MM-dd'T'HH:mm:ssZ",
             "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
             "yyyy-MM-dd'T'HH:mm:ssXXXXX",
@@ -118,17 +146,36 @@ private final class RSSXMLParser: NSObject, XMLParserDelegate {
         case "feed":
             isAtom = true
 
+        case "channel":
+            insideChannel = true
+
+        case "image":
+            if insideChannel, !insideItem {
+                insideChannelImage = true
+            }
+
         case "item", "entry":
             insideItem = true
             currentItem = [:]
             currentLinkHref = nil
+            currentLinkRel = nil
 
         case "link":
             if isAtom {
-                let rel = attributeDict["rel"] ?? "alternate"
+                let rel = (attributeDict["rel"] ?? "alternate").lowercased()
+                let href = attributeDict["href"]
+                currentLinkRel = rel
 
-                if rel == "alternate" || rel.isEmpty {
-                    currentLinkHref = attributeDict["href"]
+                if insideItem {
+                    if rel == "alternate" || rel.isEmpty {
+                        currentLinkHref = href
+                    }
+                } else if let href, !href.isEmpty {
+                    if rel == "alternate" || rel.isEmpty {
+                        feedHomepageURL = feedHomepageURL ?? href
+                    } else if rel == "icon" || rel == "shortcut icon" || rel == "apple-touch-icon" {
+                        feedFaviconURL = feedFaviconURL ?? href
+                    }
                 }
             }
 
@@ -157,6 +204,7 @@ private final class RSSXMLParser: NSObject, XMLParserDelegate {
         let text = characterBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard insideItem else {
+            handleFeedElementEnd(name: name, text: text)
             characterBuffer = ""
             return
         }
@@ -176,7 +224,22 @@ private final class RSSXMLParser: NSObject, XMLParserDelegate {
 
         case "description", "summary", "content", "content:encoded":
             if !text.isEmpty {
-                currentItem["description"] = text
+                let existingPriority = Int(currentItem["contentPriority"] ?? "0") ?? 0
+                let priority: Int
+                switch name {
+                case "content:encoded", "content":
+                    priority = 3
+                case "description":
+                    priority = 2
+                default:
+                    priority = 1
+                }
+
+                if priority >= existingPriority {
+                    currentItem["description"] = text
+                    currentItem["contentHTML"] = text
+                    currentItem["contentPriority"] = "\(priority)"
+                }
             }
 
         case "pubdate", "published", "updated":
@@ -197,12 +260,49 @@ private final class RSSXMLParser: NSObject, XMLParserDelegate {
             insideItem = false
             currentItem = [:]
             currentLinkHref = nil
+            currentLinkRel = nil
 
         default:
             break
         }
 
         characterBuffer = ""
+    }
+
+    private func handleFeedElementEnd(name: String, text: String) {
+        switch name {
+        case "title":
+            if !insideChannelImage, !text.isEmpty {
+                feedTitle = feedTitle ?? text
+            }
+
+        case "link":
+            if isAtom {
+                currentLinkHref = nil
+                currentLinkRel = nil
+            } else if insideChannel, !insideChannelImage, !text.isEmpty {
+                feedHomepageURL = feedHomepageURL ?? text
+            }
+
+        case "url":
+            if insideChannelImage, !text.isEmpty {
+                feedFaviconURL = feedFaviconURL ?? text
+            }
+
+        case "icon", "logo":
+            if isAtom, !text.isEmpty {
+                feedFaviconURL = feedFaviconURL ?? text
+            }
+
+        case "image":
+            insideChannelImage = false
+
+        case "channel":
+            insideChannel = false
+
+        default:
+            break
+        }
     }
 
     private func buildItem() -> RSSItem? {
@@ -212,14 +312,60 @@ private final class RSSXMLParser: NSObject, XMLParserDelegate {
             return nil
         }
 
+        let cleanTitle = RSSContentSanitizer.cleanText(title)
+        let rawDescription = currentItem["description"] ?? ""
+        let htmlMetadata = contentMetadata(from: rawDescription)
+        let summary = RSSContentSanitizer.summary(from: rawDescription)
+        let pubDate = currentItem["pubDate"]
+            .flatMap { parseDate($0) }
+            ?? htmlMetadata.dateString.flatMap { parseDate($0) }
+        let author = currentItem["author"]
+            .map { RSSContentSanitizer.cleanText($0) }
+            ?? htmlMetadata.author
+
         return RSSItem(
-            title: title,
+            id: stableID(title: cleanTitle, link: link),
+            title: cleanTitle,
             link: link,
-            pubDate: currentItem["pubDate"].flatMap { parseDate($0) },
-            description: currentItem["description"] ?? "",
-            author: currentItem["author"],
+            pubDate: pubDate,
+            description: summary,
+            contentHTML: rawDescription,
+            author: author,
             sourceId: sourceId
         )
+    }
+
+    private func contentMetadata(from html: String) -> (author: String?, dateString: String?) {
+        guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let document = try? SwiftSoup.parseBodyFragment(html),
+              let body = document.body() else {
+            return (nil, nil)
+        }
+
+        let author = cleanOptionalText((try? body.select("address").first()?.text()) ?? nil)
+        let timeElement = (try? body.select("time").first()) ?? nil
+        let dateString = cleanOptionalText(
+            (try? timeElement?.attr("datetime"))
+            ?? (try? timeElement?.attr("pudate"))
+            ?? (try? timeElement?.text())
+            ?? nil
+        )
+        return (author, dateString)
+    }
+
+    private func cleanOptionalText(_ text: String?) -> String? {
+        guard let cleaned = text.map({ RSSContentSanitizer.cleanText($0) }),
+              !cleaned.isEmpty else {
+            return nil
+        }
+        return cleaned
+    }
+
+    private func stableID(title: String, link: String) -> String {
+        if !link.isEmpty {
+            return link
+        }
+        return "\(sourceId)::\(title)"
     }
 
     private func parseDate(_ string: String) -> Date? {
@@ -230,5 +376,114 @@ private final class RSSXMLParser: NSObject, XMLParserDelegate {
         }
 
         return nil
+    }
+}
+
+// MARK: - RSSContentSanitizer
+
+enum RSSContentSanitizer {
+    static func cleanText(_ text: String) -> String {
+        normalize(stripTags(decodeEntities(text)))
+    }
+
+    static func summary(from html: String, maxLength: Int = 220) -> String {
+        let decoded = decodeEntities(html)
+
+        if let document = try? SwiftSoup.parse(decoded) {
+            try? document.select(
+                "script, style, noscript, svg, iframe, [aria-hidden=true], [hidden], " +
+                "[data-e2e=advertisement], [data-e2e=recommendations-heading], " +
+                "[data-testid=byline], [data-testid=caption], [data-component=ad-slot]"
+            ).remove()
+
+            let paragraphs = ((try? document.select("p").array()) ?? [])
+                .compactMap { try? $0.text() }
+                .map(normalize)
+                .filter(isUsefulSummaryLine)
+
+            let paragraphText = paragraphs.joined(separator: " ")
+            if !paragraphText.isEmpty {
+                return truncate(paragraphText, maxLength: maxLength)
+            }
+
+            if let bodyText = try? document.text() {
+                let normalized = normalize(bodyText)
+                if !normalized.isEmpty {
+                    return truncate(normalized, maxLength: maxLength)
+                }
+            }
+        }
+
+        return truncate(normalize(stripTags(decoded)), maxLength: maxLength)
+    }
+
+    private static func isUsefulSummaryLine(_ line: String) -> Bool {
+        guard line.count >= 8 else { return false }
+
+        let noisePrefixes = [
+            "Article Information",
+            "Author,",
+            "Role,",
+            "Reporting from,",
+            "Image source,",
+            "圖像來源",
+            "图像来源",
+            "圖片來源",
+            "图片来源",
+            "閱讀時間",
+            "阅读时间",
+            "廣告",
+            "广告",
+            "熱讀",
+            "热读",
+            "Skip ",
+            "End of "
+        ]
+
+        return !noisePrefixes.contains { line.hasPrefix($0) }
+    }
+
+    private static func stripTags(_ html: String) -> String {
+        html.replacingOccurrences(of: "<script[\\s\\S]*?</script>", with: " ", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: "<style[\\s\\S]*?</style>", with: " ", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+    }
+
+    private static func normalize(_ text: String) -> String {
+        text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func truncate(_ text: String, maxLength: Int) -> String {
+        guard text.count > maxLength else { return text }
+        let endIndex = text.index(text.startIndex, offsetBy: maxLength)
+        return String(text[..<endIndex]).trimmingCharacters(in: .whitespacesAndNewlines) + "..."
+    }
+
+    private static func decodeEntities(_ text: String) -> String {
+        var decoded = text
+        let replacements: [(String, String)] = [
+            ("&nbsp;", " "),
+            ("&#160;", " "),
+            ("&amp;", "&"),
+            ("&lt;", "<"),
+            ("&gt;", ">"),
+            ("&quot;", "\""),
+            ("&apos;", "'"),
+            ("&#39;", "'"),
+            ("&ldquo;", "“"),
+            ("&rdquo;", "”"),
+            ("&lsquo;", "‘"),
+            ("&rsquo;", "’"),
+            ("&hellip;", "…"),
+            ("&mdash;", "—"),
+            ("&ndash;", "–")
+        ]
+
+        for (entity, value) in replacements {
+            decoded = decoded.replacingOccurrences(of: entity, with: value)
+        }
+
+        return decoded
     }
 }
