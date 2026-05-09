@@ -1,40 +1,8 @@
 import Combine
 import SwiftUI
 
-
-// MARK: - 分頁資料
-struct PageContent {
-    let chapterIndex: Int
-    let chapterTitle: String
-    let content: String
-    let pageInChapter: Int
-    var attributedContent: NSAttributedString? = nil
-}
-
-// MARK: - 翻頁動畫時長（TXT / EPUB 統一）
-private enum PageTurnAnimation {
-    static let slideDuration: Double = 0.25  // 滑動：ease-in-out；EPUB index.html 同為 0.25s
-}
 // UI 回饋動畫時長（主題、書籤、目錄高亮等）
 private let uiFeedbackDuration: Double = 0.25
-
-// 用於把頂部 safe area 傳給閱讀器留白，避免留白最小時正文蓋住狀態列
-private struct ReaderSafeAreaTopKey: PreferenceKey {
-    static var defaultValue: CGFloat { 0 }
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
-private struct ReaderViewportSizeKey: PreferenceKey {
-    static var defaultValue: CGSize { .zero }
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
-}
-
-private struct EpubVerticalPageOffsetKey: PreferenceKey {
-    static var defaultValue: [Int: CGFloat] { [:] }
-    static func reduce(value: inout [Int: CGFloat], nextValue: () -> [Int: CGFloat]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
-    }
-}
 
 private struct RoundedCornerShape: Shape {
     var radius: CGFloat = 28
@@ -48,19 +16,6 @@ private struct RoundedCornerShape: Shape {
         )
         return Path(path.cgPath)
     }
-}
-
-private final class ReaderRuntimeState {
-    var systemBrightness: Double = 0.5
-    var isRestoringPosition = true
-    var savedPositionSnapshot: Double = 0
-    var savedCoreTextRestoreTarget: (chapterIndex: Int, charOffset: Int)?
-    var isApplyingCoreTextRestore = false
-    var hasAppliedNonZeroRestore = false
-    var isLoadingPipeline = false
-    var curlStartupStartedAt: CFAbsoluteTime? = nil
-    var hasLoggedCurlInteractiveReady = false
-    var hasPerformedInitialLoad = false
 }
 
 // MARK: - 閱讀器主視圖
@@ -2436,21 +2391,6 @@ struct ReaderView: View {
             textColor: UIColor(readerTheme.textColor),
             backgroundColor: UIColor(readerTheme.backgroundColor)
         )
-    }
-}
-
-// MARK: - 安全色碼轉換
-extension Color {
-    func toHexSafe() -> String {
-        let uiColor = UIColor(self)
-        var r: CGFloat = 0
-        var g: CGFloat = 0
-        var b: CGFloat = 0
-        var a: CGFloat = 0
-        uiColor.getRed(&r, green: &g, blue: &b, alpha: &a)
-        return String(
-            format: "#%02lX%02lX%02lX", lroundf(Float(r * 255)), lroundf(Float(g * 255)),
-            lroundf(Float(b * 255)))
     }
 }
 
