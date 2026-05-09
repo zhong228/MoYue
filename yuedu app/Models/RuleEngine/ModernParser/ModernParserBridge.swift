@@ -68,11 +68,40 @@ class ModernParserBridge {
     private func wireJSEngine() {
         jsEngine.bookSource = sourceRuleData.source
 
+        jsEngine.errorHandler = { [weak self] msg, script in
+            self?.debugObserver?(.jsExecuted(
+                segmentIndex: -1, script: String(script.prefix(200)),
+                inputPreview: "", result: "ERROR: \(msg)"
+            ))
+            #if DEBUG
+            print("[ModernParserBridge] JS error: \(msg)")
+            #endif
+        }
+
         jsEngine.getData = { [weak self] key in
             self?.sourceRuleData.getVariable(key: key)
         }
         jsEngine.putData = { [weak self] key, value in
             self?.sourceRuleData.putVariable(key: key, value: value)
+        }
+
+        // setContent handler: JS calls java.setContent(html) → create engine, set content, wire back-refs
+        jsEngine.setContentHandler = { [weak self] content, baseUrl in
+            guard let self else { return }
+            let engine = ModernRuleEngine()
+            engine.source = self.sourceRuleData
+            engine.jsEvaluator = { [weak engine] jsCode, prevResult in
+                guard let engine else { return nil }
+                return self.jsEngine.evaluate(jsCode, result: ModernRuleEngine.toString(prevResult))
+            }
+            engine.setContent(content, baseUrl: baseUrl ?? "")
+            self.jsEngine.getStringHandler = { ruleStr in engine.getString(ruleStr: ruleStr) }
+            self.jsEngine.getStringListHandler = { ruleStr in engine.getStringList(ruleStr: ruleStr) }
+            self.jsEngine.getElementsHandler = { ruleStr in engine.getElements(ruleStr: ruleStr) }
+            self.jsEngine.getStringWithContentHandler = { ruleStr, content in
+                engine.setContent(content, baseUrl: baseUrl ?? "")
+                return engine.getString(ruleStr: ruleStr)
+            }
         }
 
         // networkHandler runs on the jsEngine serial queue thread — blocking via

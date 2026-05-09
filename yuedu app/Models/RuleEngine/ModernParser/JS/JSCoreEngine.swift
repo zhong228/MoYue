@@ -54,6 +54,21 @@ class JSCoreEngine {
         didSet { bridge.getStringListHandler = getStringListHandler }
     }
 
+    /// Handle `java.setContent(content, baseUrl)` — updates engine content and result.
+    var setContentHandler: ((Any?, String?) -> Void)? {
+        didSet { bridge.setContentHandler = setContentHandler }
+    }
+
+    /// Handle `java.getElements(ruleStr)` — extracts elements from stored content.
+    var getElementsHandler: ((String) -> [Any]?)? {
+        didSet { bridge.getElementsHandler = getElementsHandler }
+    }
+
+    /// Handle `java.getString(ruleStr)` against previously stored setContent content.
+    var getStringWithContentHandler: ((String, Any?) -> String?)? {
+        didSet { bridge.getStringWithContentHandler = getStringWithContentHandler }
+    }
+
     /// Called when JS invokes `java.startBrowser` / `java.startBrowserAwait`.
     /// Set this before evaluating login JS to enable interactive browser pop-ups.
     var browserPresentHandler: ((String, String, @escaping () -> Void) -> Void)? {
@@ -81,6 +96,9 @@ class JSCoreEngine {
             }
         }
     }
+
+    /// Called when JS evaluation fails, with the error message and the script that caused it.
+    var errorHandler: ((String, String) -> Void)?
 
     // MARK: - Initializer
 
@@ -163,6 +181,7 @@ class JSCoreEngine {
             if msg.contains("eval() is disabled") {
                 AppLogger.security("書源 JS 使用了被停用的 eval()，已攔截", context: ["error": msg])
             }
+            self?.errorHandler?(msg, "js exception")
             #if DEBUG
             print("[JSCoreEngine] JS Error: \(msg)")
             #endif

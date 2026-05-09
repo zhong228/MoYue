@@ -19,6 +19,8 @@ import CryptoKit
     // Rule evaluation (placeholder — connected to ModernRuleEngine later)
     func getString(_ ruleStr: String) -> String
     func getStringList(_ ruleStr: String) -> [String]
+    func setContent(_ content: JSValue, _ baseUrl: JSValue) -> String
+    func getElements(_ ruleStr: String) -> [Any]
 
     // Browser WebView (Legado startBrowser / startBrowserAwait)
     func startBrowser(_ url: String, _ title: String)
@@ -99,6 +101,9 @@ import CryptoKit
     /// Delegate for rule evaluation (connected later).
     var getStringHandler: ((String) -> String?)?
     var getStringListHandler: ((String) -> [String]?)?
+    var setContentHandler: ((Any?, String?) -> Void)?
+    var getElementsHandler: ((String) -> [Any]?)?
+    var getStringWithContentHandler: ((String, Any?) -> String?)?
 
     /// Called when JS issues a network request that hits a Cloudflare challenge.
     /// Calls `done()` after CF cookies are obtained; jsQueue blocks via DispatchSemaphore until then.
@@ -155,12 +160,42 @@ import CryptoKit
 
     // MARK: Rule Evaluation (placeholder)
 
+    /// Content stored by `java.setContent(...)` for chained rule evaluation.
+    private var storedContent: Any?
+    private var storedBaseUrl: String?
+
     func getString(_ ruleStr: String) -> String {
-        return getStringHandler?(ruleStr) ?? ""
+        return _evaluateString(ruleStr)
     }
 
     func getStringList(_ ruleStr: String) -> [String] {
         return getStringListHandler?(ruleStr) ?? []
+    }
+
+    @discardableResult
+    func setContent(_ content: JSValue, _ baseUrl: JSValue) -> String {
+        if content.isString {
+            storedContent = content.toString()
+        } else if content.isObject {
+            storedContent = content.toObject()
+        } else {
+            storedContent = content.toString() ?? ""
+        }
+        storedBaseUrl = baseUrl.isString ? baseUrl.toString() : ""
+        // Update engine content and set result for subsequent JS code
+        setContentHandler?(storedContent, storedBaseUrl)
+        return "" // Legado returns "" after setContent
+    }
+
+    func getElements(_ ruleStr: String) -> [Any] {
+        return getElementsHandler?(ruleStr) ?? []
+    }
+
+    private func _evaluateString(_ ruleStr: String) -> String {
+        if let content = storedContent {
+            return getStringWithContentHandler?(ruleStr, content) ?? ""
+        }
+        return getStringHandler?(ruleStr) ?? ""
     }
 
     // MARK: Browser & Toast (Legado java.startBrowser / startBrowserAwait / toast)
@@ -171,12 +206,13 @@ import CryptoKit
     }
 
     /// Opens a browser WebView and blocks the JS thread (jsQueue) until the user closes it.
-    /// Uses DispatchSemaphore — safe because jsQueue is a background serial queue, not MainThread.
+    /// Uses DispatchSemaphore with a 60s timeout — safe because jsQueue is a background
+    /// serial queue and the dismiss callback fires from the main thread.
     func startBrowserAwait(_ url: String, _ title: String) {
         guard let handler = browserPresentHandler else { return }
         let sem = DispatchSemaphore(value: 0)
         handler(url, title) { sem.signal() }
-        sem.wait()
+        _ = sem.wait(timeout: .now() + 60)
     }
 
     /// Show a short toast. Delegates to `toastHandler` on MainThread.
