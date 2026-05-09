@@ -6,6 +6,15 @@ import SwiftUI
 import UIKit
 import ReadiumShared
 
+// Widget data model — matched with Widget target's BookProgress
+struct WidgetBookProgress: Codable {
+    var title: String
+    var author: String
+    var progress: Double
+    var coverImagePath: String?
+    var lastReadDate: Date
+}
+
 class BookStore: ObservableObject, BookProvider {
     @Published var books: [ReadingBook] = []
 
@@ -903,11 +912,40 @@ class BookStore: ObservableObject, BookProvider {
             guard let self else { return }
             guard let data = try? JSONEncoder().encode(self.books) else { return }
             try? data.write(to: BookStore.booksMetaFileURL, options: .atomic)
+            self.syncWidgetData()
         }
 
         saveWorkItem = workItem
         // 延遲 2 秒寫入（防抖機制）避免頻繁觸發卡頓
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: workItem)
+    }
+
+    // MARK: - Widget Data Sync
+
+    private static let widgetAppGroupID = "group.com.zruilin.yuedu-app"
+    private static let widgetDataKey = "widget_last_book"
+
+    private func syncWidgetData() {
+        guard let defaults = UserDefaults(suiteName: Self.widgetAppGroupID) else { return }
+        guard let lastBook = books
+            .sorted(by: { ($0.lastOpenedDate ?? $0.addedDate) > ($1.lastOpenedDate ?? $1.addedDate) })
+            .first
+        else {
+            defaults.removeObject(forKey: Self.widgetDataKey)
+            return
+        }
+
+        let entry = WidgetBookProgress(
+            title: lastBook.title,
+            author: lastBook.author,
+            progress: min(1, max(0, lastBook.currentPosition)),
+            coverImagePath: lastBook.coverImagePath,
+            lastReadDate: lastBook.lastOpenedDate ?? lastBook.addedDate
+        )
+
+        if let data = try? JSONEncoder().encode(entry) {
+            defaults.set(data, forKey: Self.widgetDataKey)
+        }
     }
 
     private func loadMeta() {
