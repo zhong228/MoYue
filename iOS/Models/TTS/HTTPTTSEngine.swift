@@ -2,9 +2,9 @@ import AVFoundation
 import Foundation
 import UIKit
 
-// MARK: - HTTP TTS 引擎（分段下載 + 預載 + AVAudioPlayer 播放）
+// MARK: - HTTP TTS Engine (chunked download + preload + AVAudioPlayer playback)
 
-/// URL 模板支援佔位符：{{text}}、{{title}}、{{speakSpeed}}
+/// URL template supports placeholders: {{text}}, {{title}}, {{speakSpeed}}
 final class HTTPTTSEngine: NSObject, TTSPlayable {
 
     var isPlaying: Bool = false

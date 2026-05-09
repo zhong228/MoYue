@@ -1049,7 +1049,8 @@ struct ReaderView: View {
             pageInfo: chapterPageInfo,
             progress: totalProgressPercent,
             textColor: readerTheme.textColor,
-            bottomInset: windowSafeBottom
+            bottomInset: windowSafeBottom,
+            footerPadding: windowSafeBottom + ReaderLayoutMetrics.footerVisualBottomPadding
         )
     }
 
@@ -1081,7 +1082,8 @@ struct ReaderView: View {
             pageInfo: info.pageInfo,
             progress: info.progress,
             textColor: readerTheme.textColor,
-            bottomInset: windowSafeBottom
+            bottomInset: windowSafeBottom,
+            footerPadding: windowSafeBottom + ReaderLayoutMetrics.footerVisualBottomPadding
         )
     }
 

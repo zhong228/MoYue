@@ -104,15 +104,15 @@ final class TTSFloatingPlayerState: ObservableObject {
 #endif
 }
 
-// MARK: - TTS 協調器
+// MARK: - TTS Coordinator
 //
-// 統一對外介面：ReaderView 和 TTSPanelView 只依賴 TTSCoordinator。
-// 底層只使用 HTTP TTS 音訊播放器。
-// 管理：sleep timer、MPNowPlayingInfo、AVAudioSession。
+// Unified external interface: ReaderView and TTSPanelView depend only on TTSCoordinator.
+// The underlying layer uses only the HTTP TTS audio player.
+// Manages: sleep timer, MPNowPlayingInfo, AVAudioSession.
 
 final class TTSCoordinator: ObservableObject {
 
-    // MARK: - Published 狀態（與 TTSPanelView 繫結）
+    // MARK: - Published State (bound to TTSPanelView)
     @Published var isPlaying = false
     @Published private(set) var playbackState: TTSPlaybackState = .stopped
     @Published private(set) var currentSegmentIndex = 0
@@ -122,7 +122,7 @@ final class TTSCoordinator: ObservableObject {
     @Published var sleepMinutes: Int = 0
     var showsGlobalFloatingPlayer = false
 
-    // MARK: - 回調（ReaderView 設定）
+    // MARK: - Callbacks (set by ReaderView)
     var onPageFinished: (() -> String?)? {
         didSet { rewireCallbacks() }
     }
@@ -131,14 +131,14 @@ final class TTSCoordinator: ObservableObject {
     }
     var onNextTrackRequested: (() -> Bool)?
     var onPreviousTrackRequested: (() -> Bool)?
-    // MARK: - 引擎
+    // MARK: - Engine
     private let httpEngine = HTTPTTSEngine()
     private var currentEngine: TTSPlayable { httpEngine }
     private static weak var activeSystemMediaCoordinator: TTSCoordinator?
 
     private var sleepTimer: Timer?
     private var audioSessionActive = false
-    private var nowPlayingTitle = "正在朗讀"
+    private var nowPlayingTitle = "Reading Aloud"
     private var nowPlayingElapsed: TimeInterval = 0
     private var nowPlayingDuration: TimeInterval = 1
     private var nowPlayingStartedAt: Date?
@@ -157,7 +157,7 @@ final class TTSCoordinator: ObservableObject {
         ttsLog("[TTS][Coordinator] init")
     }
 
-    // MARK: - 對外控制
+    // MARK: - External Controls
 
     func speak(text: String, title: String = "") {
         ttsLog("[TTS][Coordinator] speak requested engine=http textCount=\(text.count) title=\(title) rate=\(speechRate)")
@@ -171,7 +171,7 @@ final class TTSCoordinator: ObservableObject {
         }
         ttsLog("[TTS][Coordinator] configure engine audio session ownership")
         currentEngine.configureAudioSessionOwnership(true)
-        nowPlayingTitle = title.isEmpty ? "正在朗讀" : title
+        nowPlayingTitle = title.isEmpty ? "Reading Aloud" : title
         nowPlayingElapsed = 0
         nowPlayingDuration = estimatedDuration(for: text)
         nowPlayingStartedAt = Date()
@@ -286,7 +286,7 @@ final class TTSCoordinator: ObservableObject {
     }
 
     func updateNowPlayingTitle(_ title: String) {
-        nowPlayingTitle = title.isEmpty ? "正在朗讀" : title
+        nowPlayingTitle = title.isEmpty ? "Reading Aloud" : title
         updateNowPlaying()
         publishFloatingPlayerState()
     }
@@ -302,7 +302,7 @@ final class TTSCoordinator: ObservableObject {
         } else {
             ttsLog("[TTS][Coordinator] stop skipped clearing system media because coordinator is not active owner")
         }
-        nowPlayingTitle = "正在朗讀"
+        nowPlayingTitle = "Reading Aloud"
         nowPlayingElapsed = 0
         nowPlayingDuration = 1
         nowPlayingStartedAt = nil
@@ -385,7 +385,7 @@ final class TTSCoordinator: ObservableObject {
         }
     }
 
-    // MARK: - 音頻會話
+    // MARK: - Audio Session
 
     @discardableResult
     private func activateAudioSession() -> Bool {
@@ -435,7 +435,7 @@ final class TTSCoordinator: ObservableObject {
         Self.activeSystemMediaCoordinator = self
     }
 
-    // MARK: - 鎖屏控制面板
+    // MARK: - Lock Screen Controls
 
     private func setupRemoteCommands() {
         ttsLog("[TTS][Coordinator] configuring remote commands owner=\(ObjectIdentifier(self))")
@@ -581,7 +581,7 @@ final class TTSCoordinator: ObservableObject {
         }
         var info = [String: Any]()
         info[MPMediaItemPropertyTitle] = nowPlayingTitle
-        info[MPMediaItemPropertyArtist] = "語音朗讀"
+        info[MPMediaItemPropertyArtist] = "TTS Narration"
         info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentNowPlayingElapsed()
         info[MPMediaItemPropertyPlaybackDuration] = max(nowPlayingDuration, 1)
@@ -627,7 +627,7 @@ final class TTSCoordinator: ObservableObject {
         return max(Double(characterCount) / (baseCharactersPerSecond * rateFactor), 1)
     }
 
-    // MARK: - 定時停止
+    // MARK: - Sleep Timer
 
     private func startSleepTimer() {
         cancelSleepTimer()
