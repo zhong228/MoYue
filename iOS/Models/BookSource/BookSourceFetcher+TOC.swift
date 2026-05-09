@@ -1,11 +1,11 @@
 import Foundation
 
-// MARK: - 獲取目錄
+// MARK: - Fetch TOC
 
 extension BookSourceFetcher {
 
-    /// 抓取目錄（Legado 相容：ruleToc.chapterList/name/url、多頁 nextTocUrl、preUpdateJs）。
-    /// 若 ruleToc.preUpdateJs 有值，會用 WebView 載入目錄頁並先執行該 JS 再取 HTML。
+    /// Fetch TOC (Legado compatible: ruleToc.chapterList/name/url, multi-page nextTocUrl, preUpdateJs).
+    /// If ruleToc.preUpdateJs is set, loads the TOC page via WebView, executes the JS first, then retrieves HTML.
     func fetchTOC(
         tocUrl: String,
         source: BookSource,
@@ -100,7 +100,7 @@ extension BookSourceFetcher {
             ], hyp: "T1")
         // #endregion
 
-        // 若 URLSession 取得空目錄，嘗試用 WebView 重試（許多站點目錄由 JS 動態載入）
+        // If URLSession returns empty TOC, retry with WebView (many sites load TOC dynamically via JS)
         if chapters.isEmpty && !usedWebView {
             let webHtml = try await WebViewFetcher.shared.fetchHTML(
                 url: url,
@@ -141,7 +141,7 @@ extension BookSourceFetcher {
             htmlForNext = delayedHtml
         }
 
-        // Progressive loading: 第一頁解析完立即通知 caller，不等多頁抓取
+        // Progressive loading: notify caller immediately after first page parse, don't wait for multi-page fetch
         if !chapters.isEmpty, let onFirstPageReady {
             let firstPageNormalized = chapters.enumerated().map { i, ref in
                 var r = ref; r.index = i; return r
@@ -149,11 +149,11 @@ extension BookSourceFetcher {
             onFirstPageReady(firstPageNormalized)
         }
 
-        // 多頁目錄 — 逐頁寫入磁碟，避免 rawHTMLPages 全部堆積在記憶體中
+        // Multi-page TOC — write to disk page by page to avoid accumulating all rawHTMLPages in memory
         let rawHTMLPath = tocRawHTMLPath(tocUrl: tocUrl, source: source)
         let dir = tocCacheDir()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        // 先寫入第一頁
+        // Write first page
         let pageBreak = "\n<!-- toc-page-break -->\n"
         try? htmlForNext.write(to: rawHTMLPath, atomically: false, encoding: .utf8)
         var nextURL = pipeline.extractNextTocURL(
@@ -167,7 +167,7 @@ extension BookSourceFetcher {
         while !nextURL.isEmpty && pageCount < 20 {
             guard let nextPageURL = URL(string: nextURL) else { break }
             let nextBase = nextURL.isEmpty ? source.bookSourceUrl : nextURL
-            // 網路請求必須在 autoreleasepool 外部（async 不能在同步 closure 中）
+            // Network request must be outside autoreleasepool (async cannot be in synchronous closure)
             let nextHTML: String
             if usePreUpdateJs {
                 nextHTML = try await WebViewFetcher.shared.fetchHTMLWithCustomJS(
@@ -181,7 +181,7 @@ extension BookSourceFetcher {
                     url: nextPageURL, method: "GET", body: nil,
                     headers: source.parsedHeaders, baseURL: nextBase)
             }
-            // 追加寫入磁碟而非保留在記憶體
+            // Append to disk instead of keeping in memory
             if let handle = try? FileHandle(forWritingTo: rawHTMLPath) {
                 handle.seekToEndOfFile()
                 if let data = (pageBreak + nextHTML).data(using: .utf8) {
@@ -189,7 +189,7 @@ extension BookSourceFetcher {
                 }
                 handle.closeFile()
             }
-            // autoreleasepool 確保每頁的 SwiftSoup DOM 物件被即時釋放
+            // autoreleasepool ensures SwiftSoup DOM objects for each page are released immediately
             let pageChapters: [OnlineChapterRef] = try autoreleasepool {
                 try pipeline.parseTOC(
                     html: nextHTML,
@@ -212,7 +212,7 @@ extension BookSourceFetcher {
             r.index = i
             return r
         }
-        // rawHTML 已在多頁循環中逐頁寫入磁碟，不再需要傳入
+        // rawHTML was already written to disk page by page in the multi-page loop
         let package = saveTOCPackage(
             tocUrl: tocUrl,
             source: source,

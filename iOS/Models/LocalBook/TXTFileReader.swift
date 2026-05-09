@@ -63,7 +63,7 @@ enum TXTFileReader {
     }
 
     private static func detectEncoding(fromSample data: Data) -> String.Encoding {
-        // BOM 優先
+        // BOM first
         if data.starts(with: [0xEF, 0xBB, 0xBF]) {
             return .utf8
         }
@@ -104,7 +104,7 @@ enum TXTFileReaderError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .encodingNotSupported:
-            return "無法偵測檔案編碼，請確認為 UTF-8、BIG5 或 GBK 格式"
+            return "Unable to detect file encoding; please ensure UTF-8, BIG5, or GBK format"
         }
     }
 }

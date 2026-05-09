@@ -28,34 +28,34 @@ final class CoreTextPaginator {
     struct ChapterLayout {
         let spineIndex: Int
         let attributedString: NSAttributedString
-        /// 預建的 CTFramesetter，draw(_ rect:) 直接使用，不重建
+        /// Pre-built CTFramesetter; draw(_ rect:) uses it directly without rebuilding
         let framesetter: CTFramesetter
-        /// 每頁對應的 UTF-16 字符範圍（總長度 == attributedString.length）
+        /// UTF-16 character range per page (total length == attributedString.length)
         let pageRanges: [CFRange]
-        /// pageIndex → 行內附件
+        /// pageIndex → inline attachments
         let inlineAttachments: [Int: [RenderedAttachment]]
-        /// pageIndex → 區塊級附件／裝飾圖片
+        /// pageIndex → block-level attachments / decorative images
         let blockAttachments: [Int: [RenderedAttachment]]
-        /// pageIndex → 區塊級 renderables（背景／邊框／裝飾圖片）
+        /// pageIndex → block-level renderables (background / border / decorative images)
         let blockRenderables: [Int: [RenderedBlockRenderable]]
         let pageKinds: [PageKind]
         let pageBackgroundImage: UIImage?
         let anchorOffsets: [String: Int]
         let renderSize: CGSize
         let fontSize: CGFloat
-        /// 排版時使用的四邊邊距（UIEdgeInsets；CoreText path 已按此偏移）
+        /// Content edge insets used during layout (UIEdgeInsets; CoreText path is already offset accordingly)
         let contentInsets: UIEdgeInsets
         var writingMode: ReaderWritingMode = .horizontal
 
-        /// 僅更新文字顏色，不重新分頁（顏色不影響換行）。
-        /// CSS 明確指定前景色（帶 cssSpecifiedForegroundColorAttribute 標記）的 range 保留原色；
-        /// 帶 blockBackgroundColorAttribute 的 range 不覆蓋 .backgroundColor，避免遮蔽區塊背景。
+        /// Updates only text colors without repaginating (color does not affect line wrapping).
+        /// Ranges with explicitly CSS-specified foreground colors (marked with cssSpecifiedForegroundColorAttribute) retain their original color.
+        /// Ranges with blockBackgroundColorAttribute do not have .backgroundColor overwritten, to avoid masking block backgrounds.
         func withUpdatedColors(textColor: UIColor, backgroundColor: UIColor) -> ChapterLayout {
             guard attributedString.length > 0 else { return self }
             let updated = NSMutableAttributedString(attributedString: attributedString)
             let fullRange = NSRange(location: 0, length: updated.length)
 
-            // ── 前景色：先全域套用主題色，再還原 CSS 指定色 ──
+            // ── Foreground color: apply theme color globally, then restore CSS-specified colors ──
             updated.addAttribute(.foregroundColor, value: textColor, range: fullRange)
             updated.enumerateAttribute(
                 HTMLAttributedStringBuilder.cssSpecifiedForegroundColorAttribute,
@@ -67,7 +67,7 @@ final class CoreTextPaginator {
                 }
             }
 
-            // ── 背景色：先全域套用主題色，再移除有 CSS 區塊背景的 range ──
+            // ── Background color: apply theme color globally, then remove from ranges with CSS block backgrounds ──
             updated.addAttribute(.backgroundColor, value: backgroundColor, range: fullRange)
             updated.enumerateAttribute(
                 HTMLAttributedStringBuilder.blockBackgroundColorAttribute,
@@ -100,9 +100,9 @@ final class CoreTextPaginator {
     }
 
     enum InvalidationReason {
-        case fontSizeChanged  // 清除全部快取
-        case viewSizeChanged  // 清除全部快取
-        case themeChanged     // 不清快取，只重繪
+        case fontSizeChanged  // Clear all caches
+        case viewSizeChanged  // Clear all caches
+        case themeChanged     // Don't clear caches, only redraw
     }
 
     private var cache: [CacheKey: ChapterLayout] = [:]
@@ -119,7 +119,7 @@ final class CoreTextPaginator {
         let writingMode: ReaderWritingMode
     }
 
-    // MARK: - 公開 API
+    // MARK: - Public API
 
     func paginate(
         spineIndex: Int,
@@ -173,7 +173,7 @@ final class CoreTextPaginator {
         }
     }
 
-    // MARK: - 核心分頁算法（static，可在任意執行緒執行）
+    // MARK: - Core pagination algorithm (static, runs on any thread)
 
     private static func computeLayout(
         spineIndex: Int,
@@ -187,14 +187,14 @@ final class CoreTextPaginator {
         writingMode: ReaderWritingMode
     ) -> ChapterLayout {
         let attrStr = preparedAttributedString(attrStr, writingMode: writingMode)
-        // 有效內容區域（UIKit 座標：左上角原點）
+        // Effective content area (UIKit coordinates: top-left origin)
         let contentRect = CGRect(
             x: contentInsets.left,
             y: contentInsets.top,
             width: max(1, renderSize.width - contentInsets.left - contentInsets.right),
             height: max(1, renderSize.height - contentInsets.top - contentInsets.bottom)
         )
-        // CoreText 座標（y 從底部向上）：y = bottom inset
+        // CoreText coordinates (y from bottom upward): y = bottom inset
         let contentPathRect = CGRect(
             x: contentInsets.left,
             y: contentInsets.bottom,
@@ -237,7 +237,7 @@ final class CoreTextPaginator {
             let frame = makeFrame(framesetter: framesetter, range: searchRange, path: pagePath, writingMode: writingMode)
             let visibleRange = CTFrameGetVisibleStringRange(frame)
 
-            // 防止無限迴圈：若 visibleRange.length == 0，強制前進一個字符
+            // Prevent infinite loop: if visibleRange.length == 0, force advance by one character
             let proposedAdvance = visibleRange.length > 0 ? visibleRange.length : 1
             let proposedEnd = currentLocation + proposedAdvance
             let protectedEnd = CJKTypographyProcessor.protectedLineBreakOffset(
@@ -329,9 +329,9 @@ final class CoreTextPaginator {
         return mutable
     }
 
-    /// 孤行控制：
-    /// - Orphan：上一頁末行是段落首行 → 移到下一頁
-    /// - Widow：下一頁首行是段落末行 → 把上一頁末行也移到下一頁（確保 ≥2 行）
+    /// Orphan and widow control:
+    /// - Orphan: last line of the previous page is a paragraph's first line → move to next page
+    /// - Widow: first line of the next page is a paragraph's last line → also move the previous page's last line to the next page (ensures ≥2 lines)
     private static func applyOrphanControl(
         framesetter: CTFramesetter,
         pageRanges: inout [CFRange],
@@ -344,7 +344,7 @@ final class CoreTextPaginator {
         let stringLength = attrStr.length
         let pagePath = CGPath(rect: contentPathRect, transform: nil)
 
-        // Pass 1: Orphan — 上一頁末行是段落首行
+        // Pass 1: Orphan — last line of the previous page is a paragraph's first line
         var i = 0
         while i < pageRanges.count - 1 {
             let frame = makeFrame(framesetter: framesetter, range: pageRanges[i], path: pagePath, writingMode: writingMode)
@@ -369,7 +369,7 @@ final class CoreTextPaginator {
             i += 1
         }
 
-        // Pass 2: Widow — 下一頁首行是段落末行（且該頁有 ≥2 行）
+        // Pass 2: Widow — first line of the next page is a paragraph's last line (and that page has ≥2 lines)
         for j in 1..<pageRanges.count {
             guard pageRanges[j].length > 0 else { continue }
             let frame = makeFrame(framesetter: framesetter, range: pageRanges[j], path: pagePath, writingMode: writingMode)
@@ -382,7 +382,7 @@ final class CoreTextPaginator {
                 || nsString.character(at: checkIdx) == 0x2028
                 || nsString.character(at: checkIdx) == 0x2029
             guard isWidow else { continue }
-            // 把上一頁末行移到這頁
+            // Move the previous page's last line to this page
             let prevFrame = makeFrame(framesetter: framesetter, range: pageRanges[j - 1], path: pagePath, writingMode: writingMode)
             let prevLines = CTFrameGetLines(prevFrame) as! [CTLine]
             guard prevLines.count >= 2, let prevLast = prevLines.last else { continue }
@@ -515,7 +515,7 @@ final class CoreTextPaginator {
            visibleContent.isEmpty,
            blockAttachments.count == 1,
            let attachment = blockAttachments[0]?.first {
-            // 將 contentPathRect（CoreText 座標）轉換為 UIKit 座標的內容區域
+            // Convert contentPathRect (CoreText coordinates) to UIKit coordinate content area
             let uiContentRect = CGRect(
                 x: contentPathRect.origin.x,
                 y: renderSize.height - contentPathRect.maxY,
@@ -592,7 +592,7 @@ final class CoreTextPaginator {
                 }
             }
 
-            // 容器層裝飾（父 div 的 border/background，跨越 block 子元素）
+            // Container-level decoration (parent div border/background, spanning across block children)
             attrStr.enumerateAttribute(
                 HTMLAttributedStringBuilder.containerBlockRenderStyleAttribute,
                 in: pageNSRange,
@@ -732,7 +732,7 @@ final class CoreTextPaginator {
             let renderables = groups
                 .filter { !$0.rect.isNull }
                 .map { group -> RenderedBlockRenderable in
-                    // 容器群組僅繪製裝飾（border/background），不接管文字渲染
+                    // Container groups only render decoration (border/background), don't take over text rendering
                     let text: NSAttributedString? = group.isContainer ? nil : explicitRenderableText(
                         style: group.style,
                         ranges: group.ranges,
@@ -971,7 +971,7 @@ final class CoreTextPaginator {
 // MARK: - Binary Search Extension
 
 extension CoreTextPaginator.ChapterLayout {
-    /// 給定 UTF-16 charOffset，二分搜尋對應的頁碼（O(log n)）
+    /// Given a UTF-16 charOffset, performs a binary search for the corresponding page index (O(log n))
     func pageIndex(for charOffset: Int) -> Int {
         guard !pageRanges.isEmpty else { return 0 }
         var lo = 0

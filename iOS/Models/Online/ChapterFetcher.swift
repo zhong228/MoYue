@@ -54,8 +54,8 @@ struct ChapterFetcher {
             return buildNormalizedHTML(title: title, content: plainTextContent)
         }
 
-        // SwiftSoup.parse は CPU 負荷が高い同期処理。
-        // cooperative thread pool をブロックしないよう detached task で実行する。
+        // SwiftSoup.parse is CPU-intensive synchronous work.
+        // Run in a detached task to avoid blocking the cooperative thread pool.
         let bodyHTML = await Task.detached(priority: .userInitiated) {
             guard let document = try? SwiftSoup.parse(rawHTMLContent),
                   let body = document.body() else { return "" }
@@ -399,14 +399,14 @@ struct ChapterFetcher {
             return true
         }
 
-        // 嚴格模式：只有帶精確 Cloudflare challenge 特徵的頁面才拒絕
+        // Strict mode: only reject pages with precise Cloudflare challenge signatures
         let isCloudflareChallenge =
             compact.contains("checkingyourbrowserbeforeaccessing")
             || compact.contains("verifyyouarehuman")
             || compact.contains("cf-browser-verification")
             || (compact.contains("attentionrequired") && compact.contains("cf-ray"))
 
-        // 僅含 "cloudflare" 字眼不足以判定，需配合其他驗證特徵
+        // "cloudflare" alone is insufficient; require additional verification keywords
         let hasCloudflareMention = compact.contains("cloudflare")
         let hasChallengeKeyword =
             compact.contains("人机验证") || compact.contains("人機驗證")

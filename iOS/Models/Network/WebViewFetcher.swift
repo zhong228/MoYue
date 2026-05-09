@@ -1,28 +1,28 @@
 import Foundation
 import WebKit
 
-// MARK: - WKWebView 背景 JS 渲染引擎
+// MARK: - WKWebView Background JS Rendering Engine
 
-/// 用於載入需要 JavaScript 渲染的網頁，取得完整 DOM HTML
-/// 使用方式：let html = try await WebViewFetcher.shared.fetchHTML(url: url, timeout: 15)
+/// Loads pages that require JavaScript rendering and returns the full DOM HTML.
+/// Usage: let html = try await WebViewFetcher.shared.fetchHTML(url: url, timeout: 15)
 @MainActor
 final class WebViewFetcher: NSObject, WKNavigationDelegate {
     static let shared = WebViewFetcher()
 
-    /// WebView 實例池（重複使用避免頻繁建立）
+    /// WebView instance pool (reused to avoid repeated creation costs)
     private var pool: [WKWebView] = []
     private let poolSize = AppConfig.webViewPoolSize
     private var waiters: [CheckedContinuation<WKWebView, Never>] = []
-    /// 當前在用（已從池中取出但尚未歸還）的 WebView 數量，包含臨時建立的
+    /// Currently active (checked out but not yet returned) WebView count, including temporaries
     private var activeCount: Int = 0
 
-    /// 正在進行的載入任務
+    /// In-flight loading tasks
     private var loadingMap: [WKWebView: CheckedContinuation<String, Error>] = [:]
 
     private override init() {
         assert(Thread.isMainThread, "WebViewFetcher must be initialized on the main thread")
         super.init()
-        // 預建立 WebView 池
+        // Pre-populate the WebView pool
         for _ in 0..<poolSize {
             pool.append(createWebView())
         }
@@ -31,12 +31,11 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
     private func createWebView() -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
-        // 允許 JavaScript
         let prefs = WKWebpagePreferences()
         prefs.allowsContentJavaScript = true
         config.defaultWebpagePreferences = prefs
 
-        // 禁用媒體自動播放（省資源）
+        // Disable media autoplay to save resources
         config.mediaTypesRequiringUserActionForPlayback = .all
         config.suppressesIncrementalRendering = true
 
@@ -48,12 +47,11 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
         return wv
     }
 
-    // MARK: - 公開 API
+    // MARK: - Public API
 
-    // MARK: - 內部：JS 動態輪詢
-
-    /// 等待頁面內容就緒再返回 outerHTML，用 callAsyncJavaScript 在 JS 端輪詢，
-    /// 避免在 Swift 端做固定 sleep。快站 ~100ms 返回，慢站最多等 maxWaitMs。
+    /// Waits for page content to be ready before returning outerHTML.
+    /// Uses callAsyncJavaScript for client-side polling instead of a fixed sleep.
+    /// Fast sites return in ~100ms; slow sites wait at most maxWaitMs.
     @MainActor
     private func pollForContent(
         webView: WKWebView,
@@ -75,17 +73,17 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
         let result = await webView.callAsyncJavaScript(
             js, arguments: [:], in: nil, in: .page)
         if let html = result as? String, !html.isEmpty { return html }
-        // 降級：直接取 outerHTML（輪詢本身失敗時的保底）
+        // Fallback: direct outerHTML when polling fails
         return (try? await webView.evaluateJavaScript(
             "document.documentElement.outerHTML") as? String) ?? ""
     }
 
 
     /// - Parameters:
-    ///   - url: 目標網址
-    ///   - headers: 自訂 HTTP 標頭
-    ///   - timeout: 超時秒數（含 JS 渲染等待）
-    ///   - jsWait: JS 渲染後額外等待秒數
+    ///   - url: Target URL
+    ///   - headers: Custom HTTP headers
+    ///   - timeout: Timeout in seconds (includes JS rendering wait)
+    ///   - jsWait: Additional wait seconds after JS rendering
     func fetchHTML(
         url: URL, headers: [String: String] = [:],
         timeout: TimeInterval = AppConfig.webViewFetchTimeout, jsWait: TimeInterval = AppConfig.webViewJSRenderWait
@@ -102,22 +100,21 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
             webView: webView
         )
 
-        // 使用 withThrowingTaskGroup 實現超時
+        // Use withThrowingTaskGroup for timeout
         return try await withThrowingTaskGroup(of: String.self) { group in
             group.addTask { @MainActor [weak self] in
                 guard let self else { throw WebViewError.deallocated }
 
-                // 載入頁面
                 let _ = try await withCheckedThrowingContinuation {
                     (continuation: CheckedContinuation<String, Error>) in
                     self.loadingMap[webView] = continuation
                     webView.load(request)
                 }
 
-                // JS 渲染等待
+                // Wait for JS rendering
                 try await Task.sleep(nanoseconds: UInt64(jsWait * 1_000_000_000))
 
-                // 提取完整 HTML
+                // Extract full HTML
                 let html =
                     try await webView.evaluateJavaScript(
                         "document.documentElement.outerHTML"
@@ -129,7 +126,7 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
                 return html
             }
 
-            // 超時任務
+            // Timeout task
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                 throw WebViewError.timeout
@@ -143,7 +140,8 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
         }
     }
 
-    /// Legado preUpdateJs：載入 URL 後執行自訂 JS，再回傳當前 DOM 的 HTML（用於目錄頁需先跑 JS 才出現列表）
+    /// Legado preUpdateJs: loads URL, executes custom JS, then returns current DOM HTML.
+    /// Used for TOC pages where JS must run before the list appears.
     func fetchHTMLWithCustomJS(
         url: URL, headers: [String: String] = [:],
         jsAfterLoad: String, timeout: TimeInterval = 20, jsWait: TimeInterval = 2.0
@@ -190,7 +188,8 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
         }
     }
 
-    /// Legado loginCheckJs：在已取得的 HTML 上執行 JS，回傳值表示是否需登入（truthy = 需登入）
+    /// Legado loginCheckJs: executes JS on the already-loaded HTML. Returns whether
+    /// login is required (truthy = login needed).
     func evaluateInHTML(html: String, baseURL: String, js: String) async throws -> Bool {
         guard !js.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let webView = await acquireWebView()
@@ -211,13 +210,14 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
         }
         return (result as? Int).map { $0 != 0 } ?? false
     }
+
     /// - Parameters:
-    ///   - url: 章節頁 URL
-    ///   - headers: 自訂標頭（含 User-Agent）
-    ///   - contentSelectors: 正文容器選擇器，依序嘗試直到取到非空字串（例：.txtnav, #txtright）
-    ///   - scrollToEndDelay: 載入後先滾動到底部並等待秒數（觸發懶加載），0 表示不滾動
-    ///   - timeout: 整體超時
-    ///   - jsWait: 頁面載入完成後等待秒數（讓站點 JS 解密完成）
+    ///   - url: Chapter page URL
+    ///   - headers: Custom headers (including User-Agent)
+    ///   - contentSelectors: Content container selectors tried in order until non-empty text is found (e.g. .txtnav, #txtright)
+    ///   - scrollToEndDelay: Seconds to wait after scrolling to the bottom (triggers lazy loading); 0 disables scrolling
+    ///   - timeout: Overall timeout
+    ///   - jsWait: Seconds to wait after page load (for site JS decryption)
     func fetchChapterContentBySelectors(
         url: URL, headers: [String: String] = [:],
         contentSelectors: [String] = [
@@ -300,9 +300,10 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
         }
     }
 
-    // MARK: - WebView JS 動態正文提取（對齊 Legado BackstageWebView）
+    // MARK: - WebView JS Dynamic Content Extraction (aligned with Legado BackstageWebView)
 
-    /// 正文提取 JS：遍歷所有已知選擇器找最長內容 → 啟發式評分 → body.innerText
+    /// Content extraction JS: iterates known selectors for longest text content,
+    /// applies heuristic scoring, falls back to body.innerText.
     static let contentExtractJS = """
     (function(){
         var sels=[
@@ -336,7 +337,7 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
     })()
     """
 
-    /// 合併提取：正文內容 + 章節內「下一頁」URL（JSON 格式）
+    /// Combined extraction: content + intra-chapter "next page" URL (JSON format).
     static let contentAndNextPageJS = """
     (function(){
         var sels=[
@@ -386,8 +387,8 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
     })()
     """
 
-    /// 載入 URL → 等待 JS 渲染 → 滾動到底部觸發懶加載 → 用 innerText 提取正文
-    /// 對齊 Legado BackstageWebView：onPageFinished 後等待 → 執行 JS → 結果太短則重試
+    /// Loads URL, waits for JS render, scrolls to bottom to trigger lazy loading,
+    /// then extracts content via innerText.
     func fetchWebContentViaJS(
         url: URL, headers: [String: String] = [:],
         timeout: TimeInterval = 20, jsWait: TimeInterval = 1.5
@@ -409,7 +410,7 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
                     self.loadingMap[webView] = cont
                     webView.load(request)
                 }
-                // 動態輪詢：等待 JS 渲染就緒，替代硬等 jsWait
+                // Dynamic polling replaces a fixed jsWait delay
                 let polledHTML = await self.pollForContent(webView: webView)
                 if LegadoJSBridge.isCloudflareChallengedBody(polledHTML) {
                     throw FetchError.cloudflareChallengeRequired(url.absoluteString)
@@ -435,7 +436,7 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
         }
     }
 
-    /// 載入 URL → 提取正文 + 偵測章節內「下一頁」連結（用於分頁合併）
+    /// Loads URL, extracts content + detects intra-chapter "next page" links (for pagination merging).
     struct PageResult {
         let content: String
         let nextPageURL: String?
@@ -462,7 +463,6 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
                     self.loadingMap[webView] = cont
                     webView.load(request)
                 }
-                // 動態輪詢：替代硬等 jsWait
                 let polledHTML = await self.pollForContent(webView: webView)
                 if LegadoJSBridge.isCloudflareChallengedBody(polledHTML) {
                     throw FetchError.cloudflareChallengeRequired(url.absoluteString)
@@ -496,9 +496,9 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
         }
     }
 
-    // MARK: - 正文提取（Readability + Legado 規則）
+    // MARK: - Content Extraction (Readability + Legado rules)
 
-    /// 從 HTML 字串用 Readability 提取正文（適用無書源網頁）
+    /// Extracts article content from HTML via Readability (for source-less web pages).
     func extractArticle(html: String, baseURL: String? = nil) async throws -> String? {
         let webView = await acquireWebView()
         defer { releaseWebView(webView) }
@@ -524,7 +524,7 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
         return trimmed.count >= 100 ? trimmed : nil
     }
 
-    /// 在注入的 HTML 上執行 Legado 規則，回傳單一字串（支援 <js> 等）
+    /// Executes Legado rules on the injected HTML, returning a single result string.
     func evaluateHTMLRule(html: String, rule: String, baseURL: String) async throws -> String {
         let webView = await acquireWebView()
         defer { releaseWebView(webView) }
@@ -546,7 +546,7 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
         return result?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
-    /// 載入 HTML 字串到 WebView 並等待載入完成
+    /// Loads an HTML string into a WebView and waits for completion.
     private func loadHTMLString(_ html: String, baseURL: URL, into webView: WKWebView) async throws {
         try await withThrowingTaskGroup(of: String.self) { group in
             group.addTask { @MainActor [weak self] in
@@ -568,7 +568,7 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
         }
     }
 
-    /// 從 App Bundle 讀取 JS 檔（Assets/Readability.js、Assets/legado-engine.js）
+    /// Reads a JS file from the app bundle (Assets/Readability.js, Assets/legado-engine.js).
     private func loadBundleScript(name: String, ext: String) -> String? {
         let bundle = Bundle.main
         if let url = bundle.url(forResource: name, withExtension: ext, subdirectory: "Assets"),
@@ -578,7 +578,7 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
         return nil
     }
 
-    // MARK: - WebView 池管理
+    // MARK: - WebView Pool Management
 
     private func prepareRequest(
         url: URL,
@@ -625,34 +625,35 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
             activeCount += 1
             return wv
         }
-        // 池已空：若活躍數量未超出上限，建立臨時 WebView（避免請求長時間排隊）
+        // Pool exhausted: if active count is below the overflow limit, create a
+        // temporary WebView to avoid long queuing.
         let maxActive = poolSize * AppConfig.webViewPoolOverflowMultiplier
         if activeCount < maxActive {
             activeCount += 1
             return createWebView()
         }
-        // 已達上限，進入等待佇列
+        // At capacity — wait in the queue
         return await withCheckedContinuation { continuation in
             waiters.append(continuation)
         }
     }
 
     private func releaseWebView(_ webView: WKWebView) {
-        // 僅停止當前載入，不呼叫 loadHTMLString：否則會啟動新導航，下一位取得此 WebView 的
-        // 呼叫者呼叫 load(newRequest) 時會取消該導航並觸發 didFail(-999)，該 -999 會被錯誤地
-        // resume 給新呼叫者，導致目錄/詳情請求顯示 NSURLErrorDomain error -999。
+        // Only stop the current load; do not call loadHTMLString, which would
+        // start a new navigation and cancel it (-999) when the next caller loads
+        // a new request, causing the new caller to receive the -999 error.
         webView.stopLoading()
         loadingMap.removeValue(forKey: webView)
         activeCount = max(0, activeCount - 1)
 
         if let waiter = waiters.first {
             waiters.removeFirst()
-            activeCount += 1  // 歸還給等待者，繼續算作已使用
+            activeCount += 1
             waiter.resume(returning: webView)
         } else if pool.count < poolSize {
             pool.append(webView)
         }
-        // 超出池大小的臨時 WebView 直接丟棄
+        // Temporary WebViews exceeding the pool size are discarded
     }
 
     // MARK: - WKNavigationDelegate
@@ -717,7 +718,7 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
     }
 }
 
-// MARK: - 錯誤類型
+// MARK: - Error Types
 
 enum WebViewError: Error, LocalizedError {
     case timeout

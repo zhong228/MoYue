@@ -1,26 +1,26 @@
 import Combine
 import Foundation
 import OSLog
-// MARK: - HTML → 純文字
+// MARK: - HTML to Plain Text
 import SwiftSoup
 import SwiftUI
 import UIKit
 import ReadiumShared
 
-// MARK: - 書籍章節 (🟢修改1：加上 Codable，並將 let 改為 var，讓 EPUB 可以存成 JSON)
+// MARK: - Book Chapter
 
 struct BookChapter: Identifiable, Codable {
     var id = UUID()
     var index: Int
     var title: String
     var content: String
-    var href: String = ""  // EPUB 章節路徑，用於渲染 baseURL
-    var level: Int = 0  // TOC 縮排層級（0=頂層，1=子章節，…）
+    var href: String = ""  // EPUB chapter path, used as the rendering baseURL
+    var level: Int = 0  // TOC indentation level (0 = top, 1 = sub-chapter, …)
 }
 
-// MARK: - 線上章節參考
+// MARK: - Online Chapter Reference
 
-// MARK: - 書籤
+// MARK: - Bookmark
 
 struct Bookmark: Identifiable, Codable, Equatable {
     enum Kind: String, Codable {
@@ -36,7 +36,7 @@ struct Bookmark: Identifiable, Codable, Equatable {
     let kind: Kind
     let date: Date
     var note: String
-    let excerpt: String  // 書籤位置前幾個字的摘錄
+    let excerpt: String  // Excerpt of the first few characters at the bookmark position
 
     init(
         chapterIndex: Int,
@@ -122,19 +122,20 @@ extension Array where Element == Bookmark {
     }
 }
 
-// MARK: - 書籍模型
+// MARK: - Book Model
+
 struct ReadingBook: Identifiable, Codable {
     let id: UUID
     var title: String
     var author: String
-    var source: String  // "local", "local_epub" 或 URL 字串
-    var contentFilename: String  // 本地書：Documents 的檔名；線上書：空字串
+    var source: String  // "local", "local_epub", or a URL string
+    var contentFilename: String  // Local book: filename in Documents; online book: empty string
     var contentPipelineKind: BookPipelineKind
     var currentPosition: Double  // 0.0 ~ 1.0
     var addedDate: Date
     var lastOpenedDate: Date?
 
-    // 線上書源欄位
+    // Online book-source fields
     var isOnline: Bool
     var bookSourceId: UUID?
     var bookInfoURL: String?
@@ -142,13 +143,13 @@ struct ReadingBook: Identifiable, Codable {
     var runtimeVariables: [String: String]?
     var onlineChapters: [OnlineChapterRef]?
 
-    // 書架分組
+    // Bookshelf grouping
     var group: String = ""
 
-    // 書籤
+    // Bookmarks
     var bookmarks: [Bookmark] = []
 
-    // 封面圖片路徑（Documents 目錄下的相對檔名，如 "xxx_cover.jpg"）
+    // Cover image path (relative filename under Documents, e.g. "xxx_cover.jpg")
     var coverImagePath: String?
     var rendererPreference: BookRendererPreference
     var compatibilityState: BookCompatibilityState
@@ -185,7 +186,7 @@ struct ReadingBook: Identifiable, Codable {
         self.downloadedChapterCount = 0
     }
 
-    // 自訂 Decoder：舊資料缺少新欄位時使用預設值，不崩潰
+    // Custom decoder: missing new fields fall back to defaults instead of crashing
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -557,9 +558,10 @@ extension ReadingBook {
 enum ReaderLayoutMetrics {
     static let footerHeight: CGFloat = 24
     static let footerBottomGap: CGFloat = 28
-    /// 負值 = 把 footer 往螢幕底拉近。
-    /// 原本 `= 0` 時 footer 離底邊 = safeAreaBottom（notch 機約 34pt）偏高；
-    /// 設 -14 讓 footer 緊貼 home indicator 上方（約 20pt），視覺更貼底但不會蓋到。
+    /// Negative value pulls the footer closer to the screen bottom.
+    /// A value of 0 leaves the footer at safeAreaBottom (≈34pt on notch devices),
+    /// which sits higher than desired. -14 places it just above the home indicator
+    /// (≈20pt), for a tighter visual fit without overlapping.
     static let footerVisualBottomPadding: CGFloat = -14
     static let minimumVerticalPadding: CGFloat = 24
     static let topSafeAreaExtra: CGFloat = 10
@@ -653,20 +655,22 @@ final class ReaderTelemetry {
     func log(_ event: String, attributes: [String: String] = [:]) {}
 }
 
-// MARK: - 書架排序
+// MARK: - Bookshelf Sort
+
 enum BookSortOrder: String {
     case manual, recentlyRead, title, author
 }
 
-// MARK: - 書庫管理
+// MARK: - HTML Utilities
+
 extension String {
-    /// 將 HTML 轉為保留段落邊界的純文字。
-    /// 塊級元素（p, div, br, h1-h6, li, tr, blockquote）轉為換行，
-    /// 行內元素直接移除標籤。保留語意結構供後續 splitIntoParagraphs 使用。
+    /// Converts HTML to plain text while preserving paragraph boundaries.
+    /// Block-level elements (p, div, br, h1-h6, li, tr, blockquote) become
+    /// line breaks; inline elements have their tags removed. Preserves semantic
+    /// structure for downstream splitIntoParagraphs.
     var strippedHTML: String {
         do {
             let doc = try SwiftSoup.parse(self)
-            // 移除 script / style / noscript 避免噪音
             try doc.select("script, style, noscript, iframe").remove()
             let root: SwiftSoup.Element = doc.body() ?? doc
             return HTMLTextExtractor.extractPreservingBlocks(root)
@@ -676,7 +680,7 @@ extension String {
     }
 }
 
-/// HTML → 純文字提取器，遞迴遍歷 DOM 並在塊級元素邊界插入換行
+/// Recursively traverses the DOM, inserting line breaks at block-level element boundaries.
 private enum HTMLTextExtractor {
     static let blockTags: Set<String> = [
         "p", "div", "br", "hr",
@@ -695,7 +699,7 @@ private enum HTMLTextExtractor {
                 if tag == "br" {
                     result += "\n"
                 } else if blockTags.contains(tag) {
-                    // 塊級元素：前後加換行
+                    // Block element: add newlines before and after
                     if !result.isEmpty && !result.hasSuffix("\n") {
                         result += "\n"
                     }
@@ -704,7 +708,7 @@ private enum HTMLTextExtractor {
                         result += "\n"
                     }
                 } else {
-                    // 行內元素：直接提取文字
+                    // Inline element: extract text directly
                     result += extractPreservingBlocks(child)
                 }
             }

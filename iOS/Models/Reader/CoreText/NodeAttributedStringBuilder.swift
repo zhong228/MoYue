@@ -3,13 +3,13 @@ import UIKit
 
 // MARK: - NodeAttributedStringBuilder
 //
-// 以 [UnifiedChapter] 為輸入，透過 RenderableNode IR 路徑產生 NSAttributedString。
-// 實作 AttributedStringBuilding，可直接替換 TXTAttributedStringBuilder。
+// Takes [UnifiedChapter] as input, produces NSAttributedString via the RenderableNode IR path.
+// Implements AttributedStringBuilding, directly replacing TXTAttributedStringBuilder.
 //
-// 遷移策略（Phase 4/5）：
-//   TXTPageEngine.init 根據 GlobalSettings.shared.useRenderableNodePipeline
-//   決定建立 NodeAttributedStringBuilder 還是 TXTAttributedStringBuilder，
-//   讓兩條管道在同一 session 內可切換比對。
+// Migration strategy (Phase 4/5):
+//   TXTPageEngine.init selects either NodeAttributedStringBuilder or TXTAttributedStringBuilder
+//   based on GlobalSettings.shared.useRenderableNodePipeline,
+//   allowing both pipelines to run in the same session for comparison.
 
 struct NodeAttributedStringBuilder: AttributedStringBuilding {
 
@@ -19,7 +19,7 @@ struct NodeAttributedStringBuilder: AttributedStringBuilding {
         self.chapters = chapters
     }
 
-    // MARK: - AttributedStringBuilding 基本資訊
+    // MARK: - AttributedStringBuilding Basic Info
 
     var chapterCount: Int { chapters.count }
 
@@ -77,7 +77,7 @@ struct NodeAttributedStringBuilder: AttributedStringBuilding {
         )
     }
 
-    // MARK: - 私有
+    // MARK: - Private
 
     private func normalizedURLKey(_ raw: String?) -> String {
         guard let raw, var components = URLComponents(string: raw) else { return "" }
@@ -89,33 +89,33 @@ struct NodeAttributedStringBuilder: AttributedStringBuilding {
 
 // MARK: - TXTRenderableNodeConverter
 //
-// 把 UnifiedChapter（TXT/Web 格式）轉成 [RenderableNode]。
+// Converts UnifiedChapter (TXT/Web format) into [RenderableNode].
 //
-// 行為與 TXTAttributedStringBuilder 相同：
-//   - 章節標題 → heading level 2（置中）
-//   - 每個段落 → paragraph，以全形空格 \u{3000}\u{3000} 開頭（等同 2em 首行縮排）
-//     Phase 9 清理時可改成 RenderStyle.textIndent。
+// Behavior matches TXTAttributedStringBuilder:
+//   - Chapter title → heading level 2 (centered)
+//   - Each paragraph → paragraph, prefixed with \u{3000}\u{3000} for 2em first-line indent
+//     Phase 9 cleanup can replace this with RenderStyle.textIndent.
 
 enum TXTRenderableNodeConverter {
 
     static func convert(chapter: UnifiedChapter) -> [RenderableNode] {
         var nodes: [RenderableNode] = []
 
-        // ── 章節標題 ──
+        // ── Chapter title ──
         let titleStyle = RenderStyle(
-            fontSizeMultiplier: 1.0,   // heading level 2 → renderer 自動乘 1.5×
+            fontSizeMultiplier: 1.0,   // heading level 2 → renderer auto-scales to 1.5×
             bold: true,
             textAlign: .center,
             paragraphSpacingAfter: 24
         )
         nodes.append(.heading([.text(chapter.title)], level: 2, style: titleStyle))
 
-        // ── 段落 ──
+        // ── Paragraphs ──
         for para in chapter.paragraphs {
             let trimmed = para.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
-            // 保留 \u{3000}\u{3000} 首行縮排以維持與舊管道完全相同的視覺輸出。
-            // Phase 9 移除此前綴，改用 RenderStyle.textIndent。
+            // Preserving \u{3000}\u{3000} prefix for visual consistency with the old pipeline.
+            // Phase 9: remove this prefix and use RenderStyle.textIndent instead.
             nodes.append(.paragraph([.text("\u{3000}\u{3000}" + trimmed)], style: .body))
         }
 
@@ -125,10 +125,10 @@ enum TXTRenderableNodeConverter {
 
 // MARK: - OnlineNodeAttributedStringBuilder
 //
-// 線上小說章節的 AttributedStringBuilding 實作（Phase 6）。
-// 從 BookSourceFetcher 讀取已快取的 ChapterPackage，
-// 以 TXTRenderableNodeConverter 轉成 RenderableNode，再渲染成 NSAttributedString。
-// 尚未快取的章節回傳空字串；fetch 完成後 CoreTextPageEngine 會重建頁面。
+// AttributedStringBuilding implementation for online novel chapters (Phase 6).
+// Reads cached ChapterPackages from BookSourceFetcher,
+// converts via TXTRenderableNodeConverter to RenderableNode, then renders to NSAttributedString.
+// Uncached chapters return an empty string; once fetched, CoreTextPageEngine rebuilds the page.
 
 struct OnlineNodeAttributedStringBuilder: AttributedStringBuilding {
 
@@ -187,7 +187,7 @@ struct OnlineNodeAttributedStringBuilder: AttributedStringBuilding {
             throw AttributedStringBuildingError.contentNotCached(index)
         }
 
-        // 壞快取（多章合併、異常超長）直接清掉並觸發重抓，避免永久卡在 128 頁
+        // Bad cache (merged chapters, abnormally long content): clear it and trigger refetch to avoid permanently showing excessive pages
         if ChapterFetchManager.isSuspiciousChapterContent(content) {
             fetcher.clearChapterCache(bookId: bookId, chapterIndex: index)
             throw AttributedStringBuildingError.contentNotCached(index)

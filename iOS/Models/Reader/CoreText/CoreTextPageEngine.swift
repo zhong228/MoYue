@@ -129,14 +129,17 @@ final class CoreTextPageEngine: PageRenderingProvider {
     private(set) var totalPages: Int = 0
     private(set) var currentPage: Int = 0
 
-    private(set) var layouts: [Int: CoreTextPaginator.ChapterLayout] = [:]
+    private let _layouts = LayoutCache<CoreTextPaginator.ChapterLayout>()
+    var layouts: [Int: CoreTextPaginator.ChapterLayout] {
+        _layouts.asDictionary
+    }
     private let chapterSnapshots: NSCache<NSNumber, UIImage> = {
         let cache = NSCache<NSNumber, UIImage>()
         let physicalMemory = ProcessInfo.processInfo.physicalMemory
-        // 控制快照快取成本：取實體記憶體約 5%，並限制在 64MB~256MB。
+        // Control snapshot cache cost: ~5% of physical memory, clamped to 64MB–256MB.
         let budget = min(max(physicalMemory / 20, 64 * 1024 * 1024), 256 * 1024 * 1024)
         cache.totalCostLimit = Int(budget)
-        // 保留小型 countLimit，避免短時間內寫入過多低成本快照。
+        // Keep a modest countLimit to avoid flooding the cache with many low-cost snapshots.
         cache.countLimit = 12
         return cache
     }()
@@ -160,7 +163,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
     private var startupBeganUptime: TimeInterval?
     private var didLogProgressFallback = false
     private var didLogProgressByteMode = false
-    /// 各章節的原始 Data 大小（bytes），用於全書進度估算
+    /// Raw data size (bytes) per chapter, used for global progress estimation
     private var chapterByteSizes: [Int] = []
 
     private(set) var isRelaying = false
@@ -309,7 +312,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
             return
         }
 
-        // 1. 背景掃描全書章節 Data 大小（不阻塞開書主流程）
+        // 1. Background scan of all chapter data sizes (does not block the main open-book flow)
         chapterByteScanTask?.cancel()
         chapterByteSizes = []
         startupTrace("byteScan launch mode=background")
@@ -318,7 +321,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
             await self.scanChapterByteSizes(for: bookId)
         }
 
-        // 2. 讀存檔 → 決定優先載入哪些章節
+        // 2. Read progress record → determine priority chapters to load
         let record = offsetStore.load(bookId: bookId)
         let maxSpineIndex = max(0, totalChapters - 1)
         let savedSpine = max(0, min(record?.spineIndex ?? 0, maxSpineIndex))
@@ -331,9 +334,9 @@ final class CoreTextPageEngine: PageRenderingProvider {
             (savedSpine, max(0, record?.charOffset ?? 0))
         }
 
-        // 3. 載入存檔鄰域 [n-1, n, n+1]（+ 第 0 章如果不在範圍內）
+        // 3. Load the saved chapter neighborhood [n-1, n, n+1] (plus chapter 0 if not already included)
         var priority = Set<Int>()
-        priority.insert(0) // 封面/目錄始終需要
+        priority.insert(0) // Cover/TOC is always needed
         for i in max(0, savedSpine - 1)...min(savedSpine + 1, totalChapters - 1) {
             priority.insert(i)
         }
@@ -347,7 +350,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
         startupTrace("preload priority done totalPages=\(totalPages)")
         print("[CoreTextEngine] start done totalPages=\(totalPages)")
 
-        // 4. 恢復位置（存檔章節已載入，不會 fallback 到 0）
+        // 4. Restore position (saved chapter is already loaded, won't fall back to 0)
         if pendingRestoreTarget != nil {
             applyPendingRestoreIfPossible()
         } else {
@@ -424,18 +427,18 @@ final class CoreTextPageEngine: PageRenderingProvider {
         }
     }
 
-    /// 全書進度（0.0 ~ 1.0）。
+    /// Global progress (0.0 ~ 1.0).
     ///
-    /// - 線上書（`prefersLazyByteScan == true`）：用 `(spineIndex + 章內頁進度) / chapterCount`。
-    ///   因為線上書未抓取的章節 byteSize=0，按 byte 加總會隨抓取進度漂移
-    ///   （ch=4 一開始顯示 80%、抓多了變 7% 那種荒謬行為），改成章節索引制保持穩定。
-    /// - EPUB / TXT：開書即知所有章節 byteSize，按 byte 加總更精確（長章權重更高）。
+    /// - Online books (`prefersLazyByteScan == true`): uses `(spineIndex + intra-chapter page progress) / chapterCount`.
+    ///   Because unfetched chapters have byteSize=0, byte-based summation would drift as fetching progresses
+    ///   (e.g. chapter 4 shows 80% initially, then drops to 7% as more chapters are fetched). Chapter-index-based progress stays stable.
+    /// - EPUB / TXT: all chapter byte sizes are known at open time, byte-based summation is more accurate (longer chapters have higher weight).
     func totalProgress(forSpine spineIndex: Int, charOffset: Int) -> Double {
         let totalChapters = max(chapterCount, 1)
         let clampedSpine = min(max(spineIndex, 0), totalChapters - 1)
 
         if attributedBuilder?.prefersLazyByteScan == true {
-            let layout = layouts[clampedSpine]
+            let layout = _layouts[clampedSpine]
             let charLen = layout?.attributedString.length ?? 0
             let chapterFraction: Double
             if charLen > 0 {
@@ -461,7 +464,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
         guard total > 0 else { return 0 }
         let prior = chapterByteSizes.prefix(spineIndex).reduce(0, +)
 
-        // 當前章的 charOffset 要按比例轉換為 bytes
+        // Convert the current chapter's charOffset proportionally to bytes
         let currentChapterBytes = chapterByteSizes.indices.contains(spineIndex) ? chapterByteSizes[spineIndex] : 0
         let currentChapterChars = layouts[spineIndex]?.attributedString.length ?? currentChapterBytes
         let scaledOffset: Int
@@ -473,12 +476,12 @@ final class CoreTextPageEngine: PageRenderingProvider {
         return min(1.0, Double(prior + scaledOffset) / Double(total))
     }
 
-    /// 全書進度（0.0 ~ 1.0）對應的 (spineIndex, charOffset)
+    /// Maps global progress (0.0 ~ 1.0) to (spineIndex, charOffset)
     func position(forProgress progress: Double) -> (spineIndex: Int, charOffset: Int) {
         let totalChapters = chapterCount
         guard totalChapters > 0 else { return (0, 0) }
 
-        // 線上書：對齊 totalProgress 的章節索引制，避免拖動 slider 時跳到錯誤章節
+        // Online books: align with totalProgress's chapter-index-based approach to avoid jumping to wrong chapters when dragging the slider
         if attributedBuilder?.prefersLazyByteScan == true {
             let scaled = progress * Double(totalChapters)
             let idx = max(0, min(Int(scaled), totalChapters - 1))
@@ -511,15 +514,9 @@ final class CoreTextPageEngine: PageRenderingProvider {
         return (max(0, totalChapters - 1), 0)
     }
 
-    /// 釋放距離當前章超過 1 的 layout，記憶體只保留 [n-1, n, n+1]
+    /// Track current chapter for distance-based LRU eviction (capacity 8).
     private func evictDistantChapters(currentSpine: Int) {
-        guard chapterCount > 0 else { return }
-        let keep = Set(max(0, currentSpine - 1)...min(currentSpine + 1, chapterCount - 1))
-        for key in layouts.keys where !keep.contains(key) {
-            layouts.removeValue(forKey: key)
-            chapterSnapshots.removeObject(forKey: NSNumber(value: key))
-        }
-        rebuildPageOffsets()
+        _layouts.setCurrentChapter(currentSpine)
     }
 
     private func cancelPreloadTasks() {
@@ -551,7 +548,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
 
     private func schedulePreloadChapter(at spineIndex: Int) {
         guard (0..<chapterCount).contains(spineIndex),
-              layouts[spineIndex] == nil,
+_layouts[spineIndex] == nil,
               preloadTasks[spineIndex] == nil else { return }
 
         let generation = layoutGeneration
@@ -565,7 +562,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
 
     func pageViewController(at index: Int) -> UIViewController {
         let (spineIndex, localPage) = localPosition(for: index)
-        if let layout = layouts[spineIndex] {
+        if let layout = _layouts[spineIndex] {
             return configuredPageViewController(
                 layout: layout,
                 spineIndex: spineIndex,
@@ -587,7 +584,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
         Task { [weak self] in
             guard let self else { return }
             await self.preloadChapter(at: spineIndex)
-            guard self.layouts[spineIndex] != nil else { return }
+            guard _layouts[spineIndex] != nil else { return }
             self.onChapterReady?(spineIndex)
         }
         return placeholder
@@ -595,11 +592,11 @@ final class CoreTextPageEngine: PageRenderingProvider {
 
     func pageIndex(forSpine spineIndex: Int, charOffset: Int) -> Int {
         guard spinePageOffsets.indices.contains(spineIndex) else { return 0 }
-        if let layout = layouts[spineIndex] {
+        if let layout = _layouts[spineIndex] {
             let localPage = layout.pageIndex(for: charOffset)
             return spinePageOffsets[spineIndex] + localPage
         } else {
-            // 未載入時模糊估算：每 400 字一頁 (保守值)
+            // Rough estimate when not yet loaded: ~400 characters per page (conservative)
             let estimatedLocal = max(0, charOffset / 400)
             return spinePageOffsets[spineIndex] + estimatedLocal
         }
@@ -615,7 +612,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
 
     func readingPosition(forPage page: Int) -> CoreTextReadingPosition? {
         let (spineIndex, localPage) = localPosition(for: page)
-        guard let layout = layouts[spineIndex],
+        guard let layout = _layouts[spineIndex],
               localPage < layout.pageRanges.count else {
             return CoreTextReadingPosition.chapterStart(spineIndex)
         }
@@ -627,7 +624,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
 
     func charOffset(forPage page: Int) -> (spineIndex: Int, charOffset: Int) {
         let (spineIndex, localPage) = localPosition(for: page)
-        guard let layout = layouts[spineIndex],
+        guard let layout = _layouts[spineIndex],
               localPage < layout.pageRanges.count else {
             return (spineIndex, 0)
         }
@@ -655,7 +652,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
         Task { [weak self] in
             guard let self else { return }
             await self.preloadChapter(at: position.spineIndex)
-            guard self.layouts[position.spineIndex] != nil else { return }
+            guard _layouts[position.spineIndex] != nil else { return }
             self.onChapterReady?(position.spineIndex)
         }
         return placeholder
@@ -663,7 +660,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
 
     func preloadChapter(at spineIndex: Int) async {
         guard (0..<chapterCount).contains(spineIndex) else { return }
-        if layouts[spineIndex] != nil { return }
+        if _layouts[spineIndex] != nil { return }
         if let existing = preloadTasks[spineIndex] {
             await existing.value
             return
@@ -679,13 +676,13 @@ final class CoreTextPageEngine: PageRenderingProvider {
         guard (0..<chapterCount).contains(spineIndex) else { return }
         print("[FetchTrace] engine.notifyChapterDataChanged enter ch=\(spineIndex)")
 
-        // 1. 清除舊 layout 與進行中的 preload task
-        layouts[spineIndex] = nil
+        // 1. Clear the old layout and any in-progress preload task
+_layouts[spineIndex] = nil
         preloadTasks[spineIndex]?.cancel()
         preloadTasks[spineIndex] = nil
         chapterSnapshots.removeObject(forKey: NSNumber(value: spineIndex))
 
-        // 2. 增量更新該章節的 byte size（O(1)，不重掃全書）
+        // 2. Incrementally update the chapter's byte size (O(1), no full rescan)
         if let builder = attributedBuilder {
             let size = await builder.chapterDataSize(at: spineIndex)
             if spineIndex < chapterByteSizes.count {
@@ -695,13 +692,13 @@ final class CoreTextPageEngine: PageRenderingProvider {
             }
         }
 
-        // 3. 重新載入該章節（preloadChapter 會檢查 layouts[spineIndex] == nil 後執行）
+        // 3. Reload the chapter (preloadChapter checks layouts[spineIndex] == nil before executing)
         await preloadChapter(at: spineIndex)
 
-        // 4. 通知 ReaderView 刷新：
-        //    - layoutOK=true → 換成新 layout 對應的 VC，看到真正內容
-        //    - layoutOK=false → 換成 PlaceholderVC（loading UI），讓 refresh 場景能立即
-        //      把舊正文清掉、顯示載入中，等重抓完成才再次 notifyChapterDataChanged。
+        // 4. Notify ReaderView to refresh:
+        //    - layoutOK=true → swap to the VC with the new layout, showing actual content
+        //    - layoutOK=false → swap to PlaceholderVC (loading UI), so refresh can immediately
+        //      clear old content and show loading, then notifyChapterDataChanged again once refetch completes.
         let layoutOK = layouts[spineIndex] != nil
         print("[FetchTrace] engine.notifyChapterDataChanged done ch=\(spineIndex) layoutOK=\(layoutOK) hasCallback=\(onChapterReady != nil)")
         onChapterReady?(spineIndex)
@@ -709,7 +706,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
 
     private func preloadChapterInternal(at spineIndex: Int, generation: Int) async {
         guard (0..<chapterCount).contains(spineIndex),
-              layouts[spineIndex] == nil else { return }
+_layouts[spineIndex] == nil else { return }
         guard !shouldAbortPreload(generation: generation) else { return }
 
         if let attributedBuilder {
@@ -741,7 +738,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
             let layout = await paginationManager.paginate(request).layout
             guard !shouldAbortPreload(generation: generation) else { return }
 
-            layouts[spineIndex] = layout.withUpdatedColors(textColor: themeTextColor, backgroundColor: themeBackgroundColor)
+_layouts[spineIndex] = layout.withUpdatedColors(textColor: themeTextColor, backgroundColor: themeBackgroundColor)
             generateSnapshot(for: spineIndex)
             rebuildPageOffsets()
             applyPendingRestoreIfPossible()
@@ -827,8 +824,9 @@ final class CoreTextPageEngine: PageRenderingProvider {
         let layout = await paginationManager.paginate(request).layout
         guard !shouldAbortPreload(generation: generation) else { return }
         print("[CoreTextEngine] preloadChapter[\(spineIndex)] pageCount=\(layout.pageRanges.count)")
-        // 套用當前主題色（防止預載 Task 在主題切換前開始、切換後完成，導致舊色覆蓋新色）
-        layouts[spineIndex] = layout.withUpdatedColors(textColor: themeTextColor, backgroundColor: themeBackgroundColor)
+        // Apply the current theme colors to prevent preload tasks that started before a theme change
+        // from overwriting the new theme with stale colors after the change completes.
+_layouts[spineIndex] = layout.withUpdatedColors(textColor: themeTextColor, backgroundColor: themeBackgroundColor)
         generateSnapshot(for: spineIndex)
         rebuildPageOffsets()
         applyPendingRestoreIfPossible()
@@ -857,7 +855,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
             if let absolute = URL(string: candidate), absolute.scheme != nil {
                 if let response = try? await resourceProvider.response(for: absolute),
                    let image = UIImage(data: response.data) {
-                    print("[ImageLoader] ✅ loaded via absolute URL: \(candidate)")
+                    print("[ImageLoader] loaded via absolute URL: \(candidate)")
                     return image
                 }
                 if absolute.scheme == resourceProvider.customScheme {
@@ -865,27 +863,27 @@ final class CoreTextPageEngine: PageRenderingProvider {
                     let fallbackURL = resourceProvider.resourceURL(for: fallbackHref)
                     if let response = try? await resourceProvider.response(for: fallbackURL),
                        let image = UIImage(data: response.data) {
-                        print("[ImageLoader] ✅ loaded via scheme fallback: \(fallbackHref)")
+                        print("[ImageLoader] loaded via scheme fallback: \(fallbackHref)")
                         return image
                     }
-                    print("[ImageLoader] ❌ scheme fallback failed: \(fallbackHref)")
+                    print("[ImageLoader] scheme fallback failed: \(fallbackHref)")
                 } else {
-                    print("[ImageLoader] ❌ absolute URL failed: \(candidate)")
+                    print("[ImageLoader] absolute URL failed: \(candidate)")
                 }
             } else if let response = try? await resourceProvider.response(for: resourceProvider.resourceURL(for: candidate)),
                       let image = UIImage(data: response.data) {
-                print("[ImageLoader] ✅ loaded via relative path: \(candidate)")
+                print("[ImageLoader] loaded via relative path: \(candidate)")
                 return image
             } else {
                 let url = resourceProvider.resourceURL(for: candidate)
                 if let response = try? await resourceProvider.response(for: url) {
-                    print("[ImageLoader] ❌ UIImage decode failed for: \(candidate) dataLen=\(response.data.count) url=\(url)")
+                    print("[ImageLoader] UIImage decode failed for: \(candidate) dataLen=\(response.data.count) url=\(url)")
                 } else {
-                    print("[ImageLoader] ❌ session.response failed for: \(candidate) url=\(url)")
+                    print("[ImageLoader] session.response failed for: \(candidate) url=\(url)")
                 }
             }
         }
-        print("[ImageLoader] ❌ ALL candidates failed for src=\(source)")
+        print("[ImageLoader] ALL candidates failed for src=\(source)")
         return nil
     }
 
@@ -929,9 +927,9 @@ final class CoreTextPageEngine: PageRenderingProvider {
         renderSize = newSize
         paginationManager.invalidate(reason: .viewSizeChanged)
 
-        // 只重排目前記憶體中有的章節
-        let loadedSpines = Array(layouts.keys.sorted())
-        layouts.removeAll()
+        // Only re-layout chapters currently held in memory
+        let loadedSpines = Array(_layouts.keys.sorted())
+_layouts.removeAll()
         chapterSnapshots.removeAllObjects()
 
         await withTaskGroup(of: Void.self) { group in
@@ -940,8 +938,8 @@ final class CoreTextPageEngine: PageRenderingProvider {
             }
         }
 
-        // 重新掃描 byte sizes 不需要（不隨字號變化）
-        // 恢復 currentPage（charOffset 不變，但頁碼可能不同）
+        // Byte size rescan not needed (unaffected by font size changes)
+        // Restore currentPage (charOffset unchanged, but page numbers may differ)
         if let bookId = currentBookId, let record = offsetStore.load(bookId: bookId) {
             let maxSpineIndex = max(0, chapterCount - 1)
             pendingRestoreTarget = (
@@ -971,7 +969,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
         }
 
         await preloadChapter(at: targetSpine)
-        guard let layout = layouts[targetSpine] else { return nil }
+        guard let layout = _layouts[targetSpine] else { return nil }
         let charOffset: Int
         if let fragment, !fragment.isEmpty {
             charOffset = layout.anchorOffsets[fragment] ?? 0
@@ -984,10 +982,10 @@ final class CoreTextPageEngine: PageRenderingProvider {
     func warmUpNext(currentGlobalPage: Int) {
         let (spineIndex, localPage) = localPosition(for: currentGlobalPage)
 
-        // 翻頁時呼叫釋放遠端章節
+        // Evict distant chapters on page turn
         evictDistantChapters(currentSpine: spineIndex)
 
-        guard let layout = layouts[spineIndex] else { return }
+        guard let layout = _layouts[spineIndex] else { return }
         let total = layout.pageRanges.count
         // Trigger at 20% remaining (minimum 3 pages) so snapshot is ready before chapter boundary
         let threshold = max(3, Int(Double(total) * 0.20))
@@ -998,7 +996,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
                 schedulePreloadChapter(at: nextSpine)
             }
         }
-        // 接近章節開頭時預載上一章，確保向後翻跨章能正確定位最後一頁
+        // Preload previous chapter when near the beginning, so backward cross-chapter navigation can correctly locate the last page
         if localPage < threshold && spineIndex > 0 && layouts[spineIndex - 1] == nil {
             schedulePreloadChapter(at: spineIndex - 1)
         }
@@ -1006,11 +1004,11 @@ final class CoreTextPageEngine: PageRenderingProvider {
 
     func snapshotViewController(at index: Int) -> UIViewController? {
         let (spineIndex, localPage) = localPosition(for: index)
-        // 快照只用於章節邊界接力。第 0 頁 key 為 (spineIndex << 1)
+        // Snapshots are only used for chapter boundary handoff. Page 0 key is (spineIndex << 1)
         guard localPage == 0,
               let snapshot = chapterSnapshots.object(forKey: NSNumber(value: (spineIndex << 1))) else { return nil }
         let bgColor: UIColor
-        if let layout = layouts[spineIndex],
+        if let layout = _layouts[spineIndex],
            layout.attributedString.length > 0,
            let color = layout.attributedString.attribute(
                .backgroundColor, at: 0, effectiveRange: nil
@@ -1030,26 +1028,26 @@ final class CoreTextPageEngine: PageRenderingProvider {
     func applyThemeChange(textColor: UIColor, backgroundColor: UIColor) {
         themeTextColor = textColor
         themeBackgroundColor = backgroundColor
-        // 顏色不影響換行，直接同步更新 attributedString + framesetter，保留 blockAttachments 等所有結構
-        for spineIndex in layouts.keys {
-            layouts[spineIndex] = layouts[spineIndex]?.withUpdatedColors(textColor: textColor, backgroundColor: backgroundColor)
+        // Color changes don't affect line breaking; directly update attributedString + framesetter synchronously, preserving all blockAttachments etc.
+        for spineIndex in _layouts.keys {
+_layouts[spineIndex] = _layouts[spineIndex]?.withUpdatedColors(textColor: textColor, backgroundColor: backgroundColor)
         }
         chapterSnapshots.removeAllObjects()
         onChapterReady?(nil)
-        // 在背景重建各章節的邊界快照（用於跨章節動畫）
-        for spineIndex in layouts.keys {
+        // Rebuild chapter boundary snapshots in the background (for cross-chapter animation)
+        for spineIndex in _layouts.keys {
             generateSnapshot(for: spineIndex)
         }
     }
 
-    /// 離屏渲染任意全局頁為 UIImage，供 cover 動畫即時快照使用。
+    /// Offscreen renders any global page as a UIImage for use as an immediate snapshot during cover animation.
     func renderSnapshot(forPage globalPage: Int) -> UIImage? {
         let (spineIndex, localPage) = localPosition(for: globalPage)
-        guard let layout = layouts[spineIndex],
+        guard let layout = _layouts[spineIndex],
               localPage < layout.pageRanges.count,
               renderSize.width > 0, renderSize.height > 0 else { return nil }
         
-        // 優先從邊界快取中尋找 (Key: (spine << 1) | isLastPage)
+        // Prefer the boundary cache (Key: (spine << 1) | isLastPage)
         let isLastPage = localPage == (layout.pageRanges.count - 1)
         if localPage == 0 || isLastPage {
             let key = NSNumber(value: (spineIndex << 1) | (isLastPage ? 1 : 0))
@@ -1073,10 +1071,10 @@ final class CoreTextPageEngine: PageRenderingProvider {
 
     // MARK: - Private helpers
 
-    /// 將章節第 0 頁和最後一頁預渲染成 UIImage，存入 chapterSnapshots 以供跨章節動畫接力。
-    /// 使用 Task.detached 在背景執行緒渲染，避免阻塞主執行緒。
+    /// Pre-renders the first and last pages of a chapter as UIImages, stored in chapterSnapshots for cross-chapter animation handoff.
+    /// Uses Task.detached to render on a background thread, avoiding main thread blocking.
     private func generateSnapshot(for spineIndex: Int) {
-        guard let layout = layouts[spineIndex],
+        guard let layout = _layouts[spineIndex],
               !layout.pageRanges.isEmpty,
               renderSize.width > 0, renderSize.height > 0 else { return }
         
@@ -1091,10 +1089,10 @@ final class CoreTextPageEngine: PageRenderingProvider {
             bgColor = .systemBackground
         }
         
-        // 將 UIColor 轉為 CGColor 以便在非隔離環境傳遞
+        // Convert UIColor to CGColor for passing in non-isolated context
         let bgCGColor = bgColor.cgColor
         
-        // 第 0 頁快照 (Key: (spine << 1))
+        // First page snapshot (Key: (spine << 1))
         let firstKey = NSNumber(value: (spineIndex << 1))
         if chapterSnapshots.object(forKey: firstKey) == nil {
             Task {
@@ -1105,7 +1103,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
             }
         }
 
-        // 最後一頁快照 (Key: (spine << 1) | 1)
+        // Last page snapshot (Key: (spine << 1) | 1)
         let lastIdx = layout.pageRanges.count - 1
         if lastIdx > 0 {
             let lastKey = NSNumber(value: (spineIndex << 1) | 1)
@@ -1146,9 +1144,9 @@ final class CoreTextPageEngine: PageRenderingProvider {
         }
     }
 
-    /// 回傳指定章節最後一頁的全局頁碼。章節未載入時回傳 nil。
+    /// Returns the global page index of the last page of the specified chapter. Returns nil if the chapter is not loaded.
     func lastPageIndex(ofChapter spineIndex: Int) -> Int? {
-        guard let layout = layouts[spineIndex],
+        guard let layout = _layouts[spineIndex],
               spinePageOffsets.indices.contains(spineIndex) else { return nil }
         return spinePageOffsets[spineIndex] + max(0, layout.pageRanges.count - 1)
     }
@@ -1171,18 +1169,18 @@ final class CoreTextPageEngine: PageRenderingProvider {
         let oldPage = currentPage
         var offset = 0
         
-        // 取得估算用的每頁位元組數 (假設中文環境 600 bytes 一頁)
+        // Estimate bytes per page (~600 bytes per page for CJK text)
         let avgBytesPerPage = 600 
 
         spinePageOffsets = (0..<chapterCount).map { i in
             let start = offset
-            if let layout = layouts[i] {
+            if let layout = _layouts[i] {
                 offset += layout.pageRanges.count
             } else if i < chapterByteSizes.count && chapterByteSizes[i] > 0 {
-                // 根據 Byte 大小估算頁數
+                // Estimate page count from byte size
                 offset += max(1, chapterByteSizes[i] / avgBytesPerPage)
             } else {
-                // 未載入且無 Byte 資訊時估 1 頁，確保 spinePageOffsets 和 totalPages 不崩壞
+                // Without layout or byte info, estimate 1 page to keep spinePageOffsets and totalPages from breaking
                 offset += 1
             }
             return start
@@ -1240,7 +1238,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
 
     private func resolvedPageIndex(forSpine spineIndex: Int, charOffset: Int) -> Int? {
         guard spinePageOffsets.indices.contains(spineIndex),
-              let layout = layouts[spineIndex] else { return nil }
+              let layout = _layouts[spineIndex] else { return nil }
         let localPage = layout.pageIndex(for: charOffset)
         return spinePageOffsets[spineIndex] + localPage
     }
@@ -1286,10 +1284,10 @@ final class CoreTextPageEngine: PageRenderingProvider {
     private func currentBackgroundColor() -> UIColor { themeBackgroundColor }
 
 
-    /// 取得某頁的純文字內容（供 TTS / 書籤摘錄使用）
+    /// Returns the plain text content of a page (for TTS / bookmark excerpt use)
     func plainText(forPage page: Int) -> String {
         let (spineIndex, localPage) = localPosition(for: page)
-        guard let layout = layouts[spineIndex],
+        guard let layout = _layouts[spineIndex],
               localPage < layout.pageRanges.count else { return "" }
         let range = layout.pageRanges[localPage]
         let nsRange = NSRange(location: range.location, length: range.length)
@@ -1305,7 +1303,7 @@ final class CoreTextPageEngine: PageRenderingProvider {
         guard let locator = legacyStore.loadLastRecord() else { return }
 
         let spineIndex = locator.chapterIndex
-        guard let layout = layouts[spineIndex] else {
+        guard let layout = _layouts[spineIndex] else {
             pendingRestoreTarget = (spineIndex, 0)
             return
         }

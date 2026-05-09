@@ -29,10 +29,10 @@ extension BookSource {
         if s.hasPrefix(",") { s.removeFirst() }
         s = s.trimmingCharacters(in: .whitespacesAndNewlines)
         s = s
-            .replacingOccurrences(of: "“", with: "\"")
-            .replacingOccurrences(of: "”", with: "\"")
-            .replacingOccurrences(of: "‘", with: "\"")
-            .replacingOccurrences(of: "’", with: "\"")
+            .replacingOccurrences(of: "\u{201c}", with: "\"")
+            .replacingOccurrences(of: "\u{201d}", with: "\"")
+            .replacingOccurrences(of: "\u{2018}", with: "\"")
+            .replacingOccurrences(of: "\u{2019}", with: "\"")
         if s.contains("'") {
             s = s.replacingOccurrences(
                 of: #"(?<!\\)'([^']*)'"#,
@@ -57,9 +57,9 @@ extension BookSource {
         var headers: [String: String]
     }
 
-    /// 渲染搜索 URL（對齊 Legado AnalyzeUrl）
-    /// 支援：{{key}} {{page}} {{key,GB2312}} / URL,POST,body / URL,{JSON 選項}
-    /// JSON 選項支援欄位：method, body, charset, headers, webView, webJs, retry
+    /// Render a search URL (aligns with Legado AnalyzeUrl).
+    /// Supports: {{key}} {{page}} {{key,GB2312}} / URL,POST,body / URL,{JSON options}
+    /// JSON options support fields: method, body, charset, headers, webView, webJs, retry
     func renderSearchURL(query: String, page: Int = 1) -> (
         url: String, method: String, body: String?
     ) {
@@ -87,17 +87,17 @@ extension BookSource {
                 .replacingOccurrences(of: "{key}", with: encoded)
                 .replacingOccurrences(of: "{{page}}", with: pageStr)
                 .replacingOccurrences(of: "{page}", with: pageStr)
-            // 處理剩餘的 {{...}} JavaScript 表達式
+            // Handle remaining {{...}} JavaScript expressions
             result = BookSource.evaluateRemainingTemplates(result, source: self)
             return result
         }
 
-        // Legado 格式：URL 後面跟逗號+JSON → URL,{"method":"POST","body":"...","webView":true,...}
-        // 先嘗試用正則切分 URL 和 JSON 選項
+        // Legado format: URL followed by comma+JSON → URL,{"method":"POST","body":"...","webView":true,...}
+        // First try using regex to split URL and JSON options
         let trimmedSearch = searchUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         if let jsonStart = trimmedSearch.range(of: ",\\s*\\{", options: .regularExpression) {
             let urlPart = applyVars(String(trimmedSearch[trimmedSearch.startIndex..<jsonStart.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines))
-            let jsonPart = String(trimmedSearch[jsonStart.lowerBound...]).dropFirst() // 去掉逗號
+            let jsonPart = String(trimmedSearch[jsonStart.lowerBound...]).dropFirst() // remove comma
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if let data = jsonPart.data(using: .utf8),
                let opt = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -107,7 +107,7 @@ extension BookSource {
             }
         }
 
-        // 舊格式：URL,POST,bodyTemplate
+        // Legacy format: URL,POST,bodyTemplate
         let parts = trimmedSearch.components(separatedBy: ",")
         if parts.count >= 2 && parts[1].trimmingCharacters(in: .whitespaces).uppercased() == "POST"
         {
@@ -146,9 +146,9 @@ extension BookSource {
                 .replacingOccurrences(of: "{key}", with: encoded)
                 .replacingOccurrences(of: "{{page}}", with: pageStr)
                 .replacingOccurrences(of: "{page}", with: pageStr)
-            // 處理剩餘的 {{...}} JavaScript 表達式（如 {{cookie.removeCookie(source.key)}}）
-            // 這些通常是 cookie 管理等副作用操作，在 Legado 中返回空字串
-            // 使用 JSContext 嘗試求值，失敗則替換為空字串
+            // Handle remaining {{...}} JavaScript expressions (e.g. {{cookie.removeCookie(source.key)}})
+            // These are typically side-effect operations like cookie management; in Legado they return empty strings.
+            // Attempt evaluation via JSContext; replace with empty string on failure.
             result = BookSource.evaluateRemainingTemplates(result, source: self)
             return result
         }
@@ -198,7 +198,7 @@ extension BookSource {
         )
     }
 
-    /// 解析 header 字串為 Dictionary
+    /// Parse header string into Dictionary
     var parsedHeaders: [String: String] {
         guard !header.isEmpty,
             let data = header.data(using: .utf8),
@@ -207,10 +207,10 @@ extension BookSource {
         return dict
     }
 
-    /// 處理 URL 中剩餘的 `{{...}}` JavaScript 模板表達式
-    /// Legado 書源 URL 中常含 `{{cookie.removeCookie(source.key)}}` 等 JS 片段，
-    /// 這些通常是副作用操作（清 cookie 等），返回空字串。
-    /// 此方法嘗試透過 JSContext 求值，失敗則替換為空字串。
+    /// Process remaining `{{...}}` JavaScript template expressions in URLs.
+    /// Legado book source URLs often contain `{{cookie.removeCookie(source.key)}}` and similar JS fragments.
+    /// These are typically side-effect operations (cookie clearing, etc.), returning empty strings.
+    /// This method attempts evaluation via JSContext; replaces with empty string on failure.
     static func evaluateRemainingTemplates(_ input: String, source: BookSource) -> String {
         guard input.contains("{{") else { return input }
         guard let regex = try? NSRegularExpression(pattern: #"\{\{([\s\S]*?)\}\}"#) else { return input }
@@ -219,7 +219,7 @@ extension BookSource {
         guard !matches.isEmpty else { return input }
 
         var output = input
-        // 反向替換避免偏移
+        // Reverse order to avoid offset issues
         for match in matches.reversed() {
             guard let wholeRange = Range(match.range(at: 0), in: output),
                   let exprRange = Range(match.range(at: 1), in: output) else { continue }
@@ -228,19 +228,19 @@ extension BookSource {
                 output.replaceSubrange(wholeRange, with: "")
                 continue
             }
-            // 嘗試用 JSContext 求值
+            // Try evaluating with JSContext
             let evaluated = evaluateTemplateExpression(expression, source: source)
             output.replaceSubrange(wholeRange, with: evaluated)
         }
         return output
     }
 
-    /// 用 JSContext 求值單個模板表達式
+    /// Evaluate a single template expression using JSContext
     private static func evaluateTemplateExpression(_ expression: String, source: BookSource) -> String {
         let context = JSContext()
         context?.exceptionHandler = { _, _ in }
 
-        // 提供 source 物件（Legado 相容）
+        // Provide source object (Legado compatible)
         let sourceObj: [String: Any] = [
             "bookSourceUrl": source.bookSourceUrl,
             "bookSourceName": source.bookSourceName,
@@ -250,11 +250,11 @@ extension BookSource {
         ]
         context?.setObject(sourceObj, forKeyedSubscript: "source" as NSString)
 
-        // 提供 source.getKey() 方法
+        // Provide source.getKey() method
         let getKeyBlock: @convention(block) () -> String = { source.bookSourceUrl }
         context?.objectForKeyedSubscript("source")?.setObject(getKeyBlock, forKeyedSubscript: "getKey" as NSString)
 
-        // 提供 cookie 橋接（cookie.removeCookie 等常見 Legado 操作）
+        // Provide cookie bridge (cookie.removeCookie, etc. common Legado operations)
         let cookieObj: [String: Any] = [:]
         context?.setObject(cookieObj, forKeyedSubscript: "cookie" as NSString)
         let removeCookieBlock: @convention(block) (String) -> String = { _ in "" }
@@ -262,7 +262,7 @@ extension BookSource {
         let getCookieBlock: @convention(block) (String) -> String = { _ in "" }
         context?.objectForKeyedSubscript("cookie")?.setObject(getCookieBlock, forKeyedSubscript: "getCookie" as NSString)
 
-        // 提供 java 橋接（基本的鏈式呼叫，返回空字串）
+        // Provide java bridge (basic chainable calls, returns empty string)
         let javaConnectBlock: @convention(block) (String) -> JSValue? = { _ in
             guard let chainObj = JSValue(newObjectIn: context) else { return nil }
             let rawBlock: @convention(block) () -> JSValue? = { [weak chainObj] in chainObj }
@@ -276,7 +276,7 @@ extension BookSource {
         context?.setObject(javaConnectBlock, forKeyedSubscript: "java" as NSString)
         context?.objectForKeyedSubscript("java")?.setObject(javaConnectBlock, forKeyedSubscript: "connect" as NSString)
 
-        // 嘗試求值
+        // Attempt evaluation
         let candidates = [
             expression,
             "(function(){ return (\(expression)); })()",
@@ -290,11 +290,10 @@ extension BookSource {
                 }
             }
         }
-        // 求值失敗，返回空字串（大多數 cookie/java 操作本身就是副作用，不影響 URL）
+        // Evaluation failed, return empty string (most cookie/java operations are side effects that don't affect the URL)
         return ""
     }
 }
 
-// MARK: - Legado Rule Analyzer（忠實移植 RuleAnalyzer.kt）
-// 用於規則字串的括號感知分割，處理 &&、||、%% 運算子
-
+// MARK: - Legado Rule Analyzer (faithful port of RuleAnalyzer.kt)
+// Used for bracket-aware splitting of rule strings, handling &&, ||, %% operators

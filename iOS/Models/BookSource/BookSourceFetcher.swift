@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-// MARK: - 書源網路請求 + 快取
+// MARK: - Book Source Network Requests + Cache
 
 final class RuntimeVariableBox: @unchecked Sendable {
     private let lock = NSLock()
@@ -39,26 +39,26 @@ func _dbgLog(
 }
 // #endregion
 
-/// 安全建立 URL：若 `URL(string:)` 因未編碼字元（如中文）而失敗，嘗試 percent-encoding 後重試。
-/// 同時過濾危險 scheme（file://、javascript: 等）和私有 IP，防止書源 SSRF。
+/// Safely creates a URL: if `URL(string:)` fails due to unencoded characters (e.g. CJK), retries with percent-encoding.
+/// Also filters dangerous schemes (file://, javascript:, etc.) and private IPs to prevent book source SSRF.
 func safeURL(string raw: String) -> URL? {
     func validate(_ url: URL) -> URL? {
         let scheme = url.scheme?.lowercased() ?? ""
-        // 僅允許白名單 scheme
+        // Only allow whitelisted schemes
         guard AppConfig.allowedURLSchemes.contains(scheme) else {
-            AppLogger.security("書源 URL 使用了不允許的 scheme，已阻止", context: ["url": raw, "scheme": scheme])
+            AppLogger.security("Book source URL uses a disallowed scheme", context: ["url": raw, "scheme": scheme])
             return nil
         }
-        // 阻止私有/保留 IP（防 SSRF）
+        // Block private/reserved IPs (SSRF prevention)
         if let host = url.host, isPrivateOrReservedHost(host) {
-            AppLogger.security("書源 URL 指向保留 IP 範圍，已阻止", context: ["url": raw, "host": host])
+            AppLogger.security("Book source URL points to reserved IP range", context: ["url": raw, "host": host])
             return nil
         }
         return url
     }
 
     if let url = URL(string: raw) { return validate(url) }
-    // 部分 Legado 書源回傳的章節 URL 含有未編碼中文或特殊字元
+    // Some Legado book sources return chapter URLs with unencoded CJK or special characters
     if let encoded = raw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
        let url = URL(string: encoded) { return validate(url) }
     return nil
@@ -100,7 +100,7 @@ private func isPrivateIPv6(_ addr: in6_addr) -> Bool {
 }
 
 actor BookSourceFetcher {
-    /// 供外部呼叫的 debug 日誌（驗證日誌管道）
+    /// Debug log for external callers (log pipeline verification)
     static func debugLog(_ msg: String, data: [String: Any] = [:]) {
         _ = msg
         _ = data
@@ -116,7 +116,7 @@ actor BookSourceFetcher {
         var errorDescription: String? {
             switch self {
             case .chapterTimeout:
-                return "章節載入超時"
+                return "Chapter load timeout"
             }
         }
     }
@@ -125,16 +125,16 @@ actor BookSourceFetcher {
         self.webFetcher = webFetcher
     }
 
-    // MARK: - WebView JS 渲染輔助方法
+    // MARK: - WebView JS Rendering Helpers
 
-    /// 靜態方法，跳到 MainActor 執行 WKWebView 載入
+    /// Static method, hops to MainActor to execute WKWebView load
     @MainActor
     static func fetchViaWebView(url: URL, headers: [String: String]) async throws -> String
     {
         try await WebViewFetcher.shared.fetchHTML(url: url, headers: headers, timeout: 15)
     }
 
-    // MARK: - HTTP 請求
+    // MARK: - HTTP Request
 
     func fetchHTML(
         url: URL, method: String, body: String?,
@@ -155,7 +155,7 @@ actor BookSourceFetcher {
 
 }
 
-// MARK: - 錯誤定義
+// MARK: - Error Definitions
 
 enum FetchError: LocalizedError {
     case noSearchURL
@@ -167,12 +167,12 @@ enum FetchError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noSearchURL: return "書源未設置搜索 URL"
-        case .invalidURL(let u): return "無效 URL：\(u)"
-        case .httpError(let code): return "HTTP 錯誤 \(code)"
-        case .cloudflareChallengeRequired(let url): return "需要人機驗證：\(url)"
-        case .encodingError: return "頁面編碼無法識別"
-        case .emptyContent: return "抓取到空內容"
+        case .noSearchURL: return "Book source has no search URL configured"
+        case .invalidURL(let u): return "Invalid URL: \(u)"
+        case .httpError(let code): return "HTTP error \(code)"
+        case .cloudflareChallengeRequired(let url): return "CAPTCHA required: \(url)"
+        case .encodingError: return "Page encoding not recognized"
+        case .emptyContent: return "Fetched empty content"
         }
     }
 }
@@ -187,7 +187,7 @@ struct CachedChapterMetadata: Codable {
     let failureReason: String?
 }
 
-// MARK: - Debugger 供開發時測試書源使用
+// MARK: - Debugger for testing book sources during development
 
 /// A global debugging environment for BookSourceFetcher to broadcast events
 class WebCrawlerDebugger: ObservableObject {

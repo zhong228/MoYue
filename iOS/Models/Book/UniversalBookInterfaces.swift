@@ -33,10 +33,10 @@ struct ReaderCapabilities: OptionSet {
     let rawValue: Int
 
     static let fontSize = ReaderCapabilities(rawValue: 1 << 0)
-    static let lineHeight = ReaderCapabilities(rawValue: 1 << 1)  // scroll mode / 翻頁動畫 / 頁面留白
+    static let lineHeight = ReaderCapabilities(rawValue: 1 << 1)  // scroll mode / page-turn animation / page margins
     static let background = ReaderCapabilities(rawValue: 1 << 2)
     static let darkMode = ReaderCapabilities(rawValue: 1 << 3)
-    static let spacing = ReaderCapabilities(rawValue: 1 << 4)     // 行距 / 字距 / 段距
+    static let spacing = ReaderCapabilities(rawValue: 1 << 4)     // line / letter / paragraph spacing
 
     static let reflowableText: ReaderCapabilities = [.fontSize, .lineHeight, .spacing, .background, .darkMode]
     static let fixedLayout: ReaderCapabilities = [.background, .darkMode]
@@ -228,8 +228,9 @@ struct TXTBookDocument: BookDocument {
 struct EPUBBookDocument: BookDocument {
     let metadata: BookMetadata
     let tableOfContents: [UniversalChapter]
-    // .spacing 暫時關閉：行距/段距/字距對 EPUB 尚未完整支援（CSS 優先權問題）
-    // 待 HTMLAttributedStringBuilder 套用 user override 後加回 .spacing
+    // .spacing is temporarily disabled: line/paragraph/letter spacing is not yet
+    // fully supported for EPUB due to CSS priority conflicts.
+    // Will be re-enabled after HTMLAttributedStringBuilder applies user overrides.
     let capabilities: ReaderCapabilities = [.fontSize, .lineHeight, .background, .darkMode]
 
     private let session: PublicationSession

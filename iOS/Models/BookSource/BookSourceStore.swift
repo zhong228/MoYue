@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 
-// MARK: - 書源管理（ObservableObject）
+// MARK: - Book Source Management (ObservableObject)
 
 class BookSourceStore: ObservableObject {
     static let shared = BookSourceStore()
@@ -49,7 +49,7 @@ class BookSourceStore: ObservableObject {
         sources.filter { $0.enabled }
     }
 
-    // MARK: 匯入（Legado 相容）
+    // MARK: Import (Legado Compatible)
 
     /// Import from raw Data, using the file extension to choose the right parser.
     @discardableResult
@@ -79,32 +79,32 @@ class BookSourceStore: ObservableObject {
         let decoder = JSONDecoder()
         var imported: [BookSource] = []
 
-        // 嘗試陣列格式 [...]
+        // Try array format [...]
         if let arr = try? decoder.decode([BookSource].self, from: data) {
             imported = arr
         }
-        // 嘗試單個物件 {...}
+        // Try single object {...}
         else if let single = try? decoder.decode(BookSource.self, from: data) {
             imported = [single]
         }
-        // 嘗試 Legado App 備份格式（bookSources 欄位）
+        // Try Legado App backup format (bookSources field)
         else if let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                 let raw = dict["bookSources"] {
             let subData = try JSONSerialization.data(withJSONObject: raw)
             imported = (try? decoder.decode([BookSource].self, from: subData)) ?? []
         }
         else {
-            // 產生有用的診斷訊息
+            // Produce useful diagnostic messages
             let detail: String
             do {
                 _ = try decoder.decode([BookSource].self, from: data)
                 detail = ""
             } catch let DecodingError.typeMismatch(type, ctx) {
-                detail = "類型不匹配: 期望 \(type), 路徑: \(ctx.codingPath.map(\.stringValue).joined(separator: "."))"
+                detail = "Type mismatch: expected \(type), path: \(ctx.codingPath.map(\.stringValue).joined(separator: "."))"
             } catch let DecodingError.keyNotFound(key, ctx) {
-                detail = "缺少 key: \(key.stringValue), 路徑: \(ctx.codingPath.map(\.stringValue).joined(separator: "."))"
+                detail = "Missing key: \(key.stringValue), path: \(ctx.codingPath.map(\.stringValue).joined(separator: "."))"
             } catch let DecodingError.dataCorrupted(ctx) {
-                detail = "數據損壞: \(ctx.debugDescription)"
+                detail = "Data corrupted: \(ctx.debugDescription)"
             } catch {
                 detail = error.localizedDescription
             }
@@ -114,7 +114,7 @@ class BookSourceStore: ObservableObject {
         return try importSources(imported)
     }
 
-    // MARK: 私有：合併書源
+    // MARK: Private: Merge Book Sources
 
     @discardableResult
     private func importSources(_ imported: [BookSource]) throws -> Int {
@@ -132,7 +132,7 @@ class BookSourceStore: ObservableObject {
         return imported.count
     }
 
-    // MARK: 你的益达 (.yds) 格式解析
+    // MARK: YDS (.yds) Format Parsing
 
     /// .yds is a JSON dictionary keyed by source display name.
     /// Each value uses different field names from Legado; convert to BookSource.
@@ -245,7 +245,7 @@ class BookSourceStore: ObservableObject {
         return det.isEmpty ? chap : det
     }
 
-    // MARK: 匯出
+    // MARK: Export
 
     func exportToJSON() -> String {
         guard let data = try? JSONEncoder().encode(sources),
@@ -262,7 +262,7 @@ class BookSourceStore: ObservableObject {
         return str
     }
 
-    // MARK: 持久化
+    // MARK: Persistence
 
     private func save() {
         if let data = try? JSONEncoder().encode(sources) {
@@ -277,7 +277,7 @@ class BookSourceStore: ObservableObject {
         sources = decoded
     }
 
-    // MARK: 錯誤
+    // MARK: Errors
 
     enum ImportError: LocalizedError {
         case invalidData
@@ -287,12 +287,12 @@ class BookSourceStore: ObservableObject {
 
         var errorDescription: String? {
             switch self {
-            case .invalidData: return "無效的數據格式"
-            case .parseError: return "無法解析書源 JSON，請確認格式正確"
+            case .invalidData: return "Invalid data format"
+            case .parseError: return "Unable to parse book source JSON"
             case .parseErrorDetail(let detail):
-                return "無法解析書源 JSON: \(detail)"
+                return "Unable to parse book source JSON: \(detail)"
             case .encryptedFormat(let fmt):
-                return "\(fmt) 格式使用私有加密，目前不支援直接導入。請改用對應 App 匯出為 JSON/TXT 格式。"
+                return "\(fmt) format uses proprietary encryption and is not supported for direct import. Please use the corresponding app to export as JSON/TXT format."
             }
         }
     }

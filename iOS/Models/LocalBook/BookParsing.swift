@@ -45,7 +45,7 @@ enum BookParserRegistryError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedFormat:
-            return "不支援的檔案格式"
+            return "Unsupported file format"
         }
     }
 }
@@ -145,7 +145,7 @@ struct JSONBookParser: BookParser {
         let author = Self.firstStringDeep(
             in: root,
             keys: ["author", "writer", "creator"]
-        ) ?? "未知作者"
+        ) ?? "Unknown Author"
 
         let chapters = Self.extractChapters(from: root)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

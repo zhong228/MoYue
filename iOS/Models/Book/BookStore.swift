@@ -34,7 +34,8 @@ class BookStore: ObservableObject, BookProvider {
 
     init() { loadMeta() }
 
-    // MARK: 讀取書籍正文
+    // MARK: Read Book Content
+
     func content(for book: ReadingBook) -> String {
         let url = documentsURL(for: book.contentFilename)
         return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
@@ -60,10 +61,11 @@ class BookStore: ObservableObject, BookProvider {
         }
     }
 
-    // MARK: 章節解析 (獨立區分 EPUB 與 TXT)
+    // MARK: Chapter Parsing
+
     func chapters(for book: ReadingBook) -> [BookChapter] {
         if book.isOnline, let refs = book.onlineChapters {
-            // 線上書：從章節引用轉換，content 從快取讀取（空 = 尚未載入）
+            // Online book: convert from chapter refs; content read from cache (empty = not yet loaded)
             return refs.map { ref in
                 let cached = BookSourceFetcher.shared.loadCachedChapterSync(
                     bookId: book.id, chapterIndex: ref.index)
@@ -71,10 +73,9 @@ class BookStore: ObservableObject, BookProvider {
             }
         }
 
-        // 🛑 核心：如果是 EPUB，不走 TXT 解析器
-        // 新格式（epub.js 方案）：contentFilename 直接是 .epub，由閱讀器的 JS 引擎解析 TOC
+        // EPUB path: skip TXT parser. epub.js engine resolves TOC.
         if book.resolvedPipelineKind == .epub {
-            // 舊格式：曾解析為 _epub.json
+            // Legacy format: previously parsed as _epub.json
             if book.isLegacyParsedEPUB {
                 let url = documentsURL(for: book.contentFilename)
                 if let data = try? Data(contentsOf: url),
@@ -83,7 +84,7 @@ class BookStore: ObservableObject, BookProvider {
                     return decoded
                 }
             }
-            // 新格式 / 舊格式解析失敗：回傳佔位章節，epub.js 的 onTOC 回調會在閱讀器啟動後更新
+            // New format or legacy parse failure: return placeholder; epub.js onTOC updates after reader starts.
             return [BookChapter(index: 0, title: book.title, content: "")]
         }
 
@@ -91,11 +92,12 @@ class BookStore: ObservableObject, BookProvider {
             return [BookChapter(index: 0, title: book.title, content: "")]
         }
 
-        // 如果是傳統 TXT，回傳純文字內容（實際渲染走 CoreText TXT 引擎）
+        // Traditional TXT: return plain-text content; actual rendering uses CoreText TXT engine.
         return [BookChapter(index: 0, title: book.title, content: content(for: book))]
     }
 
-    // MARK: 匯入 TXT 檔案
+    // MARK: Import TXT File
+
     @discardableResult
     func importTxt(url: URL, title: String? = nil) throws -> ReadingBook {
         let bookTitle = title ?? url.deletingPathExtension().lastPathComponent
@@ -258,7 +260,8 @@ class BookStore: ObservableObject, BookProvider {
         }
     }
 
-    // MARK: 修改3：匯入 EPUB 檔案
+    // MARK: Import EPUB File
+
     @discardableResult
     func importEpub(url: URL, title: String? = nil) async throws -> ReadingBook {
         let importStartUptime = ProcessInfo.processInfo.systemUptime
@@ -268,7 +271,6 @@ class BookStore: ObservableObject, BookProvider {
             NSLog("%@", line)
         }
 
-        // 0. 產生 UUID 作為新檔名
         let uuid = UUID().uuidString
         let filename = "\(uuid).epub"
         let destURL = documentsURL(for: filename)
@@ -301,7 +303,7 @@ class BookStore: ObservableObject, BookProvider {
         do {
             try Task.checkCancellation()
 
-            // 1. 複製 EPUB 檔案到 Documents 目錄
+            // 1. Copy EPUB to Documents
             let copyStart = ProcessInfo.processInfo.systemUptime
             if FileManager.default.fileExists(atPath: destURL.path) {
                 try FileManager.default.removeItem(at: destURL)
@@ -312,7 +314,7 @@ class BookStore: ObservableObject, BookProvider {
             )
             try Task.checkCancellation()
 
-            // 2. 提取封面與元數據（合併處理以避免重複解析 EPUB ZIP 與 XML）
+            // 2. Extract cover and metadata (merged to avoid redundant EPUB ZIP/XML parsing)
             let metadataStart = ProcessInfo.processInfo.systemUptime
             let session = try? await PublicationSession.open(sourceURL: destURL)
             importTrace(
@@ -324,7 +326,7 @@ class BookStore: ObservableObject, BookProvider {
             if let coverResult = await session?.publication.cover(), case .success(let optionalImage) = coverResult, let coverImage = optionalImage {
                 let coverName = "\(uuid)_cover.jpg"
                 let coverURL = documentsURL(for: coverName)
-                // 將封面轉為 JPEG 儲存（壓縮節省空間）
+                // Convert cover to JPEG for space efficiency
                 if let jpegData = coverImage.jpegData(compressionQuality: 0.85) {
                     do {
                         try jpegData.write(to: coverURL)
@@ -339,7 +341,7 @@ class BookStore: ObservableObject, BookProvider {
             )
             try Task.checkCancellation()
 
-            // 3. 建立書籍模型
+            // 3. Build book model
             let fallbackTitle = title ?? url.deletingPathExtension().lastPathComponent
             let parsedTitle = session?.bookTitle.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let parsedAuthor = session?.author.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -372,7 +374,8 @@ class BookStore: ObservableObject, BookProvider {
         }
     }
 
-    // MARK: 匯入網頁文字
+    // MARK: Import Web Text
+
     @discardableResult
     func importWeb(
         content: String,
@@ -390,7 +393,8 @@ class BookStore: ObservableObject, BookProvider {
         )
     }
 
-    // MARK: 更新閱讀進度
+    // MARK: Update Reading Progress
+
     func updatePosition(bookId: UUID, position: Double) {
         if let idx = books.firstIndex(where: { $0.id == bookId }) {
             books[idx].currentPosition = position
@@ -429,11 +433,12 @@ class BookStore: ObservableObject, BookProvider {
         saveMeta()
     }
 
-    // MARK: 書籤管理
+    // MARK: Bookmark Management
 
     func addBookmark(bookId: UUID, bookmark: Bookmark) {
         guard let idx = books.firstIndex(where: { $0.id == bookId }) else { return }
-        // 避免同一穩定座標重複書籤。Topbar 書籤會寫入章首座標，所以同章共用一個。
+        // Prevent duplicate bookmarks at the same stable position.
+        // Top-bar bookmarks write chapter-start positions, so they share one per chapter.
         if books[idx].bookmarks.contains(where: { $0.hasSameStableLocation(as: bookmark) }) { return }
         books[idx].bookmarks.append(bookmark)
         books[idx].bookmarks = books[idx].bookmarks.sortedByStablePosition()
@@ -501,7 +506,8 @@ class BookStore: ObservableObject, BookProvider {
         isBookmark(bookId: bookId, position: .chapterStart(chapterIndex))
     }
 
-    // MARK: 增量更新書籍正文（下載中斷保護用）
+    // MARK: Incremental Content Update (download interruption protection)
+
     func updateBookContent(bookId: UUID, rawText: String) {
         guard let idx = books.firstIndex(where: { $0.id == bookId }) else { return }
         let filename = books[idx].contentFilename
@@ -513,7 +519,8 @@ class BookStore: ObservableObject, BookProvider {
         }
     }
 
-    // MARK: 編輯書籍資訊
+    // MARK: Edit Book Info
+
     func updateBook(bookId: UUID, title: String, author: String) {
         if let idx = books.firstIndex(where: { $0.id == bookId }) {
             books[idx].title = title.isEmpty ? books[idx].title : title
@@ -522,7 +529,8 @@ class BookStore: ObservableObject, BookProvider {
         }
     }
 
-    // MARK: 書架分組
+    // MARK: Bookshelf Grouping
+
     var allGroups: [String] {
         let groups = books.compactMap { $0.group.isEmpty ? nil : $0.group }
         return Array(Set(groups)).sorted()
@@ -535,13 +543,13 @@ class BookStore: ObservableObject, BookProvider {
         }
     }
 
-    // MARK: 刪除書籍
-    /// 將指定 id 的書籍移到 `targetId` 之前；`targetId == nil` 代表移到最後。
-    /// 用於拖曳排序，會保留多筆移動順序。
+    // MARK: Delete Book
+
+    /// Moves the books with the given `ids` before `targetId`.
+    /// If `targetId` is nil, moves them to the end. Preserves relative order.
     func moveBooks(ids: [UUID], before targetId: UUID?) {
         guard !ids.isEmpty else { return }
         let idSet = Set(ids)
-        // 依目前 books 順序保留 moving 內部相對順序
         let moving = books.filter { idSet.contains($0.id) }
         var rest = books.filter { !idSet.contains($0.id) }
         if let targetId, let idx = rest.firstIndex(where: { $0.id == targetId }) {
@@ -557,7 +565,7 @@ class BookStore: ObservableObject, BookProvider {
         if let idx = books.firstIndex(where: { $0.id == bookId }) {
             let book = books[idx]
             if book.isOnline {
-                // 刪除快取目錄
+                // Delete cache directory
                 let cacheDir = documentsURL(for: "online_cache/\(bookId.uuidString)")
                 do {
                     try FileManager.default.removeItem(at: cacheDir)
@@ -572,7 +580,7 @@ class BookStore: ObservableObject, BookProvider {
                     Logger(subsystem: "com.yuedu.app", category: "BookStore").error("Failed to remove document file \(book.contentFilename): \(error)")
                 }
                 TXTChapterParser.deleteCachedIndexes(bookId: bookId)
-                // 同步刪除 EPUB 字型資源目錄
+                // Also delete EPUB font resource directory
                 if book.isLegacyParsedEPUB {
                     let assetsDir = book.contentFilename.replacingOccurrences(
                         of: "_epub.json", with: "_epub_assets")
@@ -589,7 +597,8 @@ class BookStore: ObservableObject, BookProvider {
         }
     }
 
-    // MARK: 新增線上書籍（書源）
+    // MARK: Add Online Book (from book source)
+
     @discardableResult
     func addOnlineBook(
         name: String, author: String,
@@ -611,7 +620,8 @@ class BookStore: ObservableObject, BookProvider {
         return book
     }
 
-    // MARK: 新增瀏覽器轉碼書（無書源，按 URL 懶加載）
+    // MARK: Add Browser-Imported Book (no book source; lazy-loads by URL)
+
     @discardableResult
     func addWebBrowsedBook(
         name: String, author: String,
@@ -621,7 +631,7 @@ class BookStore: ObservableObject, BookProvider {
         var book = ReadingBook(title: name, author: author, source: sourceURL, contentFilename: "")
         book.isOnline = true
         book.contentPipelineKind = .html
-        book.bookSourceId = nil  // nil 表示瀏覽器轉碼書，不依賴書源
+        book.bookSourceId = nil  // nil indicates browser-converted book, independent of book sources
         book.bookInfoURL = sourceURL
         book.onlineChapters = chapters
         books.insert(book, at: 0)
@@ -629,7 +639,8 @@ class BookStore: ObservableObject, BookProvider {
         return book
     }
 
-    // MARK: 更新已快取章節
+    // MARK: Update Cached Chapters
+
     func updateCachedChapter(bookId: UUID, chapterIndex: Int, filename: String) {
         guard let idx = books.firstIndex(where: { $0.id == bookId }),
             var chapters = books[idx].onlineChapters
@@ -652,8 +663,8 @@ class BookStore: ObservableObject, BookProvider {
         }
     }
 
-    /// 清掉整本書所有章節的 cachedFilename 標記（不動 offlineDownloadState）。
-    /// 用於 refresh 時搭配 `clearAllChapterCache` 一次重置全書 cache 狀態。
+    /// Clears all cachedFilename markers for a book without affecting offlineDownloadState.
+    /// Used alongside `clearAllChapterCache` during refresh to reset the book's cache state.
     func clearAllCachedChapterFilenames(bookId: UUID) {
         guard let idx = books.firstIndex(where: { $0.id == bookId }),
             var chapters = books[idx].onlineChapters
@@ -687,15 +698,18 @@ class BookStore: ObservableObject, BookProvider {
         saveMeta()
     }
 
-    // MARK: 更新線上書的目錄章節（漸進式 TOC 加載完成後呼叫）
+    // MARK: Update Online Book TOC (called after progressive TOC load completes)
+
     func updateOnlineChapters(bookId: UUID, chapters: [OnlineChapterRef]) {
         guard let idx = books.firstIndex(where: { $0.id == bookId }) else { return }
         books[idx].onlineChapters = chapters
         saveMeta()
     }
 
-    // MARK: 換源（更新線上書的書源與目錄，並清空章節快取）
-    /// 將指定書籍切換到新書源：拉取新目錄、更新 bookSourceId/bookInfoURL/onlineChapters、清空該書章節快取。
+    // MARK: Switch Book Source
+
+    /// Switches the book to a new source: fetches new TOC, updates book-source metadata,
+    /// replaces onlineChapters, and clears the chapter cache.
     func updateOnlineBookSource(bookId: UUID, origin: BookOrigin) async throws {
         guard let source = BookSourceStore.shared.sources.first(where: { $0.id == origin.sourceId })
         else {
@@ -875,7 +889,8 @@ class BookStore: ObservableObject, BookProvider {
         return updated
     }
 
-    // MARK: 私有方法
+    // MARK: Private Methods
+
     private func saveBook(
         title: String,
         author: String,
@@ -917,7 +932,7 @@ class BookStore: ObservableObject, BookProvider {
         }
 
         saveWorkItem = workItem
-        // 延遲 2 秒寫入（防抖機制）避免頻繁觸發卡頓
+        // Debounce writes by 2 seconds to avoid frequent UI stalls
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: workItem)
     }
 
@@ -974,7 +989,8 @@ class BookStore: ObservableObject, BookProvider {
         }
     }
 
-    /// 清理所有已持久化線上書籍的章節 URL，將包含 HTML 標籤的 URL 替換為乾淨的 href
+    /// Cleans persisted online book chapter URLs: replaces URLs containing HTML
+    /// markup with sanitized href values.
     private func sanitizePersistedChapterURLs() {
         var needsSave = false
         for i in books.indices {
@@ -1044,4 +1060,3 @@ class BookStore: ObservableObject, BookProvider {
             .replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
     }
 }
-

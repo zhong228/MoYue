@@ -25,7 +25,7 @@ enum XHTMLBookBuilder {
                 title: title,
                 html: ReaderHTMLUtilities.normalizedChapterHTML(
                     title: title,
-                    paragraphs: ["載入章節中…"]
+                    paragraphs: ["Loading chapter..."]
                 ),
                 href: "chapter_0.xhtml"
             )]

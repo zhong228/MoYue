@@ -68,7 +68,7 @@ enum TXTChapterParser {
                     indexes.append(
                         TXTChapterIndex(
                             index: indexes.count,
-                            title: "前言",
+                            title: "Preface",
                             contentRange: prefaceRange
                         )
                     )
@@ -118,7 +118,7 @@ enum TXTChapterParser {
                     indexes.append(
                         TXTMappedChapterIndex(
                             index: indexes.count,
-                            title: "前言",
+                            title: "Preface",
                             byteRange: prefaceRange
                         )
                     )
@@ -256,7 +256,7 @@ enum TXTChapterParser {
             currentSize += paragraph.count
             if currentSize >= blockSize {
                 chapterNum += 1
-                chapters.append(ParsedChapter(title: "第 \(chapterNum) 節", paragraphs: current))
+                chapters.append(ParsedChapter(title: "Section \(chapterNum)", paragraphs: current))
                 current.removeAll(keepingCapacity: true)
                 currentSize = 0
             }
@@ -264,7 +264,7 @@ enum TXTChapterParser {
 
         if !current.isEmpty {
             chapterNum += 1
-            let title = chapterNum == 1 ? bookTitle : "第 \(chapterNum) 節"
+            let title = chapterNum == 1 ? bookTitle : "Section \(chapterNum)"
             chapters.append(ParsedChapter(title: title, paragraphs: current))
         }
 
@@ -291,7 +291,7 @@ enum TXTChapterParser {
                 }
             }
             let range = NSRange(location: cursor, length: max(0, end - cursor))
-            let title = result.isEmpty ? bookTitle : "第 \(result.count + 1) 節"
+            let title = result.isEmpty ? bookTitle : "Section \(result.count + 1)"
             result.append(TXTChapterIndex(index: result.count, title: title, contentRange: range))
             cursor = max(end, cursor + 1)
         }
@@ -534,7 +534,7 @@ enum TXTChapterParser {
                 end = min(cursor + 1, total)
             }
 
-            let title = result.isEmpty ? bookTitle : "第 \(result.count + 1) 節"
+            let title = result.isEmpty ? bookTitle : "Section \(result.count + 1)"
             result.append(
                 TXTMappedChapterIndex(
                     index: result.count,
@@ -680,22 +680,22 @@ struct TXTBookParser: BookParser {
                 return trimmedTitle + "\n" + body
             }
             .filter { !$0.isEmpty }
-        let author = Self.extractAuthor(from: text) ?? "未知作者"
+        let author = Self.extractAuthor(from: text) ?? "Unknown Author"
         return ParsedBookDocument(title: title, author: author, chapters: chapters)
     }
 
     /// Scans the preface area (first 3000 chars) for common author line patterns.
-    /// Matches: 作者：XXX / 著：XXX / Author: XXX / XXX 著 etc.
+    /// Matches patterns like: Author: XXX, Written by XXX, XXX 著, etc.
     private static func extractAuthor(from text: String) -> String? {
         let sample = String(text.prefix(3000))
         let patterns = [
-            // 作者：XXX  /  作者:XXX
+            // Author：XXX  /  Author:XXX
             "作者\\s*[：:﹕]\\s*([^\\n\\r，,。！？]{1,30})",
-            // 著：XXX  /  著者：XXX
+            // 著：XXX  /  著者：XXX (Writer: XXX)
             "著者?\\s*[：:﹕]\\s*([^\\n\\r，,。！？]{1,30})",
             // Author: XXX  /  Written by XXX
             "(?:Author|Written by)\\s*[：:﹕]?\\s*([A-Za-z\\u4E00-\\u9FFF\\u3400-\\u4DBF]{1,40})",
-            // 行尾 XXX 著  (e.g. 金庸 著)
+            // Line-ending XXX 著  (e.g. Jin Yong 著)
             "^([^\\n\\r，,。！？：:]{1,20})\\s+著\\s*$",
         ]
         for pattern in patterns {
@@ -716,4 +716,3 @@ struct TXTBookParser: BookParser {
         return nil
     }
 }
-

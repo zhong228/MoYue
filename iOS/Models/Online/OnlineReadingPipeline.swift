@@ -40,12 +40,14 @@ actor ChapterFetchManager {
     private var states: [String: OnlineChapterLoadState] = [:]
     private var priorities: [String: ChapterFetchPriority] = [:]
 
-    // MARK: - Generation Token（防止舊世代 fetch 結果汙染新 UI）
-    // 每次新的 fetchChapter 呼叫都會更新 token；回傳前先確認 token 仍有效
+    // MARK: - Generation Token
+    // Each new fetchChapter call updates the token; results are validated before use
+    // to prevent stale generation results from contaminating the UI.
     private var generationTokens: [String: UUID] = [:]
 
-    // MARK: - 失敗計數 + Quarantine 觸發
-    // 累積同一本書的章節取得失敗次數，超過門檻後標記為 quarantined
+    // MARK: - Failure Count + Quarantine
+    // Accumulates per-book chapter fetch failures; books exceeding the threshold
+    // are marked as quarantined.
     private var bookFailureCounts: [UUID: Int] = [:]
     private let quarantineThreshold = AppConfig.chapterFetchQuarantineThreshold
 
@@ -65,16 +67,20 @@ actor ChapterFetchManager {
         generationTokens[taskKey] == token
     }
 
-    /// 判斷快取章節內容是否明顯異常（過長、或包含多個章節標題）。
-    /// 用於 CF 流程或爬取出錯時把「多章合併」的壞快取擋下，觸發重抓。
+    /// Determines whether cached chapter content is suspiciously abnormal
+    /// (excessively long, or containing multiple chapter titles).
+    /// Used to reject bad caches where multiple chapters were merged,
+    /// triggering a re-fetch.
     ///
-    /// 之前還有一條「本章完／未完待續 ≥ 2」的規則，但 69shuba 之類的站
-    /// 單章正文裡天然會出現多次這些標記（章間廣告／分頁提示），導致整本書
-    /// 卡在 placeholder。多章合併必然伴隨多個章節標題頭，靠 chapterMarkers
-    /// 那條已足以捕捉，endMarker 規則拿掉。
-    // 超過此字數幾乎可斷定是多章合併
+    /// A previous rule that looked for "chapter complete / to be continued"
+    /// markers was removed because some sites (e.g. 69shuba) naturally include
+    /// those markers multiple times within a single chapter body (as inter-chapter
+    /// ads / pagination hints), causing entire books to get stuck as placeholders.
+    /// Multi-chapter merges always include multiple chapter title headers, which
+    /// the chapterMarkers rule already detects sufficiently.
+    // Over this character count, a merge is nearly certain
     private static let suspiciousContentLengthThreshold = 50_000
-    // 內容中出現此數量以上「第X章/回/節」標題，視為多章混入
+    // If the content contains this many "Chapter N / Volume N" headings, treat as multi-chapter merge
     private static let suspiciousChapterHeadingThreshold = 3
     private static let chapterHeadingRegex = try! NSRegularExpression(
         pattern: #"第\s*[\d零一二三四五六七八九十百千萬万]+\s*[章回卷節节篇部]"#
@@ -136,7 +142,7 @@ actor ChapterFetchManager {
                 userInfo: [NSLocalizedDescriptionKey: "找不到章節"])
         }
 
-        // 清理舊快取可能殘留的 HTML 片段 URL（如 <a href="...">第1章</a>）
+        // Clean up HTML fragment URLs that may remain from old caches (e.g. <a href="...">Chapter 1</a>)
         let sanitizedURL = RuleEngine.sanitizeExtractedURL(refs[chapterIndex].url)
 
         if let cached = bookSourceFetcher.loadChapterPackageSync(
@@ -150,7 +156,7 @@ actor ChapterFetchManager {
             states[key(bookId: book.id, chapterIndex: chapterIndex)] = .cached
             return cached
         }
-        // 若使用原始 URL 有快取（舊版存入的），也接受
+        // Also accept caches stored under the original URL (legacy path)
         if sanitizedURL != refs[chapterIndex].url,
            let cached = bookSourceFetcher.loadChapterPackageSync(
             bookId: book.id,
@@ -166,8 +172,9 @@ actor ChapterFetchManager {
 
         let taskKey = key(bookId: book.id, chapterIndex: chapterIndex)
 
-        // 若已有相同章節的請求正在執行，直接共用該結果。
-        // 不要在這裡刷新 generation token，否則會把 in-flight task 的合法結果判成舊世代。
+        // If an in-flight request already exists for this chapter, share its result.
+        // Do not refresh the generation token here, or the in-flight task's result
+        // would be treated as a stale generation.
         if let existing = tasks[taskKey] {
             if let existingPriority = priorities[taskKey],
                 priority == .jump,
@@ -184,11 +191,13 @@ actor ChapterFetchManager {
             }
         }
 
-        // 只有建立新 task 時才生成 token，作為這次抓取結果的唯一有效世代。
+        // Only generate a token when creating a new task, as the unique valid
+        // generation for this fetch result.
         let myToken = UUID()
         generationTokens[taskKey] = myToken
 
-        // 高優先插隊：跳章時中斷本書其他 in-flight fetch，釋放 WKWebView slot
+        // High-priority preemption: on a jump, cancel other in-flight fetches for
+        // the same book to free WKWebView slots.
         if priority == .jump {
             let prefix = "\(book.id.uuidString)#"
             for (otherKey, otherTask) in tasks where otherKey != taskKey && otherKey.hasPrefix(prefix) {
@@ -201,7 +210,7 @@ actor ChapterFetchManager {
 
         states[taskKey] = .loading
         var ref = refs[chapterIndex]
-        // 將清理過的 URL 寫回 ref，確保下游所有程式碼使用乾淨的 URL
+        // Write the cleaned URL back to the ref so all downstream code uses it
         ref.url = sanitizedURL
         if let bookRuntime = book.runtimeVariables, !bookRuntime.isEmpty {
             var mergedRuntime = bookRuntime
@@ -243,7 +252,7 @@ actor ChapterFetchManager {
                 )
             }
 
-            let bsf = bookSourceFetcher  // 在進入 @MainActor closure 前先捕捉 actor 屬性
+            let bsf = bookSourceFetcher
             let capturedStore = store
             let selfRef = self
             print("[FetchTrace] fetchBrowserImportedChapter start ch=\(chapterIndex) url=\(ref.url)")
@@ -251,7 +260,7 @@ actor ChapterFetchManager {
                 urlString: ref.url,
                 referer: book.bookInfoURL ?? book.source,
                 progressHandler: { @MainActor partial in
-                    // Generation token 守門：若此 task 已被插隊中斷/作廢，不要汙染 cache
+                    // Generation token gate: if this task was preempted/invalidated, do not contaminate cache
                     Task {
                         guard await selfRef.isTokenValid(taskKey: taskKey, token: myToken) else { return }
                         _ = bsf.saveToCache(
@@ -327,9 +336,9 @@ actor ChapterFetchManager {
         do {
             let package = try await task.value
 
-            // Generation Token 驗證：確保此結果仍屬於最新的請求
+            // Generation token validation: ensure this result is still from the latest request
             guard generationTokens[taskKey] == myToken else {
-                throw CancellationError()  // 舊世代結果，靜默丟棄
+                throw CancellationError()  // Stale generation result, silently discard
             }
 
             if package.state == .cached && !package.content.isEmpty {
@@ -345,7 +354,7 @@ actor ChapterFetchManager {
                         bookId: book.id, chapterIndex: chapterIndex, filename: filename)
                 }
                 states[taskKey] = .cached
-                // 成功：重置失敗計數
+                // Success: reset failure counter
                 bookFailureCounts[bookId] = 0
                 ReaderTelemetry.shared.log(
                     "chapter_fetch_end",
@@ -366,7 +375,7 @@ actor ChapterFetchManager {
             clearRequestTracking(for: taskKey, token: myToken)
             return package
         } catch is CancellationError {
-            // Generation token 失效或 Task 被取消：清理不記失敗
+            // Generation token invalidated or task cancelled: clean up without recording failure
             clearRequestTracking(for: taskKey, token: myToken)
             throw CancellationError()
         } catch {
@@ -415,8 +424,9 @@ actor ChapterFetchManager {
         states[taskKey] = .missing
     }
 
-    /// 取消低優先任務（background/prefetch），保留 immediate/jump 任務。
-    /// 用於使用者跳頁時：先清除背景預取，再以最高優先搶先執行目標章節。
+    /// Cancels low-priority tasks (background/prefetch) while preserving immediate/jump tasks.
+    /// Used when the user jumps to a page: clears background prefetches, then runs the target
+    /// chapter at maximum priority.
     func cancelLowPriority(for bookId: UUID, keepPriority: ChapterFetchPriority = .immediate) {
         let prefix = "\(bookId.uuidString)#"
         let keysToCancel = tasks.keys.filter { key in
@@ -434,7 +444,8 @@ actor ChapterFetchManager {
         }
     }
 
-    // MARK: - 內部：失敗處理 + Quarantine 觸發
+    // MARK: - Failure Handling + Quarantine Trigger
+
     private func handleFetchFailure(
         bookId: UUID,
         chapterIndex: Int,
@@ -453,7 +464,6 @@ actor ChapterFetchManager {
             reason: reason
         )
 
-        // 累積失敗計數
         let failCount = (bookFailureCounts[bookId] ?? 0) + 1
         bookFailureCounts[bookId] = failCount
 
@@ -469,7 +479,7 @@ actor ChapterFetchManager {
             ]
         )
 
-        // 超過 quarantine 門檻：自動標記整本書
+        // Exceeds quarantine threshold: auto-mark the entire book
         if failCount >= quarantineThreshold {
             ReaderTelemetry.shared.log(
                 "book_quarantined",
@@ -540,7 +550,7 @@ actor ChapterFetchManager {
                     let cleaned = BookSourceFetcher.cleanChapterContent(result.content)
                     if !allContent.isEmpty { allContent += "\n" }
                     allContent += cleaned
-                    // 第一頁到手：立即通知 Reader，不等後續分頁
+                    // First page obtained: notify reader immediately, don't wait for subsequent pages
                     if visited.count == 1 {
                         progressHandler?(allContent)
                     }
@@ -554,7 +564,7 @@ actor ChapterFetchManager {
                 if case .cloudflareChallengeRequired(let urlStr) = err,
                     let challengeURL = URL(string: urlStr)
                 {
-                    // 使用者取消 CF 挑戰時直接放棄，不重試（避免循環彈出）
+                    // If the user cancels the CF challenge, give up immediately (avoid loop)
                     do {
                         _ = try await CloudflareChallengePresenter.present(url: challengeURL)
                     } catch {
@@ -677,7 +687,8 @@ final class OnlineBookCoordinator {
     // Safe: always first accessed from @MainActor context (AppDependencies.live or @MainActor tests).
     static let shared = OnlineBookCoordinator(webViewFetcher: MainActor.assumeIsolated { WebViewFetcher.shared })
 
-    // MARK: - 可注入依賴（默認使用 shared 單例，支援測試替換）
+    // MARK: - Injectable Dependencies (defaults to shared singletons, supports test substitution)
+
     let bookSourceFetcher: BookSourceFetcher
     let chapterFetchManager: ChapterFetchManager
     let webViewFetcher: WebViewFetcher
@@ -694,11 +705,12 @@ final class OnlineBookCoordinator {
 
     private static let chapterPlaceholderBody = "載入章節中…"
 
-    /// 每本書的穩定 basePath（避免每次 buildPackage 都產生新 UUID 目錄，
-    /// 導致 reloadWithUpdatedPackage 檢測到 basePath 不同而觸發完整重載）
+    /// Per-book stable basePath. Avoids regenerating a new UUID directory on each
+    /// buildPackage call, which would cause reloadWithUpdatedPackage to detect a
+    /// basePath change and trigger a full reload.
     private var stableBasePaths: [UUID: URL] = [:]
 
-    /// 取得或建立一本書的穩定 basePath
+    /// Returns or creates a stable basePath for a book.
     private func stableBasePath(for bookId: UUID) -> URL {
         if let existing = stableBasePaths[bookId] {
             return existing
@@ -738,9 +750,10 @@ final class OnlineBookCoordinator {
         )
     }
 
-    /// 將全書章節轉換為 XHTML 格式。
-    /// ⚠️ O(N) 操作（遍歷所有章節），僅供**下載離線閱讀**使用。
-    /// 線上閱讀的渲染路徑使用 CoreTextPageEngine 的增量載入機制，不經過此方法。
+    /// Converts all book chapters to XHTML format.
+    /// O(N) operation (traverses all chapters). Only used for **offline download**
+    /// reading. Online reading uses CoreTextPageEngine's incremental loading
+    /// mechanism and does not go through this method.
     private func buildConvertedBook(
         for book: ReadingBook,
         refs: [OnlineChapterRef],
@@ -749,7 +762,7 @@ final class OnlineBookCoordinator {
         let bsf = bookSourceFetcher
         let xhtmlChapters = refs.enumerated().map { idx, ref in
             let sanitizedURL = RuleEngine.sanitizeExtractedURL(ref.url)
-            // 嘗試用清理後的 URL 查找快取，若找不到再嘗試原始 URL（相容舊版快取）
+            // Try the cleaned URL first, then the original URL (legacy cache compat)
             var chapterPackage = bsf.loadChapterPackageSync(
                 bookId: book.id,
                 chapterIndex: ref.index,
@@ -840,8 +853,9 @@ final class OnlineBookCoordinator {
         try buildPackage(for: book)
     }
 
-    /// 建構完整的 BookPackage 供離線閱讀。僅供下載流程呼叫。
-    /// 線上閱讀使用 OnlineNodeAttributedStringBuilder + CoreTextPageEngine，不經過此方法。
+    /// Builds a complete BookPackage for offline reading. Only called from the download flow.
+    /// Online reading uses OnlineNodeAttributedStringBuilder + CoreTextPageEngine and
+    /// does not go through this method.
     func buildPackage(for book: ReadingBook, preferredChapter: Int? = nil) throws -> BookPackage {
         guard let refs = book.onlineChapters, !refs.isEmpty else {
             return try Self.makePlaceholderPackage(for: book)
@@ -871,7 +885,7 @@ final class OnlineBookCoordinator {
         return package
     }
 
-    /// 預熱下載流程所需的章節視窗。僅供下載流程呼叫。
+    /// Warms the download-flow chapter window. Only called from the download flow.
     func warmCurrentWindow(
         for book: ReadingBook,
         chapterIndex: Int,
@@ -884,7 +898,7 @@ final class OnlineBookCoordinator {
                 priority: .immediate,
                 store: store
             )
-            // 只有當 fetchChapter 成功取得真實內容時才回傳 package
+            // Only return the package when fetchChapter actually obtained real content
             guard pkg.state == .cached, !pkg.content.isEmpty else {
                 return nil
             }
@@ -895,7 +909,7 @@ final class OnlineBookCoordinator {
         }
     }
 
-    /// 跳轉到指定章節並建構 BookPackage。僅供下載/離線跳轉流程呼叫。
+    /// Jumps to a specific chapter and builds a BookPackage. Only for download/offline jump flow.
     func fetchJumpTarget(
         for book: ReadingBook,
         chapterIndex: Int,
@@ -931,10 +945,10 @@ final class OnlineBookCoordinator {
         guard let refs = book.onlineChapters, !refs.isEmpty else { return }
         let last = refs.count - 1
 
-        // 前向優先：N+1、N+2 用 prefetch（使用者往後讀的概率遠大於往前）
+        // Forward priority: N+1, N+2 use prefetch (user is far more likely to read forward)
         let forwardIndices = [center + 1, center + 2]
             .filter { $0 >= 0 && $0 <= last }
-        // 後向備用：N-1、N-2 用 background（保留回頭翻閱的情境）
+        // Backward fallback: N-1, N-2 use background (preserve back-navigation)
         let backwardIndices = [center - 1, center - 2]
             .filter { $0 >= 0 && $0 <= last }
 
@@ -958,9 +972,10 @@ final class OnlineBookCoordinator {
         }
     }
 
-    // MARK: - 健全性檢查
+    // MARK: - Sanity Checks
 
-    /// 章節標題正則：匹配「第N章/回/卷/節/篇/部」（支援中文數字 + 阿拉伯數字）
+    /// Chapter heading regex: matches "Chapter N / Part N / Volume N / Section N / Part N"
+    /// (supports Chinese numerals + Arabic numerals).
     private static let chapterHeadingRegex: NSRegularExpression? = {
         try? NSRegularExpression(
             pattern: #"^第\s*[\d零一二三四五六七八九十百千萬万]+\s*[章回卷節节篇部]"#,
@@ -1004,13 +1019,12 @@ final class OnlineBookCoordinator {
         return cleanedTOC
     }
 
-    /// 驗證快取的章節內容與 TOC 標題是否匹配。
-    /// 若內容首行看起來是另一個章節的標題（與 TOC 不同），記錄警告。
+    /// Validates that cached chapter content matches the TOC title.
+    /// If the first line looks like a different chapter title, logs a warning.
     private static func validateContentMatchesTOCTitle(
         content: String, tocTitle: String,
         chapterIndex: Int, bookId: UUID
     ) -> Bool {
-        // 取內容首個非空行
         let firstLine: String? =
             content
             .components(separatedBy: .newlines)
@@ -1019,7 +1033,7 @@ final class OnlineBookCoordinator {
         guard let firstLine, !firstLine.isEmpty else { return true }
         let trimmedFirst = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // 只有當首行本身看起來像章節標題時才做檢查（短行 + 匹配章節格式）
+        // Only check when the first line looks like a chapter title (short line + matches format)
         guard trimmedFirst.count < 60 else { return true }
         let nsRange = NSRange(trimmedFirst.startIndex..., in: trimmedFirst)
         let looksLikeChapterTitle =
@@ -1027,7 +1041,6 @@ final class OnlineBookCoordinator {
 
         guard looksLikeChapterTitle else { return true }
 
-        // 正規化比較：去空白 + 小寫
         let normFirst =
             trimmedFirst
             .replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
@@ -1041,7 +1054,6 @@ final class OnlineBookCoordinator {
         if !normFirst.isEmpty && !normTOC.isEmpty
             && !normFirst.contains(normTOC) && !normTOC.contains(normFirst)
         {
-            // 內容的章節標題與 TOC 不一致 → 可能是內容錯位
             ReaderTelemetry.shared.log(
                 "chapter_title_mismatch",
                 attributes: [
@@ -1057,7 +1069,8 @@ final class OnlineBookCoordinator {
     }
 }
 
-// MARK: - OnlineBookCoordinating 協定遵循
-// OnlineBookCoordinator 的 downloadBook(_:store:) 與 prefetchAround(book:center:store:) 方法
-// 簽名與協定完全一致，此 extension 僅聲明遵循，無需額外實作。
+// MARK: - OnlineBookCoordinating Protocol Conformance
+// downloadBook(_:store:) and prefetchAround(book:center:store:) match the protocol
+// signature exactly; this extension only declares conformance.
+
 extension OnlineBookCoordinator: OnlineBookCoordinating {}

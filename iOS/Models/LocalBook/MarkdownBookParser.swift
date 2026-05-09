@@ -22,7 +22,7 @@ enum MarkdownSectionParser {
             let body = currentBody.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
             if !currentTitle.isEmpty || !body.isEmpty {
                 let resolvedTitle = currentTitle.isEmpty
-                    ? (sections.isEmpty ? fallbackTitle : "未命名章節")
+                    ? (sections.isEmpty ? fallbackTitle : "Untitled Section")
                     : currentTitle
                 sections.append(
                     MarkdownSection(
@@ -84,7 +84,7 @@ struct MarkdownBookParser: BookParser {
 
         return ParsedBookDocument(
             title: title,
-            author: "未知作者",
+            author: "Unknown Author",
             chapters: chapters.isEmpty ? [markdown] : chapters
         )
     }

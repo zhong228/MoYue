@@ -1,9 +1,9 @@
 import Foundation
 
-// MARK: - Per-Host 並發控制
+// MARK: - Per-Host Concurrency Control
 
-/// 為每個 host 維護獨立的並發信號量，限制對同一網站的同時請求數，
-/// 既可防止被目標站點封鎖，也符合禮貌抓取（polite crawling）原則。
+/// Maintains an independent semaphore per host to limit concurrent requests to
+/// the same site, preventing blocks and following polite crawling practices.
 actor PerHostSemaphore {
     static let shared = PerHostSemaphore()
 
@@ -12,10 +12,10 @@ actor PerHostSemaphore {
 
     private init() {}
 
-    /// 取得指定 host 的 lock，執行 body 後自動釋放。
+    /// Acquires a lock for the given host, executes the body, then releases.
     /// - Parameters:
-    ///   - host: 目標域名（e.g. "www.example.com"）
-    ///   - maxConcurrent: 允許的最大並發數（預設 2）
+    ///   - host: Target domain (e.g. "www.example.com")
+    ///   - maxConcurrent: Maximum allowed concurrent requests (default 2)
     func withLock<T: Sendable>(
         host: String,
         maxConcurrent: Int = 2,
@@ -32,7 +32,7 @@ actor PerHostSemaphore {
             available[host] = current - 1
             return
         }
-        // 無可用槽位，排隊等待
+        // No available slot — queue to wait
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             waiters[host, default: []].append(cont)
         }
@@ -53,16 +53,17 @@ actor PerHostSemaphore {
 
 // MARK: - Retry Policy
 
-/// 指數退避 + jitter 重試策略（對齊 SOP 工業級標準）。
+/// Exponential backoff + jitter retry strategy.
 ///
-/// **可 retry 的情況（暫時性錯誤）：**
-/// - URLError：timeout、連線中斷、網路不可用、DNS 失敗、主機無法連線
-/// - HTTP 429 Too Many Requests（遵守 Retry-After 標頭）
-/// - HTTP 5xx 伺服器錯誤
+/// **Retryable errors (transient):**
+/// - URLError: timeout, connection lost, network unavailable, DNS failure,
+///   cannot connect to host
+/// - HTTP 429 Too Many Requests (respects Retry-After header)
+/// - HTTP 5xx server errors
 ///
-/// **不 retry 的情況（永久性錯誤）：**
-/// - HTTP 4xx（除 429）：直接拋出
-/// - 非 URLError：直接拋出
+/// **Non-retryable errors (permanent):**
+/// - HTTP 4xx (except 429): throw immediately
+/// - Non-URLError: throw immediately
 struct FetchRetryPolicy: Sendable {
     let maxAttempts: Int
     let baseDelay: TimeInterval
@@ -74,27 +75,28 @@ struct FetchRetryPolicy: Sendable {
         self.maxDelay = maxDelay
     }
 
-    /// 判斷是否應該重試此錯誤
+    /// Returns whether this error should trigger a retry.
     func shouldRetry(_ error: Error) -> Bool {
-        // URLError：只 retry 暫時性網路問題
+        // URLError: only retry transient network issues
         if let urlError = error as? URLError {
             return urlError.isTransient
         }
-        // HTTP 錯誤：429 和 5xx 可重試
+        // HTTP errors: 429 and 5xx are retryable
         if let httpCode = Self.httpStatusCode(from: error) {
             return httpCode == 429 || (500...599).contains(httpCode)
         }
         return false
     }
 
-    /// 計算第 attempt 次（0-indexed）的等待時間：exponential backoff + ±30% random jitter
+    /// Calculates the wait time for the given attempt (0-indexed):
+    /// exponential backoff + ±30% random jitter.
     func delay(attempt: Int) -> TimeInterval {
         let exp = baseDelay * pow(2.0, Double(attempt))
         let jitter = exp * Double.random(in: -0.3...0.3)
         return min(exp + jitter, maxDelay)
     }
 
-    /// 包裝執行：自動重試直到成功或耗盡次數
+    /// Executes the body with automatic retry until success or attempts exhausted.
     func execute<T: Sendable>(body: @Sendable () async throws -> T) async throws -> T {
         var attempt = 0
         var lastError: Error?
@@ -106,7 +108,7 @@ struct FetchRetryPolicy: Sendable {
                 lastError = error
 
                 guard shouldRetry(error) else {
-                    throw error  // 永久性錯誤，直接拋出
+                    throw error  // Permanent error, throw immediately
                 }
 
                 let nextAttempt = attempt + 1
@@ -125,14 +127,12 @@ struct FetchRetryPolicy: Sendable {
 
     // MARK: - Helpers
 
-    /// 從 Error 中提取 HTTP status code（支援 FetchError.httpError 與 NSURLError）
+    /// Extracts the HTTP status code from an error.
     static func httpStatusCode(from error: Error) -> Int? {
-        // 嘗試從 error localizedDescription 中取 code（FetchError.httpError 在同一 module 可直接 cast）
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain {
             return nil
         }
-        // 用字串 pattern 判斷 FetchError.httpError(N)
         let desc = error.localizedDescription
         if desc.contains("HTTP 錯誤"),
             let code = Int(desc.components(separatedBy: " ").last ?? "")
@@ -146,10 +146,10 @@ struct FetchRetryPolicy: Sendable {
     }
 }
 
-// MARK: - URLError 暫時性判斷
+// MARK: - URLError Transient Check
 
 extension URLError {
-    /// 是否為可重試的暫時性網路錯誤
+    /// Whether this is a retryable transient network error.
     var isTransient: Bool {
         switch code {
         case .timedOut,

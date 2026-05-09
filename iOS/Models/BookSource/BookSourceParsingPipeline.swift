@@ -1,10 +1,10 @@
 import Foundation
 
-/// 書源解析管線 — 封裝 HTML/JSON→Model 轉換邏輯，不持有任何網路或快取狀態。
-/// 所有方法均為同步呼叫，可由 actor 或非 actor 上下文安全使用。
+/// Book source parsing pipeline — encapsulates HTML/JSON→Model conversion logic with no network or cache state.
+/// All methods are synchronous and safe to use from actor or non-actor contexts.
 struct BookSourceParsingPipeline {
 
-    // MARK: - 搜尋結果
+    // MARK: - Search Results
 
     func parseSearchResults(
         html: String,
@@ -15,7 +15,7 @@ struct BookSourceParsingPipeline {
         return try bridge.parseSearchResults(html: html, baseURL: baseURL, source: source)
     }
 
-    // MARK: - 書籍詳情
+    // MARK: - Book Details
 
     func parseBookInfo(
         html: String,
@@ -31,7 +31,7 @@ struct BookSourceParsingPipeline {
         )
     }
 
-    // MARK: - 目錄
+    // MARK: - TOC
 
     func parseTOC(
         html: String,
@@ -59,7 +59,7 @@ struct BookSourceParsingPipeline {
         )
     }
 
-    // MARK: - 章節正文
+    // MARK: - Chapter Content
 
     func parseChapterResult(
         html: String,

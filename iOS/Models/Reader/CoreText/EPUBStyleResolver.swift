@@ -2,8 +2,8 @@ import CoreGraphics
 import UIKit
 import ReadiumShared
 
-/// EPUB 樣式解析器：封裝 CSS @import 內聯、@font-face 抓取與字型注冊邏輯。
-/// 讓 CoreTextPageEngine 專注於排版，不必直接處理 CSS 或字型下載。
+/// EPUB style resolver: encapsulates CSS @import inlining, @font-face fetching, and font registration logic.
+/// Keeps CoreTextPageEngine focused on layout without directly handling CSS or font downloads.
 @MainActor
 final class EPUBStyleResolver {
 
@@ -36,7 +36,7 @@ final class EPUBStyleResolver {
         }
     }
 
-    // MARK: - 主入口
+    // MARK: - Main Entry Point
 
     func processStylesheet(_ cssText: String, cssHref: String, chapterHref: String) async -> String {
         let withImports = await inlineLocalImports(
@@ -114,9 +114,9 @@ final class EPUBStyleResolver {
         return nil
     }
 
-    // MARK: - Static EPUB 路徑解算（供外部共用）
+    // MARK: - Static EPUB Path Resolution (shared externally)
 
-    /// 將 HTML img src（可能是相對路徑）解析成相對於章節 href 的絕對 EPUB 路徑。
+    /// Resolves an HTML img src (possibly relative) to an absolute EPUB path relative to the chapter href.
     static func resolveImageHref(_ src: String, chapterHref: String) -> String {
         guard !src.isEmpty,
               !src.hasPrefix("http://"),

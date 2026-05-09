@@ -2,29 +2,29 @@ import UIKit
 
 // MARK: - EPUBAttributedStringBuilder
 //
-// Phase 7：把 EPUB 渲染邏輯從 CoreTextPageEngine(resourceProvider:) 中解耦，
-// 用統一的 AttributedStringBuilding 介面包裝，讓 EPUB 與 TXT/Online 走相同的
-// CoreTextPageEngine(attributedBuilder:) 路徑。
+// Decouples EPUB rendering logic from CoreTextPageEngine(resourceProvider:)
+// using the unified AttributedStringBuilding interface, so EPUB, TXT, and Online
+// content all use the same CoreTextPageEngine(attributedBuilder:) path.
 //
-// 內容章節透過 HTMLBuilder pipelines 先得到 styled AST，
-// 再轉成 RenderableNode 交給 NodeAttributedStringRenderer。
-// 仍重用 HTML builder 的 CSS / 字型 / 圖片載入能力，避免重寫整套樣式解析。
+// Content chapters go through HTMLBuilder pipelines to get styled ASTs,
+// then convert to RenderableNode for NodeAttributedStringRenderer.
+// Still reuses the HTML builder's CSS/font/image loading capabilities to avoid rewriting style parsing.
 //
-// renderSize：用於計算 HTMLAttributedStringBuilder.Config.renderWidth（圖片排版用）。
-// EPUBPageRenderer 在 notifyViewportSize 時更新此值。
+// renderSize: used to compute HTMLAttributedStringBuilder.Config.renderWidth (for image layout).
+// EPUBPageRenderer updates this value during notifyViewportSize.
 
 @MainActor
 final class EPUBAttributedStringBuilder: @preconcurrency AttributedStringBuilding {
 
-    // MARK: - 儲存屬性
+    // MARK: - Stored Properties
 
     let session: PublicationSession
     let resourceProvider: ReadiumBookResourceAdapter
     private let styleResolver: EPUBStyleResolver
-    /// 目前的渲染區域尺寸（由 EPUBPageRenderer 在 load / notifyViewportSize 時注入）。
+    /// Current render area size (injected by EPUBPageRenderer during load / notifyViewportSize).
     var renderSize: CGSize
 
-    // MARK: - 初始化
+    // MARK: - Initialization
 
     init(
         session: PublicationSession,
@@ -41,7 +41,7 @@ final class EPUBAttributedStringBuilder: @preconcurrency AttributedStringBuildin
         )
     }
 
-    // MARK: - AttributedStringBuilding 基本資訊
+    // MARK: - AttributedStringBuilding Basic Info
 
     var chapterCount: Int { session.chapters.count }
 
@@ -60,7 +60,7 @@ final class EPUBAttributedStringBuilder: @preconcurrency AttributedStringBuildin
     }
 
     func chapterDataSize(at index: Int) async -> Int {
-        // 優先使用 SpinesCache 中預掃描的位元組大小（快速路徑）
+        // Prefer pre-scanned byte sizes from SpinesCache (fast path)
         if let cached = resourceProvider.cachedChapterByteSizes(),
            cached.indices.contains(index) {
             return cached[index]
@@ -86,7 +86,7 @@ final class EPUBAttributedStringBuilder: @preconcurrency AttributedStringBuildin
         let chapterHref = session.chapters[index].href
         let html = try await session.chapterHTML(at: index)
 
-        // ── 建立 HTML 構建器並注入回呼 ──────────────────────────────────
+        // ── Create HTML builder and inject callbacks ──────────────────────────────────
         let localBuilder = HTMLAttributedStringBuilder()
 
         localBuilder.resolvedFont = { [weak self] families, weight, italic, size in
@@ -118,7 +118,7 @@ final class EPUBAttributedStringBuilder: @preconcurrency AttributedStringBuildin
             return await self.loadCSS(href: href, chapterHref: chapterHref)
         }
 
-        // ── 構建 NSAttributedString ────────────────────────────────────
+        // ── Build NSAttributedString ────────────────────────────────────
         let config = makeConfig(
             settings: settings,
             textColor: themeTextColor,
@@ -180,7 +180,7 @@ final class EPUBAttributedStringBuilder: @preconcurrency AttributedStringBuildin
         )
     }
 
-    // MARK: - 私有輔助
+    // MARK: - Private Helpers
 
     private func loadImage(src: String, chapterHref: String) async -> UIImage? {
         let resolved = EPUBStyleResolver.resolveImageHref(src, chapterHref: chapterHref)

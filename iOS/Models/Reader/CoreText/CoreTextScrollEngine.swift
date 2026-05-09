@@ -3,20 +3,20 @@ import CoreText
 import Foundation
 import UIKit
 
-/// 捲動模式專用引擎：把每章 attributedString 切成一串 chunk，給 UICollectionView 渲染。
-/// 與頁碼導向的 `CoreTextPageEngine` 並列、互不干擾。
+/// Dedicated scroll-mode engine: slices each chapter's attributedString into a series of chunks for UICollectionView rendering.
+/// Operates alongside the page-oriented `CoreTextPageEngine` without interfering with it.
 @MainActor
 final class CoreTextScrollEngine: ObservableObject {
 
     // MARK: - Published
 
-    /// 線性 chunk 陣列，UICollectionView 直接 1:1 對應 cell
+    /// Linear chunk array; UICollectionView maps 1:1 to cells
     @Published private(set) var chunks: [CoreTextChunk] = []
-    /// chapter -> chunks 中的索引範圍（含起、不含止）
+    /// chapter → index range within chunks (inclusive start, exclusive end)
     @Published private(set) var chapterRanges: [Int: Range<Int>] = [:]
     @Published private(set) var isReady: Bool = false
 
-    /// 變動事件流：VC 訂閱以做 insertRows / contentOffset 補償
+    /// Change event stream: VC subscribes to perform insertRows / contentOffset compensation
     enum Event {
         case reset
         case insertedAtBottom(count: Int, chapter: Int)
@@ -30,9 +30,9 @@ final class CoreTextScrollEngine: ObservableObject {
     private(set) var renderSettings: ReaderRenderSettings
     private(set) var contentWidth: CGFloat = 0
 
-    /// 切片中的章節（去重抓取）
+    /// Chapters currently being sliced (deduplication)
     private var slicingChapters: Set<Int> = []
-    /// 已切完成的章節
+    /// Chapters that have been fully sliced
     private var loadedChapters: Set<Int> = []
 
     // MARK: - Init
@@ -44,12 +44,12 @@ final class CoreTextScrollEngine: ObservableObject {
 
     var chapterCount: Int { builder.chapterCount }
 
-    /// 取得章節標題（透傳給 builder）
+    /// Returns the chapter title (delegates to builder)
     func chapterTitle(at index: Int) -> String { builder.chapterTitle(at: index) }
 
     // MARK: - Lifecycle
 
-    /// 初始載入：切起始章 + 鄰章
+    /// Initial load: slices the starting chapter + adjacent chapters
     func start(initialChapter: Int, contentWidth: CGFloat) async {
         self.contentWidth = contentWidth
         let clamped = max(0, min(initialChapter, max(0, builder.chapterCount - 1)))
@@ -63,7 +63,7 @@ final class CoreTextScrollEngine: ObservableObject {
         }
     }
 
-    /// 接近底部時呼叫：往後追加一章
+    /// Called when near the bottom; appends the next chapter
     func ensureChapterAhead(of chapterIndex: Int) {
         let next = chapterIndex + 1
         guard next < builder.chapterCount,
@@ -72,7 +72,7 @@ final class CoreTextScrollEngine: ObservableObject {
         Task { await loadChapter(next) }
     }
 
-    /// 接近頂部時呼叫：往前追加一章（會 prepend，呼叫端需自己處理 contentOffset 補償）
+    /// Called when near the top; prepends the previous chapter (caller must handle contentOffset compensation)
     func ensureChapterBehind(of chapterIndex: Int) {
         let prev = chapterIndex - 1
         guard prev >= 0,
@@ -81,7 +81,7 @@ final class CoreTextScrollEngine: ObservableObject {
         Task { await loadChapter(prev, prepend: true) }
     }
 
-    /// 重切（設定變更）：清空所有 chunk，從指定章節重切
+    /// Reslice (settings changed): clear all chunks and re-slice from the specified chapter
     func reslice(restoreAt chapterIndex: Int, contentWidth: CGFloat) async {
         self.contentWidth = contentWidth
         chunks = []
@@ -99,7 +99,7 @@ final class CoreTextScrollEngine: ObservableObject {
 
     // MARK: - Internal load
 
-    /// 載入並切片單一章節，append 或 prepend 到 chunks
+    /// Loads and slices a single chapter, appending or prepending to chunks
     private func loadChapter(_ chapterIndex: Int, prepend: Bool = false) async {
         guard chapterIndex >= 0, chapterIndex < builder.chapterCount else { return }
         guard !loadedChapters.contains(chapterIndex), !slicingChapters.contains(chapterIndex) else { return }
@@ -118,8 +118,8 @@ final class CoreTextScrollEngine: ObservableObject {
             let cIdx = chapterIndex
             print("[ScrollEngine] built chapter=\(cIdx) length=\(attrStr.length) width=\(width)")
 
-            // 單圖頁（封面 / 章節插圖）：builder 把圖放進 result.imagePage 而 attrStr 只是 placeholder。
-            // 直接造一個 synthetic chunk，把圖 aspect-fit 到 contentWidth。
+            // Single-image page (cover / chapter illustration): builder puts the image in result.imagePage while attrStr is just a placeholder.
+            // Create a synthetic chunk directly, aspect-fitting the image to contentWidth.
             if let imagePage = result.imagePage, let img = imagePage.image {
                 let chunk = makeImageOnlyChunk(
                     image: img,
@@ -173,9 +173,9 @@ final class CoreTextScrollEngine: ObservableObject {
         }
     }
 
-    // MARK: - 單圖 chunk
+    // MARK: - Single-image chunk
 
-    /// 把 cover / 整頁插圖造成單一 chunk。aspect-fit 到 contentWidth × min(naturalHeight, screenHeight)。
+    /// Creates a single chunk for cover / full-page illustrations. Aspect-fits to contentWidth × min(naturalHeight, screenHeight).
     private func makeImageOnlyChunk(
         image: UIImage,
         chapterIndex: Int,
@@ -205,14 +205,14 @@ final class CoreTextScrollEngine: ObservableObject {
 
     // MARK: - Lookup
 
-    /// 找出某 chunk index 對應的 (chapterIndex, charOffsetInChapter)
+    /// Finds the (chapterIndex, charOffsetInChapter) for a given chunk index
     func position(forChunkIndex idx: Int) -> (chapter: Int, charOffsetInChapter: Int)? {
         guard idx >= 0, idx < chunks.count else { return nil }
         let chunk = chunks[idx]
         return (chunk.chapterIndex, chunk.charRange.location)
     }
 
-    /// 找出 (chapterIndex, charOffset) 對應的 chunk index
+    /// Finds the chunk index for a given (chapterIndex, charOffset)
     func chunkIndex(forChapter chapter: Int, charOffset: Int) -> Int? {
         guard let range = chapterRanges[chapter] else { return nil }
         for i in range {

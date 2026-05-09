@@ -103,13 +103,13 @@ enum PublicationSessionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .fileNotFound:
-            return "EPUB 檔案不存在"
+            return "EPUB file not found"
         case .parsingFailed(let reason):
-            return "EPUB 解析失敗：\(reason)"
+            return "EPUB parsing failed: \(reason)"
         case .resourceNotFound(let href):
-            return "找不到資源：\(href)"
+            return "Resource not found: \(href)"
         case .resourceReadFailed(let reason):
-            return "讀取資源失敗：\(reason)"
+            return "Resource read failed: \(reason)"
         }
     }
 }
@@ -160,7 +160,7 @@ struct SpinesCache: Codable {
     }
 }
 
-// 輔助尋找快取路徑
+// Helper to find cache path
 private func getCacheURL(for sourceURL: URL) -> URL {
     let cachesPaths = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
     let bookId = sourceURL.lastPathComponent.replacingOccurrences(of: ".epub", with: "")
@@ -244,7 +244,7 @@ final class PublicationSession {
 
         if let data = try? Data(contentsOf: cacheURL),
            let cache = try? JSONDecoder().decode(SpinesCache.self, from: data) {
-            // 命中快取，O(1) 讀取！ bypassing O(N^2) XML matching
+            // Cache hit, O(1) read, bypassing O(N^2) XML matching
             chapters = cache.chapters.map {
                 PublicationChapterDescriptor(index: $0.index, href: $0.href, title: $0.title, mediaType: $0.mediaType)
             }
@@ -257,7 +257,7 @@ final class PublicationSession {
                 encryptionIsCached = true
             }
         } else {
-            // Miss cache, do O(N^2)
+            // Cache miss, do O(N^2) matching
             let chapterTitleMap = Dictionary(
                 tocEntries.map { (normalizedHREF($0.href), $0.title) },
                 uniquingKeysWith: { first, _ in first }
@@ -285,7 +285,7 @@ final class PublicationSession {
             }
 
             // Save Cache (encryption will be added after resolving below)
-            let cTitle = publication.metadata.title ?? "未知"
+            let cTitle = publication.metadata.title ?? "Unknown"
             let cAuthor = publication.metadata.authors.map { $0.name }.joined(separator: ", ")
             let cacheChapters = chapters.map { SpinesCache.PublicationChapterDescriptorCache(index: $0.index, href: $0.href, title: $0.title, mediaType: $0.mediaType) }
             let cacheObj = SpinesCache(bookTitle: cTitle, author: cAuthor, chapters: cacheChapters)
@@ -307,7 +307,7 @@ final class PublicationSession {
                 .map(\.name)
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
-                .joined(separator: "、")
+                .joined(separator: ", ")
             finalTitle = titleText?.isEmpty == false ? titleText! : sourceURL.deletingPathExtension().lastPathComponent
             finalAuthor = authorText
         }
@@ -525,7 +525,7 @@ final class PublicationSession {
         return (chapterIndex, locator.chapterProgression ?? locator.progression)
     }
 
-    // MARK: - 內部
+    // MARK: - Internal
 
     private func resolvedHREF(from url: URL) -> String {
         let path = url.path.hasPrefix("/") ? String(url.path.dropFirst()) : url.path
@@ -831,7 +831,7 @@ final class PublicationSession {
 
     private static func openPublication(sourceURL: URL) async throws -> Publication {
         guard let fileURL = FileURL(url: sourceURL) else {
-            throw PublicationSessionError.parsingFailed("無效的檔案 URL")
+            throw PublicationSessionError.parsingFailed("Invalid file URL")
         }
 
         let httpClient = DefaultHTTPClient()

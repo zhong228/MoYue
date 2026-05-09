@@ -41,14 +41,14 @@ class LegadoMigrationManager: ObservableObject {
 
     func importBookSources(from data: Data) async -> Int {
         guard let jsonString = String(data: data, encoding: .utf8) else {
-            appendLog("❌ 無法將資料轉為字串")
+            appendLog("[ERROR] Unable to convert data to string")
             return 0
         }
         do {
             let count = try BookSourceStore.shared.importFromJSON(jsonString)
             return count
         } catch {
-            appendLog("❌ 書源匯入失敗：\(error.localizedDescription)")
+            appendLog("[ERROR] Book source import failed: \(error.localizedDescription)")
             return 0
         }
     }
@@ -57,7 +57,7 @@ class LegadoMigrationManager: ObservableObject {
 
     func importBooks(from data: Data, into bookStore: BookStore) async -> Int {
         guard let legadoBooks = try? JSONDecoder().decode([LegadoBook].self, from: data) else {
-            appendLog("❌ 無法解析書籍列表")
+            appendLog("[ERROR] Unable to parse book list")
             return 0
         }
 
@@ -118,35 +118,35 @@ class LegadoMigrationManager: ObservableObject {
         var booksImported   = 0
         var errors: [String] = []
 
-        appendLog("🔍 正在分析 JSON 格式…")
+        appendLog("[INFO] Analyzing JSON format...")
 
         switch detectFormat(data: data) {
         case .bookSources:
-            appendLog("📚 偵測到書源格式，開始匯入…")
+            appendLog("[INFO] Detected book-source format, importing...")
             await MainActor.run { progress = 0.3 }
             sourcesImported = await importBookSources(from: data)
-            appendLog("✅ 書源匯入完成：\(sourcesImported) 個")
+            appendLog("[INFO] Book sources imported: \(sourcesImported)")
 
         case .books:
-            appendLog("📖 偵測到書籍格式，開始匯入…")
+            appendLog("[INFO] Detected book format, importing...")
             await MainActor.run { progress = 0.3 }
             booksImported = await importBooks(from: data, into: bookStore)
-            appendLog("✅ 書籍匯入完成：\(booksImported) 本")
+            appendLog("[INFO] Books imported: \(booksImported)")
 
         case .unknown:
             // Try book sources first (richer format detection), then books.
-            appendLog("⚠️ 格式不明，嘗試書源解析…")
+            appendLog("[WARN] Unknown format, trying book-source parse...")
             await MainActor.run { progress = 0.2 }
             sourcesImported = await importBookSources(from: data)
             if sourcesImported == 0 {
-                appendLog("⚠️ 書源解析無結果，嘗試書籍解析…")
+                appendLog("[WARN] No book-source results, trying book parse...")
                 await MainActor.run { progress = 0.5 }
                 booksImported = await importBooks(from: data, into: bookStore)
             }
             if sourcesImported == 0 && booksImported == 0 {
-                let msg = "無法識別 JSON 格式，請確認為 Legado 書源或書籍匯出檔"
+                let msg = "Unable to identify JSON format. Confirm it is a Legado book-source or book export file."
                 errors.append(msg)
-                appendLog("❌ \(msg)")
+                appendLog("[ERROR] \(msg)")
             }
         }
 

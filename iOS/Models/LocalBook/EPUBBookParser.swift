@@ -16,7 +16,7 @@ struct EPUBBookParser: BookParser {
             "stage=openPublication done elapsedMs=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - openStart) * 1000)) chapters=\(session.chapters.count)"
         )
         let title = session.bookTitle
-        let author = session.author.isEmpty ? "未知作者" : session.author
+        let author = session.author.isEmpty ? "Unknown Author" : session.author
 
         var chapters: [String] = []
         chapters.reserveCapacity(session.chapters.count)
@@ -87,7 +87,7 @@ struct EPUBBookParser: BookParser {
             }
         }
 
-        return ["載入章節中…"]
+        return ["Loading chapter..."]
     }
 
     private func fallbackParagraphs(from text: String) -> [String] {
@@ -98,6 +98,6 @@ struct EPUBBookParser: BookParser {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
-        return lines.isEmpty ? ["載入章節中…"] : lines
+        return lines.isEmpty ? ["Loading chapter..."] : lines
     }
 }

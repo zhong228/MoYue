@@ -134,7 +134,7 @@ actor WebFetcher {
         }
     }
 
-    /// Assemble a fully-configured URLRequest, including harvested WebView cookies,
+    /// Assembles a fully-configured URLRequest, including harvested WebView cookies,
     /// custom headers, and optional POST body encoding.
     private func buildRequest(
         url: URL,
@@ -193,7 +193,7 @@ actor WebFetcher {
         return request
     }
 
-    /// Handle a non-2xx HTTP status code. Triggers Cloudflare challenge on 503/403
+    /// Handles a non-2xx HTTP status code. Triggers Cloudflare challenge on 503/403
     /// if a handler is registered; otherwise throws `FetchError.httpError`.
     private func handleNonSuccessStatus(
         _ statusCode: Int,
@@ -231,9 +231,8 @@ actor WebFetcher {
         throw err
     }
 
-    /// Present a Cloudflare challenge, harvest the resulting cookies, then replay the
-    /// original request with those cookies injected. Called from two distinct error paths
-    /// (HTTP 4xx/5xx status code and CF challenge body on HTTP 200).
+    /// Presents a Cloudflare challenge, harvests the resulting cookies, then replays
+    /// the original request with those cookies injected.
     ///
     /// A per-host barrier prevents a thundering herd: if a challenge is already in
     /// progress for `host`, this method awaits it instead of launching a second one.
@@ -260,7 +259,7 @@ actor WebFetcher {
         return html
     }
 
-    /// Ensure exactly one Cloudflare challenge UI runs per host at a time.
+    /// Ensures exactly one Cloudflare challenge UI runs per host at a time.
     /// Concurrent callers for the same host await the first challenge task;
     /// once it resolves (success or failure) they all proceed to retry with
     /// the freshly harvested CF cookies.
@@ -270,12 +269,10 @@ actor WebFetcher {
         host: String
     ) async throws {
         if let existing = pendingChallenges[host] {
-            // A challenge is already running for this host — wait for it.
             try await existing.value
             return
         }
 
-        // First caller: start the challenge and register it as the barrier.
         let challengeTask = Task<Void, Error> { _ = try await handler(url) }
         pendingChallenges[host] = challengeTask
         do {
@@ -287,6 +284,7 @@ actor WebFetcher {
         }
     }
 
+    /// Multi-strategy charset detection with scoring for ambiguous encodings.
     private func smartDecode(data: Data, response: URLResponse) -> String? {
         struct DecodeCandidate {
             let encoding: String.Encoding
@@ -356,10 +354,8 @@ actor WebFetcher {
     }
 
     // Scoring weights used by decodeQualityScore.
-    // Each constant is documented with its rationale so future tuning has a clear baseline.
     private enum DecodeScoreWeights {
         /// Penalty per U+FFFD replacement character.
-        /// Each replacement is a definitive proof of a mis-decoded byte.
         static let replacementChar = 80
 
         /// Penalty when a known mojibake token appears in the sample.
@@ -367,29 +363,21 @@ actor WebFetcher {
         static let mojibakeToken = 120
 
         /// Penalty per unexpected control character (non-whitespace).
-        /// Stray control bytes indicate binary data or a mismatched single-byte encoding.
-        /// Lower than replacementChar because a few control chars may appear legitimately.
         static let controlChar = 25
 
         /// Cap on the CJK character bonus.
-        /// Prevents a CJK-dense page from completely drowning out a clean ASCII candidate
-        /// that was decoded in a slightly wrong single-byte encoding.
         static let maxCJKBonus = 200
 
         /// Bonus per recognised HTML structural tag (e.g. <html>, <body>).
-        /// Structural tags are strong evidence the string is valid HTML.
         static let htmlTagBonus = 20
 
         /// Cap on the newline bonus.
-        /// Rewards prose-like line breaks without over-weighting compact one-liners.
         static let maxNewlineBonus = 40
 
         /// Score returned immediately for an empty sample.
-        /// Ensures an empty string never "wins" over a non-empty but slightly garbled candidate.
         static let emptyStringSentinel = -10_000
 
         /// Number of leading characters sampled from the document.
-        /// Large enough to capture charset meta tags; small enough to stay fast.
         static let sampleSize = 4096
     }
 

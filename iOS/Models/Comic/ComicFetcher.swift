@@ -97,7 +97,7 @@ final class ComicFetcher: ObservableObject {
         }.value
     }
 
-    /// Applies a simple Legado-style CSS selector rule (e.g. `"img@src"` or `"div.page img@data-src"`)
+    /// Applies a Legado-style CSS selector rule (e.g. `"img@src"` or `"div.page img@data-src"`)
     /// and returns newline-joined extracted values.
     private nonisolated static func applyContentRule(rule: String, html: String, baseUrl: String) -> String {
         guard let document = try? SwiftSoup.parse(html, baseUrl) else { return "" }

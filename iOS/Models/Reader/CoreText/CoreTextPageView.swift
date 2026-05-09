@@ -1,8 +1,8 @@
 import CoreText
 import UIKit
 
-/// 單頁 CoreText 渲染視圖。
-/// 使用 draw(_ rect:) 逐行繪製（支援 CJK 兩端對齊），不截圖、不快取 layer。
+/// Single-page CoreText rendering view.
+/// Draws line-by-line using draw(_ rect:) (supporting CJK justified alignment), without snapshot caching or layer caching.
 final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
     private struct InteractionContext {
         let frame: CTFrame
@@ -77,7 +77,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
         fatalError("init(coder:) not used")
     }
 
-    /// 設定要渲染的章節佈局與頁碼，自動觸發重繪。
+    /// Sets the chapter layout and page index to render, automatically triggering a redraw.
     func configure(layout: CoreTextPaginator.ChapterLayout, pageIndex: Int, fallbackBackgroundColor: UIColor = .systemBackground) {
         self.layout = layout
         self.localPageIndex = pageIndex
@@ -158,7 +158,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
             drawPageBackground(backgroundImage, in: canonicalBounds)
         }
 
-        // Phase 1: CG 幾何操作（背景色、邊框）— 不受座標系影響
+        // Phase 1: CG geometry operations (background colors, borders) — coordinate-system independent
         drawBlockRenderables(layout.blockRenderables[pageIndex] ?? [], in: ctx, boundsHeight: layoutSize.height)
 
         let range = layout.pageRanges[pageIndex]
@@ -199,20 +199,20 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
             )
         }
 
-        // Phase 3: flip-back 後統一用 UIImage.draw() 繪製所有圖片
-        // UIImage.draw() 需要 UIKit 標準環境（左上原點，Y 向下）
+        // Phase 3: after flip-back, draw all images using UIImage.draw()
+        // UIImage.draw() requires the standard UIKit environment (origin top-left, Y downward)
         ctx.scaleBy(x: 1.0, y: -1.0)
         ctx.translateBy(x: 0, y: -layoutSize.height)
 
-        // 3a. Block attachments（無 blockRenderStyle 的區塊圖片）
+        // 3a. Block attachments (block images without blockRenderStyle)
         Self.drawAttachments(layout.blockAttachments[pageIndex] ?? [])
 
-        // 3b. Inline attachments（行內圖片）
+        // 3b. Inline attachments (inline images)
         for attachment in layout.inlineAttachments[pageIndex] ?? [] {
             attachment.image.draw(in: attachment.rect, blendMode: .normal, alpha: attachment.opacity)
         }
 
-        // 3c. Block images（有 blockRenderStyle 的裝飾圖片，如浮水印）
+        // 3c. Block images (decorative images with blockRenderStyle, e.g. watermarks)
         for item in layout.blockRenderables[pageIndex] ?? [] {
             if let blockImage = item.style.blockImage,
                let image = blockImage.image {
@@ -238,7 +238,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
             }
         }
 
-        // 3d. Explicit block text（page/card 級幾何文字，不依賴主文字 frame）
+        // 3d. Explicit block text (page/card-level geometry text, independent of the main text frame)
         for item in layout.blockRenderables[pageIndex] ?? [] {
             guard let text = item.attributedText else { continue }
             drawBlockRenderableText(
@@ -260,13 +260,13 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
         }
     }
 
-    /// 逐行繪製 CTFrame 的所有文字行，對 justified 非末行套用 CTLineCreateJustifiedLine。
-    /// 共用於 draw(_ rect:) 和 CoreTextPageEngine.generateSnapshot()。
-    /// 呼叫前必須已在 CGContext 中設定好 CoreText 座標系（y 軸向上翻轉）。
+    /// Draws all text lines of a CTFrame line-by-line, applying CTLineCreateJustifiedLine for justified non-last lines.
+    /// Shared between draw(_ rect:) and CoreTextPageEngine.generateSnapshot().
+    /// The CTM must already be configured for the CoreText coordinate system (y-axis flipped upward) before calling.
     /// - Parameters:
-    ///   - contentMinX: 內容區域左邊界（CoreText 座標），用於繪製 hr 線段起點
-    ///   - contentMinY: 內容區域底部（CoreText 座標），用於計算末頁餘白
-    ///   - isLastPage: 是否為章節最後一頁；最後一頁不做垂直均分
+    ///   - contentMinX: Left edge of the content area (CoreText coordinates), used for drawing HR line start points
+    ///   - contentMinY: Bottom of the content area (CoreText coordinates), used for calculating last-page remaining space
+    ///   - isLastPage: Whether this is the last page of the chapter; last pages do not apply vertical justification
     nonisolated static func drawLines(
         of frame: CTFrame,
         contentWidth: CGFloat,
@@ -286,7 +286,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
         let nsString = attrStr.string as NSString
         let stringLength = attrStr.length
 
-        // Phase 5A: 非末頁時把底部餘白均分到段落間距，讓頁面文字上下填滿
+        // Phase 5A: On non-last pages, distribute bottom remaining space evenly across paragraph gaps to fill the page top-to-bottom
         var extraSpacePerGap: CGFloat = 0
         var paragraphGapAfterLine: Set<Int> = []
 
@@ -305,7 +305,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
                 var lastDescent: CGFloat = 0
                 CTLineGetTypographicBounds(lines.last!, nil, &lastDescent, nil)
                 let lastBaseline = origins[lines.count - 1].y
-                let usedBottom = lastBaseline + lastDescent   // descent 為負值
+                let usedBottom = lastBaseline + lastDescent   // descent is negative
                 let extraSpace = usedBottom - contentMinY
                 if extraSpace > 2 {
                     extraSpacePerGap = extraSpace / CGFloat(paragraphGapAfterLine.count)
@@ -317,7 +317,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
 
         accumulatedShift = 0
         for (lineIdx, line) in lines.enumerated() {
-            // 累積段落間距補償
+            // Accumulate paragraph gap compensation
             if lineIdx > 0 && paragraphGapAfterLine.contains(lineIdx - 1) {
                 accumulatedShift -= extraSpacePerGap
             }
@@ -339,7 +339,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
                 }
             }
 
-            // Phase 4: HR 分隔線
+            // Phase 4: HR divider line
             if lineRange.location < stringLength,
                let hrValue = attrStr.attribute(
                    HTMLAttributedStringBuilder.hrDividerAttribute,
@@ -358,17 +358,17 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
                 continue
             }
 
-            // 判斷是否為段落最後一行（最後一行不做 justify，避免強制撐開）
+            // Determine whether this is the last line of the paragraph (last lines should not be justified to avoid forced stretching)
             let isParagraphLastLine: Bool
             if lineEnd >= stringLength {
                 isParagraphLastLine = true
             } else {
                 let nextCharCode = nsString.character(at: lineEnd)
-                // \n (0x000A) 或 Unicode line separator (0x2028)
+                // \n (0x000A) or Unicode line separator (0x2028)
                 isParagraphLastLine = nextCharCode == 0x000A || nextCharCode == 0x2028
             }
 
-            // 取得段落對齊方式
+            // Get paragraph alignment
             let isJustified: Bool
             if lineRange.location < stringLength {
                 let paraStyle = attrStr.attribute(
@@ -383,12 +383,12 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
             let maxRightX = contentMinX + contentWidth
             let availableWidth = max(1, maxRightX - origin.x)
 
-            // 非最後一行且設定 justified：用 CTLineCreateJustifiedLine 改善 CJK 字間分配
+            // For non-last justified lines: use CTLineCreateJustifiedLine for better CJK character spacing
             let lineToDraw: CTLine
             if isJustified && !isParagraphLastLine {
-                // CTFrame 對 .justified 段落會自動 justify 所有非末行，
-                // 導致很短的行被過度拉伸。用原始 substring rebuild 一條
-                // natural CTLine 取得真實寬度，再決定是否 justify。
+                // CTFrame automatically justifies all non-last lines for .justified paragraphs,
+                // causing short lines to be over-stretched. Rebuild a natural CTLine from the original
+                // substring to get the true width, then decide whether to justify.
                 let lineNSRange = NSRange(location: lineStart, length: max(0, lineRange.length))
                 let substring = attrStr.attributedSubstring(from: lineNSRange)
                 let naturalLine = CTLineCreateWithAttributedString(substring)
@@ -396,7 +396,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
                 let coverage = naturalWidth / Double(availableWidth)
 
                 if coverage < 0.7 {
-                    // 行太短（< 70% 可用寬），不做 justify，避免字距爆炸
+                    // Line is too short (< 70% of available width), skip justification to avoid excessive letter spacing
                     lineToDraw = naturalLine
                 } else {
                     let hasExpandableWhitespace: Bool = {
@@ -408,10 +408,10 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
                     }()
 
                     if !hasExpandableWhitespace && coverage > 0.85 {
-                        // CJK 純漢字行：用 CTLineCreateJustifiedLine 做精確 justify
+                        // Pure CJK character line: use CTLineCreateJustifiedLine for precise justification
                         lineToDraw = CTLineCreateJustifiedLine(naturalLine, 1.0, Double(availableWidth)) ?? line
                     } else {
-                        // 中間覆蓋率或含可擴展空白：保留 CTFrame 的 justify
+                        // Intermediate coverage or contains expandable whitespace: keep CTFrame's justify
                         lineToDraw = line
                     }
                 }
@@ -473,12 +473,12 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
                 ctx.addLine(to: CGPoint(x: x, y: item.rect.maxY))
                 ctx.strokePath()
             }
-            // block image 統一在 Phase 3（flip-back 後）用 UIImage.draw() 繪製
+            // Block images are drawn uniformly in Phase 3 (after flip-back) using UIImage.draw()
             ctx.restoreGState()
         }
     }
 
-    // 根據 style.width 和 textAlign 計算 border 的起始 x 和寬度
+    // Calculates the starting x and width for border rendering based on style.width and textAlign
     private nonisolated static func borderXAndWidth(for item: CoreTextPaginator.RenderedBlockRenderable) -> (CGFloat, CGFloat) {
         guard let constrainedWidth = item.style.width else {
             return (item.rect.minX, item.rect.width)
@@ -671,7 +671,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
             selectedTextForCopy = selectionManager.selectedText(in: layout.attributedString)
             becomeFirstResponder()
             UIMenuController.shared.menuItems = [
-                UIMenuItem(title: localized("下劃線"), action: #selector(underlineSelection(_:)))
+                UIMenuItem(title: localized("underline"), action: #selector(underlineSelection(_:)))
             ]
             let point = gesture.location(in: self)
             UIMenuController.shared.showMenu(from: self, rect: CGRect(x: point.x, y: point.y, width: 1, height: 1))
@@ -711,7 +711,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
             selectedTextForCopy = selectionManager.selectedText(in: layout.attributedString)
             becomeFirstResponder()
             UIMenuController.shared.menuItems = [
-                UIMenuItem(title: localized("下劃線"), action: #selector(underlineSelection(_:)))
+                UIMenuItem(title: localized("underline"), action: #selector(underlineSelection(_:)))
             ]
             UIMenuController.shared.showMenu(from: self, rect: CGRect(x: point.x, y: point.y, width: 1, height: 1))
             activeDragHandle = nil
@@ -761,7 +761,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
         selectedTextForCopy = nil
         activeDragHandle = nil
         interactionOverlay.clearSelection()
-        // 同步關掉「拷貝」menu，否則點掉反白後 menu 會繼續黏在畫面上
+        // Also dismiss the copy menu so it doesn't stick around after the highlight is dismissed
         if #available(iOS 13.0, *) {
             UIMenuController.shared.hideMenu()
         } else {
@@ -1044,7 +1044,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
     }
 }
 
-/// 單頁 ViewController，包裝 CoreTextPageView，供 UIPageViewController 使用。
+/// Single-page ViewController wrapping CoreTextPageView, for use with UIPageViewController.
 final class CoreTextPageViewController: UIViewController {
     private let pageView = CoreTextPageView()
     private(set) var globalPageIndex: Int = 0
@@ -1114,8 +1114,8 @@ final class CoreTextPageViewController: UIViewController {
 extension CoreTextPageViewController: PageIndexProviding {}
 extension CoreTextPageViewController: CoreTextReadingPositionProviding {}
 
-/// 跨章節翻頁動畫接力用的快照 ViewController。
-/// 顯示預先渲染好的 UIImage，動畫結束後由 Coordinator 換成真正的 CoreTextPageViewController。
+/// Snapshot ViewController for cross-chapter page-turn animation handoff.
+/// Displays a pre-rendered UIImage; the Coordinator swaps it out for the actual CoreTextPageViewController after the animation completes.
 final class SnapshotPageViewController: UIViewController {
     private let imageView = UIImageView()
     private(set) var globalPageIndex: Int
@@ -1149,11 +1149,7 @@ final class SnapshotPageViewController: UIViewController {
 extension SnapshotPageViewController: PageIndexProviding {}
 extension SnapshotPageViewController: CoreTextReadingPositionProviding {}
 
-/// 章節尚未計算完成時的佔位 ViewController（顯示章節標題 + 載入指示器）。
-///
-/// 原先右下角還有一個 `footerTimeLabel` 時鐘，但它會和閱讀器底部 footer 的時鐘
-/// 重疊（使用者截圖中的「那個奇怪的時間」），所以拿掉了。
-/// 如果之後想再顯示時鐘，把 footerTimeLabel 相關的建構與 constraint 搬回來即可。
+/// Placeholder ViewController shown when a chapter's layout has not yet been computed (displays chapter title + loading indicator).
 final class PlaceholderPageViewController: UIViewController {
     private let titleLabel = UILabel()
     private let spinner = UIActivityIndicatorView(style: .medium)
