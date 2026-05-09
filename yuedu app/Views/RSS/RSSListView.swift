@@ -8,10 +8,15 @@ struct RSSListView: View {
     @State private var showAddSheet = false
     @State private var showOPMLImporter = false
     @State private var showOPMLExporter = false
+    @State private var showJSONImporter = false
+    @State private var showJSONExporter = false
+    @State private var showJSONURLSheet = false
     @State private var searchText = ""
     @State private var importMessage = ""
     @State private var showImportResult = false
     @State private var didBackfillSourceMetadata = false
+    @State private var showSafari = false
+    @State private var safariURL: URL?
 
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -67,13 +72,30 @@ struct RSSListView: View {
             }
 
             ForEach(sortedSources) { source in
-                NavigationLink(destination: RSSFeedView(source: source)) {
-                    RSSSourceRow(
-                        source: source,
-                        unreadCount: store.unreadCount(for: source.id),
-                        lastFetchedAt: store.lastFetchedAt(for: source.id),
-                        dateFormatter: dateFormatter
-                    )
+                if source.isLegadoRuleBased {
+                    Button {
+                        if let url = URL(string: source.url) {
+                            safariURL = url
+                            showSafari = true
+                        }
+                    } label: {
+                        RSSSourceRow(
+                            source: source,
+                            unreadCount: store.unreadCount(for: source.id),
+                            lastFetchedAt: store.lastFetchedAt(for: source.id),
+                            dateFormatter: dateFormatter
+                        )
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    NavigationLink(destination: RSSFeedView(source: source)) {
+                        RSSSourceRow(
+                            source: source,
+                            unreadCount: store.unreadCount(for: source.id),
+                            lastFetchedAt: store.lastFetchedAt(for: source.id),
+                            dateFormatter: dateFormatter
+                        )
+                    }
                 }
             }
             .onDelete(perform: deleteSources)
@@ -101,6 +123,27 @@ struct RSSListView: View {
                         Label(localized("匯出 OPML"), systemImage: "square.and.arrow.up")
                     }
                     .disabled(sortedSources.isEmpty)
+
+                    Divider()
+
+                    Button {
+                        showJSONImporter = true
+                    } label: {
+                        Label(localized("匯入 Legado JSON"), systemImage: "doc.badge.plus")
+                    }
+
+                    Button {
+                        showJSONURLSheet = true
+                    } label: {
+                        Label(localized("從網址匯入 Legado JSON"), systemImage: "link.badge.plus")
+                    }
+
+                    Button {
+                        showJSONExporter = true
+                    } label: {
+                        Label(localized("匯出 Legado JSON"), systemImage: "doc.badge.arrow.up")
+                    }
+                    .disabled(sortedSources.isEmpty)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -109,6 +152,9 @@ struct RSSListView: View {
         }
         .sheet(isPresented: $showAddSheet) {
             AddRSSSourceSheet(isPresented: $showAddSheet, store: store, gs: gs)
+        }
+        .sheet(isPresented: $showJSONURLSheet) {
+            ImportLegadoJSONURLSheet(isPresented: $showJSONURLSheet, store: store)
         }
         .fileImporter(
             isPresented: $showOPMLImporter,
@@ -122,10 +168,28 @@ struct RSSListView: View {
             contentType: .xml,
             defaultFilename: "yuedu-rss.opml"
         ) { _ in }
+        .fileImporter(
+            isPresented: $showJSONImporter,
+            allowedContentTypes: [.json, .data],
+            allowsMultipleSelection: false,
+            onCompletion: importLegadoJSON
+        )
+        .fileExporter(
+            isPresented: $showJSONExporter,
+            document: RSSJSONDocument(sources: sortedSources),
+            contentType: .json,
+            defaultFilename: "yuedu-rss-legado.json"
+        ) { _ in }
         .alert(localized("RSS 訂閱"), isPresented: $showImportResult) {
             Button(localized("確定"), role: .cancel) {}
         } message: {
             Text(importMessage)
+        }
+        .sheet(isPresented: $showSafari) {
+            if let url = safariURL {
+                SafariView(url: url)
+                    .ignoresSafeArea()
+            }
         }
         .task {
             await backfillMissingSourceMetadata()
@@ -150,8 +214,10 @@ struct RSSListView: View {
         didBackfillSourceMetadata = true
 
         let candidates = sortedSources.filter { source in
-            source.homepageURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false ||
+            !source.isLegadoRuleBased && (
+                source.homepageURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false ||
                 source.faviconURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+            )
         }
 
         for source in candidates {
@@ -159,6 +225,27 @@ struct RSSListView: View {
             await fetcher.fetchItems(from: source, metadata: store.feedMetadata(for: source.id))
             guard let response = fetcher.response else { continue }
             store.applyFeedResponse(response, for: source.id)
+        }
+    }
+
+    private func importLegadoJSON(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else { return }
+            let shouldStopAccessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if shouldStopAccessing {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let data = try Data(contentsOf: url)
+            let sources = try LegadoSourceJSONParser.parse(data: data)
+            let addedCount = store.addSources(sources)
+            importMessage = String(format: localized("已匯入 %d 個訂閱源"), addedCount)
+            showImportResult = true
+        } catch {
+            importMessage = String(format: localized("Legado JSON 匯入失敗：%@"), error.localizedDescription)
+            showImportResult = true
         }
     }
 
@@ -270,6 +357,109 @@ private struct RSSSourceRow: View {
             return localized("尚未更新")
         }
         return "\(localized("最後更新")) \(dateFormatter.string(from: lastFetchedAt))"
+    }
+}
+
+// MARK: - JSON Document
+
+struct RSSJSONDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.json, .data] }
+    static var writableContentTypes: [UTType] { [.json] }
+
+    var data: Data
+
+    init(sources: [RSSSource]) {
+        data = (try? LegadoSourceJSONParser.export(sources: sources)) ?? Data()
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}
+
+// MARK: - Import Legado JSON URL Sheet
+
+private struct ImportLegadoJSONURLSheet: View {
+    @Binding var isPresented: Bool
+    @ObservedObject var store: RSSStore
+
+    @State private var urlString = ""
+    @State private var isLoading = false
+    @State private var message = ""
+    @State private var showMessage = false
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text(localized("Legado JSON 網址"))) {
+                    TextField("https://.../sources/xxx.json", text: $urlString)
+                        .keyboardType(.URL)
+                        .autocapitalization(.none)
+                        .disableAutocorrection(true)
+                }
+
+                if showMessage {
+                    Section {
+                        Text(message)
+                            .foregroundColor(message.hasPrefix("❌") ? .red : DSColor.textPrimary)
+                    }
+                }
+            }
+            .navigationTitle(localized("從網址匯入 Legado JSON"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(localized("取消")) {
+                        isPresented = false
+                    }
+                    .foregroundColor(DSColor.accent)
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(localized("匯入")) {
+                        Task { await importFromURL() }
+                    }
+                    .foregroundColor(DSColor.accent)
+                    .disabled(urlString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
+                }
+            }
+            .disabled(isLoading)
+            .overlay {
+                if isLoading {
+                    ProgressView(localized("匯入中，請稍候…"))
+                        .padding()
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func importFromURL() async {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let url = URL(string: trimmed) else {
+            message = "❌ \(localized("RSS URL 無效"))"
+            showMessage = true
+            return
+        }
+
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            let sources = try LegadoSourceJSONParser.parse(data: data)
+            let addedCount = store.addSources(sources)
+            message = "\(localized("成功匯入")) \(addedCount) \(localized("個訂閱源"))"
+            showMessage = true
+            isPresented = false
+        } catch {
+            message = "❌ \(String(format: localized("Legado JSON 匯入失敗：%@"), error.localizedDescription))"
+            showMessage = true
+        }
     }
 }
 

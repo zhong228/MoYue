@@ -9,6 +9,29 @@ struct RSSSource: Codable, Identifiable {
     var customRule: String?
     var sortOrder: Int = 0
     var enabled: Bool = true
+
+    // Legado-compatible fields
+    var sourceGroup: String?
+    var sourceIcon: String?
+    var ruleArticles: String?
+    var ruleTitle: String?
+    var ruleLink: String?
+    var ruleDescription: String?
+    var ruleContent: String?
+    var rulePubDate: String?
+    var ruleImage: String?
+    var header: String?
+    var sortUrl: String?
+    var articleStyle: Int = 0
+    var customOrder: Int = 0
+    var enableJs: Bool = true
+    var enabledCookieJar: Bool = false
+    var lastUpdateTime: Double = 0
+    var loadWithBaseUrl: Bool = true
+    var singleUrl: Bool = true
+
+    var isLegadoRuleBased: Bool { ruleArticles != nil && !(ruleArticles?.isEmpty ?? true) }
+    var displayFaviconURL: String? { faviconURL ?? sourceIcon }
 }
 
 struct RSSItem: Codable, Identifiable {

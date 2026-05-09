@@ -17,6 +17,11 @@ final class RSSFetcher: ObservableObject {
         response = nil
         defer { isLoading = false }
 
+        if source.isLegadoRuleBased {
+            await fetchWithLegadoRules(source: source)
+            return
+        }
+
         guard let request = RSSRequestFactory.feedRequest(for: source, metadata: metadata) else {
             error = localized("RSS URL 無效")
             return
@@ -54,6 +59,21 @@ final class RSSFetcher: ObservableObject {
                 lastFetchedAt: Date()
             )
             self.response = .updated(items: parsedItems, metadata: metadata, feedInfo: parser.feedInfo)
+
+            if parsedItems.isEmpty {
+                error = localized("RSS 解析成功，但沒有找到文章。")
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func fetchWithLegadoRules(source: RSSSource) async {
+        do {
+            let parsedItems = try await LegadoRSSScraper.scrape(source: source)
+            items = parsedItems
+            let metadata = RSSFeedFetchMetadata(lastFetchedAt: Date())
+            self.response = .updated(items: parsedItems, metadata: metadata, feedInfo: nil)
 
             if parsedItems.isEmpty {
                 error = localized("RSS 解析成功，但沒有找到文章。")

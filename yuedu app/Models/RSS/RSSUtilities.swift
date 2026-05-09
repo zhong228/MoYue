@@ -39,7 +39,7 @@ enum RSSRequestFactory {
 
 enum RSSFaviconResolver {
     static func faviconURL(for source: RSSSource, fallbackURL: URL? = nil) -> URL? {
-        if let faviconURL = source.faviconURL,
+        if let faviconURL = source.displayFaviconURL,
            let url = URL(string: faviconURL) {
             return url
         }

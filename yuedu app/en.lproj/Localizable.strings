@@ -538,3 +538,15 @@
 "顯示摘要" = "Show Summary";
 "沒有可讀全文" = "No readable full text";
 "分享" = "Share";
+"匯入 Legado JSON" = "Import Legado JSON";
+"匯出 Legado JSON" = "Export Legado JSON";
+"Legado JSON 匯入失敗：%@" = "Legado JSON import failed: %@";
+"無效的 Legado 訂閱源格式" = "Invalid Legado subscription format";
+"規則 %@ 格式無效" = "Rule %@ format invalid";
+"HTTP 請求失敗" = "HTTP request failed";
+"網頁編碼錯誤" = "Page encoding error";
+"沒有找到文章" = "No articles found";
+"從網址匯入 Legado JSON" = "Import Legado JSON from URL";
+"Legado JSON 網址" = "Legado JSON URL";
+"個訂閱源" = " source(s)";
+"下劃線" = "Underline";

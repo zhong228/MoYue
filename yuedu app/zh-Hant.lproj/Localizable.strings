@@ -538,3 +538,15 @@
 "顯示摘要" = "顯示摘要";
 "沒有可讀全文" = "沒有可讀全文";
 "分享" = "分享";
+"匯入 Legado JSON" = "匯入 Legado JSON";
+"匯出 Legado JSON" = "匯出 Legado JSON";
+"Legado JSON 匯入失敗：%@" = "Legado JSON 匯入失敗：%@";
+"無效的 Legado 訂閱源格式" = "無效的 Legado 訂閱源格式";
+"規則 %@ 格式無效" = "規則 %@ 格式無效";
+"HTTP 請求失敗" = "HTTP 請求失敗";
+"網頁編碼錯誤" = "網頁編碼錯誤";
+"沒有找到文章" = "沒有找到文章";
+"從網址匯入 Legado JSON" = "從網址匯入 Legado JSON";
+"Legado JSON 網址" = "Legado JSON 網址";
+"個訂閱源" = "個訂閱源";
+"下劃線" = "下劃線";
