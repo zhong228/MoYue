@@ -1,118 +1,124 @@
-# yuedu
+# Yuedu Reader
 
 [English](README.md) | [简体中文](README.zh-Hans.md) | [繁體中文](README.zh-Hant.md)
 
-一個使用 SwiftUI 和 CoreText 建構的高度可客製化 iOS 原生閱讀器。
+Yuedu Reader 是一個使用 SwiftUI 和 CoreText 建構的 iOS 原生閱讀器，專注於 CJK 長文本閱讀、本地 EPUB/TXT 書庫、網頁內容轉碼、RSS 訂閱、TTS 聽書、WebDAV 同步，以及可細調的閱讀排版。
 
-yuedu 專注於 CJK 中文長文本閱讀體驗，支援自訂排版、大體積書籍、EPUB/TXT 匯入、RSS、TTS 聽書、WebDAV，以及使用者自訂網頁內容轉碼。
+> 狀態說明：本專案是 CJK-first 閱讀器。中文閱讀、中英/數字混排、長篇小說場景是主要目標。英文 EPUB/TXT 基本可讀，但目前還不是主要驗證路徑。
 
-> 狀態說明：本專案是 CJK-first 閱讀器。中文閱讀、中文與英文/數字混排、長篇小說場景是主要目標。英文 EPUB/TXT 基本可讀，但目前還不是主要測試目標。
+## 能做什麼
 
-## 主要特性
-
-- **CJK-first 中文排版** — 針對中文長文本閱讀最佳化，包括標點處理、段落間距、段首縮排和直排閱讀。
-- **自研 CoreText 渲染器** — 支援分頁和縱向捲動，不依賴 WebView 作為主要閱讀介面。
-- **EPUB & TXT 匯入** — 支援本地書籍匯入、解析、快取和閱讀位置恢復。
-- **大體積書籍處理** — 已使用 1400 萬字 TXT 和 800 萬字 EPUB 進行測試。
-- **TTS 聽書** — 支援 AVSpeechSynthesizer 和基於 HTTP 的自訂 TTS 後端。
-- **RSS 訂閱** — 支援標準 RSS/Atom，也支援規則化內容擷取。
-- **WebDAV 支援** — 用於備份、恢復、書庫和閱讀進度同步相關流程。
-- **網頁內容轉碼** — 將使用者自行提供的網頁文章或小說頁面轉換為閱讀器內部格式。
-- **書籤與標註** — 支援段落級書籤和底線標註持久化。
-- **高度可客製化閱讀介面** — 字體、字級、行距、頁邊距、主題、分頁/捲動模式和直排模式。
+- **原生 CoreText 閱讀器**：支援分頁閱讀和連續捲動，不以 WebView 作為主要閱讀介面。
+- **CJK 中文排版**：處理段首縮排、標點、行距、頁邊距、中英混排和直排閱讀。
+- **本地書庫**：匯入 EPUB、TXT 和類 Markdown 文字檔，支援解析、快取、封面、書籤、標註和閱讀位置恢復。
+- **大體積書籍處理**：已針對長篇 TXT 和 EPUB 閱讀流程驗證，包含數百萬字級內容。
+- **線上閱讀流程**：將使用者自行提供的網頁和規則化書源轉換成同一套閱讀器格式。
+- **RSS 閱讀**：支援 RSS/Atom feed、規則化擷取、OPML 類工作流和文章渲染。
+- **TTS 聽書**：支援本機 `AVSpeechSynthesizer` 和基於 HTTP 的自訂 TTS provider。
+- **同步與備份**：以 WebDAV 為核心的備份、恢復、書庫同步和進度同步流程。
+- **閱讀器客製化**：字體、字級、行高、段落間距、頁邊距、主題、分頁/捲動模式和直排模式。
 
 ## 專案邊界
 
-yuedu 是閱讀器引擎和應用外殼，不內建、不託管、不推薦任何受版權保護的內容來源。
+Yuedu Reader 是閱讀器引擎和應用外殼，不內建、不託管、不推薦、也不散布任何受版權保護的內容來源。
 
-使用者需要自行確保匯入的檔案、網頁內容、RSS 訂閱和自訂規則符合當地法律、版權要求和網站服務條款。
+使用者需要自行確保匯入檔案、RSS feed、網站、自訂規則、cookie、帳號和產生內容符合當地法律、版權要求和網站服務條款。
 
-本專案不接受內建盜版源、DRM 繞過、付費牆繞過、私有 token、cookie、反爬繞過邏輯等相關貢獻或請求。
+本專案不接受內建盜版源、DRM 繞過、付費牆繞過、私有 token 分享、cookie 擷取或反爬繞過邏輯等貢獻。
 
 ## 環境需求
 
 - iOS 18.0+
-- Xcode 16.0+
-- Swift 6
+- Xcode 16+
+- Xcode 專案目前使用 Swift 5 language mode
 
 ## 快速開始
 
 ```bash
-git clone https://github.com/yuedu-reader/yuedu-app.git
-cd yuedu-app
-open "yuedu app.xcodeproj"
+git clone https://github.com/CHANG-JUI-LIN/Yuedu-reader.git
+cd Yuedu-reader
+open Yuedu-Reader.xcodeproj
 ```
 
-選擇 `yuedu app` scheme，然後在模擬器或真機上建置執行。
+選擇 `Yuedu-Reader` scheme，然後在 iOS 模擬器或真機上建置執行。
+
+也可以使用 app target 的建置腳本：
+
+```bash
+./scripts/build.sh
+```
+
+等價指令：
+
+```bash
+xcodebuild \
+  -project "Yuedu-Reader.xcodeproj" \
+  -scheme "Yuedu-Reader" \
+  -destination 'generic/platform=iOS Simulator' \
+  -configuration Debug \
+  build
+```
 
 ## 專案結構
 
 ```text
-yuedu app/
-├── Models/               # 資料模型、儲存、引擎
+iOS/
+├── Models/               # 資料模型、儲存、服務、渲染器、解析器
 │   ├── App/              # 全域設定、設計 token、依賴注入
-│   ├── Book/             # 書籍模型、BookStore、書籤
-│   ├── BookSource/       # 使用者自訂來源抓取流程
-│   ├── LocalBook/        # EPUB/TXT/Markdown 解析器
+│   ├── Book/             # 書籍模型、BookStore、書籤、metadata
+│   ├── BookSource/       # 使用者自訂來源抓取
+│   ├── LocalBook/        # EPUB/TXT/Markdown 匯入
 │   ├── Online/           # 線上閱讀與網頁內容轉碼流程
-│   ├── RSS/              # RSS 模型、抓取器、解析器
-│   ├── Reader/CoreText/  # CoreText 排版與分頁引擎
-│   ├── RuleEngine/       # CSS/XPath/Regex/JSON 規則擷取
-│   ├── TTS/              # 聽書協調邏輯
-│   └── ...               # Comic、Migration、Network、Sync、Server
-├── Views/                # SwiftUI 視圖
-│   ├── Reader/           # 閱讀器介面與控制
-│   ├── Bookshelf/        # 首頁書架
-│   ├── BookSource/       # 來源管理
-│   ├── RSS/              # RSS 訂閱介面
-│   ├── Settings/         # 應用設定
-│   └── ...               # Search、Stats、TTS 等
+│   ├── RSS/              # RSS 模型、feed 抓取器、解析器、文章工具
+│   ├── Reader/CoreText/  # CoreText 分頁、捲動排版、繪製
+│   ├── RuleEngine/       # CSS/XPath/Regex/JSON 擷取
+│   ├── Sync/             # WebDAV 與同步邏輯
+│   └── TTS/              # 語音播放協調
+├── Views/                # SwiftUI 畫面和共用 UI
+│   ├── Reader/           # 閱讀器介面、控制列、設定、覆蓋層
+│   ├── Bookshelf/        # 首頁書架與書籍管理
+│   ├── BookSource/       # 書源管理與診斷
+│   ├── Online/           # 瀏覽器/匯入流程
+│   ├── RSS/              # RSS 訂閱與文章畫面
+│   └── Settings/         # App 設定、個人資料、同步、TTS、遷移
 ├── ViewModels/           # ObservableObject ViewModel
-├── Assets/               # 資源目錄和規則引擎資源
-└── *.lproj/              # 在地化檔案（zh-Hant、zh-Hans、en）
+├── Assets/               # Asset catalog 和規則引擎資源
+└── *.lproj/              # 在地化：zh-Hant、zh-Hans、en
+
+ShareExtension/           # iOS 分享擴充
+Widget/                   # 主畫面 widget
+Tests/                    # Unit test 和 UI test targets
+Technotes/                # 架構筆記
+scripts/                  # 本機自動化腳本
+xcconfig/                 # 共用 Xcode 設定
 ```
 
-## 架構說明
+## 架構筆記
 
-- **EPUB 解析**：使用 Readium 元件處理 EPUB package 解析與資源管理。
-- **閱讀渲染**：`EPUBPageRenderer` 根據閱讀模式分發到 `CoreTextPageEngine` 或 `CoreTextScrollEngine`。頁面由 `CoreTextPageView` 透過 CoreText `CTFrame` 繪製。
-- **CJK 排版**：渲染器圍繞中文長文本場景設計，處理 CJK 標點、段首縮排、中英混排和從右到左的直排布局。
-- **書籍來源**：`BookSourceFetcher` → `OnlineReadingPipeline` → `RuleEngine`，從使用者自訂規則中擷取章節與標準化內容。
-- **RSS**：`RSSFetcher` 處理標準 XML feed 和基於規則的 HTML 擷取。
-- **TTS**：TTS 協調器將可朗讀文字區塊映射到播放狀態和閱讀位置。
-- **同步**：WebDAV 和帳號相關服務用於備份、恢復和閱讀進度同步。
-- **依賴注入**：透過 `AppDependencies` 和 `@Environment` 提供服務，必要時集中管理快取和 manager。
+- **EPUB**：使用 Readium 元件處理 EPUB package 解析與資源存取。
+- **渲染**：`EPUBPageRenderer` 依閱讀模式分派到 `CoreTextPageEngine` 或 `CoreTextScrollEngine`。`CoreTextPageView` 和 chunk cell 負責繪製最終 CoreText frame。
+- **閱讀位置**：穩定位置使用 `(spineIndex, charOffset)`，不使用頁碼，因為章節載入或版面變更後 page index 可能位移。
+- **線上內容**：`BookSourceFetcher`、`OnlineReadingPipeline`、`ModernRuleEngine` 和 web fetcher 會把使用者提供的來源轉成標準化章節內容。
+- **RSS**：feed XML 解析和規則化文章擷取，沿用和線上閱讀一致的清理與閱讀器渲染原則。
+- **TTS**：播放狀態獨立於渲染層協調，讓閱讀器高亮和系統媒體控制能跟隨目前朗讀段落。
+- **依賴注入**：透過 `AppDependencies` 和 SwiftUI environment 提供 app services；需要持久化或快取所有權的 manager 會集中管理。
 
-## 在地化
+更多細節見 [Technotes/Architecture.md](Technotes/Architecture.md)。
 
-所有介面字串都必須使用 `localized()`，不要硬編碼使用者可見文字。
+## 開發規則
 
-新增在地化 key 時，需要同時更新以下三個檔案：
+- 使用 `localized()` 處理使用者可見文字，並同步更新三個在地化檔案：
+  - `iOS/zh-Hant.lproj/Localizable.strings`
+  - `iOS/zh-Hans.lproj/Localizable.strings`
+  - `iOS/en.lproj/Localizable.strings`
+- 閱讀位置要使用穩定內容座標，不要使用會變動的 page index。
+- 優先使用 `Models/App/DesignTokens.swift` 內既有 design tokens。
+- 書源和規則引擎相關工作必須限定在合法、使用者自行提供內容的流程。
 
-- `zh-Hant.lproj/Localizable.strings`
-- `zh-Hans.lproj/Localizable.strings`
-- `en.lproj/Localizable.strings`
-
-## 建議補充的 README 資源
-
-正式公開 GitHub 前，建議補充：
-
-- 書架截圖
-- 閱讀頁截圖
-- 排版/設定頁截圖
-- 翻頁動畫 GIF
-- TTS 播放 GIF 或短影片
-- 匯入效能測試表
-- 架構圖
-
-## 貢獻
-
-詳見 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-貢獻應集中在閱讀器引擎、UI、在地化、EPUB/TXT 處理、RSS、WebDAV、無障礙、測試和合法的使用者自訂內容流程。
+貢獻規範見 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 授權
 
-MIT — 見 [LICENSE](LICENSE)。
+MIT。見 [LICENSE](LICENSE)。
 
 本專案連結了 [Readium](https://github.com/readium) 元件，Readium 元件使用 BSD 授權。Readium 名稱和標誌是 Readium Foundation 的商標。
