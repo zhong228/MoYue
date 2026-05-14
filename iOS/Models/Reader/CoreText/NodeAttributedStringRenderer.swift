@@ -203,6 +203,45 @@ struct NodeAttributedStringRenderer {
                 applyBlockDecorationAttributes(style: style, to: result, range: NSRange(location: 0, length: contentLength))
             }
         }
+        // Apply :first-letter styles to the first typographic letter unit
+        if let flSizeMul = style.firstLetterFontSizeMultiplier, result.length > 0 {
+            if let flRange = HTMLAttributedStringBuilder.firstLetterRange(in: result.string) {
+                let baseFont = result.attribute(.font, at: flRange.location, effectiveRange: nil) as? UIFont ?? childCtx.font
+                let flSize = baseFont.pointSize * flSizeMul
+                let flWeight = style.firstLetterFontWeight ?? childCtx.fontWeight
+                let system = UIFont.systemFont(ofSize: flSize, weight: {
+                    switch flWeight {
+                    case ..<350: return .regular
+                    case 350..<450: return .regular
+                    case 450..<550: return .medium
+                    case 550..<650: return .semibold
+                    case 650..<750: return .bold
+                    case 750..<850: return .heavy
+                    default: return .black
+                    }
+                }())
+                let flItalic = baseFont.fontDescriptor.symbolicTraits.contains(.traitItalic)
+                if flItalic, let desc = system.fontDescriptor.withSymbolicTraits(.traitItalic) {
+                    result.addAttribute(.font, value: UIFont(descriptor: desc, size: flSize), range: flRange)
+                } else {
+                    result.addAttribute(.font, value: system, range: flRange)
+                }
+                if let flColor = style.firstLetterColor {
+                    result.addAttribute(.foregroundColor, value: flColor.uiColor, range: flRange)
+                }
+
+                // Relax maximumLineHeight so the first line can grow to fit the large first letter.
+                if let para = result.attribute(.paragraphStyle, at: flRange.location, effectiveRange: nil) as? NSParagraphStyle,
+                   let mutablePara = para.mutableCopy() as? NSMutableParagraphStyle {
+                    let flRequiredHeight = flSize * 0.7
+                    if mutablePara.maximumLineHeight > 0 && mutablePara.maximumLineHeight < flRequiredHeight {
+                        mutablePara.maximumLineHeight = 0
+                        result.addAttribute(.paragraphStyle, value: mutablePara, range: NSRange(location: 0, length: result.length))
+                    }
+                }
+            }
+        }
+
         result.append(NSAttributedString(string: "\n", attributes: childCtx.baseAttributes))
         return result
     }
@@ -276,13 +315,17 @@ struct NodeAttributedStringRenderer {
             targetLineHeight: para.minimumLineHeight
         )
 
+        if style.underline { newCtx.underline = true }
+        if style.strikethrough { newCtx.strikethrough = true }
+
         return newCtx
     }
 
     // MARK: - Apply Inline Style to Context
 
     private func applyInlineStyle(_ style: RenderStyle, to ctx: RenderContext) -> RenderContext {
-        guard style.bold || style.italic || style.color != nil || !style.fontFamilies.isEmpty else { return ctx }
+        guard style.bold || style.italic || style.color != nil || !style.fontFamilies.isEmpty
+                || style.underline || style.strikethrough else { return ctx }
         var newCtx = ctx
         let families = style.fontFamilies.isEmpty ? ctx.fontFamilies : style.fontFamilies
         let bold = style.bold || ctx.font.isBold
@@ -291,6 +334,8 @@ struct NodeAttributedStringRenderer {
         newCtx.fontFamilies = families
         newCtx.fontWeight = weight
         if let c = style.color { newCtx.textColor = c.uiColor; newCtx.hasCSSColor = true }
+        if style.underline { newCtx.underline = true }
+        if style.strikethrough { newCtx.strikethrough = true }
         return newCtx
     }
 
@@ -322,8 +367,13 @@ struct NodeAttributedStringRenderer {
         }
 
         if bold && italic {
-            return UIFont(descriptor: UIFont.systemFont(ofSize: size).fontDescriptor.withSymbolicTraits([.traitBold, .traitItalic])
-                ?? UIFont.systemFont(ofSize: size).fontDescriptor, size: size)
+            let system = UIFont.systemFont(ofSize: size, weight: .bold)
+            var traits = system.fontDescriptor.symbolicTraits
+            traits.insert(.traitItalic)
+            if let descriptor = system.fontDescriptor.withSymbolicTraits(traits) {
+                return UIFont(descriptor: descriptor, size: size)
+            }
+            return system
         } else if bold {
             return UIFont.systemFont(ofSize: size, weight: .bold)
         } else if italic {
@@ -337,10 +387,22 @@ struct NodeAttributedStringRenderer {
         var traits = font.fontDescriptor.symbolicTraits
         if bold { traits.insert(.traitBold) }
         if italic { traits.insert(.traitItalic) }
-        guard let descriptor = font.fontDescriptor.withSymbolicTraits(traits) else {
-            return UIFont(descriptor: font.fontDescriptor, size: size)
+        if let descriptor = font.fontDescriptor.withSymbolicTraits(traits) {
+            return UIFont(descriptor: descriptor, size: size)
         }
-        return UIFont(descriptor: descriptor, size: size)
+        // Custom font doesn't support requested traits — fall back to system font
+        if bold && italic {
+            let system = UIFont.systemFont(ofSize: size, weight: .bold)
+            if let desc = system.fontDescriptor.withSymbolicTraits([.traitBold, .traitItalic]) {
+                return UIFont(descriptor: desc, size: size)
+            }
+            return system
+        } else if bold {
+            return UIFont.systemFont(ofSize: size, weight: .bold)
+        } else if italic {
+            return UIFont.italicSystemFont(ofSize: size)
+        }
+        return UIFont(descriptor: font.fontDescriptor, size: size)
     }
 
     // MARK: - Images / Block Decoration
@@ -662,6 +724,8 @@ struct NodeAttributedStringRenderer {
         var baselineOffset: CGFloat
         var lineHeightMultiple: CGFloat
         var linkHref: String?
+        var underline: Bool
+        var strikethrough: Bool
 
         /// Records the body's base font size for heading proportional scaling.
         var baseSize: CGFloat
@@ -679,6 +743,12 @@ struct NodeAttributedStringRenderer {
             }
             if hasCSSColor {
                 attrs[HTMLAttributedStringBuilder.cssSpecifiedForegroundColorAttribute] = textColor
+            }
+            if underline {
+                attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            }
+            if strikethrough {
+                attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
             }
             return attrs
         }
@@ -708,6 +778,8 @@ struct NodeAttributedStringRenderer {
                     targetLineHeight: targetLineHeight
                 ),
                 lineHeightMultiple: config.lineHeightMultiple,
+                underline: false,
+                strikethrough: false,
                 baseSize: config.baseFontSize
             )
         }

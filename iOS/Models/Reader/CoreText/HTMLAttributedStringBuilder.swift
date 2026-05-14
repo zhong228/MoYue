@@ -30,6 +30,7 @@ final class HTMLAttributedStringBuilder {
         var backgroundColor: UIColor
         var fontFamilyName: String?
         var renderWidth: CGFloat
+        var firstLetterRules: [CSSRule] = []
     }
 
     struct ImagePage {
@@ -48,6 +49,7 @@ final class HTMLAttributedStringBuilder {
     struct ParsedHTML {
         let body: Element
         let rules: [CSSRule]
+        let firstLetterRules: [CSSRule]
     }
 
     struct RenderedContent {
@@ -110,6 +112,14 @@ final class HTMLAttributedStringBuilder {
         /// User-configured paragraph spacing, propagated from root and not overridden by CSS margin.
         /// Ensures the default <p> spacing is not zeroed out by EPUB CSS body/div margin:0.
         var configParagraphSpacing: CGFloat
+        /// Non-nil when paragraph matches a :first-letter CSS rule. Applied to the first visible character.
+        var firstLetterDeclarations: [String: String]?
+        /// Resolved :first-letter style properties (nil when no :first-letter matches).
+        var firstLetterFontSizeMultiplier: CGFloat?
+        var firstLetterFontWeight: Int?
+        var firstLetterColor: UIColor?
+        var underline: Bool
+        var strikethrough: Bool
     }
 
     /// Visual style for HR dividers (stored in hrDividerAttribute).
@@ -260,28 +270,33 @@ final class HTMLAttributedStringBuilder {
             return nil
         }
 
+        var mergedConfig = config
+        mergedConfig.firstLetterRules = parsed.firstLetterRules
+
         return await styleResolver.buildAST(
             from: parsed,
-            config: config,
+            config: mergedConfig,
             makeRootStyle: { config in
                 self.makeRootStyle(config: config)
             },
-            resolveStyle: { element, parent, rules, rootFontSize, parentElement in
+            resolveStyle: { element, parent, rules, rootFontSize, parentElement, config in
                 self.resolvedStyle(
                     for: element,
                     parent: parent,
                     rules: rules,
                     rootFontSize: rootFontSize,
-                    parentElement: parentElement
+                    parentElement: parentElement,
+                    config: config
                 )
             },
-            buildChildren: { nodes, parentStyle, rules, rootFontSize, parentElement in
+            buildChildren: { nodes, parentStyle, rules, rootFontSize, parentElement, config in
                 return await self.buildChildren(
                     from: nodes,
                     parentStyle: parentStyle,
                     rules: rules,
                     rootFontSize: rootFontSize,
-                    parentElement: parentElement
+                    parentElement: parentElement,
+                    config: config
                 )
             },
             makeAttributeMap: { element in
@@ -333,7 +348,8 @@ final class HTMLAttributedStringBuilder {
         parentStyle: ResolvedStyle,
         rules: [CSSRule],
         rootFontSize: CGFloat,
-        parentElement: Element?
+        parentElement: Element?,
+        config: Config
     ) async -> [ASTNode] {
         var result: [ASTNode] = []
         for node in nodes {
@@ -356,7 +372,8 @@ final class HTMLAttributedStringBuilder {
                     parent: parentStyle,
                     rules: rules,
                     rootFontSize: rootFontSize,
-                    parentElement: parentElement
+                    parentElement: parentElement,
+                    config: config
                 )
                 result.append(.lineBreak(BreakNode(resolvedStyle: style)))
                 continue
@@ -367,14 +384,16 @@ final class HTMLAttributedStringBuilder {
                 parent: parentStyle,
                 rules: rules,
                 rootFontSize: rootFontSize,
-                parentElement: parentElement
+                parentElement: parentElement,
+                config: config
             )
             let children = await buildChildren(
                 from: element.getChildNodes(),
                 parentStyle: style,
                 rules: rules,
                 rootFontSize: rootFontSize,
-                parentElement: element
+                parentElement: element,
+                config: config
             )
             result.append(
                 .element(
@@ -739,6 +758,37 @@ final class HTMLAttributedStringBuilder {
             }
         }
 
+        // Apply :first-letter styles to the first typographic letter unit
+        if let flSizeMul = element.resolvedStyle.firstLetterFontSizeMultiplier, output.length > 0 {
+            if let flRange = Self.firstLetterRange(in: output.string) {
+                let baseFont = output.attribute(.font, at: flRange.location, effectiveRange: nil) as? UIFont ?? UIFont.systemFont(ofSize: element.resolvedStyle.fontSize)
+                let flSize = element.resolvedStyle.fontSize * flSizeMul
+                let flWeight = element.resolvedStyle.firstLetterFontWeight ?? element.resolvedStyle.fontWeight
+                let system = UIFont.systemFont(ofSize: flSize, weight: uiFontWeight(from: flWeight))
+                let flItalic = baseFont.fontDescriptor.symbolicTraits.contains(.traitItalic)
+                if flItalic, let desc = system.fontDescriptor.withSymbolicTraits(.traitItalic) {
+                    output.addAttribute(.font, value: UIFont(descriptor: desc, size: flSize), range: flRange)
+                } else {
+                    output.addAttribute(.font, value: system, range: flRange)
+                }
+                if let flColor = element.resolvedStyle.firstLetterColor {
+                    output.addAttribute(.foregroundColor, value: flColor, range: flRange)
+                    output.addAttribute(Self.cssSpecifiedForegroundColorAttribute, value: flColor, range: flRange)
+                }
+
+                // Relax maximumLineHeight so the first line can grow to fit the large first letter.
+                // The simplified drop cap needs no line-height ceiling; otherwise CoreText clips the oversized glyph.
+                if let para = output.attribute(.paragraphStyle, at: flRange.location, effectiveRange: nil) as? NSParagraphStyle,
+                   let mutablePara = para.mutableCopy() as? NSMutableParagraphStyle {
+                    let flRequiredHeight = flSize * 0.7
+                    if mutablePara.maximumLineHeight > 0 && mutablePara.maximumLineHeight < flRequiredHeight {
+                        mutablePara.maximumLineHeight = 0
+                        output.addAttribute(.paragraphStyle, value: mutablePara, range: NSRange(location: 0, length: output.length))
+                    }
+                }
+            }
+        }
+
         return output
     }
 
@@ -1045,6 +1095,12 @@ final class HTMLAttributedStringBuilder {
         if style.hasCSSColor {
             attrs[Self.cssSpecifiedForegroundColorAttribute] = style.textColor
         }
+        if style.underline {
+            attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        }
+        if style.strikethrough {
+            attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+        }
         return attrs
     }
 
@@ -1076,9 +1132,12 @@ final class HTMLAttributedStringBuilder {
         }
 
         let system = UIFont.systemFont(ofSize: style.fontSize, weight: weight)
-        if style.isItalic,
-           let descriptor = system.fontDescriptor.withSymbolicTraits(.traitItalic) {
-            return UIFont(descriptor: descriptor.addingAttributes(cascadeAttributes()), size: style.fontSize)
+        if style.isItalic {
+            var traits = system.fontDescriptor.symbolicTraits
+            traits.insert(.traitItalic)
+            if let descriptor = system.fontDescriptor.withSymbolicTraits(traits) {
+                return UIFont(descriptor: descriptor.addingAttributes(cascadeAttributes()), size: style.fontSize)
+            }
         }
         return UIFont(descriptor: system.fontDescriptor.addingAttributes(cascadeAttributes()), size: style.fontSize)
     }
@@ -1105,12 +1164,35 @@ final class HTMLAttributedStringBuilder {
     private func styledEmbeddedFont(from font: UIFont, size: CGFloat, weight: Int, italic: Bool) -> UIFont {
         var descriptor = font.fontDescriptor
         let requestedTraits = requestedSymbolicTraits(weight: weight, italic: italic)
-        if !requestedTraits.isEmpty,
-           let styledDescriptor = descriptor.withSymbolicTraits(descriptor.symbolicTraits.union(requestedTraits)) {
-            descriptor = styledDescriptor
+        if !requestedTraits.isEmpty {
+            if let styledDescriptor = descriptor.withSymbolicTraits(descriptor.symbolicTraits.union(requestedTraits)) {
+                descriptor = styledDescriptor
+            } else {
+                // Embedded font doesn't support requested traits — fall back to system font
+                return systemFontWithTraits(size: size, weight: weight, italic: italic)
+            }
         }
         descriptor = descriptor.addingAttributes(cascadeAttributes())
         return UIFont(descriptor: descriptor, size: size)
+    }
+
+    private func systemFontWithTraits(size: CGFloat, weight: Int, italic: Bool) -> UIFont {
+        let sysWeight = uiFontWeight(from: weight)
+        let isBold = weight >= 600
+        if isBold && italic {
+            let system = UIFont.systemFont(ofSize: size, weight: sysWeight)
+            var traits = system.fontDescriptor.symbolicTraits
+            traits.insert(.traitItalic)
+            if let desc = system.fontDescriptor.withSymbolicTraits(traits) {
+                return UIFont(descriptor: desc.addingAttributes(cascadeAttributes()), size: size)
+            }
+            return UIFont(descriptor: system.fontDescriptor.addingAttributes(cascadeAttributes()), size: size)
+        } else if isBold {
+            return UIFont(descriptor: UIFont.systemFont(ofSize: size, weight: sysWeight).fontDescriptor.addingAttributes(cascadeAttributes()), size: size)
+        } else if italic {
+            return UIFont.italicSystemFont(ofSize: size)
+        }
+        return UIFont(descriptor: UIFont.systemFont(ofSize: size).fontDescriptor.addingAttributes(cascadeAttributes()), size: size)
     }
 
     private func requestedSymbolicTraits(weight: Int, italic: Bool) -> UIFontDescriptor.SymbolicTraits {
@@ -1307,14 +1389,17 @@ final class HTMLAttributedStringBuilder {
         parent: ResolvedStyle,
         rules: [CSSRule],
         rootFontSize: CGFloat,
-        parentElement: Element?
+        parentElement: Element?,
+        config: Config
     ) -> ResolvedStyle {
         var style = inheritedStyle(from: parent, tag: element.tagName().lowercased())
+        let pct = config.renderWidth
         apply(
             declarations: userAgentDeclarations(for: element.tagName().lowercased(), config: parent),
             to: &style,
             parentStyle: parent,
-            rootFontSize: rootFontSize
+            rootFontSize: rootFontSize,
+            percentageBase: pct
         )
 
         let matchedRules = rules
@@ -1328,7 +1413,8 @@ final class HTMLAttributedStringBuilder {
                 declarations: rule.declarations,
                 to: &style,
                 parentStyle: parent,
-                rootFontSize: rootFontSize
+                rootFontSize: rootFontSize,
+                percentageBase: pct
             )
         }
 
@@ -1337,8 +1423,37 @@ final class HTMLAttributedStringBuilder {
             declarations: inlineStyle,
             to: &style,
             parentStyle: parent,
-            rootFontSize: rootFontSize
+            rootFontSize: rootFontSize,
+            percentageBase: pct
         )
+
+        // Match :first-letter rules and resolve font-size / font-weight / color
+        if !config.firstLetterRules.isEmpty {
+            let matchedFL = config.firstLetterRules
+                .filter { $0.selector.matches(element: element, parent: parentElement) }
+                .sorted { lhs, rhs in lhs.specificity < rhs.specificity }
+            if !matchedFL.isEmpty {
+                var merged: [String: String] = [:]
+                for rule in matchedFL {
+                    for (k, v) in rule.declarations { merged[k] = v }
+                }
+                style.firstLetterDeclarations = merged
+
+                // Resolve font-size (supports % and em)
+                if let fs = merged["font-size"],
+                   let val = resolveLength(fs, currentFontSize: style.fontSize, rootFontSize: rootFontSize, relativeBase: style.fontSize) {
+                    style.firstLetterFontSizeMultiplier = val / style.fontSize
+                }
+                // Resolve font-weight
+                if let fw = merged["font-weight"] {
+                    style.firstLetterFontWeight = cssFontWeight(fw, current: style.fontWeight)
+                }
+                // Resolve color
+                if let clr = merged["color"], let c = parseColor(clr) {
+                    style.firstLetterColor = c
+                }
+            }
+        }
 
         // Determine bullet string based on parent element type
         if element.tagName().lowercased() == "li" {
@@ -1357,6 +1472,13 @@ final class HTMLAttributedStringBuilder {
             } else {
                 style.listBullet = "•\t"
             }
+        }
+
+        // Underline / strikethrough from semantic HTML tags (regardless of CSS)
+        switch element.tagName().lowercased() {
+        case "u", "ins": style.underline = true
+        case "s", "strike", "del": style.strikethrough = true
+        default: break
         }
 
         return style
@@ -1399,7 +1521,13 @@ final class HTMLAttributedStringBuilder {
             opacity: 1,
             letterSpacing: parent.letterSpacing,
             hasCSSColor: parent.hasCSSColor,
-            configParagraphSpacing: parent.configParagraphSpacing
+            configParagraphSpacing: parent.configParagraphSpacing,
+            firstLetterDeclarations: nil,
+            firstLetterFontSizeMultiplier: nil,
+            firstLetterFontWeight: nil,
+            firstLetterColor: nil,
+            underline: parent.underline,
+            strikethrough: parent.strikethrough
         )
     }
 
@@ -1444,7 +1572,13 @@ final class HTMLAttributedStringBuilder {
             opacity: 1,
             letterSpacing: nil,
             hasCSSColor: false,
-            configParagraphSpacing: config.paragraphSpacing
+            configParagraphSpacing: config.paragraphSpacing,
+            firstLetterDeclarations: nil,
+            firstLetterFontSizeMultiplier: nil,
+            firstLetterFontWeight: nil,
+            firstLetterColor: nil,
+            underline: false,
+            strikethrough: false
         )
     }
 
@@ -1488,7 +1622,7 @@ final class HTMLAttributedStringBuilder {
             return ["display": "inline-block"]
         case "b", "strong":
             return ["font-weight": "700"]
-        case "i", "em":
+        case "i", "em", "cite":
             return ["font-style": "italic"]
         case "sup":
             return ["font-size": "0.75em", "vertical-align": "super"]
@@ -1503,7 +1637,8 @@ final class HTMLAttributedStringBuilder {
         declarations: [String: String],
         to style: inout ResolvedStyle,
         parentStyle: ResolvedStyle,
-        rootFontSize: CGFloat
+        rootFontSize: CGFloat,
+        percentageBase: CGFloat? = nil
     ) {
         let applyContext = HTMLCSSApplyContext(
             parentStyle: parentStyle,
@@ -1585,7 +1720,8 @@ final class HTMLAttributedStringBuilder {
                 width,
                 currentFontSize: style.fontSize,
                 rootFontSize: rootFontSize,
-                relativeBase: style.fontSize
+                relativeBase: style.fontSize,
+                percentageBase: percentageBase
            ) {
             style.width = max(0, value)
             let trimmed = width.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1598,7 +1734,8 @@ final class HTMLAttributedStringBuilder {
                 height,
                 currentFontSize: style.fontSize,
                 rootFontSize: rootFontSize,
-                relativeBase: style.fontSize
+                relativeBase: style.fontSize,
+                percentageBase: percentageBase
            ) {
             style.height = max(0, value)
             let trimmed = height.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1611,7 +1748,8 @@ final class HTMLAttributedStringBuilder {
                 textIndent,
                 currentFontSize: style.fontSize,
                 rootFontSize: rootFontSize,
-                relativeBase: style.fontSize
+                relativeBase: style.fontSize,
+                percentageBase: percentageBase
            ) {
             style.textIndent = value
         }
@@ -1627,7 +1765,8 @@ final class HTMLAttributedStringBuilder {
                 paragraphSpacing,
                 currentFontSize: style.fontSize,
                 rootFontSize: rootFontSize,
-                relativeBase: style.fontSize
+                relativeBase: style.fontSize,
+                percentageBase: percentageBase
            ) {
             style.paragraphSpacing = max(0, value)
         }
@@ -1636,7 +1775,8 @@ final class HTMLAttributedStringBuilder {
                 marginTop,
                 currentFontSize: style.fontSize,
                 rootFontSize: rootFontSize,
-                relativeBase: style.fontSize
+                relativeBase: style.fontSize,
+                percentageBase: percentageBase
            ) {
             style.paragraphSpacingBefore = max(0, value)
             style.visualOffsetBefore = max(0, value)
@@ -1646,7 +1786,8 @@ final class HTMLAttributedStringBuilder {
                 margin,
                 to: &style,
                 currentFontSize: style.fontSize,
-                rootFontSize: rootFontSize
+                rootFontSize: rootFontSize,
+                percentageBase: percentageBase
             )
         }
         if let marginLeft = declarations["margin-left"],
@@ -1654,7 +1795,8 @@ final class HTMLAttributedStringBuilder {
                 marginLeft,
                 currentFontSize: style.fontSize,
                 rootFontSize: rootFontSize,
-                relativeBase: style.fontSize
+                relativeBase: style.fontSize,
+                percentageBase: percentageBase
            ) {
             style.marginLeft = max(0, value)
         }
@@ -1663,7 +1805,8 @@ final class HTMLAttributedStringBuilder {
                 marginRight,
                 currentFontSize: style.fontSize,
                 rootFontSize: rootFontSize,
-                relativeBase: style.fontSize
+                relativeBase: style.fontSize,
+                percentageBase: percentageBase
            ) {
             style.marginRight = max(0, value)
         }
@@ -1672,7 +1815,8 @@ final class HTMLAttributedStringBuilder {
                 padding,
                 to: &style,
                 currentFontSize: style.fontSize,
-                rootFontSize: rootFontSize
+                rootFontSize: rootFontSize,
+                percentageBase: percentageBase
             )
         }
         if let paddingLeft = declarations["padding-left"],
@@ -1680,7 +1824,8 @@ final class HTMLAttributedStringBuilder {
                 paddingLeft,
                 currentFontSize: style.fontSize,
                 rootFontSize: rootFontSize,
-                relativeBase: style.fontSize
+                relativeBase: style.fontSize,
+                percentageBase: percentageBase
            ) {
             style.paddingLeft = max(0, value)
         }
@@ -1689,7 +1834,8 @@ final class HTMLAttributedStringBuilder {
                 paddingRight,
                 currentFontSize: style.fontSize,
                 rootFontSize: rootFontSize,
-                relativeBase: style.fontSize
+                relativeBase: style.fontSize,
+                percentageBase: percentageBase
            ) {
             style.paddingRight = max(0, value)
         }
@@ -1862,7 +2008,8 @@ final class HTMLAttributedStringBuilder {
         _ raw: String,
         currentFontSize: CGFloat,
         rootFontSize: CGFloat,
-        relativeBase: CGFloat
+        relativeBase: CGFloat,
+        percentageBase: CGFloat? = nil
     ) -> CGFloat? {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if value.hasPrefix("calc("), value.hasSuffix(")") {
@@ -1875,7 +2022,7 @@ final class HTMLAttributedStringBuilder {
             return CGFloat(number) * relativeBase
         }
         if value.hasSuffix("%"), let number = Double(value.dropLast()) {
-            return CGFloat(number / 100.0) * relativeBase
+            return CGFloat(number / 100.0) * (percentageBase ?? relativeBase)
         }
         if value.hasSuffix("pt"), let number = Double(value.dropLast(2)) {
             return CGFloat(number)
@@ -1893,18 +2040,19 @@ final class HTMLAttributedStringBuilder {
         _ raw: String,
         to style: inout ResolvedStyle,
         currentFontSize: CGFloat,
-        rootFontSize: CGFloat
+        rootFontSize: CGFloat,
+        percentageBase: CGFloat? = nil
     ) {
         let tokens = raw
             .split(whereSeparator: \.isWhitespace)
             .map(String.init)
         guard !tokens.isEmpty else { return }
         let resolved = expandBoxShorthand(tokens)
-        if let top = resolved.top, let topValue = resolveBoxValue(top, currentFontSize: currentFontSize, rootFontSize: rootFontSize) {
+        if let top = resolved.top, let topValue = resolveBoxValue(top, currentFontSize: currentFontSize, rootFontSize: rootFontSize, percentageBase: percentageBase) {
             style.paragraphSpacingBefore = max(0, topValue)
             style.visualOffsetBefore = max(0, topValue)
         }
-        if let bottom = resolved.bottom, let bottomValue = resolveBoxValue(bottom, currentFontSize: currentFontSize, rootFontSize: rootFontSize) {
+        if let bottom = resolved.bottom, let bottomValue = resolveBoxValue(bottom, currentFontSize: currentFontSize, rootFontSize: rootFontSize, percentageBase: percentageBase) {
             style.paragraphSpacing = max(0, bottomValue)
         }
         if let left = resolved.left {
@@ -1913,7 +2061,7 @@ final class HTMLAttributedStringBuilder {
                 if let right = resolved.right, right.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "auto" {
                     style.isHorizontallyCentered = true
                 }
-            } else if let leftValue = resolveBoxValue(left, currentFontSize: currentFontSize, rootFontSize: rootFontSize) {
+            } else if let leftValue = resolveBoxValue(left, currentFontSize: currentFontSize, rootFontSize: rootFontSize, percentageBase: percentageBase) {
                 style.marginLeft = max(0, leftValue)
             }
         }
@@ -1925,7 +2073,7 @@ final class HTMLAttributedStringBuilder {
                 } else {
                     // right-only auto: don't center, just skip margin-right
                 }
-            } else if let rightValue = resolveBoxValue(right, currentFontSize: currentFontSize, rootFontSize: rootFontSize) {
+            } else if let rightValue = resolveBoxValue(right, currentFontSize: currentFontSize, rootFontSize: rootFontSize, percentageBase: percentageBase) {
                 style.marginRight = max(0, rightValue)
             }
         }
@@ -1935,17 +2083,18 @@ final class HTMLAttributedStringBuilder {
         _ raw: String,
         to style: inout ResolvedStyle,
         currentFontSize: CGFloat,
-        rootFontSize: CGFloat
+        rootFontSize: CGFloat,
+        percentageBase: CGFloat? = nil
     ) {
         let tokens = raw
             .split(whereSeparator: \.isWhitespace)
             .map(String.init)
         guard !tokens.isEmpty else { return }
         let resolved = expandBoxShorthand(tokens)
-        if let left = resolved.left, let leftValue = resolveBoxValue(left, currentFontSize: currentFontSize, rootFontSize: rootFontSize) {
+        if let left = resolved.left, let leftValue = resolveBoxValue(left, currentFontSize: currentFontSize, rootFontSize: rootFontSize, percentageBase: percentageBase) {
             style.paddingLeft = max(0, leftValue)
         }
-        if let right = resolved.right, let rightValue = resolveBoxValue(right, currentFontSize: currentFontSize, rootFontSize: rootFontSize) {
+        if let right = resolved.right, let rightValue = resolveBoxValue(right, currentFontSize: currentFontSize, rootFontSize: rootFontSize, percentageBase: percentageBase) {
             style.paddingRight = max(0, rightValue)
         }
     }
@@ -1966,7 +2115,8 @@ final class HTMLAttributedStringBuilder {
     private func resolveBoxValue(
         _ raw: String,
         currentFontSize: CGFloat,
-        rootFontSize: CGFloat
+        rootFontSize: CGFloat,
+        percentageBase: CGFloat? = nil
     ) -> CGFloat? {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard value != "auto" else { return nil }
@@ -1974,7 +2124,8 @@ final class HTMLAttributedStringBuilder {
             value,
             currentFontSize: currentFontSize,
             rootFontSize: rootFontSize,
-            relativeBase: currentFontSize
+            relativeBase: currentFontSize,
+            percentageBase: percentageBase
         )
     }
 
@@ -2213,6 +2364,39 @@ final class HTMLAttributedStringBuilder {
         }
         return attributes
     }
+
+    /// Finds the CSS ::first-letter range: any leading punctuation followed by the first letter/digit.
+    /// Returns nil when the string has no visible letter.
+    static func firstLetterRange(in text: String) -> NSRange? {
+        let scalars = Array(text.unicodeScalars)
+        var i = 0
+
+        // Skip whitespace and newlines
+        while i < scalars.count {
+            let ch = scalars[i]
+            if !CharacterSet.whitespacesAndNewlines.contains(ch) { break }
+            i += 1
+        }
+        guard i < scalars.count else { return nil }
+        let start = i
+
+        // Skip leading punctuation to find the first letter/digit
+        while i < scalars.count {
+            let ch = scalars[i]
+            if CharacterSet.letters.contains(ch) || CharacterSet.decimalDigits.contains(ch) {
+                break
+            }
+            i += 1
+        }
+        guard i < scalars.count else {
+            // Only punctuation found — style just the first punctuation char
+            return NSRange(location: start, length: 1)
+        }
+        // Include leading punctuation + first letter
+        let end = i + 1
+        let length = end - start
+        return NSRange(location: start, length: length)
+    }
 }
 
 struct CSSRule {
@@ -2302,6 +2486,51 @@ enum CSSParser {
                 )
             }
         }
+    }
+
+    /// Parses CSS and returns (regular rules, first-letter rules).
+    static func parseWithFirstLetter(css: String, orderOffset: Int = 0) -> (regular: [CSSRule], firstLetter: [CSSRule]) {
+        let stripped = css.replacingOccurrences(of: #"/\*.*?\*/"#, with: "", options: .regularExpression)
+        guard let regex = try? NSRegularExpression(
+            pattern: #"([^{}]+)\{([^{}]+)\}"#,
+            options: [.dotMatchesLineSeparators]
+        ) else {
+            return ([], [])
+        }
+
+        var regular: [CSSRule] = []
+        var firstLetter: [CSSRule] = []
+        let nsCSS = stripped as NSString
+        for (index, match) in regex.matches(in: stripped, range: NSRange(location: 0, length: nsCSS.length)).enumerated() {
+            let selectorText = nsCSS.substring(with: match.range(at: 1))
+            let declarations = parseDeclarations(nsCSS.substring(with: match.range(at: 2)))
+            for rawSelector in selectorText.split(separator: ",").map(String.init) {
+                let trimmed = rawSelector.trimmingCharacters(in: .whitespacesAndNewlines)
+                let isFirstLetter = trimmed.hasSuffix(":first-letter")
+
+                let selectorBody: String
+                if isFirstLetter {
+                    let endIndex = trimmed.lastIndex(of: ":") ?? trimmed.endIndex
+                    selectorBody = String(trimmed[..<endIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+                } else {
+                    selectorBody = trimmed
+                }
+
+                guard !selectorBody.isEmpty, let selector = parseSelector(selectorBody) else { continue }
+                let rule = CSSRule(
+                    selector: selector,
+                    declarations: declarations,
+                    specificity: specificity(of: selector),
+                    order: orderOffset + index
+                )
+                if isFirstLetter {
+                    firstLetter.append(rule)
+                } else {
+                    regular.append(rule)
+                }
+            }
+        }
+        return (regular, firstLetter)
     }
 
     static func parseDeclarations(_ css: String) -> [String: String] {

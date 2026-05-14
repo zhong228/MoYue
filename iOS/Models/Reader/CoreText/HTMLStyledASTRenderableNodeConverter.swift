@@ -100,7 +100,12 @@ private extension RenderStyle {
             borderBottomColor: s.borderBottomColor.flatMap { RenderColor(uiColor: $0) },
             borderLeftColor: s.borderLeftColor.flatMap { RenderColor(uiColor: $0) },
             borderRightColor: s.borderRightColor.flatMap { RenderColor(uiColor: $0) },
-            isHorizontallyCentered: s.isHorizontallyCentered
+            isHorizontallyCentered: s.isHorizontallyCentered,
+            firstLetterFontSizeMultiplier: s.firstLetterFontSizeMultiplier,
+            firstLetterFontWeight: s.firstLetterFontWeight,
+            firstLetterColor: s.firstLetterColor.flatMap { RenderColor(uiColor: $0) },
+            underline: s.underline,
+            strikethrough: s.strikethrough
         )
     }
 }

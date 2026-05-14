@@ -13,10 +13,14 @@ final class HTMLBuilderDOMParser {
         }
 
         let stylesheetTexts = await collectStyles(document)
-        let rules = stylesheetTexts.enumerated().flatMap { index, css in
-            CSSParser.parse(css: css, orderOffset: index * 10_000)
+        var regularRules: [CSSRule] = []
+        var firstLetterRules: [CSSRule] = []
+        for (index, css) in stylesheetTexts.enumerated() {
+            let (reg, fl) = CSSParser.parseWithFirstLetter(css: css, orderOffset: index * 10_000)
+            regularRules.append(contentsOf: reg)
+            firstLetterRules.append(contentsOf: fl)
         }
-        return HTMLAttributedStringBuilder.ParsedHTML(body: body, rules: rules)
+        return HTMLAttributedStringBuilder.ParsedHTML(body: body, rules: regularRules, firstLetterRules: firstLetterRules)
     }
 }
 
@@ -25,8 +29,8 @@ final class HTMLBuilderStyleResolver {
         from parsed: HTMLAttributedStringBuilder.ParsedHTML,
         config: HTMLAttributedStringBuilder.Config,
         makeRootStyle: (HTMLAttributedStringBuilder.Config) -> HTMLAttributedStringBuilder.ResolvedStyle,
-        resolveStyle: (Element, HTMLAttributedStringBuilder.ResolvedStyle, [CSSRule], CGFloat, Element?) -> HTMLAttributedStringBuilder.ResolvedStyle,
-        buildChildren: ([Node], HTMLAttributedStringBuilder.ResolvedStyle, [CSSRule], CGFloat, Element?) async -> [HTMLAttributedStringBuilder.ASTNode],
+        resolveStyle: (Element, HTMLAttributedStringBuilder.ResolvedStyle, [CSSRule], CGFloat, Element?, HTMLAttributedStringBuilder.Config) -> HTMLAttributedStringBuilder.ResolvedStyle,
+        buildChildren: ([Node], HTMLAttributedStringBuilder.ResolvedStyle, [CSSRule], CGFloat, Element?, HTMLAttributedStringBuilder.Config) async -> [HTMLAttributedStringBuilder.ASTNode],
         makeAttributeMap: (Element) -> [String: String]
     ) async -> HTMLAttributedStringBuilder.ElementNode {
         let bodyStyle = resolveStyle(
@@ -34,14 +38,16 @@ final class HTMLBuilderStyleResolver {
             makeRootStyle(config),
             parsed.rules,
             config.fontSize,
-            nil
+            nil,
+            config
         )
         let astChildren = await buildChildren(
             parsed.body.getChildNodes(),
             bodyStyle,
             parsed.rules,
             config.fontSize,
-            parsed.body
+            parsed.body,
+            config
         )
         return HTMLAttributedStringBuilder.ElementNode(
             tag: "body",

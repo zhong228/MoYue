@@ -76,10 +76,9 @@ final class CoreTextFontRegistrationService: FontRegistrationServicing {
             return nil
         }
 
-        var registrationError: Unmanaged<CFError>?
-        let registered = CTFontManagerRegisterGraphicsFont(cgFont, &registrationError)
-        if !registered, let error = registrationError?.takeRetainedValue() {
-            print("[CoreTextEngine] registerFont graphics warning: \(error)")
+        let descriptors = CTFontManagerCreateFontDescriptorsFromData(data as CFData)
+        if CFArrayGetCount(descriptors) == 0 {
+            print("[CoreTextEngine] registerFont warning: failed to register font from data")
         }
 
         let postScriptName = cgFont.postScriptName as String? ?? ""
@@ -953,6 +952,8 @@ _layouts.removeAll()
     }
 
     func resolveInternalLink(_ href: String, fromSpineIndex spineIndex: Int) async -> Int? {
+        // Ignore special Kindle / device-specific links that can't be resolved to EPUB content
+        if href.hasPrefix("kindle:") { return nil }
         let parts = href.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
         let rawPath = parts.first.map(String.init) ?? ""
         let fragment = parts.count > 1 ? String(parts[1]) : nil

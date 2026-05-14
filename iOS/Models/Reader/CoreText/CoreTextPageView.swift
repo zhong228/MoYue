@@ -422,20 +422,15 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
                     // Line is too short (< 70% of available width), skip justification to avoid excessive letter spacing
                     lineToDraw = naturalLine
                 } else {
-                    let hasExpandableWhitespace: Bool = {
-                        guard lineNSRange.length > 0,
-                              lineNSRange.location + lineNSRange.length <= stringLength
-                        else { return false }
-                        let lineText = nsString.substring(with: lineNSRange)
-                        return lineText.contains(" ") || lineText.contains("\u{00A0}") || lineText.contains("\t")
-                    }()
+                    let lineText = nsString.substring(with: lineNSRange)
+                    let shouldUseCJKJustify = Self.isCJKDominant(lineText) && coverage > 0.85
 
-                    if !hasExpandableWhitespace && coverage > 0.85 {
+                    if shouldUseCJKJustify {
                         // Pure CJK character line: use CTLineCreateJustifiedLine for precise justification
-                        lineToDraw = CTLineCreateJustifiedLine(naturalLine, 1.0, Double(availableWidth)) ?? line
+                        lineToDraw = CTLineCreateJustifiedLine(naturalLine, 1.0, Double(availableWidth)) ?? naturalLine
                     } else {
-                        // Intermediate coverage or contains expandable whitespace: keep CTFrame's justify
-                        lineToDraw = line
+                        // English / Latin text or mixed: use natural line to avoid CTFrame's over-stretched spacing
+                        lineToDraw = naturalLine
                     }
                 }
             } else {
@@ -445,6 +440,29 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             ctx.textPosition = origin
             CTLineDraw(lineToDraw, ctx)
         }
+    }
+
+    /// Returns true when the text is predominantly CJK (Chinese / Japanese / Korean),
+    /// meaning CJK codepoints outnumber Latin letters + digits.
+    private nonisolated static func isCJKDominant(_ text: String) -> Bool {
+        var cjk = 0
+        var latin = 0
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x3400...0x4DBF,   // CJK Unified Ideographs Extension A
+                 0x4E00...0x9FFF,   // CJK Unified Ideographs
+                 0x3040...0x30FF,   // Hiragana + Katakana
+                 0xAC00...0xD7AF:   // Hangul Syllables
+                cjk += 1
+            case 0x0041...0x005A,   // A-Z
+                 0x0061...0x007A,   // a-z
+                 0x0030...0x0039:   // 0-9
+                latin += 1
+            default:
+                continue
+            }
+        }
+        return cjk > latin
     }
 
     nonisolated static func drawBlockRenderables(
@@ -878,8 +896,25 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         let line = context.lines[lineIdx]
         let lineOrigin = context.origins[lineIdx]
         let lineX = context.contentPathRect.minX + lineOrigin.x
+
+        // Check horizontal bounds: tap must be within the line's actual typographic width.
+        // CTLineGetStringIndexForPosition returns the nearest character even for taps far to the right,
+        // which makes blank space trigger links and blocks page-turning.
+        var lineAscent: CGFloat = 0
+        var lineDescent: CGFloat = 0
+        var lineLeading: CGFloat = 0
+        let lineWidth = CGFloat(CTLineGetTypographicBounds(line, &lineAscent, &lineDescent, &lineLeading))
+        let textEndX = lineX + lineWidth
+        // Allow small fudge for touch precision, but not the entire right margin
+        let tapTolerance: CGFloat = 10
+        guard canonical.x >= lineX - tapTolerance,
+              canonical.x <= textEndX + tapTolerance
+        else {
+            return nil
+        }
+
         let relativeX = canonical.x - lineX
-        let index = CTLineGetStringIndexForPosition(line, CGPoint(x: relativeX, y: 0))
+        let index = CTLineGetStringIndexForPosition(line, CGPoint(x: max(0, relativeX), y: 0))
         if index != kCFNotFound {
             return max(0, index)
         }

@@ -100,6 +100,18 @@ final class CoreTextChunk {
         }
         let line = lines[bestIdx]
         let lineOrigin = origins[bestIdx]
+
+        // Check horizontal bounds: tap must be within the line's actual typographic width.
+        var lineAscent: CGFloat = 0, lineDescent: CGFloat = 0, lineLeading: CGFloat = 0
+        let lineWidth = CGFloat(CTLineGetTypographicBounds(line, &lineAscent, &lineDescent, &lineLeading))
+        let textEndX = lineOrigin.x + lineWidth
+        let tapTolerance: CGFloat = 10
+        guard point.x >= lineOrigin.x - tapTolerance,
+              point.x <= textEndX + tapTolerance
+        else {
+            return nil
+        }
+
         let relativeX = point.x - lineOrigin.x
         let idx = CTLineGetStringIndexForPosition(line, CGPoint(x: relativeX, y: 0))
         if idx != kCFNotFound { return max(0, idx) }

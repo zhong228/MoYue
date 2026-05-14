@@ -110,6 +110,14 @@ public struct RenderStyle: Sendable {
     public var borderLeftColor: RenderColor?
     public var borderRightColor: RenderColor?
     public var isHorizontallyCentered: Bool
+    /// Pre-resolved :first-letter font-size multiplier. nil when no :first-letter matches.
+    public var firstLetterFontSizeMultiplier: CGFloat?
+    /// Pre-resolved :first-letter font-weight.
+    public var firstLetterFontWeight: Int?
+    /// Pre-resolved :first-letter color.
+    public var firstLetterColor: RenderColor?
+    public var underline: Bool
+    public var strikethrough: Bool
 
     public init(
         fontSizeMultiplier: CGFloat = 1.0,
@@ -138,7 +146,12 @@ public struct RenderStyle: Sendable {
         borderBottomColor: RenderColor? = nil,
         borderLeftColor: RenderColor? = nil,
         borderRightColor: RenderColor? = nil,
-        isHorizontallyCentered: Bool = false
+        isHorizontallyCentered: Bool = false,
+        firstLetterFontSizeMultiplier: CGFloat? = nil,
+        firstLetterFontWeight: Int? = nil,
+        firstLetterColor: RenderColor? = nil,
+        underline: Bool = false,
+        strikethrough: Bool = false
     ) {
         self.fontSizeMultiplier = fontSizeMultiplier
         self.fontFamilies = fontFamilies
@@ -167,6 +180,11 @@ public struct RenderStyle: Sendable {
         self.borderLeftColor = borderLeftColor
         self.borderRightColor = borderRightColor
         self.isHorizontallyCentered = isHorizontallyCentered
+        self.firstLetterFontSizeMultiplier = firstLetterFontSizeMultiplier
+        self.firstLetterFontWeight = firstLetterFontWeight
+        self.firstLetterColor = firstLetterColor
+        self.underline = underline
+        self.strikethrough = strikethrough
     }
 
     /// No style override (default for inline cases).
