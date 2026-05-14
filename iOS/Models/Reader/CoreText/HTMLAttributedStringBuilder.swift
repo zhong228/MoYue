@@ -120,6 +120,9 @@ final class HTMLAttributedStringBuilder {
         var firstLetterColor: UIColor?
         var underline: Bool
         var strikethrough: Bool
+        /// Accumulated margin-left from ancestor block containers.
+        /// CoreText uses a single frame so parent block margins must be added to child paragraph indents.
+        var inheritedBlockMarginLeft: CGFloat
     }
 
     /// Visual style for HR dividers (stored in hrDividerAttribute).
@@ -1235,7 +1238,7 @@ final class HTMLAttributedStringBuilder {
             } else {
                 widthInset = 0
             }
-            let leftInset = widthInset + style.marginLeft + style.paddingLeft
+            let leftInset = widthInset + style.marginLeft + style.paddingLeft + style.inheritedBlockMarginLeft
             let rightInset = widthInset + style.marginRight + style.paddingRight
             paragraph.headIndent = leftInset
             paragraph.firstLineHeadIndent = leftInset + style.textIndent
@@ -1481,6 +1484,12 @@ final class HTMLAttributedStringBuilder {
         default: break
         }
 
+        // Accumulate margin-left so nested block children inherit the full indent.
+        // CoreText uses a single frame — parent block margins must compound into child paragraph indents.
+        if style.isBlock {
+            style.inheritedBlockMarginLeft = style.inheritedBlockMarginLeft + style.marginLeft
+        }
+
         return style
     }
 
@@ -1527,7 +1536,8 @@ final class HTMLAttributedStringBuilder {
             firstLetterFontWeight: nil,
             firstLetterColor: nil,
             underline: parent.underline,
-            strikethrough: parent.strikethrough
+            strikethrough: parent.strikethrough,
+            inheritedBlockMarginLeft: parent.inheritedBlockMarginLeft
         )
     }
 
@@ -1578,7 +1588,8 @@ final class HTMLAttributedStringBuilder {
             firstLetterFontWeight: nil,
             firstLetterColor: nil,
             underline: false,
-            strikethrough: false
+            strikethrough: false,
+            inheritedBlockMarginLeft: 0
         )
     }
 

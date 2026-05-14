@@ -305,8 +305,9 @@ struct NodeAttributedStringRenderer {
             ? style.paragraphSpacingAfter
             : (isHeading ? config.paragraphSpacing * 0.6 : config.paragraphSpacing)
         para.paragraphSpacingBefore = style.paragraphSpacingBefore
-        para.firstLineHeadIndent = style.textIndent
-        para.headIndent = style.marginLeft + style.paddingLeft
+        let cumulativeMarginLeft = ctx.inheritedBlockMarginLeft + style.marginLeft
+        para.firstLineHeadIndent = cumulativeMarginLeft + style.paddingLeft + style.textIndent
+        para.headIndent = cumulativeMarginLeft + style.paddingLeft
         para.tailIndent = style.paddingRight > 0 ? -style.paddingRight : 0
         para.alignment = nsTextAlignment(from: style.textAlign)
         newCtx.paragraphStyle = para
@@ -317,6 +318,8 @@ struct NodeAttributedStringRenderer {
 
         if style.underline { newCtx.underline = true }
         if style.strikethrough { newCtx.strikethrough = true }
+        // Accumulate for nested child blocks
+        newCtx.inheritedBlockMarginLeft = cumulativeMarginLeft
 
         return newCtx
     }
@@ -726,6 +729,7 @@ struct NodeAttributedStringRenderer {
         var linkHref: String?
         var underline: Bool
         var strikethrough: Bool
+        var inheritedBlockMarginLeft: CGFloat
 
         /// Records the body's base font size for heading proportional scaling.
         var baseSize: CGFloat
@@ -780,6 +784,7 @@ struct NodeAttributedStringRenderer {
                 lineHeightMultiple: config.lineHeightMultiple,
                 underline: false,
                 strikethrough: false,
+                inheritedBlockMarginLeft: 0,
                 baseSize: config.baseFontSize
             )
         }
