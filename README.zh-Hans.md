@@ -3,47 +3,48 @@
 [English](README.md) | [简体中文](README.zh-Hans.md) | [繁體中文](README.zh-Hant.md)
 
 <p align="center">
-  <img src="iOS/Assets.xcassets/AppIcon.appiconset/ios_app_icon_novel_reader_1024_no_alpha.png" alt="阅读 app icon" width="128">
+  <img src="iOS/Assets.xcassets/AppIcon.appiconset/ios_app_icon_novel_reader_1024_no_alpha.png" alt="Yuedu Reader 图标" width="128">
 </p>
 
-阅读是一个使用 SwiftUI 和 CoreText 构建的 iOS 原生阅读器，专注于 CJK 长文本阅读、本地 EPUB/TXT 书库、网页内容转码、RSS 订阅、TTS 听书、WebDAV 同步，以及可细调的阅读排版。
+`阅读` 是一款以 SwiftUI 和 CoreText 打造的 iOS 原生阅读 App，专注于 CJK 长文阅读，支持本地 EPUB/TXT 书库、在线文章正规化、RSS 订阅、TTS 朗读、WebDAV 同步，以及高度可调的字体排版。
 
-> 状态说明：本项目是 CJK-first 阅读器。中文阅读、中英/数字混排、长篇小说场景是主要目标。英文 EPUB/TXT 基本可读，但目前还不是主要验证路径。
+> 目前重心：CJK 优先。中文阅读、CJK/拉丁混排、长篇小说场景为主要标的。英文 EPUB/TXT 渲染可运作，但尚未是主力验证路径。
 
-## 能做什么
+## 功能
 
-- **原生 CoreText 阅读器**：支持分页阅读和连续滚动，不以 WebView 作为主要阅读界面。
-- **CJK 中文排版**：处理段首缩进、标点、行距、页边距、中英混排和竖排阅读。
-- **本地书库**：导入 EPUB、TXT 和类 Markdown 文本文件，支持解析、缓存、封面、书签、标注和阅读位置恢复。
-- **大体积书籍处理**：已针对长篇 TXT 和 EPUB 阅读流程验证，包含数百万字级内容。
-- **在线阅读流程**：将用户自行提供的网页和规则化书源转换成同一套阅读器格式。
-- **Legado 兼容书源规则**：可导入并运行用户自行提供、兼容 [Legado](https://github.com/gedoor/legado) 规则格式的自定义书源规则。
-- **RSS 阅读**：支持 RSS/Atom feed、规则化提取、OPML 类工作流和文章渲染。
-- **TTS 听书**：支持本机 `AVSpeechSynthesizer` 和基于 HTTP 的自定义 TTS provider。
-- **同步与备份**：以 WebDAV 为核心的备份、恢复、书库同步和进度同步流程。
-- **阅读器定制**：字体、字号、行高、段落间距、页边距、主题、分页/滚动模式和竖排模式。
+- **原生 CoreText 阅读器**：左右翻页和上下滚动渲染，不用 WebView 作为主要阅读面。
+- **EPUB CSS 渲染**：支持出版者 CSS，包括 `:first-letter` 首字放大、嵌套区块边距累加、`<hr>` 分隔线含 `width`/`margin`/`alignment`、`text-indent`（含负值 hanging indent）、`font-size`/`font-weight`/`font-style` 层叠，以及百分比边距/内距/宽度解析。
+- **CJK 排版**：段落缩排、标点处理、行距、边距、CJK/拉丁混排、竖排支持。
+- **本地书库**：导入 EPUB、TXT 及 Markdown 文本文件，支持解析、缓存、封面、书签、注解与阅读进度恢复。
+- **大书处理**：已用长篇 TXT 及 EPUB 验证，含数百万字阅读流程。
+- **在线阅读管线**：将用户提供的网页及规则型书源正规化为统一阅读格式。
+- **Legado 兼容书源规则**：导入并执行兼容于 [Legado](https://github.com/gedoor/legado) 规则格式的用户自定义书源。
+- **RSS 阅读器**：RSS/Atom 订阅、规则型内容提取、OPML 导入，以及文章渲染。
+- **TTS 朗读**：本地 `AVSpeechSynthesizer` 播放及 HTTP 自定义 TTS 服务。
+- **同步与备份**：WebDAV 备份、还原、书库同步与进度同步。
+- **阅读器自定义**：字体、字号、行距、段落间距、边距、背景主题、翻页/滚动模式、竖排模式。
 
 ## 项目边界
 
-阅读是阅读器引擎和应用外壳，不内置、不托管、不推荐、也不分发任何受版权保护的内容来源。
+Yuedu Reader 是一个阅读引擎与 App 外壳，不内置、不托管、不推荐、不分发受版权保护的内容来源。
 
-用户需要自行确保导入文件、RSS feed、网站、自定义规则、cookie、账号和生成内容符合当地法律、版权要求和网站服务条款。
+用户有责任确保导入的文件、RSS 订阅、网站、自定义规则、Cookie、账号及生成内容符合适用法律、版权要求及网站条款。
 
-本项目不接受内置盗版源、DRM 绕过、付费墙绕过、私有 token 分享、cookie 提取或反爬绕过逻辑等贡献。
+本项目不接受内置盗版来源、DRM 破解、付费墙绕过、私密 Token 分享、Cookie 收集或反爬虫逻辑的贡献。
 
-Legado 兼容性只代表书源规则格式兼容；阅读不内置第三方书源规则，也不是 Legado 项目的官方关联产品。
+Legado 兼容性仅为书源规则格式兼容目标。Yuedu Reader 不捆绑第三方书源规则，与 Legado 项目无关联。
 
-## AI 协同开发声明
+## AI 辅助开发
 
-本仓库重度使用 AI 协同开发，包括代码生成、重构、文档撰写和审查辅助。项目仍会保留人工审阅与维护责任，但 AI 辅助产出的代码会明确存在于项目中。
+本仓库以重度 AI 辅助协作方式开发，包含代码生成、重构、文档与审查支持。人类审查与项目所有权仍为工作流程的一部分，但 AI 辅助代码在整个项目中是有意存在的。
 
-如果你偏好完全由人手撰写的代码，或对 AI 辅助开发有疑虑或排斥，请在使用或贡献前自行评估，并请见谅。
+若你强烈偏好严格人工编写的代码，或对 AI 辅助开发感到不适，请以此预期审视本项目。感谢理解。
 
-## 环境要求
+## 系统需求
 
 - iOS 18.0+
 - Xcode 16+
-- Xcode 项目目前使用 Swift 5 language mode
+- Swift 5 语言模式
 
 ## 快速开始
 
@@ -53,15 +54,13 @@ cd Yuedu-reader
 open Yuedu-Reader.xcodeproj
 ```
 
-选择 `Yuedu-Reader` scheme，然后在 iOS 模拟器或真机上构建运行。
-
-也可以使用 app target 的构建脚本：
+选择 `Yuedu-Reader` scheme，构建至 iOS 模拟器或实机。
 
 ```bash
 ./scripts/build.sh
 ```
 
-等价命令：
+等效指令：
 
 ```bash
 xcodebuild \
@@ -72,67 +71,74 @@ xcodebuild \
   build
 ```
 
-## 项目结构
+## 目录结构
 
 ```text
 iOS/
 ├── Models/               # 数据模型、存储、服务、渲染器、解析器
-│   ├── App/              # 全局设置、设计 token、依赖注入
-│   ├── Book/             # 书籍模型、BookStore、书签、metadata
-│   ├── BookSource/       # 用户自定义来源抓取
+│   ├── App/              # 全局设置、设计 Token、依赖注入
+│   ├── Book/             # 书籍模型、BookStore、书签、元数据
+│   ├── BookSource/       # 用户书源获取
 │   ├── LocalBook/        # EPUB/TXT/Markdown 导入
-│   ├── Online/           # 在线阅读与网页内容转码流程
-│   ├── RSS/              # RSS 模型、feed 抓取器、解析器、文章工具
-│   ├── Reader/CoreText/  # CoreText 分页、滚动排版、绘制
-│   ├── RuleEngine/       # CSS/XPath/Regex/JSON 提取
+│   ├── Online/           # 在线阅读与网页正规化管线
+│   ├── RSS/              # RSS 模型、订阅获取、解析器、文章工具
+│   ├── Reader/CoreText/  # CoreText 分页、滚动布局、绘制、CSS 解析
+│   ├── RuleEngine/       # CSS/XPath/Regex/JSON 规则提取
 │   ├── Sync/             # WebDAV 与同步逻辑
 │   └── TTS/              # 语音播放协调
-├── Views/                # SwiftUI 页面和共用 UI
-│   ├── Reader/           # 阅读器界面、控制栏、设置、覆盖层
+├── Views/                # SwiftUI 画面与可重用 UI
+│   ├── Reader/           # 阅读器表面、控件、设置、叠加层
 │   ├── Bookshelf/        # 首页书架与书籍管理
 │   ├── BookSource/       # 书源管理与诊断
 │   ├── Online/           # 浏览器/导入流程
-│   ├── RSS/              # RSS 订阅与文章页面
+│   ├── RSS/              # RSS 订阅与文章画面
 │   └── Settings/         # App 设置、个人资料、同步、TTS、迁移
 ├── ViewModels/           # ObservableObject ViewModel
-├── Assets/               # Asset catalog 和规则引擎资源
+├── Assets/               # 资产目录与规则引擎资源
 └── *.lproj/              # 本地化：zh-Hant、zh-Hans、en
 
 ShareExtension/           # iOS 分享扩展
-Widget/                   # 主屏幕 widget
-Tests/                    # Unit test 和 UI test targets
+Widget/                   # 主屏幕小组件
+Tests/                    # 单元及 UI 测试 Target
 Technotes/                # 架构笔记
 scripts/                  # 本地自动化脚本
-xcconfig/                 # 共用 Xcode 设置
+xcconfig/                 # 共享 Xcode 配置
 ```
 
 ## 架构笔记
 
-- **EPUB**：使用 Readium 组件处理 EPUB package 解析与资源访问。
-- **渲染**：`EPUBPageRenderer` 按阅读模式分派到 `CoreTextPageEngine` 或 `CoreTextScrollEngine`。`CoreTextPageView` 和 chunk cell 负责绘制最终 CoreText frame。
-- **阅读位置**：稳定位置使用 `(spineIndex, charOffset)`，不使用页码，因为章节加载或版面变更后 page index 可能位移。
-- **在线内容**：`BookSourceFetcher`、`OnlineReadingPipeline`、`ModernRuleEngine` 和 web fetcher 会把用户提供的来源转成标准化章节内容。
-- **RSS**：feed XML 解析和规则化文章提取，沿用和在线阅读一致的清理与阅读器渲染原则。
-- **TTS**：播放状态独立于渲染层协调，让阅读器高亮和系统媒体控制能跟随当前朗读段落。
-- **依赖注入**：通过 `AppDependencies` 和 SwiftUI environment 提供 app services；需要持久化或缓存所有权的 manager 会集中管理。
+- **EPUB**：Readium 组件处理 EPUB 套件解析与资源访问。出版物的 CSS（含 `@import`、`@font-face` 及链接样式表）按章节加载、处理并解析。
+- **渲染管线**：两条平行路径产出 CoreText 属性字符串：
+  - 旧路径：`HTMLAttributedStringBuilder.build()` → 直接 `NSAttributedString`
+  - RenderableNode 路径：`HTMLStyledASTRenderableNodeConverter` → `RenderableNode` IR → `NodeAttributedStringRenderer`
+  - 两者共享 `CSSParser`、CSS 解析、`ResolvedStyle` 及 `CoreTextPageView.drawLines`。任何 CSS 属性变更必须同时更新两条路径。
+- **翻页 vs 滚动**：`EPUBPageRenderer` 将内容路由至 `CoreTextPageEngine`（左右翻页）或 `CoreTextScrollEngine`（连续滚动）。`CoreTextPageView` 及区块 Cell 绘制最终 CoreText 画面。
+- **EPUB 目录**：阅读器目录面板优先使用 `toc.ncx`/`nav.xhtml` 条目，优于 spine 章节列表。spine 中的非目录项目（连续目录图片页、分割的后记页）会被排除。spine fallback 包含相同标题去重。
+- **阅读位置**：持久位置以 `(spineIndex, charOffset)` 为准，而非页码。因为章节加载或布局变更后，页码会漂移。
+- **在线内容**：`BookSourceFetcher`、`OnlineReadingPipeline`、`ModernRuleEngine` 及网页获取器将用户内容转换为正规化章节。
+- **RSS**：订阅 XML 解析与规则型文章提取，和在线阅读共享相同的清理与渲染原则。
+- **TTS**：播放状态与渲染分离协调，使阅读器高亮及系统媒体控件可跟随当前文本段落。
+- **依赖注入**：`AppDependencies` 及 SwiftUI 环境值提供 App 服务；共享管理器集中在需要持久化或缓存所有权的位置。
 
-更多细节见 [Technotes/Architecture.md](Technotes/Architecture.md)。
+更多细节：[Technotes/Architecture.md](Technotes/Architecture.md)。
 
 ## 开发规则
 
-- 使用 `localized()` 处理用户可见文字，并同步更新三个本地化文件：
+- 用户可见字符串使用 `localized()`，并更新三个本地化文件：
   - `iOS/zh-Hant.lproj/Localizable.strings`
   - `iOS/zh-Hans.lproj/Localizable.strings`
   - `iOS/en.lproj/Localizable.strings`
-- 阅读位置要使用稳定内容坐标，不要使用会变动的 page index。
-- UI 样式请使用 app 自定义 design-token API：`Models/App/DesignTokens.swift` 内的 `DSColor`、`DSFont`、`DSSpacing`。
-- 新增或调整 SwiftUI View 时，尽量提供可编译的 preview（`#Preview` 或 `PreviewProvider`），方便在 Xcode 直接观察页面和组件状态。
-- 书源和规则引擎相关工作必须限定在合法、用户自行提供内容的流程。
+- 阅读位置以稳定内容坐标为准，勿用临时性页码。
+- UI 样式使用 App 设计 Token API：`DSColor`、`DSFont`、`DSSpacing`（位于 `Models/App/DesignTokens.swift`）。
+- 新建或修改 View 时，尽可能加入可编译的 SwiftUI Preview（`#Preview` 或 `PreviewProvider`）。
+- 书源/规则引擎相关工作限于合法、用户提供内容的流程。
+- 新增 CSS 属性至 `ResolvedStyle` 时，需同步 `RenderStyle` 对应字段、更新转换器（`RenderStyle.from`），并同时处理两条渲染路径。
+- 嵌套区块 CSS 边距须通过 `inheritedBlockMarginLeft` 累加 — CoreText 使用单一 frame，父层边距不会自动叠加至子层段落缩排。
 
-贡献规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+请见 [CONTRIBUTING.md](CONTRIBUTING.md) 了解贡献惯例。
 
-## 许可证
+## 授权
 
-MIT。见 [LICENSE](LICENSE)。
+MIT。详见 [LICENSE](LICENSE)。
 
-本项目链接了 [Readium](https://github.com/readium) 组件，Readium 组件使用 BSD 许可证。Readium 名称和标志是 Readium Foundation 的商标。
+本项目链接 [Readium](https://github.com/readium) 组件，采用 BSD 授权。Readium 名称及标志为 Readium Foundation 商标。

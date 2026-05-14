@@ -13,6 +13,7 @@ Yuedu Reader, named `閱讀` in Traditional Chinese and `阅读` in Simplified C
 ## What It Does
 
 - **Native CoreText reader**: paged reading and continuous scroll rendering without using WebView as the main reading surface.
+- **EPUB CSS rendering**: publisher CSS support including `:first-letter` drop caps, nested block margins, `<hr>` dividers with `width`/`margin`/`alignment`, `text-indent` (including negative hanging indent), `font-size`/`font-weight`/`font-style` cascade, and percentage-based margin/padding/width resolution.
 - **CJK typography**: paragraph indentation, punctuation handling, line spacing, margins, mixed CJK/Latin text, and vertical writing support.
 - **Local library**: import EPUB, TXT, and Markdown-like text files with parsing, caching, covers, bookmarks, annotations, and reading-position restore.
 - **Large-book handling**: validated with long TXT and EPUB books, including multi-million-character reading flows.
@@ -83,7 +84,7 @@ iOS/
 │   ├── LocalBook/        # EPUB/TXT/Markdown ingestion
 │   ├── Online/           # Online reading and web normalization pipeline
 │   ├── RSS/              # RSS models, feed fetcher, parser, article utilities
-│   ├── Reader/CoreText/  # CoreText pagination, scroll layout, drawing
+│   ├── Reader/CoreText/  # CoreText pagination, scroll layout, drawing, CSS resolution
 │   ├── RuleEngine/       # CSS/XPath/Regex/JSON extraction
 │   ├── Sync/             # WebDAV and sync logic
 │   └── TTS/              # Speech playback coordination
@@ -108,8 +109,13 @@ xcconfig/                 # Shared Xcode configuration
 
 ## Architecture Notes
 
-- **EPUB**: Readium components handle EPUB package parsing and resource access.
-- **Rendering**: `EPUBPageRenderer` routes content to `CoreTextPageEngine` for paged reading or `CoreTextScrollEngine` for continuous scroll. `CoreTextPageView` and chunk cells draw the final CoreText frames.
+- **EPUB**: Readium components handle EPUB package parsing and resource access. CSS from the publication (including `@import`, `@font-face`, and linked stylesheets) is loaded, processed, and resolved per chapter.
+- **Rendering pipeline**: Two parallel paths both produce CoreText-attributed strings:
+  - Legacy path: `HTMLAttributedStringBuilder.build()` → direct `NSAttributedString`
+  - RenderableNode path: `HTMLStyledASTRenderableNodeConverter` → `RenderableNode` IR → `NodeAttributedStringRenderer`
+  - Both share `CSSParser`, CSS resolution, `ResolvedStyle`, and `CoreTextPageView.drawLines`. Any CSS property change must update both paths.
+- **Paged vs scroll**: `EPUBPageRenderer` routes content to `CoreTextPageEngine` for paged reading or `CoreTextScrollEngine` for continuous scroll. `CoreTextPageView` and chunk cells draw the final CoreText frames.
+- **EPUB TOC**: The reader TOC panel prioritizes `toc.ncx`/`nav.xhtml` entries over the spine chapter list. Spine-only items (continued contents pages, split back matter) are excluded. Spine fallback includes deduplication for consecutive identically-titled entries.
 - **Reading position**: durable positions are based on `(spineIndex, charOffset)` instead of page number, because page indexes can shift after chapter loading or layout changes.
 - **Online content**: `BookSourceFetcher`, `OnlineReadingPipeline`, `ModernRuleEngine`, and web fetchers convert user-provided sources into normalized chapter content.
 - **RSS**: feed XML parsing and rule-based article extraction share the same sanitization and reader-rendering principles as online reading.
@@ -128,6 +134,8 @@ More detail: [Technotes/Architecture.md](Technotes/Architecture.md).
 - Use the app's design-token APIs for UI styling: `DSColor`, `DSFont`, and `DSSpacing` in `Models/App/DesignTokens.swift`.
 - Add a compiling SwiftUI preview (`#Preview` or `PreviewProvider`) when creating or changing view code wherever practical, so screens and components can be inspected quickly in Xcode.
 - Keep source/rule-engine work limited to legal, user-provided content workflows.
+- When adding CSS properties to `ResolvedStyle`, mirror the fields in `RenderStyle`, update the converter (`RenderStyle.from`), and handle both rendering paths.
+- Nested block CSS margins must accumulate via `inheritedBlockMarginLeft` — CoreText uses a single frame, so parent margins don't automatically compound into child paragraph indents.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution conventions.
 
