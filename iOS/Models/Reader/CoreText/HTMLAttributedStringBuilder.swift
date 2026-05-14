@@ -1207,7 +1207,7 @@ final class HTMLAttributedStringBuilder {
     }
 
     private func cascadeAttributes() -> [UIFontDescriptor.AttributeName: Any] {
-        let fallbacks = ["PingFangSC-Regular", "STHeitiSC-Light", "AppleColorEmoji"]
+        let fallbacks = ["Georgia", "PingFangSC-Regular", "STHeitiSC-Light", "AppleColorEmoji"]
             .compactMap { UIFontDescriptor(name: $0, size: 0) }
         guard !fallbacks.isEmpty else { return [:] }
         return [.cascadeList: fallbacks]

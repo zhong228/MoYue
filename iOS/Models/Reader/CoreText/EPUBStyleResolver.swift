@@ -331,7 +331,7 @@ final class EPUBStyleResolver {
     }
 
     private func fontCascadeDescriptors() -> [UIFontDescriptor] {
-        ["PingFangSC-Regular", "STHeitiSC-Light", "AppleColorEmoji"]
+        ["Georgia", "PingFangSC-Regular", "STHeitiSC-Light", "AppleColorEmoji"]
             .compactMap { UIFontDescriptor(name: $0, size: 0) }
     }
 }
