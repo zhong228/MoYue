@@ -2,7 +2,7 @@ import Combine
 import UIKit
 
 /// Renders CoreTextScrollEngine into a vertical UITableView.
-final class CoreTextScrollViewController: UIViewController {
+final class CoreTextScrollViewController: UIViewController, UIEditMenuInteractionDelegate {
 
     // MARK: - Inputs
 
@@ -47,10 +47,15 @@ final class CoreTextScrollViewController: UIViewController {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    private lazy var editMenuInteraction: UIEditMenuInteraction = {
+        UIEditMenuInteraction(delegate: self)
+    }()
+
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.addInteraction(editMenuInteraction)
 
         tableView.dataSource = self
         tableView.delegate = self
@@ -89,6 +94,14 @@ final class CoreTextScrollViewController: UIViewController {
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         action == #selector(copy(_:)) && (selectedText?.isEmpty == false)
+    }
+
+    func editMenuInteraction(
+        _ interaction: UIEditMenuInteraction,
+        menuFor configuration: UIEditMenuConfiguration,
+        suggestedActions: [UIMenuElement]
+    ) -> UIMenu? {
+        nil
     }
 
     @objc override func copy(_ sender: Any?) {
@@ -131,10 +144,9 @@ final class CoreTextScrollViewController: UIViewController {
             becomeFirstResponder()
             let menuRect = CGRect(x: point.x, y: point.y, width: 1, height: 1)
             let viewPoint = tableView.convert(menuRect.origin, to: view)
-            UIMenuController.shared.showMenu(
-                from: view,
-                rect: CGRect(origin: viewPoint, size: menuRect.size)
-            )
+            editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
+                identifier: nil,
+                sourcePoint: viewPoint))
             _ = text
         case .cancelled, .failed:
             clearSelection()
@@ -190,11 +202,7 @@ final class CoreTextScrollViewController: UIViewController {
         focusIndex = nil
         selectedText = nil
         refreshSelectionOverlays()
-        if #available(iOS 13.0, *) {
-            UIMenuController.shared.hideMenu()
-        } else {
-            UIMenuController.shared.setMenuVisible(false, animated: true)
-        }
+        editMenuInteraction.dismissMenu()
     }
 
     override func viewDidLayoutSubviews() {

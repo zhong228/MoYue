@@ -3,7 +3,7 @@ import UIKit
 
 /// Single-page CoreText rendering view.
 /// Draws line-by-line using draw(_ rect:) (supporting CJK justified alignment), without snapshot caching or layer caching.
-final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
+final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInteractionDelegate {
     private struct InteractionContext {
         let frame: CTFrame
         let lines: [CTLine]
@@ -48,10 +48,16 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
 
     var onInternalLinkTap: ((String) -> Void)?
 
+    private lazy var editMenuInteraction: UIEditMenuInteraction = {
+        let interaction = UIEditMenuInteraction(delegate: self)
+        return interaction
+    }()
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = true
         backgroundColor = .systemBackground
+        addInteraction(editMenuInteraction)
         playbackOverlay.frame = bounds
         playbackOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         playbackOverlay.fillColor = UIColor.systemYellow.withAlphaComponent(0.28)
@@ -104,6 +110,23 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         guard selectedTextForCopy?.isEmpty == false else { return false }
         return action == #selector(copy(_:)) || action == #selector(underlineSelection(_:))
+    }
+
+    func editMenuInteraction(
+        _ interaction: UIEditMenuInteraction,
+        menuFor configuration: UIEditMenuConfiguration,
+        suggestedActions: [UIMenuElement]
+    ) -> UIMenu? {
+        guard selectedTextForCopy?.isEmpty == false else { return nil }
+        var actions = suggestedActions
+        actions.append(UIAction(
+            title: localized("underline"),
+            image: nil,
+            handler: { [weak self] _ in
+                self?.underlineSelection(nil)
+            }
+        ))
+        return UIMenu(children: actions)
     }
 
     override func didMoveToSuperview() {
@@ -670,11 +693,10 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
             guard selectionManager.hasSelection else { return }
             selectedTextForCopy = selectionManager.selectedText(in: layout.attributedString)
             becomeFirstResponder()
-            UIMenuController.shared.menuItems = [
-                UIMenuItem(title: localized("underline"), action: #selector(underlineSelection(_:)))
-            ]
             let point = gesture.location(in: self)
-            UIMenuController.shared.showMenu(from: self, rect: CGRect(x: point.x, y: point.y, width: 1, height: 1))
+            editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
+                identifier: nil,
+                sourcePoint: point))
         case .cancelled, .failed:
             clearSelection()
         default:
@@ -710,10 +732,9 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
         case .ended:
             selectedTextForCopy = selectionManager.selectedText(in: layout.attributedString)
             becomeFirstResponder()
-            UIMenuController.shared.menuItems = [
-                UIMenuItem(title: localized("underline"), action: #selector(underlineSelection(_:)))
-            ]
-            UIMenuController.shared.showMenu(from: self, rect: CGRect(x: point.x, y: point.y, width: 1, height: 1))
+            editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
+                identifier: nil,
+                sourcePoint: point))
             activeDragHandle = nil
         case .cancelled, .failed:
             activeDragHandle = nil
@@ -762,11 +783,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate {
         activeDragHandle = nil
         interactionOverlay.clearSelection()
         // Also dismiss the copy menu so it doesn't stick around after the highlight is dismissed
-        if #available(iOS 13.0, *) {
-            UIMenuController.shared.hideMenu()
-        } else {
-            UIMenuController.shared.setMenuVisible(false, animated: true)
-        }
+        editMenuInteraction.dismissMenu()
     }
 
     private func defaultSelectionRange(around index: Int, in attributedString: NSAttributedString) -> NSRange {
