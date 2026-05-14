@@ -2,7 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-Hans.md) | [繁體中文](README.zh-Hant.md)
 
-Yuedu Reader is a native iOS reading app built with SwiftUI and CoreText. It is designed for CJK long-form reading, local EPUB/TXT libraries, online article normalization, RSS subscriptions, TTS playback, WebDAV sync, and highly configurable typography.
+<p align="center">
+  <img src="iOS/Assets.xcassets/AppIcon.appiconset/ios_app_icon_novel_reader_1024_no_alpha.png" alt="Yuedu Reader app icon" width="128">
+</p>
+
+Yuedu Reader, named `閱讀` in Traditional Chinese and `阅读` in Simplified Chinese, is a native iOS reading app built with SwiftUI and CoreText. It is designed for CJK long-form reading, local EPUB/TXT libraries, online article normalization, RSS subscriptions, TTS playback, WebDAV sync, and highly configurable typography.
 
 > Status: CJK-first. Chinese reading, mixed CJK/Latin text, and long novel scenarios are the primary targets. English EPUB/TXT rendering is supported, but it is not the main validation path yet.
 
@@ -13,6 +17,7 @@ Yuedu Reader is a native iOS reading app built with SwiftUI and CoreText. It is 
 - **Local library**: import EPUB, TXT, and Markdown-like text files with parsing, caching, covers, bookmarks, annotations, and reading-position restore.
 - **Large-book handling**: validated with long TXT and EPUB books, including multi-million-character reading flows.
 - **Online reading pipeline**: normalize user-provided web pages and rule-based book sources into the same reader format.
+- **Legado-compatible source rules**: import and run user-provided custom source rules compatible with the [Legado](https://github.com/gedoor/legado) rule format.
 - **RSS reader**: RSS/Atom feeds, rule-based extraction, OPML-style workflows, and article rendering.
 - **TTS**: local `AVSpeechSynthesizer` playback and HTTP-based custom TTS providers.
 - **Sync and backup**: WebDAV-oriented backup, restore, library sync, and progress sync flows.
@@ -25,6 +30,14 @@ Yuedu Reader is a reader engine and app shell. It does not include, host, recomm
 Users are responsible for making sure imported files, RSS feeds, websites, custom rules, cookies, accounts, and generated content comply with applicable laws, copyright requirements, and website terms.
 
 The project will not accept contributions for built-in piracy sources, DRM circumvention, paywall bypassing, private-token sharing, cookie harvesting, or anti-bot bypass logic.
+
+Legado compatibility is a source-rule format compatibility target only. Yuedu Reader does not bundle third-party source rules and is not affiliated with the Legado project.
+
+## AI-Assisted Development
+
+This repository is developed with heavy AI-assisted collaboration, including code generation, refactoring, documentation, and review support. Human review and project ownership remain part of the workflow, but AI-assisted code is intentionally present throughout the project.
+
+If you strongly prefer strictly human-authored code or are uncomfortable with AI-assisted development, please review the project with that expectation in mind. Your understanding is appreciated.
 
 ## Requirements
 
@@ -112,7 +125,8 @@ More detail: [Technotes/Architecture.md](Technotes/Architecture.md).
   - `iOS/zh-Hans.lproj/Localizable.strings`
   - `iOS/en.lproj/Localizable.strings`
 - Keep reader identity based on stable content coordinates, not transient page indexes.
-- Prefer existing design tokens in `Models/App/DesignTokens.swift`.
+- Use the app's design-token APIs for UI styling: `DSColor`, `DSFont`, and `DSSpacing` in `Models/App/DesignTokens.swift`.
+- Add a compiling SwiftUI preview (`#Preview` or `PreviewProvider`) when creating or changing view code wherever practical, so screens and components can be inspected quickly in Xcode.
 - Keep source/rule-engine work limited to legal, user-provided content workflows.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution conventions.

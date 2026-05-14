@@ -1,7 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "閱讀的藝術 1.png",
+      "filename" : "ios_app_icon_novel_reader_1024_no_alpha.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -13,7 +13,7 @@
           "value" : "dark"
         }
       ],
-      "filename" : "黑底白字的書法藝術.png",
+      "filename" : "ios_app_icon_novel_reader_dark_1024_no_alpha.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -25,6 +25,7 @@
           "value" : "tinted"
         }
       ],
+      "filename" : "ios_app_icon_novel_reader_1024_no_alpha.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
