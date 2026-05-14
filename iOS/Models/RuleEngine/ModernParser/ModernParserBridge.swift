@@ -91,7 +91,7 @@ class ModernParserBridge {
             let engine = ModernRuleEngine()
             engine.source = self.sourceRuleData
             engine.jsEvaluator = { [weak engine] jsCode, prevResult in
-                guard let engine else { return nil }
+                guard engine != nil else { return nil }
                 return self.jsEngine.evaluate(jsCode, result: ModernRuleEngine.toString(prevResult))
             }
             engine.setContent(content, baseUrl: baseUrl ?? "")

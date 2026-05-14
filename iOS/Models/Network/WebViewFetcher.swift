@@ -49,8 +49,7 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
 
     // MARK: - Public API
 
-    /// Waits for page content to be ready before returning outerHTML.
-    /// Uses callAsyncJavaScript for client-side polling instead of a fixed sleep.
+    /// Polls for page content to be ready before returning outerHTML.
     /// Fast sites return in ~100ms; slow sites wait at most maxWaitMs.
     @MainActor
     private func pollForContent(
@@ -60,20 +59,14 @@ final class WebViewFetcher: NSObject, WKNavigationDelegate {
     ) async -> String {
         let intervalMs = AppConfig.webViewPollingIntervalMs
         let maxAttempts = maxWaitMs / intervalMs
-        let js = """
-            let attempts = 0;
-            while (attempts < \(maxAttempts)) {
-                await new Promise(r => setTimeout(r, \(intervalMs)));
-                const len = document.body ? document.body.innerText.length : 0;
-                if (len >= \(minLength)) break;
-                attempts++;
+        let intervalNs = UInt64(intervalMs) * 1_000_000
+        for _ in 0..<maxAttempts {
+            if let len = try? await webView.evaluateJavaScript("document.body ? document.body.innerText.length : 0") as? Int,
+               len >= minLength {
+                break
             }
-            return document.documentElement.outerHTML;
-        """
-        let result = await webView.callAsyncJavaScript(
-            js, arguments: [:], in: nil, in: .page)
-        if let html = result as? String, !html.isEmpty { return html }
-        // Fallback: direct outerHTML when polling fails
+            try? await Task.sleep(nanoseconds: intervalNs)
+        }
         return (try? await webView.evaluateJavaScript(
             "document.documentElement.outerHTML") as? String) ?? ""
     }

@@ -410,7 +410,7 @@ enum RSSContentSanitizer {
         let decoded = decodeEntities(html)
 
         if let document = try? SwiftSoup.parse(decoded) {
-            try? document.select(
+            _ = try? document.select(
                 "script, style, noscript, svg, iframe, [aria-hidden=true], [hidden], " +
                 "[data-e2e=advertisement], [data-e2e=recommendations-heading], " +
                 "[data-testid=byline], [data-testid=caption], [data-component=ad-slot]"

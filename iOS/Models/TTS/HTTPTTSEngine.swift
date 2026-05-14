@@ -5,7 +5,7 @@ import UIKit
 // MARK: - HTTP TTS Engine (chunked download + preload + AVAudioPlayer playback)
 
 /// URL template supports placeholders: {{text}}, {{title}}, {{speakSpeed}}
-final class HTTPTTSEngine: NSObject, TTSPlayable {
+final class HTTPTTSEngine: NSObject, TTSPlayable, @unchecked Sendable {
 
     var isPlaying: Bool = false
     var onPageFinished: (() -> String?)?
