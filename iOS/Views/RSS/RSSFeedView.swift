@@ -136,12 +136,7 @@ struct RSSFeedView: View {
         .navigationDestination(item: $selectedArticleID) { articleID in
             RSSArticleReaderView(articleID: articleID)
         }
-        .safeAreaInset(edge: .bottom) {
-            RSSFeedSearchDock(searchText: $searchText)
-                .padding(.horizontal, 26)
-                .padding(.top, 8)
-                .padding(.bottom, 12)
-        }
+        .rssFeedSearchBarIfAvailable(searchText: $searchText)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 1) {
@@ -362,53 +357,61 @@ private struct RSSArticleRow: View {
     }
 }
 
-private struct RSSFeedSearchDock: View {
+
+private struct RSSFeedSearchBarIOS18: ViewModifier {
     @Binding var searchText: String
 
-    var body: some View {
-        HStack(spacing: 14) {
-            RSSFeedSearchBar(searchText: $searchText)
+    func body(content: Content) -> some View {
+        content
+            .searchable(
+                text: $searchText,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: localized("搜尋文章")
+            )
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+    }
+}
 
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(DSColor.textPrimary)
-                        .frame(width: 54, height: 54)
-                        .background(.regularMaterial, in: Circle())
-                        .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: 8)
-                }
-                .buttonStyle(.plain)
+@available(iOS 26.0, *)
+private struct RSSFeedSearchBar: ViewModifier {
+    @Binding var searchText: String
+
+    func body(content: Content) -> some View {
+        content
+            .searchable(
+                text: $searchText,
+                placement: .toolbar,
+                prompt: localized("搜尋文章")
+            )
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .toolbar {
+                DefaultToolbarItem(
+                    kind: .search,
+                    placement: .bottomBar
+                )
             }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func rssFeedSearchBarIfAvailable(searchText: Binding<String>) -> some View {
+        if #available(iOS 26.0, *) {
+            self.modifier(RSSFeedSearchBar(searchText: searchText))
+        } else {
+            self.modifier(RSSFeedSearchBarIOS18(searchText: searchText))
         }
     }
 }
 
-private struct RSSFeedSearchBar: View {
-    @Binding var searchText: String
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 23, weight: .semibold))
-                .foregroundColor(DSColor.textPrimary)
-
-            TextField(localized("搜尋文章"), text: $searchText)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .font(.title3)
-                .foregroundColor(DSColor.textPrimary)
-        }
-        .padding(.horizontal, 18)
-        .frame(maxWidth: .infinity)
-        .frame(height: 58)
-        .background(.regularMaterial, in: Capsule())
-        .shadow(color: .black.opacity(0.08), radius: 18, x: 0, y: 8)
+@available(iOS 26.0, *)
+private extension View {
+    func rssFeedSearchBar(searchText: Binding<String>) -> some View {
+        modifier(RSSFeedSearchBar(searchText: searchText))
     }
 }
-
 // MARK: - URL Identifiable conformance for sheet(item:)
 
 extension URL: @retroactive Identifiable {
