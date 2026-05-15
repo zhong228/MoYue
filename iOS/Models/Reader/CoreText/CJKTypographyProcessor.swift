@@ -9,8 +9,9 @@ import UIKit
 /// - Closing mark followed by opening mark (「（ etc.): compress both trailing space of closing and leading space of opening (-1.0em kern)
 /// - Opening mark followed by opening mark: compress the leading space of the following opening mark (-0.5em kern on preceding opening mark)
 ///
-/// ## Does not modify string length
-/// Only modifies `.kern` attributes without inserting characters, so charOffset progress tracking is unaffected.
+/// ## Preserves UTF-16 length
+/// Smart punctuation replaces ASCII quotes with BMP curly quotes one-for-one, and spacing only modifies `.kern`.
+/// UTF-16 offsets used by reading progress therefore remain stable.
 enum CJKTypographyProcessor {
 
     // MARK: - Punctuation Classification
@@ -75,19 +76,20 @@ enum CJKTypographyProcessor {
         return max(lowerBound, adjusted)
     }
 
-    /// Applies CJK punctuation compression and CJK-Latin spacing to `attrStr`, returning a modified copy.
+    /// Applies smart punctuation normalization + CJK punctuation compression + CJK-Latin spacing.
     static func apply(to attrStr: NSAttributedString) -> NSAttributedString {
-        guard attrStr.length > 1 else { return attrStr }
+        let smart = applySmartPunctuation(to: attrStr)
+        guard smart.length > 1 else { return smart }
 
-        let mutable = NSMutableAttributedString(attributedString: attrStr)
-        let string = attrStr.string
+        let mutable = NSMutableAttributedString(attributedString: smart)
+        let string = smart.string
 
         // Use Unicode scalar view to correctly handle multi-code-unit characters
         let scalars = Array(string.unicodeScalars)
         // Pre-build scalar → UTF-16 offset mapping
         let utf16Offsets = buildUTF16OffsetMap(for: string)
 
-        guard scalars.count == utf16Offsets.count else { return attrStr }
+        guard scalars.count == utf16Offsets.count else { return smart }
 
         for i in 0 ..< scalars.count - 1 {
             let curr = scalars[i]
@@ -100,7 +102,7 @@ enum CJKTypographyProcessor {
             let nextIsOpening = openingMarks.contains(next)
 
             // Get the current character's font size to calculate em units
-            let fontSize = fontSizeAt(utf16Idx, in: attrStr)
+            let fontSize = fontSizeAt(utf16Idx, in: smart)
             let halfEm = fontSize * 0.5
 
             if currIsClosing && nextIsOpening {
@@ -121,6 +123,205 @@ enum CJKTypographyProcessor {
         }
 
         return mutable
+    }
+
+    // MARK: - Smart Punctuation
+
+    /// Converts ASCII straight quotes to Unicode curly quotes.
+    /// " -> “ / ” (U+201C / U+201D)
+    /// ' -> ‘ / ’ (U+2018 / U+2019) with apostrophe detection for English contractions and possessives.
+    static func normalizeEnglishPunctuation(_ text: String) -> String {
+        var result = ""
+        var isOpeningDouble = true
+        var isOpeningSingle = true
+        let chars = Array(text)
+
+        for i in chars.indices {
+            let ch = chars[i]
+            if ch == "\"" {
+                let isOpening = openingQuoteDecision(at: i, in: chars) ?? isOpeningDouble
+                result.append(isOpening ? "\u{201C}" : "\u{201D}")
+                isOpeningDouble = !isOpening
+            } else if ch == "'" {
+                if isEnglishApostrophe(at: i, in: chars, isInsideSingleQuote: !isOpeningSingle) {
+                    result.append("\u{2019}")
+                } else {
+                    let isOpening = openingQuoteDecision(at: i, in: chars) ?? isOpeningSingle
+                    result.append(isOpening ? "\u{2018}" : "\u{2019}")
+                    isOpeningSingle = !isOpening
+                }
+            } else {
+                result.append(ch)
+            }
+        }
+        return result
+    }
+
+    private static func openingQuoteDecision(at index: Array<Character>.Index, in chars: [Character]) -> Bool? {
+        let previous = index > chars.startIndex ? chars[chars.index(before: index)] : nil
+        let nextIndex = chars.index(after: index)
+        let next = nextIndex < chars.endIndex ? chars[nextIndex] : nil
+
+        if let next, next.isWhitespace {
+            return false
+        }
+        if next == nil {
+            return false
+        }
+        if previous == nil || previous?.isWhitespace == true {
+            return true
+        }
+        if let previous, isOpeningQuoteBoundary(previous) {
+            return true
+        }
+        if let previous, let next, isQuoteLeadInBoundary(previous), !isClosingQuoteBoundary(next) {
+            return true
+        }
+        if let previous, isClosingQuoteBoundary(previous) {
+            return false
+        }
+        if let next, isClosingQuoteBoundary(next) {
+            return false
+        }
+        return nil
+    }
+
+    private static func isEnglishApostrophe(
+        at index: Array<Character>.Index,
+        in chars: [Character],
+        isInsideSingleQuote: Bool
+    ) -> Bool {
+        let previous = index > chars.startIndex ? chars[chars.index(before: index)] : nil
+        let nextIndex = chars.index(after: index)
+        let next = nextIndex < chars.endIndex ? chars[nextIndex] : nil
+
+        if isASCIIAlphaNumeric(previous), isASCIIAlphaNumeric(next) {
+            return true
+        }
+
+        if isInsideSingleQuote {
+            return false
+        }
+
+        return isASCIIAlphaNumeric(previous) && (next == nil || isApostropheTrailingBoundary(next))
+    }
+
+    private static func isASCIIAlphaNumeric(_ character: Character?) -> Bool {
+        guard let character,
+              let scalar = character.unicodeScalars.first,
+              character.unicodeScalars.count == 1 else {
+            return false
+        }
+        switch scalar.value {
+        case 0x0030...0x0039, 0x0041...0x005A, 0x0061...0x007A:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isQuoteLeadInBoundary(_ character: Character) -> Bool {
+        switch character {
+        case ",", ":", ";", "，", "：", "；":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isOpeningQuoteBoundary(_ character: Character) -> Bool {
+        switch character {
+        case "(", "[", "{", "<", "「", "『", "（", "【", "《", "〈", "\u{2014}", "\u{2013}":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isClosingQuoteBoundary(_ character: Character) -> Bool {
+        if character.isWhitespace {
+            return true
+        }
+        switch character {
+        case ".", ",", "!", "?", ":", ";", ")", "]", "}", ">", "。", "，", "！", "？", "：", "；",
+             "）", "】", "》", "〉":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isApostropheTrailingBoundary(_ character: Character?) -> Bool {
+        guard let character else { return true }
+        if character.isWhitespace {
+            return true
+        }
+        return isClosingQuoteBoundary(character)
+    }
+
+    /// Applies smart punctuation to an NSAttributedString in-place.
+    /// All replacements are 1 UTF-16 code unit → 1 UTF-16 code unit (all BMP),
+    /// so attribute ranges are preserved without adjustment.
+    private static func applySmartPunctuation(to attrStr: NSAttributedString) -> NSAttributedString {
+        let original = attrStr.string
+        let normalized = normalizeEnglishPunctuation(original)
+        guard normalized != original || containsSmartQuote(original) else { return attrStr }
+
+        let result = NSMutableAttributedString(string: normalized)
+        attrStr.enumerateAttributes(
+            in: NSRange(location: 0, length: attrStr.length),
+            options: []
+        ) { attrs, range, _ in
+            result.setAttributes(attrs, range: range)
+        }
+        applyLatinQuoteFont(in: result)
+        return result
+    }
+
+    private static func containsSmartQuote(_ text: String) -> Bool {
+        text.unicodeScalars.contains { isSmartQuoteScalar($0) }
+    }
+
+    private static func applyLatinQuoteFont(in result: NSMutableAttributedString) {
+        let scalars = Array(result.string.unicodeScalars)
+        let utf16Offsets = buildUTF16OffsetMap(for: result.string)
+        guard scalars.count == utf16Offsets.count else { return }
+
+        for (scalar, utf16Offset) in zip(scalars, utf16Offsets) {
+            guard isSmartQuoteScalar(scalar) else { continue }
+
+            let currentFont = result.attribute(.font, at: utf16Offset, effectiveRange: nil) as? UIFont
+            let size = currentFont?.pointSize ?? 17
+            guard let quoteFont = latinQuoteFont(matching: currentFont, size: size) else { continue }
+
+            result.addAttribute(.font, value: quoteFont, range: NSRange(location: utf16Offset, length: scalar.utf16.count))
+        }
+    }
+
+    private static func isSmartQuoteScalar(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x2018, 0x2019, 0x201C, 0x201D:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func latinQuoteFont(matching font: UIFont?, size: CGFloat) -> UIFont? {
+        let base = UIFont(name: "Georgia", size: size)
+        guard let base else { return nil }
+        guard let font else { return base }
+
+        var traits: UIFontDescriptor.SymbolicTraits = []
+        if font.fontDescriptor.symbolicTraits.contains(.traitBold) {
+            traits.insert(.traitBold)
+        }
+        if font.fontDescriptor.symbolicTraits.contains(.traitItalic) {
+            traits.insert(.traitItalic)
+        }
+        guard !traits.isEmpty else { return base }
+        guard let descriptor = base.fontDescriptor.withSymbolicTraits(traits) else { return base }
+        return UIFont(descriptor: descriptor, size: size)
     }
 
     // MARK: - Private helpers

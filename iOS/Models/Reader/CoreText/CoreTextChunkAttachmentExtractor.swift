@@ -92,7 +92,11 @@ enum CoreTextChunkAttachmentExtractor {
                 result.append(CoreTextPaginator.RenderedAttachment(
                     rect: rect,
                     image: img,
-                    opacity: info.opacity
+                    opacity: info.opacity,
+                    sourceHref: info.source.isEmpty ? nil : info.source,
+                    alt: info.alt,
+                    linkHref: (attrs[HTMLAttributedStringBuilder.internalLinkAttribute] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                    originalSize: img.size
                 ))
             }
         }

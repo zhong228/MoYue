@@ -174,6 +174,29 @@ final class HTMLAttributedStringBuilder {
                 || borderLeftWidth > 0 || borderRightWidth > 0
                 || blockImage != nil
         }
+
+        func withBackgroundFillColor(_ color: UIColor?) -> BlockRenderStyle {
+            BlockRenderStyle(
+                backgroundFillColor: color,
+                borderTopWidth: borderTopWidth,
+                borderBottomWidth: borderBottomWidth,
+                borderLeftWidth: borderLeftWidth,
+                borderRightWidth: borderRightWidth,
+                borderTopColor: borderTopColor,
+                borderBottomColor: borderBottomColor,
+                borderLeftColor: borderLeftColor,
+                borderRightColor: borderRightColor,
+                width: width,
+                height: height,
+                textAlign: textAlign,
+                isHorizontallyCentered: isHorizontallyCentered,
+                paragraphSpacingBefore: paragraphSpacingBefore,
+                visualOffsetBefore: visualOffsetBefore,
+                paddingLeft: paddingLeft,
+                paddingRight: paddingRight,
+                blockImage: blockImage
+            )
+        }
     }
 
     indirect enum ASTNode {
@@ -541,7 +564,8 @@ final class HTMLAttributedStringBuilder {
                     image: image,
                     config: config,
                     style: imgStyle,
-                    imageSource: src
+                    imageSource: src,
+                    imageAlt: element.attributes["alt"]
                 )
             }
 
@@ -865,6 +889,7 @@ final class HTMLAttributedStringBuilder {
                 config: config,
                 style: segmentStyle,
                 imageSource: src,
+                imageAlt: imageElement.attributes["alt"],
                 displayMode: .block,
                 precomputedMetrics: imageMetrics
             )
@@ -1393,6 +1418,7 @@ final class HTMLAttributedStringBuilder {
         config: Config,
         style: ResolvedStyle,
         imageSource: String = "",
+        imageAlt: String? = nil,
         displayMode: ImageRunInfo.DisplayMode = .inline,
         precomputedMetrics: ImageMetrics? = nil
     ) -> NSAttributedString {
@@ -1423,6 +1449,7 @@ final class HTMLAttributedStringBuilder {
             paddingLeft: style.paddingLeft,
             paddingRight: style.paddingRight,
             imageSource: imageSource,
+            imageAlt: imageAlt,
             displayMode: displayMode,
             opacity: style.opacity
         )

@@ -558,7 +558,7 @@ extension ReadingBook {
 enum ReaderLayoutMetrics {
     static let footerHeight: CGFloat = 16
     static let defaultFooterBottomPadding: CGFloat = 4
-    static let defaultFooterTextGap: CGFloat = 0
+    static let defaultFooterTextGap: CGFloat = 12
 
     /// Extra space below the footer text to the screen bottom edge.
     /// Text area bottom = safeBottom + footerBottomPadding + footerHeight + footerTextGap.

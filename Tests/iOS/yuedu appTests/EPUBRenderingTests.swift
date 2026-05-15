@@ -10,7 +10,17 @@ struct EPUBRenderingTests {
     @Test func hrDividerCarriesAttribute() {
         // Compile-time verification: HRDividerStyle and hrDividerAttribute exist
         let key = HTMLAttributedStringBuilder.hrDividerAttribute
-        let style = HTMLAttributedStringBuilder.HRDividerStyle(color: .black, lineWidth: 1.0)
+        let style = HTMLAttributedStringBuilder.HRDividerStyle(
+            color: .black,
+            lineWidth: 1.0,
+            ruleWidth: nil,
+            ruleWidthPercent: nil,
+            marginLeft: 0,
+            marginRight: 0,
+            inheritedBlockMarginLeft: 0,
+            alignment: .natural,
+            isHorizontallyCentered: false
+        )
         #expect(key.rawValue == "ReaderHRDivider")
         #expect(style.lineWidth == 1.0)
     }

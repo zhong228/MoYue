@@ -1211,6 +1211,10 @@ _layouts[spineIndex] = _layouts[spineIndex]?.withUpdatedColors(textColor: textCo
         vc.onInternalLinkTap = { [weak self] href in
             guard let self else { return }
             Task { @MainActor in
+                if let url = Self.externalURL(from: href) {
+                    await UIApplication.shared.open(url)
+                    return
+                }
                 guard let targetPage = await self.resolveInternalLink(href, fromSpineIndex: spineIndex) else {
                     return
                 }
@@ -1230,6 +1234,16 @@ _layouts[spineIndex] = _layouts[spineIndex]?.withUpdatedColors(textColor: textCo
         )
         vc.setTextAnnotations(textAnnotations.filter { $0.spineIndex == spineIndex })
         return vc
+    }
+
+    private static func externalURL(from href: String) -> URL? {
+        guard let url = URL(string: href),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https"
+        else {
+            return nil
+        }
+        return url
     }
 
     private func estimatedGlobalPage(for position: CoreTextReadingPosition) -> Int {

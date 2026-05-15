@@ -108,6 +108,55 @@ struct CJKTypographyProcessorTests {
         #expect(latinToCJK == 2.0)
     }
 
+    @Test("英文雙引號轉為左右彎引號")
+    func englishDoubleQuotesBecomeDirectionalCurlyQuotes() {
+        let attr = NSAttributedString(string: #"He said, "Hello.""#)
+
+        let result = CJKTypographyProcessor.apply(to: attr)
+
+        #expect(result.string == "He said, \u{201C}Hello.\u{201D}")
+        #expect(result.length == attr.length)
+    }
+
+    @Test("英文彎引號使用 Latin serif glyph 而不是 CJK 字體 glyph")
+    func englishCurlyQuotesUseLatinSerifFont() throws {
+        let cjkFont = try #require(UIFont(name: "PingFangSC-Regular", size: 20))
+        let attr = NSAttributedString(string: "\u{201C}What\u{2019}s two plus two?\u{201D}", attributes: [.font: cjkFont])
+
+        let result = CJKTypographyProcessor.apply(to: attr)
+
+        #expect(result.string == "\u{201C}What\u{2019}s two plus two?\u{201D}")
+        let openingQuoteFont = try #require(result.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)
+        let apostropheFont = try #require(result.attribute(.font, at: 5, effectiveRange: nil) as? UIFont)
+        let closingQuoteFont = try #require(result.attribute(.font, at: result.length - 1, effectiveRange: nil) as? UIFont)
+        let bodyFont = try #require(result.attribute(.font, at: 1, effectiveRange: nil) as? UIFont)
+
+        #expect(openingQuoteFont.fontName.contains("Georgia"))
+        #expect(apostropheFont.fontName.contains("Georgia"))
+        #expect(closingQuoteFont.fontName.contains("Georgia"))
+        #expect(bodyFont.fontName == cjkFont.fontName)
+    }
+
+    @Test("英文縮寫與所有格單引號轉為右彎 apostrophe")
+    func englishApostrophesBecomeRightCurlyApostrophes() {
+        let attr = NSAttributedString(string: "I'm James' friend.")
+
+        let result = CJKTypographyProcessor.apply(to: attr)
+
+        #expect(result.string == "I\u{2019}m James\u{2019} friend.")
+        #expect(result.length == attr.length)
+    }
+
+    @Test("半形單引號包住非英文內容時仍轉為左右引號")
+    func nonEnglishSingleQuotesBecomeDirectionalCurlyQuotes() {
+        let attr = NSAttributedString(string: "他說'你好'再見")
+
+        let result = CJKTypographyProcessor.apply(to: attr)
+
+        #expect(result.string == "他說\u{2018}你好\u{2019}再見")
+        #expect(result.length == attr.length)
+    }
+
     // MARK: 字元分類器
 
     @Test("閉括號分類器識別句末標點")
@@ -182,7 +231,14 @@ struct CSSPropertyApplierTests {
             opacity: 1,
             letterSpacing: nil,
             hasCSSColor: false,
-            configParagraphSpacing: 0
+            configParagraphSpacing: 0,
+            firstLetterDeclarations: nil,
+            firstLetterFontSizeMultiplier: nil,
+            firstLetterFontWeight: nil,
+            firstLetterColor: nil,
+            underline: false,
+            strikethrough: false,
+            inheritedBlockMarginLeft: 0
         )
     }
 
@@ -374,6 +430,7 @@ struct ChapterLayoutTests {
             anchorOffsets: [:],
             renderSize: CGSize(width: 320, height: 568),
             fontSize: fontSize,
+            backgroundColor: .systemBackground,
             contentInsets: UIEdgeInsets(top: 10, left: 15, bottom: 10, right: 15)
         )
     }

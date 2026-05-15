@@ -18,6 +18,7 @@ final class ImageRunInfo {
     let paddingLeft: CGFloat
     let paddingRight: CGFloat
     let source: String
+    let alt: String?
     let displayMode: DisplayMode
     let opacity: CGFloat
 
@@ -32,6 +33,7 @@ final class ImageRunInfo {
         paddingLeft: CGFloat,
         paddingRight: CGFloat,
         source: String,
+        alt: String? = nil,
         displayMode: DisplayMode,
         opacity: CGFloat
     ) {
@@ -45,6 +47,7 @@ final class ImageRunInfo {
         self.paddingLeft = paddingLeft
         self.paddingRight = paddingRight
         self.source = source
+        self.alt = alt
         self.displayMode = displayMode
         self.opacity = opacity
     }
@@ -63,6 +66,7 @@ enum RunDelegateProvider {
         paddingLeft: CGFloat,
         paddingRight: CGFloat,
         imageSource: String,
+        imageAlt: String? = nil,
         displayMode: ImageRunInfo.DisplayMode,
         opacity: CGFloat
     ) -> NSAttributedString {
@@ -93,6 +97,7 @@ enum RunDelegateProvider {
             paddingLeft: paddingLeft,
             paddingRight: paddingRight,
             source: imageSource,
+            alt: imageAlt,
             displayMode: displayMode,
             opacity: opacity
         )

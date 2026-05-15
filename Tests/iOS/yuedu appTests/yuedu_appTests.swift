@@ -24,6 +24,26 @@ struct yuedu_appTests {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
+    private func colorsApproximatelyEqual(_ lhs: UIColor, _ rhs: UIColor) -> Bool {
+        var lr: CGFloat = 0
+        var lg: CGFloat = 0
+        var lb: CGFloat = 0
+        var la: CGFloat = 0
+        var rr: CGFloat = 0
+        var rg: CGFloat = 0
+        var rb: CGFloat = 0
+        var ra: CGFloat = 0
+        guard lhs.getRed(&lr, green: &lg, blue: &lb, alpha: &la),
+              rhs.getRed(&rr, green: &rg, blue: &rb, alpha: &ra)
+        else {
+            return lhs == rhs
+        }
+        return abs(lr - rr) <= 0.01
+            && abs(lg - rg) <= 0.01
+            && abs(lb - rb) <= 0.01
+            && abs(la - ra) <= 0.01
+    }
+
     private func loadSource(named name: String) throws -> BookSource {
         let json = try String(contentsOfFile: testBookSourcePath, encoding: .utf8)
         let sources = try JSONDecoder().decode([BookSource].self, from: Data(json.utf8))
@@ -54,6 +74,7 @@ struct yuedu_appTests {
             anchorOffsets: [:],
             renderSize: CGSize(width: 320, height: 480),
             fontSize: 18,
+            backgroundColor: .systemBackground,
             contentInsets: .zero
         )
     }
@@ -470,6 +491,216 @@ struct yuedu_appTests {
             if value != nil { hasDelegate = true }
         }
         #expect(hasDelegate)
+    }
+
+    @Test func coreTextPaginatorPreservesImageHitTargetMetadata() async throws {
+        let builder = HTMLAttributedStringBuilder()
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 80, height: 40)).image { ctx in
+            UIColor.systemGreen.setFill()
+            ctx.cgContext.fill(CGRect(x: 0, y: 0, width: 80, height: 40))
+        }
+        builder.imageLoader = { _ in image }
+        let config = HTMLAttributedStringBuilder.Config(
+            fontSize: 18,
+            lineHeightMultiple: 1.2,
+            lineSpacing: 4,
+            paragraphSpacing: 4,
+            firstLineIndent: 0,
+            textColor: .black,
+            backgroundColor: .white,
+            renderWidth: 260
+        )
+        let html = "<p><a href='https://example.com/full'><img src='../images/00005.jpeg' alt='cover art'></a></p>"
+        let result = await builder.build(html: html, config: config).attributedString
+        let layout = await CoreTextPaginator().paginate(
+            spineIndex: 0,
+            attrStr: result,
+            renderSize: CGSize(width: 320, height: 480),
+            fontSize: 18,
+            lineSpacing: 4,
+            paragraphSpacing: 4,
+            letterSpacing: 0,
+            contentInsets: UIEdgeInsets(top: 20, left: 30, bottom: 20, right: 30),
+            writingMode: .horizontal
+        )
+
+        let attachments = (layout.inlineAttachments[0] ?? []) + (layout.blockAttachments[0] ?? [])
+        let attachment = try #require(attachments.first)
+        #expect(attachment.sourceHref == "../images/00005.jpeg")
+        #expect(attachment.alt == "cover art")
+        #expect(attachment.linkHref == "https://example.com/full")
+        #expect(attachment.originalSize == CGSize(width: 80, height: 40))
+    }
+
+    @Test func coreTextRenderPageCompositesTransparentImagesOverReaderBackground() async throws {
+        let imageFormat = UIGraphicsImageRendererFormat()
+        imageFormat.opaque = false
+        let transparentImage = UIGraphicsImageRenderer(
+            size: CGSize(width: 40, height: 20),
+            format: imageFormat
+        ).image { ctx in
+            UIColor.systemRed.setFill()
+            ctx.cgContext.fill(CGRect(x: 20, y: 0, width: 20, height: 20))
+        }
+
+        let readerBackground = UIColor(red: 0.20, green: 0.40, blue: 0.60, alpha: 1)
+        let builder = HTMLAttributedStringBuilder()
+        builder.imageLoader = { _ in transparentImage }
+        let config = HTMLAttributedStringBuilder.Config(
+            fontSize: 18,
+            lineHeightMultiple: 1.2,
+            lineSpacing: 4,
+            paragraphSpacing: 4,
+            firstLineIndent: 0,
+            textColor: .black,
+            backgroundColor: readerBackground,
+            renderWidth: 260
+        )
+        let result = await builder.build(html: "<p><img src='transparent.png' alt='transparent'></p>", config: config).attributedString
+        let layout = await CoreTextPaginator().paginate(
+            spineIndex: 0,
+            attrStr: result,
+            renderSize: CGSize(width: 320, height: 220),
+            fontSize: 18,
+            lineSpacing: 4,
+            paragraphSpacing: 4,
+            letterSpacing: 0,
+            contentInsets: UIEdgeInsets(top: 20, left: 30, bottom: 20, right: 30),
+            writingMode: .horizontal
+        )
+        let attachment = try #require(((layout.inlineAttachments[0] ?? []) + (layout.blockAttachments[0] ?? [])).first)
+
+        let rendered = UIGraphicsImageRenderer(size: layout.renderSize).image { context in
+            CoreTextPageView.renderPage(
+                layout: layout,
+                pageIndex: 0,
+                in: context.cgContext,
+                bounds: CGRect(origin: .zero, size: layout.renderSize)
+            )
+        }
+
+        guard let cgImage = rendered.cgImage,
+              let providerData = cgImage.dataProvider?.data
+        else {
+            Issue.record("Unable to inspect rendered image data")
+            return
+        }
+
+        let data = providerData as Data
+        let bytesPerPixel = 4
+        let bytesPerRow = cgImage.bytesPerRow
+        let x = max(0, min(cgImage.width - 1, Int(attachment.rect.minX + attachment.rect.width * 0.25)))
+        let y = max(0, min(cgImage.height - 1, Int(attachment.rect.midY)))
+        let idx = y * bytesPerRow + x * bytesPerPixel
+        guard idx + 2 < data.count else {
+            Issue.record("Transparent sample is outside rendered image data")
+            return
+        }
+
+        let b = Int(data[idx])
+        let g = Int(data[idx + 1])
+        let r = Int(data[idx + 2])
+        #expect(abs(r - 51) <= 6)
+        #expect(abs(g - 102) <= 6)
+        #expect(abs(b - 153) <= 6)
+    }
+
+    @Test func coreTextPaginatorMakesBlockRenderableImagesTappable() async throws {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 120, height: 36)).image { ctx in
+            UIColor.systemGreen.setFill()
+            ctx.cgContext.fill(CGRect(x: 0, y: 0, width: 120, height: 36))
+        }
+        let builder = HTMLAttributedStringBuilder()
+        builder.imageLoader = { _ in image }
+        let config = HTMLAttributedStringBuilder.Config(
+            fontSize: 18,
+            lineHeightMultiple: 1.2,
+            lineSpacing: 4,
+            paragraphSpacing: 4,
+            firstLineIndent: 0,
+            textColor: .black,
+            backgroundColor: .white,
+            renderWidth: 260
+        )
+        let html = """
+        <html><head><style>
+        .chapter-title { background-color: #ffffff; width: 240px; height: 42px; text-align: center; }
+        .chapter-title img { width: 120px; height: 36px; }
+        </style></head><body>
+        <div class="chapter-title"><a href="https://example.com/full"><img src="../images/chapter.png" alt="Chapter 1"></a></div>
+        </body></html>
+        """
+        let result = await builder.build(html: html, config: config).attributedString
+        let layout = await CoreTextPaginator().paginate(
+            spineIndex: 0,
+            attrStr: result,
+            renderSize: CGSize(width: 320, height: 220),
+            fontSize: 18,
+            lineSpacing: 4,
+            paragraphSpacing: 4,
+            letterSpacing: 0,
+            contentInsets: UIEdgeInsets(top: 20, left: 30, bottom: 20, right: 30),
+            writingMode: .horizontal
+        )
+
+        let renderable = try #require(layout.blockRenderables[0]?.first(where: { $0.imageAttachment != nil }))
+        let attachment = try #require(renderable.imageAttachment)
+        #expect(attachment.sourceHref == "../images/chapter.png")
+        #expect(attachment.alt == "Chapter 1")
+        #expect(attachment.linkHref == "https://example.com/full")
+        #expect(attachment.rect.width > 0)
+        #expect(attachment.rect.height > 0)
+    }
+
+    @Test func coreTextThemeUpdateRecolorsImageBlockBackgroundMatchingReaderBackground() async throws {
+        let imageFormat = UIGraphicsImageRendererFormat()
+        imageFormat.opaque = false
+        let transparentImage = UIGraphicsImageRenderer(
+            size: CGSize(width: 80, height: 24),
+            format: imageFormat
+        ).image { ctx in
+            UIColor.systemRed.setFill()
+            ctx.cgContext.fill(CGRect(x: 40, y: 0, width: 40, height: 24))
+        }
+        let oldBackground = UIColor.white
+        let newBackground = UIColor(red: 0.83, green: 0.77, blue: 0.66, alpha: 1)
+        let builder = HTMLAttributedStringBuilder()
+        builder.imageLoader = { _ in transparentImage }
+        let config = HTMLAttributedStringBuilder.Config(
+            fontSize: 18,
+            lineHeightMultiple: 1.2,
+            lineSpacing: 4,
+            paragraphSpacing: 4,
+            firstLineIndent: 0,
+            textColor: .black,
+            backgroundColor: oldBackground,
+            renderWidth: 260
+        )
+        let html = """
+        <html><head><style>
+        .chapter-title { background-color: #ffffff; width: 240px; height: 32px; text-align: left; }
+        .chapter-title img { width: 80px; height: 24px; }
+        </style></head><body>
+        <div class="chapter-title"><img src="transparent-title.png" alt="transparent"></div>
+        </body></html>
+        """
+        let result = await builder.build(html: html, config: config).attributedString
+        let layout = await CoreTextPaginator().paginate(
+            spineIndex: 0,
+            attrStr: result,
+            renderSize: CGSize(width: 320, height: 220),
+            fontSize: 18,
+            lineSpacing: 4,
+            paragraphSpacing: 4,
+            letterSpacing: 0,
+            contentInsets: UIEdgeInsets(top: 20, left: 30, bottom: 20, right: 30),
+            writingMode: .horizontal
+        )
+
+        let updated = layout.withUpdatedColors(textColor: .black, backgroundColor: newBackground)
+        let renderable = try #require(updated.blockRenderables[0]?.first(where: { $0.imageAttachment != nil }))
+        let fillColor = try #require(renderable.style.backgroundFillColor)
+        #expect(colorsApproximatelyEqual(fillColor, newBackground))
     }
 
     @Test func htmlBuilderMapsFontFamilyAlias() async {

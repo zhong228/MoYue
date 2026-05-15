@@ -7,6 +7,28 @@ final class CoreTextPaginator {
         let rect: CGRect
         let image: UIImage
         let opacity: CGFloat
+        let sourceHref: String?
+        let alt: String?
+        let linkHref: String?
+        let originalSize: CGSize
+
+        init(
+            rect: CGRect,
+            image: UIImage,
+            opacity: CGFloat,
+            sourceHref: String? = nil,
+            alt: String? = nil,
+            linkHref: String? = nil,
+            originalSize: CGSize? = nil
+        ) {
+            self.rect = rect
+            self.image = image
+            self.opacity = opacity
+            self.sourceHref = sourceHref
+            self.alt = alt
+            self.linkHref = linkHref
+            self.originalSize = originalSize ?? image.size
+        }
     }
 
     struct RenderedBlockRenderable {
@@ -16,6 +38,7 @@ final class CoreTextPaginator {
         /// String ranges whose text is drawn by drawBlockRenderableText (not by CTFrame drawLines).
         /// Non-empty only when attributedText != nil (usesExplicitGeometry = true).
         let sourceRanges: [NSRange]
+        let imageAttachment: RenderedAttachment?
     }
 
     enum PageKind {
@@ -43,6 +66,7 @@ final class CoreTextPaginator {
         let anchorOffsets: [String: Int]
         let renderSize: CGSize
         let fontSize: CGFloat
+        let backgroundColor: UIColor
         /// Content edge insets used during layout (UIEdgeInsets; CoreText path is already offset accordingly)
         let contentInsets: UIEdgeInsets
         var writingMode: ReaderWritingMode = .horizontal
@@ -54,6 +78,7 @@ final class CoreTextPaginator {
             guard attributedString.length > 0 else { return self }
             let updated = NSMutableAttributedString(attributedString: attributedString)
             let fullRange = NSRange(location: 0, length: updated.length)
+            let oldBackgroundColor = self.backgroundColor
 
             // ── Foreground color: apply theme color globally, then restore CSS-specified colors ──
             updated.addAttribute(.foregroundColor, value: textColor, range: fullRange)
@@ -75,7 +100,33 @@ final class CoreTextPaginator {
                 options: []
             ) { value, effectiveRange, _ in
                 if value != nil {
+                    if let color = value as? UIColor,
+                       CoreTextPaginator.colorsApproximatelyEqual(color, oldBackgroundColor) {
+                        updated.addAttribute(
+                            HTMLAttributedStringBuilder.blockBackgroundColorAttribute,
+                            value: backgroundColor,
+                            range: effectiveRange
+                        )
+                    }
                     updated.removeAttribute(.backgroundColor, range: effectiveRange)
+                }
+            }
+
+            let recoloredBlockRenderables = blockRenderables.mapValues { renderables in
+                renderables.map { item in
+                    guard item.imageAttachment != nil,
+                          let fillColor = item.style.backgroundFillColor,
+                          CoreTextPaginator.colorsApproximatelyEqual(fillColor, oldBackgroundColor)
+                    else {
+                        return item
+                    }
+                    return RenderedBlockRenderable(
+                        rect: item.rect,
+                        style: item.style.withBackgroundFillColor(backgroundColor),
+                        attributedText: item.attributedText,
+                        sourceRanges: item.sourceRanges,
+                        imageAttachment: item.imageAttachment
+                    )
                 }
             }
 
@@ -87,12 +138,13 @@ final class CoreTextPaginator {
                 pageRanges: pageRanges,
                 inlineAttachments: inlineAttachments,
                 blockAttachments: blockAttachments,
-                blockRenderables: blockRenderables,
+                blockRenderables: recoloredBlockRenderables,
                 pageKinds: pageKinds,
                 pageBackgroundImage: pageBackgroundImage,
                 anchorOffsets: anchorOffsets,
                 renderSize: renderSize,
                 fontSize: fontSize,
+                backgroundColor: backgroundColor,
                 contentInsets: contentInsets,
                 writingMode: writingMode
             )
@@ -230,6 +282,7 @@ final class CoreTextPaginator {
                 anchorOffsets: anchorOffsets,
                 renderSize: renderSize,
                 fontSize: fontSize,
+                backgroundColor: pageBackgroundColor(from: attrStr),
                 contentInsets: contentInsets,
                 writingMode: writingMode
             )
@@ -289,6 +342,7 @@ final class CoreTextPaginator {
             anchorOffsets: anchorOffsets,
             renderSize: renderSize,
             fontSize: fontSize,
+            backgroundColor: pageBackgroundColor(from: attrStr),
             contentInsets: contentInsets,
             writingMode: writingMode
         )
@@ -303,6 +357,40 @@ final class CoreTextPaginator {
                 kCTFrameProgressionAttributeName as String: Int(CTFrameProgression.rightToLeft.rawValue)
             ]
         }
+    }
+
+    private static func pageBackgroundColor(from attrStr: NSAttributedString) -> UIColor {
+        guard attrStr.length > 0 else { return .systemBackground }
+        let fullRange = NSRange(location: 0, length: attrStr.length)
+        var result: UIColor?
+        attrStr.enumerateAttribute(.backgroundColor, in: fullRange, options: []) { value, _, stop in
+            if let color = value as? UIColor {
+                result = color
+                stop.pointee = true
+            }
+        }
+        return result ?? .systemBackground
+    }
+
+    private static func colorsApproximatelyEqual(_ lhs: UIColor, _ rhs: UIColor) -> Bool {
+        var lr: CGFloat = 0
+        var lg: CGFloat = 0
+        var lb: CGFloat = 0
+        var la: CGFloat = 0
+        var rr: CGFloat = 0
+        var rg: CGFloat = 0
+        var rb: CGFloat = 0
+        var ra: CGFloat = 0
+        guard lhs.getRed(&lr, green: &lg, blue: &lb, alpha: &la),
+              rhs.getRed(&rr, green: &rg, blue: &rb, alpha: &ra)
+        else {
+            return lhs == rhs
+        }
+        let tolerance: CGFloat = 0.01
+        return abs(lr - rr) <= tolerance
+            && abs(lg - rg) <= tolerance
+            && abs(lb - rb) <= tolerance
+            && abs(la - ra) <= tolerance
     }
 
     static func makeFrame(
@@ -516,7 +604,16 @@ final class CoreTextPaginator {
                             )
                         }
 
-                        let attachment = RenderedAttachment(rect: rect, image: img, opacity: info.opacity)
+                        let linkHref = attrs[HTMLAttributedStringBuilder.internalLinkAttribute] as? String
+                        let attachment = RenderedAttachment(
+                            rect: rect,
+                            image: img,
+                            opacity: info.opacity,
+                            sourceHref: info.source.isEmpty ? nil : info.source,
+                            alt: info.alt,
+                            linkHref: linkHref?.isEmpty == false ? linkHref : nil,
+                            originalSize: img.size
+                        )
                         switch info.displayMode {
                         case .inline:
                             inlineAttachments[pageIdx, default: []].append(attachment)
@@ -546,7 +643,15 @@ final class CoreTextPaginator {
                 height: contentPathRect.height
             )
             let imageRect = aspectFitRect(for: attachment.image.size, in: uiContentRect)
-            blockAttachments[0] = [RenderedAttachment(rect: imageRect, image: attachment.image, opacity: attachment.opacity)]
+            blockAttachments[0] = [RenderedAttachment(
+                rect: imageRect,
+                image: attachment.image,
+                opacity: attachment.opacity,
+                sourceHref: attachment.sourceHref,
+                alt: attachment.alt,
+                linkHref: attachment.linkHref,
+                originalSize: attachment.originalSize
+            )]
             kinds[0] = .image
         }
 
@@ -766,7 +871,13 @@ final class CoreTextPaginator {
                         rect: group.rect,
                         style: group.style,
                         attributedText: text,
-                        sourceRanges: text != nil ? group.ranges : []
+                        sourceRanges: text != nil ? group.ranges : [],
+                        imageAttachment: makeBlockImageAttachment(
+                            rect: group.rect,
+                            style: group.style,
+                            ranges: group.ranges,
+                            attrStr: attrStr
+                        )
                     )
                 }
             if !renderables.isEmpty {
@@ -865,6 +976,84 @@ final class CoreTextPaginator {
             width: preferredWidth,
             height: max(1, blockHeight)
         )
+    }
+
+    private static func makeBlockImageAttachment(
+        rect: CGRect,
+        style: HTMLAttributedStringBuilder.BlockRenderStyle,
+        ranges: [NSRange],
+        attrStr: NSAttributedString
+    ) -> RenderedAttachment? {
+        guard let blockImage = style.blockImage,
+              let image = blockImage.image
+        else {
+            return nil
+        }
+
+        var sourceHref = blockImage.source.isEmpty ? nil : blockImage.source
+        var alt: String?
+        var linkHref: String?
+        let delegateKey = NSAttributedString.Key(kCTRunDelegateAttributeName as String)
+
+        for range in ranges {
+            let safeLocation = max(0, min(range.location, attrStr.length))
+            let safeEnd = max(safeLocation, min(range.location + range.length, attrStr.length))
+            guard safeEnd > safeLocation else { continue }
+            let safeRange = NSRange(location: safeLocation, length: safeEnd - safeLocation)
+            attrStr.enumerateAttribute(delegateKey, in: safeRange, options: []) { value, effectiveRange, stop in
+                guard let delegate = value else { return }
+                let ctDelegate = delegate as! CTRunDelegate
+                let ptr = CTRunDelegateGetRefCon(ctDelegate)
+                let info = Unmanaged<ImageRunInfo>.fromOpaque(ptr).takeUnretainedValue()
+                if !info.source.isEmpty {
+                    sourceHref = info.source
+                }
+                alt = info.alt
+                if let href = attrStr.attribute(
+                    HTMLAttributedStringBuilder.internalLinkAttribute,
+                    at: effectiveRange.location,
+                    effectiveRange: nil
+                ) as? String,
+                   !href.isEmpty {
+                    linkHref = href
+                }
+                stop.pointee = true
+            }
+            if sourceHref != nil || alt != nil || linkHref != nil {
+                break
+            }
+        }
+
+        let imageRect = blockImageRect(in: rect, blockImage: blockImage)
+        return RenderedAttachment(
+            rect: imageRect,
+            image: image,
+            opacity: blockImage.opacity,
+            sourceHref: sourceHref,
+            alt: alt,
+            linkHref: linkHref,
+            originalSize: image.size
+        )
+    }
+
+    static func blockImageRect(
+        in availableRect: CGRect,
+        blockImage: HTMLAttributedStringBuilder.BlockRenderStyle.BlockImage
+    ) -> CGRect {
+        let contentWidth = max(1, availableRect.width - blockImage.paddingLeft - blockImage.paddingRight)
+        let drawWidth = min(blockImage.drawSize.width, contentWidth)
+        let drawHeight = blockImage.drawSize.height
+        let imgX: CGFloat
+        switch blockImage.alignment {
+        case .center:
+            imgX = availableRect.minX + blockImage.paddingLeft + max(0, (contentWidth - drawWidth) / 2)
+        case .right:
+            imgX = availableRect.minX + blockImage.paddingLeft + max(0, contentWidth - drawWidth)
+        default:
+            imgX = availableRect.minX + blockImage.paddingLeft
+        }
+        let imgY = availableRect.minY + max(0, (availableRect.height - drawHeight) / 2)
+        return CGRect(x: imgX, y: imgY, width: drawWidth, height: drawHeight)
     }
 
     private static func explicitRenderableText(

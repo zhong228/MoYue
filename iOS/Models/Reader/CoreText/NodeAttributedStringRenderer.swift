@@ -484,7 +484,14 @@ struct NodeAttributedStringRenderer {
         }
 
         let image = src.isEmpty ? nil : await config.imageLoader?(src)
-        return makeImagePlaceholder(image: image, style: style, ctx: ctx, imageSource: src, displayMode: .inline)
+        return makeImagePlaceholder(
+            image: image,
+            style: style,
+            ctx: ctx,
+            imageSource: src,
+            imageAlt: alt,
+            displayMode: .inline
+        )
     }
 
     private func renderImageOnlyBlock(
@@ -525,6 +532,7 @@ struct NodeAttributedStringRenderer {
                 style: attachmentStyle,
                 ctx: blockCtx,
                 imageSource: payload.src,
+                imageAlt: payload.alt,
                 displayMode: .block,
                 precomputedMetrics: imageMetrics
             )
@@ -553,6 +561,7 @@ struct NodeAttributedStringRenderer {
         style: RenderStyle,
         ctx: RenderContext,
         imageSource: String,
+        imageAlt: String? = nil,
         displayMode: ImageRunInfo.DisplayMode,
         precomputedMetrics: ImageMetrics? = nil
     ) -> NSAttributedString {
@@ -570,6 +579,7 @@ struct NodeAttributedStringRenderer {
                 paddingLeft: style.paddingLeft,
                 paddingRight: style.paddingRight,
                 imageSource: imageSource,
+                imageAlt: imageAlt,
                 displayMode: displayMode,
                 opacity: style.opacity
             )

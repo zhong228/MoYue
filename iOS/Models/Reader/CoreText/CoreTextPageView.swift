@@ -47,6 +47,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     }()
 
     var onInternalLinkTap: ((String) -> Void)?
+    var onImageAttachmentTap: ((CoreTextPaginator.RenderedAttachment) -> Void)?
 
     private lazy var editMenuInteraction: UIEditMenuInteraction = {
         let interaction = UIEditMenuInteraction(delegate: self)
@@ -89,7 +90,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         self.localPageIndex = pageIndex
         clearSelection()
         backgroundColor = layout.attributedString.length > 0
-            ? extractBackgroundColor(from: layout.attributedString)
+            ? layout.backgroundColor
             : fallbackBackgroundColor
         setNeedsDisplay()
         updatePlaybackHighlightOverlay()
@@ -169,6 +170,9 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         ctx.translateBy(x: bounds.minX, y: bounds.minY)
         ctx.scaleBy(x: scaleX, y: scaleY)
 
+        ctx.setFillColor(layout.backgroundColor.cgColor)
+        ctx.fill(canonicalBounds)
+
         if layout.pageKinds[pageIndex] == .image {
             for attachment in layout.blockAttachments[pageIndex] ?? [] {
                 attachment.image.draw(in: attachment.rect, blendMode: .normal, alpha: attachment.opacity)
@@ -237,27 +241,8 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
 
         // 3c. Block images (decorative images with blockRenderStyle, e.g. watermarks)
         for item in layout.blockRenderables[pageIndex] ?? [] {
-            if let blockImage = item.style.blockImage,
-               let image = blockImage.image {
-                let availableRect = item.rect
-                let contentWidth = max(1, availableRect.width - blockImage.paddingLeft - blockImage.paddingRight)
-                let drawWidth = min(blockImage.drawSize.width, contentWidth)
-                let drawHeight = blockImage.drawSize.height
-                let imgX: CGFloat
-                switch blockImage.alignment {
-                case .center:
-                    imgX = availableRect.minX + blockImage.paddingLeft + max(0, (contentWidth - drawWidth) / 2)
-                case .right:
-                    imgX = availableRect.minX + blockImage.paddingLeft + max(0, contentWidth - drawWidth)
-                default:
-                    imgX = availableRect.minX + blockImage.paddingLeft
-                }
-                let imgY = availableRect.minY + max(0, (availableRect.height - drawHeight) / 2)
-                image.draw(
-                    in: CGRect(x: imgX, y: imgY, width: drawWidth, height: drawHeight),
-                    blendMode: .normal,
-                    alpha: blockImage.opacity
-                )
+            if let attachment = item.imageAttachment {
+                attachment.image.draw(in: attachment.rect, blendMode: .normal, alpha: attachment.opacity)
             }
         }
 
@@ -670,15 +655,25 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
         guard gesture.state == .ended,
               let layout,
-              localPageIndex < layout.pageRanges.count,
-              let context = makeInteractionContext(),
-              let index = stringIndex(at: gesture.location(in: self), in: context)
+              localPageIndex < layout.pageRanges.count
         else {
             return
         }
 
         if selectionManager.hasSelection {
             clearSelection()
+            return
+        }
+
+        let point = gesture.location(in: self)
+        if let attachment = imageAttachment(at: point) {
+            onImageAttachmentTap?(attachment)
+            return
+        }
+
+        guard let context = makeInteractionContext(),
+              let index = stringIndex(at: point, in: context)
+        else {
             return
         }
 
@@ -803,6 +798,10 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             return true
         }
 
+        if imageAttachment(at: point) != nil {
+            return true
+        }
+
         guard let layout,
               localPageIndex < layout.pageRanges.count,
               let context = makeInteractionContext(),
@@ -817,6 +816,32 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             return false
         }
         return !href.isEmpty
+    }
+
+    private func imageAttachment(at point: CGPoint) -> CoreTextPaginator.RenderedAttachment? {
+        guard let layout,
+              localPageIndex < layout.pageRanges.count,
+              layout.renderSize.width > 0,
+              layout.renderSize.height > 0
+        else {
+            return nil
+        }
+
+        let scaleX = bounds.width / layout.renderSize.width
+        let scaleY = bounds.height / layout.renderSize.height
+        let attachments = (layout.inlineAttachments[localPageIndex] ?? [])
+            + (layout.blockAttachments[localPageIndex] ?? [])
+            + (layout.blockRenderables[localPageIndex] ?? []).compactMap(\.imageAttachment)
+
+        return attachments.first { attachment in
+            let rect = CGRect(
+                x: bounds.minX + attachment.rect.minX * scaleX,
+                y: bounds.minY + attachment.rect.minY * scaleY,
+                width: attachment.rect.width * scaleX,
+                height: attachment.rect.height * scaleY
+            )
+            return rect.insetBy(dx: -8, dy: -8).contains(point)
+        }
     }
 
     private func clearSelection() {
@@ -1108,16 +1133,6 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         return result
     }
 
-    private func extractBackgroundColor(from attrStr: NSAttributedString) -> UIColor {
-        guard attrStr.length > 0,
-              let color = attrStr.attribute(
-                  .backgroundColor,
-                  at: 0,
-                  effectiveRange: nil
-              ) as? UIColor
-        else { return .systemBackground }
-        return color
-    }
 }
 
 /// Single-page ViewController wrapping CoreTextPageView, for use with UIPageViewController.
@@ -1151,6 +1166,7 @@ final class CoreTextPageViewController: UIViewController {
         self.pendingFallbackColor = fallbackBackgroundColor
         if isViewLoaded {
             pageView.onInternalLinkTap = onInternalLinkTap
+            installImageTapHandler()
             pageView.configure(layout: layout, pageIndex: localPage, fallbackBackgroundColor: fallbackBackgroundColor)
             pageView.setTextAnnotations(pendingTextAnnotations)
             pageView.setPlaybackHighlight(text: pendingPlaybackHighlightText)
@@ -1177,6 +1193,7 @@ final class CoreTextPageViewController: UIViewController {
         pageView.frame = view.bounds
         pageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         pageView.onInternalLinkTap = onInternalLinkTap
+        installImageTapHandler()
         view.addSubview(pageView)
         if let layout = pendingLayout {
             pageView.configure(layout: layout, pageIndex: pendingLocalPage, fallbackBackgroundColor: pendingFallbackColor)
@@ -1185,9 +1202,141 @@ final class CoreTextPageViewController: UIViewController {
             pendingLayout = nil
         }
     }
+
+    private func installImageTapHandler() {
+        pageView.onImageAttachmentTap = { [weak self] attachment in
+            self?.presentImagePreview(for: attachment)
+        }
+    }
+
+    private func presentImagePreview(for attachment: CoreTextPaginator.RenderedAttachment) {
+        let controller = CoreTextImagePreviewController(attachment: attachment)
+        controller.modalPresentationStyle = .fullScreen
+        present(controller, animated: true)
+    }
 }
 
 extension CoreTextPageViewController: PageIndexProviding {}
+
+private final class CoreTextImagePreviewController: UIViewController, UIScrollViewDelegate {
+    private let attachment: CoreTextPaginator.RenderedAttachment
+    private let scrollView = UIScrollView()
+    private let imageView = UIImageView()
+
+    init(attachment: CoreTextPaginator.RenderedAttachment) {
+        self.attachment = attachment
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationCapturesStatusBarAppearance = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var prefersStatusBarHidden: Bool { true }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        scrollView.frame = view.bounds
+        scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        scrollView.delegate = self
+        scrollView.minimumZoomScale = 1
+        scrollView.maximumZoomScale = 5
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.showsHorizontalScrollIndicator = false
+        view.addSubview(scrollView)
+
+        imageView.image = attachment.image
+        imageView.contentMode = .scaleAspectFit
+        imageView.isAccessibilityElement = true
+        imageView.accessibilityLabel = attachment.alt ?? attachment.sourceHref ?? "Image"
+        scrollView.addSubview(imageView)
+
+        let closeButton = UIButton(type: .system)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
+        closeButton.tintColor = .white
+        closeButton.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+        closeButton.layer.cornerRadius = 18
+        closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
+        view.addSubview(closeButton)
+
+        NSLayoutConstraint.activate([
+            closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            closeButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            closeButton.widthAnchor.constraint(equalToConstant: 36),
+            closeButton.heightAnchor.constraint(equalToConstant: 36),
+        ])
+
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        scrollView.addGestureRecognizer(doubleTap)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        layoutImageView()
+    }
+
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+        imageView
+    }
+
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        centerImageView()
+    }
+
+    private func layoutImageView() {
+        let boundsSize = scrollView.bounds.size
+        guard boundsSize.width > 0, boundsSize.height > 0 else { return }
+        let imageSize = attachment.image.size
+        let scale = min(
+            boundsSize.width / max(imageSize.width, 1),
+            boundsSize.height / max(imageSize.height, 1)
+        )
+        let fittedSize = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+        imageView.frame = CGRect(origin: .zero, size: fittedSize)
+        scrollView.contentSize = fittedSize
+        centerImageView()
+    }
+
+    private func centerImageView() {
+        let boundsSize = scrollView.bounds.size
+        let frame = imageView.frame
+        let x = max((boundsSize.width - frame.width) / 2, 0)
+        let y = max((boundsSize.height - frame.height) / 2, 0)
+        imageView.center = CGPoint(
+            x: frame.width / 2 + x,
+            y: frame.height / 2 + y
+        )
+    }
+
+    @objc private func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
+        if scrollView.zoomScale > scrollView.minimumZoomScale {
+            scrollView.setZoomScale(scrollView.minimumZoomScale, animated: true)
+            return
+        }
+
+        let point = recognizer.location(in: imageView)
+        let zoomScale = min(scrollView.maximumZoomScale, 2.5)
+        let width = scrollView.bounds.width / zoomScale
+        let height = scrollView.bounds.height / zoomScale
+        let rect = CGRect(
+            x: point.x - width / 2,
+            y: point.y - height / 2,
+            width: width,
+            height: height
+        )
+        scrollView.zoom(to: rect, animated: true)
+    }
+
+    @objc private func close() {
+        dismiss(animated: true)
+    }
+}
 extension CoreTextPageViewController: CoreTextReadingPositionProviding {}
 
 /// Snapshot ViewController for cross-chapter page-turn animation handoff.
