@@ -211,16 +211,19 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         // Collect ranges that will be redrawn by drawBlockRenderableText so drawLines can skip them.
         let suppressedRanges = (layout.blockRenderables[pageIndex] ?? [])
             .flatMap { $0.attributedText != nil ? $0.sourceRanges : [] }
+        // ── Phase 2: text rendering ──────────────────────────────────────
+        // Vertical (vertical-rl): CTFrameDraw handles glyph rotation
+        // and right-to-left column progression automatically.
+        // Horizontal: line-by-line drawing with CJK justification,
+        // paragraph gap distribution, and HR divider lines.
         if layout.writingMode.isVertical {
-            CTFrameDraw(frame, ctx)
+            drawVerticalFrame(frame, in: ctx)
         } else {
-            drawLines(
-                of: frame,
-                contentWidth: contentPathRect.width,
-                contentMinX: contentPathRect.minX,
-                contentMinY: contentPathRect.minY,
+            drawHorizontalFrame(
+                frame,
+                contentPathRect: contentPathRect,
                 isLastPage: pageIndex == layout.pageRanges.count - 1,
-                attrStr: layout.attributedString,
+                attributedString: layout.attributedString,
                 suppressedRanges: suppressedRanges,
                 in: ctx
             )
@@ -275,204 +278,40 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     ///   - contentMinX: Left edge of the content area (CoreText coordinates), used for drawing HR line start points
     ///   - contentMinY: Bottom of the content area (CoreText coordinates), used for calculating last-page remaining space
     ///   - isLastPage: Whether this is the last page of the chapter; last pages do not apply vertical justification
-    nonisolated static func drawLines(
-        of frame: CTFrame,
-        contentWidth: CGFloat,
-        contentMinX: CGFloat,
-        contentMinY: CGFloat,
+    // MARK: - Phase 2a: Vertical text rendering
+
+    /// Draw a CTFrame in vertical-rl mode.
+    /// CoreText handles glyph rotation and RTL column progression internally.
+    private nonisolated static func drawVerticalFrame(_ frame: CTFrame, in ctx: CGContext) {
+        CTFrameDraw(frame, ctx)
+    }
+
+    // MARK: - Phase 2b: Horizontal text rendering
+
+    /// Draw a CTFrame in horizontal mode: line-by-line with CJK justification,
+    /// paragraph gap distribution, and HR divider lines.
+    private nonisolated static func drawHorizontalFrame(
+        _ frame: CTFrame,
+        contentPathRect: CGRect,
         isLastPage: Bool,
-        attrStr: NSAttributedString,
-        suppressedRanges: [NSRange] = [],
+        attributedString: NSAttributedString,
+        suppressedRanges: [NSRange],
         in ctx: CGContext
     ) {
-        let lines = CTFrameGetLines(frame) as! [CTLine]
-        guard !lines.isEmpty else { return }
-
-        var origins = [CGPoint](repeating: .zero, count: lines.count)
-        CTFrameGetLineOrigins(frame, CFRangeMake(0, lines.count), &origins)
-
-        let nsString = attrStr.string as NSString
-        let stringLength = attrStr.length
-
-        // Phase 5A: On non-last pages, distribute bottom remaining space evenly across paragraph gaps to fill the page top-to-bottom
-        var extraSpacePerGap: CGFloat = 0
-        var paragraphGapAfterLine: Set<Int> = []
-
-        if !isLastPage && lines.count > 1 {
-            for i in 0..<(lines.count - 1) {
-                let r = CTLineGetStringRange(lines[i])
-                let checkIdx = r.location + r.length
-                if checkIdx < stringLength {
-                    let ch = nsString.character(at: checkIdx)
-                    if ch == 0x000A || ch == 0x2028 || ch == 0x2029 {
-                        paragraphGapAfterLine.insert(i)
-                    }
-                }
-            }
-            if !paragraphGapAfterLine.isEmpty {
-                var lastDescent: CGFloat = 0
-                CTLineGetTypographicBounds(lines.last!, nil, &lastDescent, nil)
-                let lastBaseline = origins[lines.count - 1].y
-                let usedBottom = lastBaseline + lastDescent   // descent is negative
-                let extraSpace = usedBottom - contentMinY
-                if extraSpace > 2 {
-                    extraSpacePerGap = extraSpace / CGFloat(paragraphGapAfterLine.count)
-                }
-            }
-        }
-
-        var accumulatedShift: CGFloat = 0
-
-        accumulatedShift = 0
-        for (lineIdx, line) in lines.enumerated() {
-            // Accumulate paragraph gap compensation
-            if lineIdx > 0 && paragraphGapAfterLine.contains(lineIdx - 1) {
-                accumulatedShift -= extraSpacePerGap
-            }
-
-            var origin = origins[lineIdx]
-            origin.x += contentMinX
-            origin.y += (accumulatedShift + contentMinY)
-
-            let lineRange = CTLineGetStringRange(line)
-            let lineStart = lineRange.location
-            let lineEnd = lineRange.location + lineRange.length
-
-            // Skip lines that belong to explicit block renderables (drawn by drawBlockRenderableText).
-            // Without this, the same text is drawn twice: once by CTFrame and once by the explicit block.
-            if !suppressedRanges.isEmpty {
-                let lineNSRange = NSRange(location: lineStart, length: max(0, lineRange.length))
-                if suppressedRanges.contains(where: { NSIntersectionRange($0, lineNSRange).length > 0 }) {
-                    continue
-                }
-            }
-
-            // Phase 4: HR divider line
-            if lineRange.location < stringLength,
-               let hrValue = attrStr.attribute(
-                   HTMLAttributedStringBuilder.hrDividerAttribute,
-                   at: lineRange.location, effectiveRange: nil
-               ) {
-                let hr = hrValue as? HTMLAttributedStringBuilder.HRDividerStyle
-                let hrColor = hr?.color ?? UIColor.separator
-                let hrLineWidth = hr?.lineWidth ?? 0.5
-
-                // Compute available draw width respecting margins
-                let leftMargin = (hr?.marginLeft ?? 0) + (hr?.inheritedBlockMarginLeft ?? 0)
-                let rightMargin = hr?.marginRight ?? 0
-                let availableWidth = max(1, contentWidth - leftMargin - rightMargin)
-
-                // Rule width: explicit px, percentage of available width, or fill available
-                let ruleWidth: CGFloat
-                if let w = hr?.ruleWidth { ruleWidth = w }
-                else if let pct = hr?.ruleWidthPercent { ruleWidth = availableWidth * pct / 100.0 }
-                else { ruleWidth = availableWidth }
-
-                // Horizontal position respecting alignment
-                let alignment = hr?.alignment ?? .natural
-                let isCentered = hr?.isHorizontallyCentered ?? false
-                let startX: CGFloat
-                if isCentered || alignment == .center {
-                    startX = contentMinX + leftMargin + (availableWidth - ruleWidth) / 2
-                } else if alignment == .right {
-                    startX = contentMinX + leftMargin + (availableWidth - ruleWidth)
-                } else {
-                    startX = contentMinX + leftMargin
-                }
-
-                ctx.saveGState()
-                ctx.setStrokeColor(hrColor.cgColor)
-                ctx.setLineWidth(hrLineWidth)
-                ctx.move(to: CGPoint(x: startX, y: origin.y))
-                ctx.addLine(to: CGPoint(x: startX + ruleWidth, y: origin.y))
-                ctx.strokePath()
-                ctx.restoreGState()
-                continue
-            }
-
-            // Determine whether this is the last line of the paragraph (last lines should not be justified to avoid forced stretching)
-            let isParagraphLastLine: Bool
-            if lineEnd >= stringLength {
-                isParagraphLastLine = true
-            } else {
-                let nextCharCode = nsString.character(at: lineEnd)
-                // \n (0x000A) or Unicode line separator (0x2028)
-                isParagraphLastLine = nextCharCode == 0x000A || nextCharCode == 0x2028
-            }
-
-            // Get paragraph alignment
-            let isJustified: Bool
-            if lineRange.location < stringLength {
-                let paraStyle = attrStr.attribute(
-                    .paragraphStyle, at: lineRange.location, effectiveRange: nil
-                ) as? NSParagraphStyle
-                isJustified = paraStyle?.alignment == .justified
-            } else {
-                isJustified = false
-            }
-
-            origin.x = max(contentMinX, origin.x)
-            let maxRightX = contentMinX + contentWidth
-            let availableWidth = max(1, maxRightX - origin.x)
-
-            // For non-last justified lines: use CTLineCreateJustifiedLine for better CJK character spacing
-            let lineToDraw: CTLine
-            if isJustified && !isParagraphLastLine {
-                // CTFrame automatically justifies all non-last lines for .justified paragraphs,
-                // causing short lines to be over-stretched. Rebuild a natural CTLine from the original
-                // substring to get the true width, then decide whether to justify.
-                let lineNSRange = NSRange(location: lineStart, length: max(0, lineRange.length))
-                let substring = attrStr.attributedSubstring(from: lineNSRange)
-                let naturalLine = CTLineCreateWithAttributedString(substring)
-                let naturalWidth = CTLineGetTypographicBounds(naturalLine, nil, nil, nil)
-                let coverage = naturalWidth / Double(availableWidth)
-
-                if coverage < 0.7 {
-                    // Line is too short (< 70% of available width), skip justification to avoid excessive letter spacing
-                    lineToDraw = naturalLine
-                } else {
-                    let lineText = nsString.substring(with: lineNSRange)
-                    let shouldUseCJKJustify = Self.isCJKDominant(lineText) && coverage > 0.85
-
-                    if shouldUseCJKJustify {
-                        // Pure CJK character line: use CTLineCreateJustifiedLine for precise justification
-                        lineToDraw = CTLineCreateJustifiedLine(naturalLine, 1.0, Double(availableWidth)) ?? naturalLine
-                    } else {
-                        // English / Latin text or mixed: use natural line to avoid CTFrame's over-stretched spacing
-                        lineToDraw = naturalLine
-                    }
-                }
-            } else {
-                lineToDraw = line
-            }
-
-            ctx.textPosition = origin
-            CTLineDraw(lineToDraw, ctx)
-        }
+        CoreTextHorizontalLineDrawer.drawLines(
+            of: frame,
+            contentWidth: contentPathRect.width,
+            contentMinX: contentPathRect.minX,
+            contentMinY: contentPathRect.minY,
+            isLastPage: isLastPage,
+            attrStr: attributedString,
+            suppressedRanges: suppressedRanges,
+            hrDividerKey: HTMLAttributedStringBuilder.hrDividerAttribute,
+            in: ctx
+        )
     }
 
-    /// Returns true when the text is predominantly CJK (Chinese / Japanese / Korean),
-    /// meaning CJK codepoints outnumber Latin letters + digits.
-    private nonisolated static func isCJKDominant(_ text: String) -> Bool {
-        var cjk = 0
-        var latin = 0
-        for scalar in text.unicodeScalars {
-            switch scalar.value {
-            case 0x3400...0x4DBF,   // CJK Unified Ideographs Extension A
-                 0x4E00...0x9FFF,   // CJK Unified Ideographs
-                 0x3040...0x30FF,   // Hiragana + Katakana
-                 0xAC00...0xD7AF:   // Hangul Syllables
-                cjk += 1
-            case 0x0041...0x005A,   // A-Z
-                 0x0061...0x007A,   // a-z
-                 0x0030...0x0039:   // 0-9
-                latin += 1
-            default:
-                continue
-            }
-        }
-        return cjk > latin
-    }
+    // isCJKDominant moved to CoreTextHorizontalLineDrawer
 
     nonisolated static func drawBlockRenderables(
         _ renderables: [CoreTextPaginator.RenderedBlockRenderable],
@@ -890,6 +729,9 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         return startDistance <= endDistance ? .start : .end
     }
 
+    /// Text selection / tap / long-press are supported only in horizontal mode.
+    /// Vertical mode returns nil — CoreText's CTFrameDraw does not expose
+    /// per-line origins needed for hit-testing in vertical layout.
     private func makeInteractionContext() -> InteractionContext? {
         guard let layout,
               localPageIndex < layout.pageRanges.count,

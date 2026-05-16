@@ -196,6 +196,8 @@ struct ReaderView: View {
         book?.resolvedPipelineKind == .txt
     }
 
+    @State private var isVerticalEPUB = false
+
     private var usesCoreTextEPUB: Bool {
         epubRenderer.engine != nil
     }
@@ -1177,10 +1179,10 @@ struct ReaderView: View {
 
     private var effectiveWritingMode: ReaderWritingMode {
         guard !settings.scrollMode,
-              book?.allowsVerticalWritingMode == true else {
+              (isVerticalEPUB || book?.allowsVerticalWritingMode == true) else {
             return .horizontal
         }
-        return settings.readerWritingMode
+        return isVerticalEPUB ? .verticalRTL : settings.readerWritingMode
     }
 
     private var legacyScrollBody: some View {
@@ -2101,12 +2103,15 @@ struct ReaderView: View {
     }
 
     private func loadLocalEPUB(_ book: ReadingBook, marginH: CGFloat) {
-        let settings = currentRenderSettings(marginH: marginH)
         Task {
             do {
                 let session = try await EPUBBookService.shared.openSession(for: book, using: store)
                 await MainActor.run {
                     guard self.book?.id == book.id else { return }
+                    if session.epubWritingMode == .verticalRL {
+                        self.isVerticalEPUB = true
+                    }
+                    let settings = self.currentRenderSettings(marginH: marginH)
                     self.applyPublicationSession(session, book: book, settings: settings)
                 }
             } catch {

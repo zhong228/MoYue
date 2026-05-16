@@ -16,7 +16,7 @@ struct ContentView: View {
             }
 
             Tab(localized("RSS 訂閱"), systemImage: "newspaper") {
-                RSSRootView()
+                RSSListView()
             }
             
             Tab(localized("設定"), systemImage: "gearshape") {

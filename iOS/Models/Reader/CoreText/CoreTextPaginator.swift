@@ -240,7 +240,7 @@ final class CoreTextPaginator {
         contentInsets: UIEdgeInsets,
         writingMode: ReaderWritingMode
     ) -> ChapterLayout {
-        let attrStr = preparedAttributedString(attrStr, writingMode: writingMode)
+        let attrStr = preparedAttributedString(attrStr, writingMode: writingMode, fontSize: fontSize)
         let contentInsets = gridAlignedContentInsets(
             contentInsets,
             renderSize: renderSize,
@@ -348,6 +348,10 @@ final class CoreTextPaginator {
         )
     }
 
+    /// Returns CoreText frame attributes for the given writing mode.
+    /// Vertical (.verticalRTL): kCTFrameProgressionAttributeName = rightToLeft
+    ///   → CoreText lays out columns right-to-left, top-to-bottom.
+    /// Horizontal (.horizontal): no special attributes.
     static func frameAttributes(for writingMode: ReaderWritingMode) -> [String: Any] {
         switch writingMode {
         case .horizontal:
@@ -404,20 +408,87 @@ final class CoreTextPaginator {
         return CTFramesetterCreateFrame(framesetter, range, path, frameAttributes)
     }
 
+    /// Vertical mode: half-width→full-width punctuation, paragraph style for CJK vertical,
+    /// kCTVerticalFormsAttributeName = true globally with ASCII/latin exceptions so
+    /// English/URLs rotate 90° instead of stacking upright.
+    /// Horizontal mode: returns unchanged.
     private static func preparedAttributedString(
         _ attrStr: NSAttributedString,
-        writingMode: ReaderWritingMode
+        writingMode: ReaderWritingMode,
+        fontSize: CGFloat
     ) -> NSAttributedString {
         guard writingMode.isVertical, attrStr.length > 0 else { return attrStr }
         let mutable = NSMutableAttributedString(attributedString: attrStr)
-        mutable.addAttribute(
-            NSAttributedString.Key(kCTVerticalFormsAttributeName as String),
-            value: true,
-            range: NSRange(location: 0, length: mutable.length)
-        )
+        let fullRange = NSRange(location: 0, length: mutable.length)
+
+        // Step 1: Replace half-width brackets with full-width so CJK fonts
+        //         provide vertical glyph variants (︵ ︶ etc.) via kCTVerticalFormsAttributeName.
+        var text = mutable.string
+        text = replaceHalfWidthPunctuation(text)
+        if text != mutable.string {
+            mutable.mutableString.setString(text)
+        }
+
+        // Step 2: Ensure every range has a paragraph style with CJK-vertical defaults.
+        //         firstLineHeadIndent → top indent in vertical-rl (2em paragraph start).
+        mutable.enumerateAttribute(.paragraphStyle, in: fullRange, options: []) { value, range, _ in
+            if let existing = value as? NSParagraphStyle {
+                let updated = existing.mutableCopy() as! NSMutableParagraphStyle
+                if updated.firstLineHeadIndent < fontSize {
+                    updated.firstLineHeadIndent = fontSize * 2
+                }
+                if updated.paragraphSpacing <= 0 {
+                    updated.paragraphSpacing = fontSize * 0.8
+                }
+                if updated.lineSpacing <= 0 {
+                    updated.lineSpacing = fontSize * 0.3
+                }
+                mutable.addAttribute(.paragraphStyle, value: updated, range: range)
+            } else {
+                let style = NSMutableParagraphStyle()
+                style.firstLineHeadIndent = fontSize * 2
+                style.paragraphSpacing = fontSize * 0.8
+                style.lineSpacing = fontSize * 0.3
+                mutable.addAttribute(.paragraphStyle, value: style, range: range)
+            }
+        }
+
+        // Step 3: Apply vertical forms globally so CJK characters use upright glyphs.
+        let verticalFormsKey = NSAttributedString.Key(kCTVerticalFormsAttributeName as String)
+        mutable.addAttribute(verticalFormsKey, value: true, range: fullRange)
+
+        // Step 4: Remove vertical forms from ASCII / Latin / numeric ranges.
+        //         Without the attribute CoreText rotates these 90° clockwise (lying flat)
+        //         instead of stacking characters upright.
+        let latinPattern = "[a-zA-Z0-9\\s\\.\\,\\:\\;\\/\\\\\\-\\_@&\\#\\?\\!\\+\\=\\*\\^\\%\\$\\~\\`\\|\\<\\>\\{\\}'\"]+"
+        if let regex = try? NSRegularExpression(pattern: latinPattern, options: []) {
+            let matches = regex.matches(in: mutable.string, options: [], range: fullRange)
+            for match in matches {
+                mutable.removeAttribute(verticalFormsKey, range: match.range)
+            }
+        }
+
         return mutable
     }
 
+    /// Replaces half-width punctuation that lacks vertical-form glyphs with full-width equivalents.
+    /// All replacements are 1:1 at the UTF-16 level so attribute ranges are preserved.
+    private static func replaceHalfWidthPunctuation(_ text: String) -> String {
+        var result = text
+        result = result.replacingOccurrences(of: "(", with: "（")
+        result = result.replacingOccurrences(of: ")", with: "）")
+        result = result.replacingOccurrences(of: "[", with: "〔")
+        result = result.replacingOccurrences(of: "]", with: "〕")
+        result = result.replacingOccurrences(of: "<", with: "〈")
+        result = result.replacingOccurrences(of: ">", with: "〉")
+        result = result.replacingOccurrences(of: "{", with: "｛")
+        result = result.replacingOccurrences(of: "}", with: "｝")
+        return result
+    }
+
+    /// Horizontal mode: snaps bottom inset to integer line grid for clean page fill.
+    /// Vertical mode: returns contentInsets unchanged — column-based layout
+    ///   doesn't use line-grid alignment.
     private static func gridAlignedContentInsets(
         _ contentInsets: UIEdgeInsets,
         renderSize: CGSize,

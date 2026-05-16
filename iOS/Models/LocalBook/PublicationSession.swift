@@ -5,6 +5,12 @@ import ReadiumZIPFoundation
 import ReadiumShared
 import ReadiumStreamer
 
+enum EPUBWritingMode: String, Sendable {
+    case horizontal
+    case verticalRL
+    case unspecified
+}
+
 struct PublicationChapterDescriptor: Equatable {
     let index: Int
     let href: String
@@ -177,6 +183,7 @@ final class PublicationSession {
     let author: String
     let chapters: [PublicationChapterDescriptor]
     let tocEntries: [EPUBTocEntry]
+    let epubWritingMode: EPUBWritingMode
     /// Pre-scanned chapter byte sizes loaded from SpinesCache. nil = not yet available.
     let cachedChapterByteSizes: [Int]?
     private let obfuscationIdentifier: String?
@@ -193,6 +200,7 @@ final class PublicationSession {
         author: String,
         chapters: [PublicationChapterDescriptor],
         tocEntries: [EPUBTocEntry],
+        epubWritingMode: EPUBWritingMode,
         cachedChapterByteSizes: [Int]?,
         obfuscationIdentifier: String?,
         encryptionAlgorithmsByHref: [String: String],
@@ -205,6 +213,7 @@ final class PublicationSession {
         self.author = author
         self.chapters = chapters
         self.tocEntries = tocEntries
+        self.epubWritingMode = epubWritingMode
         self.cachedChapterByteSizes = cachedChapterByteSizes
         self.obfuscationIdentifier = obfuscationIdentifier
         self.encryptionAlgorithmsByHref = encryptionAlgorithmsByHref
@@ -231,6 +240,7 @@ final class PublicationSession {
         }
 
         let publication = try await openPublication(sourceURL: sourceURL)
+        let epubWritingMode = await parseOPFWritingMode(from: sourceURL)
         let tocEntries = flattenTableOfContents(publication.manifest.tableOfContents)
 
         let cacheURL = getCacheURL(for: sourceURL)
@@ -341,6 +351,7 @@ final class PublicationSession {
             author: finalAuthor,
             chapters: chapters,
             tocEntries: tocEntries,
+            epubWritingMode: epubWritingMode,
             cachedChapterByteSizes: cachedByteSizes,
             obfuscationIdentifier: obfuscationIdentifier,
             encryptionAlgorithmsByHref: encryptionAlgorithmsByHref,
@@ -735,6 +746,30 @@ final class PublicationSession {
             }
         }
         return (identifier, algorithmsByHref)
+    }
+
+    private static func parseOPFWritingMode(from sourceURL: URL) async -> EPUBWritingMode {
+        guard let archive = try? await Archive(url: sourceURL, accessMode: .read) else { return .unspecified }
+        guard
+            let containerXML = await readArchiveEntry("META-INF/container.xml", archive: archive),
+            let opfPath = firstMatch(in: containerXML, pattern: #"full-path\s*=\s*"([^"]+)""#),
+            let opfXML = await readArchiveEntry(opfPath, archive: archive)
+        else { return .unspecified }
+
+        // <meta name="primary-writing-mode" content="vertical-rl"/>
+        if let wm = firstMatch(in: opfXML, pattern: #"<meta[^>]*name\s*=\s*"primary-writing-mode"[^>]*content\s*=\s*"([^"]+)"[^>]*>"#)?.lowercased() {
+            if wm.contains("vertical") { return .verticalRL }
+            if wm.contains("horizontal") { return .horizontal }
+        }
+        // EPUB3 rendition:flow
+        if let flow = firstMatch(in: opfXML, pattern: #"<meta[^>]*property\s*=\s*"rendition:flow"[^>]*>"#) {
+            if flow.lowercased().contains("scrolled-doc") || flow.lowercased().contains("pre-paginated") { return .horizontal }
+        }
+        // spine page-progression-direction="rtl" → vertical
+        if let ppd = firstMatch(in: opfXML, pattern: #"<spine[^>]*page-progression-direction\s*=\s*"([^"]+)"[^>]*>"#)?.lowercased(), ppd == "rtl" {
+            return .verticalRL
+        }
+        return .unspecified
     }
 
     private static func readArchiveEntry(_ path: String, archive: Archive) async -> String? {

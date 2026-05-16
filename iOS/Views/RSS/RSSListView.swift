@@ -38,8 +38,9 @@ struct RSSListView: View {
     }
 
     var body: some View {
-        List {
-            if !trimmedSearchText.isEmpty {
+        NavigationStack {
+            List {
+                if !trimmedSearchText.isEmpty {
                 Section(localized("搜尋結果")) {
                     if searchResults.isEmpty {
                         ContentUnavailableView(
@@ -81,9 +82,7 @@ struct RSSListView: View {
                     } label: {
                         RSSSourceRow(
                             source: source,
-                            unreadCount: store.unreadCount(for: source.id),
-                            lastFetchedAt: store.lastFetchedAt(for: source.id),
-                            dateFormatter: dateFormatter
+                            unreadCount: store.unreadCount(for: source.id)
                         )
                     }
                     .buttonStyle(.plain)
@@ -91,15 +90,14 @@ struct RSSListView: View {
                     NavigationLink(destination: RSSFeedView(source: source)) {
                         RSSSourceRow(
                             source: source,
-                            unreadCount: store.unreadCount(for: source.id),
-                            lastFetchedAt: store.lastFetchedAt(for: source.id),
-                            dateFormatter: dateFormatter
+                            unreadCount: store.unreadCount(for: source.id)
                         )
                     }
                 }
             }
             .onDelete(perform: deleteSources)
         }
+        .listStyle(.insetGrouped)
         .navigationTitle(localized("RSS 訂閱"))
         .searchable(text: $searchText, prompt: localized("搜尋 RSS"))
         .toolbar {
@@ -194,6 +192,7 @@ struct RSSListView: View {
         .task {
             await backfillMissingSourceMetadata()
         }
+        }
     }
 
     private func deleteSources(at offsets: IndexSet) {
@@ -277,16 +276,16 @@ private struct RSSSearchResultRow: View {
     let dateFormatter: DateFormatter
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 8) {
             if let source {
-                RSSFaviconView(source: source, size: 26)
+                RSSFaviconView(source: source, size: 24)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(article.title)
-                    .font(.headline)
+                    .font(.body)
                     .fontWeight(article.isRead ? .regular : .semibold)
-                    .foregroundColor(DSColor.textPrimary)
+                    .foregroundColor(.primary)
                     .multilineTextAlignment(.leading)
 
                 HStack(spacing: 8) {
@@ -298,12 +297,12 @@ private struct RSSSearchResultRow: View {
                     }
                 }
                 .font(.caption)
-                .foregroundColor(DSColor.textSecondary)
+                .foregroundColor(.secondary)
 
                 if !article.summary.isEmpty {
                     Text(article.summary)
                         .font(.subheadline)
-                        .foregroundColor(DSColor.textSecondary)
+                        .foregroundColor(.secondary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                 }
@@ -316,47 +315,25 @@ private struct RSSSearchResultRow: View {
 private struct RSSSourceRow: View {
     let source: RSSSource
     let unreadCount: Int
-    let lastFetchedAt: Date?
-    let dateFormatter: DateFormatter
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            RSSFaviconView(source: source, size: 30)
+        HStack(spacing: 8) {
+            RSSFaviconView(source: source, size: 24)
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text(source.name)
-                        .font(.headline)
-                        .foregroundColor(DSColor.textPrimary)
+            Text(source.name)
+                .font(.body)
+                .foregroundColor(.primary)
+                .lineLimit(2)
 
-                    if unreadCount > 0 {
-                        Text("\(unreadCount) \(localized("未讀"))")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(DSColor.accent, in: Capsule())
-                    }
-                }
+            Spacer()
 
-                Text(source.url)
-                    .font(.caption)
-                    .foregroundColor(DSColor.textSecondary)
-                    .lineLimit(1)
-
-                Text(lastFetchedText)
-                    .font(.caption2)
-                    .foregroundColor(DSColor.textSecondary)
+            if unreadCount > 0 {
+                Text("\(unreadCount)")
+                    .font(.body)
+                    .foregroundColor(.secondary)
             }
         }
-        .padding(.vertical, 4)
-    }
-
-    private var lastFetchedText: String {
-        guard let lastFetchedAt else {
-            return localized("尚未更新")
-        }
-        return "\(localized("最後更新")) \(dateFormatter.string(from: lastFetchedAt))"
+        .padding(.vertical, 9)
     }
 }
 
@@ -518,7 +495,5 @@ private struct AddRSSSourceSheet: View {
 }
 
 #Preview {
-    NavigationStack {
-        RSSListView()
-    }
+    RSSListView()
 }
