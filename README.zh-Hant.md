@@ -24,11 +24,9 @@
 > - 目錄導覽
 > - 閱讀設定 / 主題
 
-<p align="center">
-  <img src="docs/screenshots/cjk-vertical.png" width="220" alt="CJK vertical writing">
-  <img src="docs/screenshots/english-epub.png" width="220" alt="English EPUB typography">
-  <img src="docs/screenshots/toc.png" width="220" alt="Table of contents">
-</p>
+| 中文直排與行內批註 | 英文 EPUB 排版 | 目錄導覽 |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/cjk-vertical.png" width="220" alt="CJK vertical writing"> | <img src="docs/screenshots/english-epub.png" width="220" alt="English EPUB typography"> | <img src="docs/screenshots/toc.png" width="220" alt="Table of contents"> |
 
 ## 渲染亮點
 
@@ -89,6 +87,14 @@ open Yuedu-Reader.xcodeproj
 ```
 
 選擇 `Yuedu-Reader` scheme，建置至 iOS 模擬器或實機。
+
+> [!NOTE]
+> **背景播放設定指南 (TTS)**
+> 若要在實機上正常運作背景 TTS 聽書功能，請確保開啟了音訊權限：
+> 1. 在 Xcode 中選取專案根目錄。
+> 2. 選擇 **Signing & Capabilities** 標籤頁。
+> 3. 點擊 **+ Capability** 並新增 **Background Modes**。
+> 4. 勾選 **Audio, AirPlay, and Picture in Picture**。
 
 ```bash
 ./scripts/build.sh
@@ -176,3 +182,4 @@ xcconfig/                 # 共用 Xcode 組態
 MIT。詳見 [LICENSE](LICENSE)。
 
 本專案連結 [Readium](https://github.com/readium) 元件，採用 BSD 授權。Readium 名稱及標誌為 Readium Foundation 商標。
+。Readium 名稱及標誌為 Readium Foundation 商標。

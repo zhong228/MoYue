@@ -24,11 +24,9 @@ Yuedu Reader, named `閱讀` in Traditional Chinese and `阅读` in Simplified C
 > - Table of contents
 > - Reader settings / themes
 
-<p align="center">
-  <img src="docs/screenshots/cjk-vertical.png" width="220" alt="CJK vertical writing">
-  <img src="docs/screenshots/english-epub.png" width="220" alt="English EPUB typography">
-  <img src="docs/screenshots/toc.png" width="220" alt="Table of contents">
-</p>
+| CJK Vertical Writing | English EPUB Typography | Table of Contents |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/cjk-vertical.png" width="220" alt="CJK vertical writing"> | <img src="docs/screenshots/english-epub.png" width="220" alt="English EPUB typography"> | <img src="docs/screenshots/toc.png" width="220" alt="Table of contents"> |
 
 ## Rendering Highlights
 
@@ -89,6 +87,14 @@ open Yuedu-Reader.xcodeproj
 ```
 
 Select the `Yuedu-Reader` scheme and build for an iOS simulator or device.
+
+> [!NOTE]
+> **Background Audio Setup (TTS)**
+> To enable background TTS playback on a physical device, ensure you have enabled the required capabilities:
+> 1. Select the project root in Xcode.
+> 2. Go to the **Signing & Capabilities** tab.
+> 3. Click **+ Capability** and add **Background Modes**.
+> 4. Check **Audio, AirPlay, and Picture in Picture**.
 
 You can also run the app-target build script:
 
@@ -178,3 +184,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution conventions.
 MIT. See [LICENSE](LICENSE).
 
 This project links against [Readium](https://github.com/readium) components, which are BSD-licensed. The Readium name and logo are trademarks of the Readium Foundation.
+dium name and logo are trademarks of the Readium Foundation.
