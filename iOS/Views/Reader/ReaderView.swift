@@ -2698,13 +2698,12 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         }
         pvc.delegate = context.coordinator
 
-        // RTL books: reverse swipe direction so left-to-right swipe = next page.
-        if isRTL {
-            pvc.view.semanticContentAttribute = .forceRightToLeft
-            for subview in pvc.view.subviews {
-                guard let scrollView = subview as? UIScrollView else { continue }
-                scrollView.semanticContentAttribute = .forceRightToLeft
-            }
+        // Handle swipe directions for RTL vs LTR using semantic content attribute
+        let semanticAttribute: UISemanticContentAttribute = isRTL ? .forceRightToLeft : .forceLeftToRight
+        pvc.view.semanticContentAttribute = semanticAttribute
+        for subview in pvc.view.subviews {
+            guard let scrollView = subview as? UIScrollView else { continue }
+            scrollView.semanticContentAttribute = semanticAttribute
         }
 
         // Prefer SwiftUI binding's currentPage to avoid jumping back to old coordinates when switching page styles.
@@ -2773,10 +2772,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             }
             var direction: UIPageViewController.NavigationDirection =
                 clampedPage >= visible.globalPageIndex ? .forward : .reverse
-            // RTL books have swapped data source methods; navigation direction must match.
-            if isRTL {
-                direction = direction == .forward ? .reverse : .forward
-            }
+            // Direction is naturally handled by the semantic content attribute.
 
             // Suppress flag from makeUIViewController: force instant transition on first alignment.
             if context.coordinator.suppressNextTransition {
@@ -2976,7 +2972,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             } else {
                 direction = .forward
             }
-            if isRTL { direction = direction == .forward ? .reverse : .forward }
+            // Direction is naturally handled by the semantic content attribute.
 
             pageViewController.setViewControllers([freshVC], direction: direction, animated: false)
             applyPlaybackHighlight(to: freshVC)
@@ -3000,7 +2996,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             guard let queuedPage = transitionQueue.transitionFinished(showing: visiblePage) else { return }
             var direction: UIPageViewController.NavigationDirection =
                 queuedPage >= visiblePage ? .forward : .reverse
-            if isRTL { direction = direction == .forward ? .reverse : .forward }
+            // Direction is naturally handled by the semantic content attribute.
             let shouldAnimate = (pageTurnStyle != .none) && abs(queuedPage - visiblePage) == 1
             performProgrammaticTransition(
                 on: pageViewController,
