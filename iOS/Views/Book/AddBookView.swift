@@ -138,7 +138,7 @@ struct FileImportTab: View {
                                     }
                                     if let epubURL = epubURLForImport {
                                         try Task.checkCancellation()
-                                        _ = try await store.importEpub(url: epubURL, title: t)
+                                        _ = try await store.importEpub(url: epubURL, title: t, author: a)
                                         try Task.checkCancellation()
                                         try? FileManager.default.removeItem(at: epubURL)
                                     } else if let markdownURL = markdownURLForImport {
@@ -340,46 +340,69 @@ struct FileImportTab: View {
 
     // MARK: - EPUB Import
     private func importEPUB(url: URL, sessionID: UUID) {
-        let startUptime = ProcessInfo.processInfo.systemUptime
-        importTrace("importEPUB stage=begin session=\(sessionID) file=\(url.lastPathComponent)")
-        let ok = url.startAccessingSecurityScopedResource()
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString + ".epub")
-        do {
-            try FileManager.default.copyItem(at: url, to: tempURL)
-        } catch {
-            if ok { url.stopAccessingSecurityScopedResource() }
-            importTrace(
-                "importEPUB stage=copyFailed session=\(sessionID) error=\(error.localizedDescription)"
-            )
-            DispatchQueue.main.async {
-                isLoading = false
-                errorMsg = "無法複製 EPUB 檔案：\(error.localizedDescription)"
+        parseTask = Task(priority: .userInitiated) {
+            let startUptime = ProcessInfo.processInfo.systemUptime
+            await MainActor.run {
+                importTrace("importEPUB stage=begin session=\(sessionID) file=\(url.lastPathComponent)")
             }
-            return
-        }
-        if ok { url.stopAccessingSecurityScopedResource() }
+            let ok = url.startAccessingSecurityScopedResource()
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString + ".epub")
+            do {
+                try FileManager.default.copyItem(at: url, to: tempURL)
+            } catch {
+                if ok { url.stopAccessingSecurityScopedResource() }
+                await MainActor.run {
+                    importTrace(
+                        "importEPUB stage=copyFailed session=\(sessionID) error=\(error.localizedDescription)"
+                    )
+                    isLoading = false
+                    errorMsg = "無法複製 EPUB 檔案：\(error.localizedDescription)"
+                }
+                return
+            }
+            if ok { url.stopAccessingSecurityScopedResource() }
 
-        guard AddBookImportGuard.shouldApplyResult(
-            activeSessionID: activeSessionID,
-            resultSessionID: sessionID,
-            isCancelled: false
-        ) else {
-            importTrace("importEPUB stage=staleDiscarded session=\(sessionID)")
-            try? FileManager.default.removeItem(at: tempURL)
-            return
-        }
+            // Extract metadata if possible
+            var extractedTitle = url.deletingPathExtension().lastPathComponent
+            var extractedAuthor = "未知作者"
+            if let session = try? await PublicationSession.open(sourceURL: tempURL) {
+                if !session.bookTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    extractedTitle = session.bookTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                if !session.author.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    extractedAuthor = session.author.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
 
-        isLoading = false
-        // Placeholder string to trigger the confirmation card UI
-        pendingContent = "EPUB_READY"
-        titleInput = url.deletingPathExtension().lastPathComponent
-        authorInput = "未知作者"
-        // Store the temp path; actual import happens when "Add to Shelf" is tapped
-        pendingEpubURL = tempURL
-        importTrace(
-            "importEPUB stage=prepared session=\(sessionID) elapsedMs=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - startUptime) * 1000)) tempFile=\(tempURL.lastPathComponent)"
-        )
+            if Task.isCancelled {
+                try? FileManager.default.removeItem(at: tempURL)
+                return
+            }
+
+            await MainActor.run {
+                guard AddBookImportGuard.shouldApplyResult(
+                    activeSessionID: activeSessionID,
+                    resultSessionID: sessionID,
+                    isCancelled: Task.isCancelled
+                ) else {
+                    importTrace("importEPUB stage=staleDiscarded session=\(sessionID)")
+                    try? FileManager.default.removeItem(at: tempURL)
+                    return
+                }
+
+                isLoading = false
+                // Placeholder string to trigger the confirmation card UI
+                pendingContent = "EPUB_READY"
+                titleInput = extractedTitle
+                authorInput = extractedAuthor == "未知作者" ? "" : extractedAuthor
+                // Store the temp path; actual import happens when "Add to Shelf" is tapped
+                pendingEpubURL = tempURL
+                importTrace(
+                    "importEPUB stage=prepared session=\(sessionID) elapsedMs=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - startUptime) * 1000)) tempFile=\(tempURL.lastPathComponent)"
+                )
+            }
+        }
     }
 
     private func nextSessionID() -> UUID {

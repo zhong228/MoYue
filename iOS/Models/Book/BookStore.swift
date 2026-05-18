@@ -263,7 +263,7 @@ class BookStore: ObservableObject, BookProvider {
     // MARK: Import EPUB File
 
     @discardableResult
-    func importEpub(url: URL, title: String? = nil) async throws -> ReadingBook {
+    func importEpub(url: URL, title: String? = nil, author: String? = nil) async throws -> ReadingBook {
         let importStartUptime = ProcessInfo.processInfo.systemUptime
         func importTrace(_ message: String) {
             let line = "[ImportTrace][BookStore.importEpub] \(message)"
