@@ -39,21 +39,61 @@
   </tr>
 </table>
 
-## Why CoreText rendering is hard
+## Why CoreText rendering is different
 
-Most iOS reading apps delegate layout to WebKit. This works well enough for simple EPUB files, but it means the app cannot directly control pagination, reading position, CJK-specific behavior, or how themes and font settings interact with publisher CSS.
-
-Yuedu Reader uses CoreText as the primary rendering surface. This is harder to build in several concrete ways:
-
-**CSS resolution by hand.** Publisher stylesheets cannot be passed to a layout engine — every property (`text-indent`, `font-size`, `:first-letter`, nested block margins, `@font-face`, `@import`) must be parsed, resolved into a cascade, and translated into `NSAttributedString` attributes. Shorthand properties, percentage-based values, and inherited properties all require explicit handling.
-
-**Two rendering paths that must stay in sync.** The renderer has a legacy path (`HTMLAttributedStringBuilder`) and a newer renderable-node path (`HTMLStyledASTRenderableNodeConverter → NodeAttributedStringRenderer`). Both produce CoreText attributed strings from the same CSS resolution layer. Any CSS property change must be reflected in both paths.
-
-**CJK vertical writing.** CoreText reuses its horizontal API in vertical mode, but the axis meanings change. `CTLineGetOffsetForStringIndex` becomes inline advance from column top, not x advance. `ascent` and `descent` become block-direction extents. Latin runs inside vertical CJK text must be selectively de-verticalized and re-centered on the column axis — otherwise strings like `BookDNA` or `PDF` sit off-center relative to surrounding CJK glyphs.
-
-**Inline annotations in vertical mode.** Books like the 脂評 edition of 紅樓夢 contain dense inline commentary — small-font notes interleaved with the main text across every column. CoreText cannot place these automatically in vertical layout. The paginator reserves column-width placeholder runs; `CoreTextPageView` draws the annotation content manually after the CTFrame is rendered. Long annotations must be split across pages rather than becoming a single unbreakable run.
-
-**Durable reading position.** Page numbers are transient — they shift when the user changes font size, rotates the device, or a chapter finishes loading. Reading position is stored as `(spineIndex, charOffset)` into the content, so progress survives any layout change.
+<table width="100%">
+  <tr style="border: none;">
+    <td width="50" style="border: none; vertical-align: top;">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Star icon"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+    </td>
+    <td style="border: none; vertical-align: top;">
+      <strong>Spec-first fidelity</strong><br>
+      Faithfully implements EPUB & CSS specs for consistent, predictable rendering.
+      <ul>
+        <li><strong>CSS resolution by hand</strong>: Publisher stylesheets are parsed and resolved into a custom cascade, translating properties like <code>text-indent</code>, <code>font-size</code>, and <code>:first-letter</code> into <code>NSAttributedString</code> attributes.</li>
+        <li><strong>Precise resolution</strong>: Handles shorthand properties, percentage-based values, and inherited properties without relying on a system layout engine.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr style="border: none;">
+    <td width="50" style="border: none; vertical-align: top;">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Layout icon"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+    </td>
+    <td style="border: none; vertical-align: top;">
+      <strong>Advanced layout</strong><br>
+      Vertical writing, ruby, footnotes, annotations, drop caps, and nested margins.
+      <ul>
+        <li><strong>CJK vertical writing</strong>: Axis-aware rendering that handles inline advance from column top and block-direction extents. Latin runs are selectively de-verticalized and re-centered.</li>
+        <li><strong>Inline annotations</strong>: Supports dense vertical commentary (e.g., 脂評 edition) by reserving column-width placeholder runs and drawing annotations manually, splitting long runs across pages.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr style="border: none;">
+    <td width="50" style="border: none; vertical-align: top;">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Navigation icon"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+    </td>
+    <td style="border: none; vertical-align: top;">
+      <strong>Smart navigation</strong><br>
+      Uses <code>toc.ncx</code> and <code>nav.xhtml</code> when available for accurate TOC and locations.
+      <ul>
+        <li><strong>Durable reading position</strong>: Progress is stored as <code>(spineIndex, charOffset)</code>, ensuring the position survives font size changes, device rotation, or chapter loading.</li>
+        <li><strong>TOC Prioritization</strong>: Prioritizes explicit navigation manifests over spine-based guessing, deduplicating fallback titles automatically.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr style="border: none;">
+    <td width="50" style="border: none; vertical-align: top;">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ea580c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Design icon"><circle cx="12" cy="12" r="10"></circle><path d="M12 16a4 4 0 0 0 0-8"></path><line x1="12" y1="2" x2="12" y2="4"></line><line x1="12" y1="20" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="6.34" y2="6.34"></line><line x1="17.66" y1="17.66" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="4" y2="12"></line><line x1="20" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="6.34" y2="17.66"></line><line x1="17.66" y1="4.93" x2="19.07" y2="6.34"></line></svg>
+    </td>
+    <td style="border: none; vertical-align: top;">
+      <strong>Beautiful by default</strong><br>
+      Carefully tuned typography, spacing, and theming for an elegant reading experience.
+      <ul>
+        <li><strong>Native fidelity</strong>: Zero WebView dependency for the main reader, enabling absolute control over line-height, letter spacing, and paragraph margins.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
 
 ## Technical Highlights
 
