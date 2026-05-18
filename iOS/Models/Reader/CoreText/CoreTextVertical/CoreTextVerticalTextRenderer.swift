@@ -8,8 +8,8 @@ import CoreText
 /// and kCTVerticalFormsAttributeName = true are set.
 /// We simply call CTFrameDraw — CoreText does the rest.
 ///
-/// Text selection, tap, and long-press are not supported in vertical mode.
-/// CoreTextPageView.makeInteractionContext() returns nil for isVertical.
+/// Interaction geometry for vertical pages lives in CoreTextPageView; this
+/// renderer only draws the CTFrame.
 enum CoreTextVerticalTextRenderer {
 
     /// Draw a CTFrame configured for vertical-rl text.

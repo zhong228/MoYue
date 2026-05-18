@@ -21,6 +21,10 @@ final class InteractionOverlayView: UIView {
         didSet { setNeedsDisplay() }
     }
 
+    var drawsVerticalUnderlines: Bool = false {
+        didSet { setNeedsDisplay() }
+    }
+
     var selectionRects: [CGRect] = [] {
         didSet { setNeedsDisplay() }
     }
@@ -56,10 +60,17 @@ final class InteractionOverlayView: UIView {
             ctx.setStrokeColor(underlineColor.cgColor)
             ctx.setLineCap(.round)
             for rect in underlineRects {
-                let y = max(rect.minY, rect.maxY - 2)
-                ctx.setLineWidth(max(2, min(4, rect.height * 0.08)))
-                ctx.move(to: CGPoint(x: rect.minX, y: y))
-                ctx.addLine(to: CGPoint(x: rect.maxX, y: y))
+                if drawsVerticalUnderlines {
+                    let x = max(rect.minX, rect.maxX - 2)
+                    ctx.setLineWidth(max(2, min(4, rect.width * 0.12)))
+                    ctx.move(to: CGPoint(x: x, y: rect.minY))
+                    ctx.addLine(to: CGPoint(x: x, y: rect.maxY))
+                } else {
+                    let y = max(rect.minY, rect.maxY - 2)
+                    ctx.setLineWidth(max(2, min(4, rect.height * 0.08)))
+                    ctx.move(to: CGPoint(x: rect.minX, y: y))
+                    ctx.addLine(to: CGPoint(x: rect.maxX, y: y))
+                }
                 ctx.strokePath()
             }
         }

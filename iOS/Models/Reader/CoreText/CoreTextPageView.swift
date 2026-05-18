@@ -12,6 +12,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         let layoutSize: CGSize
         let scaleX: CGFloat
         let scaleY: CGFloat
+        let writingMode: ReaderWritingMode
     }
 
     private var layout: CoreTextPaginator.ChapterLayout?
@@ -985,13 +986,9 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         return startDistance <= endDistance ? .start : .end
     }
 
-    /// Text selection / tap / long-press are supported only in horizontal mode.
-    /// Vertical mode returns nil — CoreText's CTFrameDraw does not expose
-    /// per-line origins needed for hit-testing in vertical layout.
     private func makeInteractionContext() -> InteractionContext? {
         guard let layout,
               localPageIndex < layout.pageRanges.count,
-              !layout.writingMode.isVertical,
               bounds.width > 0,
               bounds.height > 0
         else {
@@ -1027,7 +1024,8 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             contentPathRect: contentPathRect,
             layoutSize: layoutSize,
             scaleX: bounds.width / layoutSize.width,
-            scaleY: bounds.height / layoutSize.height
+            scaleY: bounds.height / layoutSize.height,
+            writingMode: layout.writingMode
         )
     }
 
@@ -1036,6 +1034,9 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             x: (point.x - bounds.minX) / context.scaleX,
             y: (point.y - bounds.minY) / context.scaleY
         )
+        if context.writingMode.isVertical {
+            return verticalStringIndex(atCanonicalPoint: canonical, in: context)
+        }
         let coreY = context.layoutSize.height - canonical.y
         guard let lineIdx = nearestLineIndex(for: coreY, in: context) else { return nil }
 
@@ -1068,6 +1069,50 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         let range = CTLineGetStringRange(line)
         guard range.length > 0 else { return nil }
         if relativeX <= 0 {
+            return max(0, range.location)
+        }
+        return max(0, range.location + range.length - 1)
+    }
+
+    private func verticalStringIndex(atCanonicalPoint point: CGPoint, in context: InteractionContext) -> Int? {
+        guard let lineIdx = nearestVerticalLineIndex(forCanonicalX: point.x, in: context) else { return nil }
+        let line = context.lines[lineIdx]
+        let lineOrigin = context.origins[lineIdx]
+
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        let lineAdvance = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, nil))
+        let baselineX = context.contentPathRect.minX + lineOrigin.x
+        let x1 = baselineX - descent
+        let x2 = baselineX + ascent
+        let minX = min(x1, x2)
+        let maxX = max(x1, x2)
+        let tapTolerance: CGFloat = 10
+        guard point.x >= minX - tapTolerance,
+              point.x <= maxX + tapTolerance
+        else {
+            return nil
+        }
+
+        let lineTopY = context.layoutSize.height - (context.contentPathRect.minY + lineOrigin.y)
+        let relativeAdvance = point.y - lineTopY
+        guard relativeAdvance >= -tapTolerance,
+              relativeAdvance <= lineAdvance + tapTolerance
+        else {
+            return nil
+        }
+
+        let index = CTLineGetStringIndexForPosition(
+            line,
+            CGPoint(x: max(0, min(lineAdvance, relativeAdvance)), y: 0)
+        )
+        if index != kCFNotFound {
+            return max(0, index)
+        }
+
+        let range = CTLineGetStringRange(line)
+        guard range.length > 0 else { return nil }
+        if relativeAdvance <= 0 {
             return max(0, range.location)
         }
         return max(0, range.location + range.length - 1)
@@ -1108,6 +1153,39 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         return bestIndex
     }
 
+    private func nearestVerticalLineIndex(forCanonicalX x: CGFloat, in context: InteractionContext) -> Int? {
+        guard !context.lines.isEmpty else { return nil }
+
+        var bestIndex: Int?
+        var bestDistance = CGFloat.greatestFiniteMagnitude
+        let tapTolerance: CGFloat = 10
+
+        for idx in context.lines.indices {
+            let line = context.lines[idx]
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            _ = CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+            let baselineX = context.contentPathRect.minX + context.origins[idx].x
+            let x1 = baselineX - descent
+            let x2 = baselineX + ascent
+            let minX = min(x1, x2)
+            let maxX = max(x1, x2)
+
+            if x >= minX && x <= maxX {
+                return idx
+            }
+
+            let distance = x < minX ? minX - x : x - maxX
+            if distance < bestDistance {
+                bestDistance = distance
+                bestIndex = idx
+            }
+        }
+
+        guard bestDistance <= tapTolerance else { return nil }
+        return bestIndex
+    }
+
     private func updateSelectionOverlay(with context: InteractionContext) {
         guard let range = selectionManager.selectedRange,
               range.length > 0
@@ -1140,6 +1218,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
                 return selectionRects(for: intersection, in: context)
             }
         annotationOverlay.selectionRects = []
+        annotationOverlay.drawsVerticalUnderlines = layout.writingMode.isVertical
         annotationOverlay.underlineRects = rects
         annotationOverlay.startHandlePoint = nil
         annotationOverlay.endHandlePoint = nil
@@ -1184,6 +1263,10 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     }
 
     private func selectionRects(for range: NSRange, in context: InteractionContext) -> [CGRect] {
+        if context.writingMode.isVertical {
+            return verticalSelectionRects(for: range, in: context)
+        }
+
         var result: [CGRect] = []
 
         for idx in context.lines.indices {
@@ -1229,6 +1312,66 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
 
         return result
     }
+
+    private func verticalSelectionRects(for range: NSRange, in context: InteractionContext) -> [CGRect] {
+        var result: [CGRect] = []
+
+        for idx in context.lines.indices {
+            let line = context.lines[idx]
+            let lineRange = CTLineGetStringRange(line)
+            guard lineRange.length > 0 else { continue }
+
+            let lineNSRange = NSRange(location: lineRange.location, length: lineRange.length)
+            let intersection = NSIntersectionRange(lineNSRange, range)
+            guard intersection.length > 0 else { continue }
+
+            let startOffset = CGFloat(CTLineGetOffsetForStringIndex(line, intersection.location, nil))
+            let endOffset = CGFloat(
+                CTLineGetOffsetForStringIndex(
+                    line,
+                    intersection.location + intersection.length,
+                    nil
+                )
+            )
+
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            _ = CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+
+            let baselineX = context.contentPathRect.minX + context.origins[idx].x
+            let x1 = baselineX - descent
+            let x2 = baselineX + ascent
+            let lineTopY = context.layoutSize.height - (context.contentPathRect.minY + context.origins[idx].y)
+            let canonicalRect = CGRect(
+                x: min(x1, x2),
+                y: lineTopY + min(startOffset, endOffset),
+                width: max(1, abs(x2 - x1)),
+                height: max(1, abs(endOffset - startOffset))
+            )
+
+            let scaled = CGRect(
+                x: canonicalRect.minX * context.scaleX + bounds.minX,
+                y: canonicalRect.minY * context.scaleY + bounds.minY,
+                width: canonicalRect.width * context.scaleX,
+                height: canonicalRect.height * context.scaleY
+            )
+            result.append(scaled)
+        }
+
+        return result
+    }
+
+    #if DEBUG
+    func debugStringIndex(at point: CGPoint) -> Int? {
+        guard let context = makeInteractionContext() else { return nil }
+        return stringIndex(at: point, in: context)
+    }
+
+    func debugSelectionRects(for range: NSRange) -> [CGRect] {
+        guard let context = makeInteractionContext() else { return [] }
+        return selectionRects(for: range, in: context)
+    }
+    #endif
 
 }
 

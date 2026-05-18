@@ -397,6 +397,65 @@ struct CoreTextWritingModeTests {
         #expect(annotationInfo.width > ceil(annotationFont.pointSize))
     }
 
+    @Test("vertical page view hit-tests sideways Latin link runs")
+    func verticalPageViewHitTestsSidewaysLatinLinkRuns() async throws {
+        let attr = NSMutableAttributedString(
+            string: "甲PDF乙",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 18),
+                .foregroundColor: UIColor.black,
+            ]
+        )
+        let linkRange = NSRange(location: 1, length: 3)
+        attr.addAttribute(
+            HTMLAttributedStringBuilder.internalLinkAttribute,
+            value: "#pdf",
+            range: linkRange
+        )
+
+        let layout = await CoreTextPaginator().paginate(
+            spineIndex: 0,
+            attrStr: attr,
+            renderSize: CGSize(width: 240, height: 320),
+            fontSize: 18,
+            contentInsets: UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16),
+            writingMode: .verticalRTL
+        )
+
+        let (index, rects) = await MainActor.run {
+            let view = CoreTextPageView(frame: CGRect(origin: .zero, size: layout.renderSize))
+            view.configure(layout: layout, pageIndex: 0)
+            let rects = view.debugSelectionRects(for: linkRange)
+            let index = rects.first.map { view.debugStringIndex(at: CGPoint(x: $0.midX, y: $0.midY)) } ?? nil
+            return (index, rects)
+        }
+
+        let resolvedIndex = try #require(index)
+        #expect(NSLocationInRange(resolvedIndex, linkRange))
+        let firstRect = try #require(rects.first)
+        #expect(firstRect.height > firstRect.width)
+    }
+
+    @Test("interaction overlay draws vertical underline strokes")
+    func interactionOverlayDrawsVerticalUnderlineStrokes() async throws {
+        let image = await MainActor.run { () -> UIImage in
+            let overlay = InteractionOverlayView(frame: CGRect(x: 0, y: 0, width: 80, height: 120))
+            overlay.backgroundColor = .white
+            overlay.drawsVerticalUnderlines = true
+            overlay.underlineColor = .systemYellow
+            overlay.underlineRects = [CGRect(x: 20, y: 20, width: 18, height: 80)]
+
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            format.opaque = true
+            return UIGraphicsImageRenderer(size: overlay.bounds.size, format: format).image { context in
+                overlay.layer.render(in: context.cgContext)
+            }
+        }
+
+        #expect(containsYellowPixel(in: CGRect(x: 34, y: 24, width: 6, height: 72), image: image))
+    }
+
     @Test("vertical leading ideographic spaces reserve first line advance")
     func verticalLeadingIdeographicSpacesReserveFirstLineAdvance() async throws {
         let image = await MainActor.run {
@@ -640,6 +699,36 @@ struct CoreTextWritingModeTests {
                 let g = bytes[offset + min(1, bytesPerPixel - 1)]
                 let b = bytes[offset + min(2, bytesPerPixel - 1)]
                 if r < 245 || g < 245 || b < 245 {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private func containsYellowPixel(in rect: CGRect, image: UIImage) -> Bool {
+        guard let cgImage = image.cgImage,
+              let data = cgImage.dataProvider?.data,
+              let bytes = CFDataGetBytePtr(data)
+        else { return false }
+
+        let minX = max(0, Int(floor(rect.minX)))
+        let maxX = min(cgImage.width, Int(ceil(rect.maxX)))
+        let minY = max(0, Int(floor(rect.minY)))
+        let maxY = min(cgImage.height, Int(ceil(rect.maxY)))
+        guard minX < maxX, minY < maxY else { return false }
+
+        let bytesPerPixel = max(1, cgImage.bitsPerPixel / 8)
+        let bytesPerRow = cgImage.bytesPerRow
+        for y in minY..<maxY {
+            for x in minX..<maxX {
+                let offset = y * bytesPerRow + x * bytesPerPixel
+                let r = bytes[offset]
+                let g = bytes[offset + min(1, bytesPerPixel - 1)]
+                let b = bytes[offset + min(2, bytesPerPixel - 1)]
+                let looksYellowRGB = r > 180 && g > 160 && b < 120
+                let looksYellowBGR = b > 180 && g > 160 && r < 120
+                if looksYellowRGB || looksYellowBGR {
                     return true
                 }
             }

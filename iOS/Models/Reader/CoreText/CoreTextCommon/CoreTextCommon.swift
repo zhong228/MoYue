@@ -45,7 +45,7 @@ import CoreText
 //     • drawBlockRenderableText()→ shared: explicit block text
 //     • drawAttachments()        → shared: block/inline image attachments
 //     • drawPageBackground()     → shared: background image
-//     • makeInteractionContext() → horizontal only; vertical returns nil
+//     • makeInteractionContext() → shared: horizontal + vertical hit-testing/selection geometry
 //
 //   CoreTextPageEngine.swift:
 //     • preloadChapter()         → shared: chapter loading, pagination dispatch
