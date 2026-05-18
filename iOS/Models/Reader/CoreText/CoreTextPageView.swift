@@ -374,23 +374,30 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
                 )
                 image.draw(in: imageRect, blendMode: .normal, alpha: opacity)
             case .text(let text):
+                let drawAdvance = verticalAnnotationAdvance(for: text)
                 let drawRect = CGRect(
-                    x: centerX - item.advance / 2,
+                    x: centerX - drawAdvance / 2,
                     y: cursorY,
-                    width: item.advance,
-                    height: item.advance
+                    width: drawAdvance,
+                    height: drawAdvance
                 )
-                text.draw(with: drawRect, options: [.usesLineFragmentOrigin], context: nil)
+                centeredInlineAnnotationText(text).draw(with: drawRect, options: [.usesLineFragmentOrigin], context: nil)
             }
             cursorY += item.advance
         }
     }
 
     private nonisolated static func verticalAnnotationAdvance(for attributedString: NSAttributedString) -> CGFloat {
-        if let font = attributedString.attribute(.font, at: 0, effectiveRange: nil) as? UIFont {
-            return max(1, font.pointSize)
-        }
-        return 1
+        RunDelegateProvider.inlineAnnotationTextAdvance(for: attributedString)
+    }
+
+    private nonisolated static func centeredInlineAnnotationText(_ attributedString: NSAttributedString) -> NSAttributedString {
+        guard attributedString.length > 0 else { return attributedString }
+        let mutable = NSMutableAttributedString(attributedString: RunDelegateProvider.sanitizedInlineAnnotationString(attributedString))
+        let style = NSMutableParagraphStyle()
+        style.alignment = .center
+        mutable.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: mutable.length))
+        return mutable
     }
 
     private nonisolated static func inlineAnnotationDebugPreview(_ text: String, limit: Int) -> String {

@@ -334,6 +334,47 @@ struct CoreTextWritingModeTests {
         #expect(annotation.attributedString.string.contains("夾注﹁之﹂別︒"))
     }
 
+    @Test("vertical inline annotation strips flow metrics before manual drawing")
+    func verticalInlineAnnotationStripsFlowMetricsBeforeManualDrawing() async throws {
+        let builder = HTMLAttributedStringBuilder()
+        let config = HTMLAttributedStringBuilder.Config(
+            fontSize: 18,
+            lineHeightMultiple: 1.0,
+            lineSpacing: 0,
+            paragraphSpacing: 0,
+            firstLineIndent: 0,
+            textColor: .black,
+            backgroundColor: .white,
+            fontFamilyName: nil,
+            renderWidth: 240,
+            writingMode: .verticalRTL
+        )
+
+        let result = await builder.build(
+            html: """
+            <html>
+            <head>
+            <style>
+            .calibre7 { line-height: 160%; margin: 0; padding: 0; }
+            .small1 { color: #8c0000; font-size: 0.75em; }
+            </style>
+            </head>
+            <body><p class="calibre7">甲<span class="small1">問</span>乙</p></body>
+            </html>
+            """,
+            config: config
+        )
+
+        let annotationInfo = try #require(firstInlineAnnotationInfo(in: result.attributedString))
+        #expect(annotationInfo.attributedString.string == "問")
+        #expect(annotationInfo.attributedString.attribute(.baselineOffset, at: 0, effectiveRange: nil) == nil)
+        #expect(annotationInfo.attributedString.attribute(.paragraphStyle, at: 0, effectiveRange: nil) == nil)
+
+        let annotationFont = try #require(annotationInfo.attributedString.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)
+        #expect(annotationInfo.width >= ceil(annotationFont.lineHeight))
+        #expect(annotationInfo.width > ceil(annotationFont.pointSize))
+    }
+
     @Test("vertical leading ideographic spaces reserve first line advance")
     func verticalLeadingIdeographicSpacesReserveFirstLineAdvance() async throws {
         let image = await MainActor.run {

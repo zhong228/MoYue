@@ -161,9 +161,10 @@ enum RunDelegateProvider {
         placeholderFont: UIFont,
         textColor: UIColor
     ) -> NSAttributedString {
-        let advance = inlineAnnotationAdvance(for: attributedString)
+        let drawingString = sanitizedInlineAnnotationString(attributedString)
+        let advance = inlineAnnotationAdvance(for: drawingString)
         let columnWidth = max(1, placeholderFont.pointSize)
-        CoreTextPaginator.debugVerticalLog("makeInlineAnnotationPlaceholder advance=\(advance) columnWidth=\(columnWidth) len=\(attributedString.length) text=\"\(debugPreview(attributedString.string, limit: 80))\"", verbose: true)
+        CoreTextPaginator.debugVerticalLog("makeInlineAnnotationPlaceholder advance=\(advance) columnWidth=\(columnWidth) len=\(drawingString.length) text=\"\(debugPreview(drawingString.string, limit: 80))\"", verbose: true)
 
         var callbacks = CTRunDelegateCallbacks(
             version: kCTRunDelegateCurrentVersion,
@@ -182,7 +183,7 @@ enum RunDelegateProvider {
         )
 
         let info = InlineAnnotationRunInfo(
-            attributedString: attributedString,
+            attributedString: drawingString,
             advance: advance,
             columnWidth: columnWidth
         )
@@ -213,10 +214,11 @@ enum RunDelegateProvider {
         textColor: UIColor,
         maxAdvance: CGFloat
     ) -> NSAttributedString {
-        let chunks = inlineAnnotationChunks(for: attributedString, maxAdvance: maxAdvance)
+        let drawingString = sanitizedInlineAnnotationString(attributedString)
+        let chunks = inlineAnnotationChunks(for: drawingString, maxAdvance: maxAdvance)
         guard chunks.count > 1 else {
             return makeInlineAnnotationPlaceholder(
-                attributedString: attributedString,
+                attributedString: drawingString,
                 placeholderFont: placeholderFont,
                 textColor: textColor
             )
@@ -230,8 +232,27 @@ enum RunDelegateProvider {
                 textColor: textColor
             ))
         }
-        CoreTextPaginator.debugVerticalLog("makeInlineAnnotationPlaceholders chunks=\(chunks.count) maxAdvance=\(maxAdvance) totalLen=\(attributedString.length)")
+        CoreTextPaginator.debugVerticalLog("makeInlineAnnotationPlaceholders chunks=\(chunks.count) maxAdvance=\(maxAdvance) totalLen=\(drawingString.length)")
         return result
+    }
+
+    static func sanitizedInlineAnnotationString(_ attributedString: NSAttributedString) -> NSAttributedString {
+        guard attributedString.length > 0 else { return attributedString }
+        let mutable = NSMutableAttributedString(attributedString: attributedString)
+        let range = NSRange(location: 0, length: mutable.length)
+        // These attributes are for CoreText's normal line layout. Inline annotations
+        // are drawn manually in UIKit coordinates, so keeping them pushes glyphs
+        // outside the small per-character draw rect and clips the note text.
+        mutable.removeAttribute(.baselineOffset, range: range)
+        mutable.removeAttribute(.paragraphStyle, range: range)
+        return mutable
+    }
+
+    static func inlineAnnotationTextAdvance(for attributedString: NSAttributedString) -> CGFloat {
+        guard attributedString.length > 0,
+              let font = attributedString.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
+        else { return 1 }
+        return max(1, ceil(max(font.pointSize, font.lineHeight)))
     }
 
     static func makeVerticalSpacerPlaceholder(
@@ -327,11 +348,10 @@ enum RunDelegateProvider {
                 index = characterRange.location + characterRange.length
                 continue
             }
-            if let font = unit.attribute(.font, at: 0, effectiveRange: nil) as? UIFont {
-                result.append(InlineAnnotationItem(range: characterRange, advance: max(1, font.pointSize)))
-            } else {
-                result.append(InlineAnnotationItem(range: characterRange, advance: 1))
-            }
+            result.append(InlineAnnotationItem(
+                range: characterRange,
+                advance: inlineAnnotationTextAdvance(for: unit)
+            ))
             index = characterRange.location + characterRange.length
         }
 
