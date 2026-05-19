@@ -138,7 +138,7 @@ enum CoreTextHorizontalLineDrawer {
         guard let hr = hrValue as? HTMLAttributedStringBuilder.HRDividerStyle else { return false }
 
         let leftMargin = hr.marginLeft + hr.inheritedBlockMarginLeft
-        let rightMargin = hr.marginRight
+        let rightMargin = hr.marginRight + hr.inheritedBlockMarginRight
         let availableWidth = max(1, contentWidth - leftMargin - rightMargin)
 
         let ruleWidth: CGFloat

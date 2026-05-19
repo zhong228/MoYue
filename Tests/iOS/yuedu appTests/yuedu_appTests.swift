@@ -712,6 +712,105 @@ struct yuedu_appTests {
         #expect(colorsApproximatelyEqual(fillColor, newBackground))
     }
 
+    @Test func epubBlockBoxReservesPaddingAndMarginsInReflowLayout() async throws {
+        let builder = HTMLAttributedStringBuilder()
+        let config = HTMLAttributedStringBuilder.Config(
+            fontSize: 18,
+            lineHeightMultiple: 1.4,
+            lineSpacing: 4,
+            paragraphSpacing: 4,
+            firstLineIndent: 0,
+            textColor: .black,
+            backgroundColor: .white,
+            renderWidth: 260
+        )
+        let html = """
+        <html><head><style>
+        body { font-family: serif; line-height: 1.6; margin: 1em; }
+        h1 { text-align: center; }
+        p { text-indent: 2em; margin: 0 0 0.8em 0; }
+        .box { border: 1px solid #444; padding: 0.8em; margin: 1em 0; background: #f6f6f6; }
+        .note { font-size: 0.85em; }
+        </style></head><body>
+        <h1>EPUB 2：NCX + XHTML Reflow</h1>
+        <p>這個檔案是 EPUB 2.0 範例。它使用 OPF 2.0、NCX 目錄，以及 XHTML 1.1 內容文件。</p>
+        <p>你在 Apple Books 和自己的 reader 裡看到的應該都是一般可重排文字：改字體大小後，行數與分頁會跟著變。</p>
+        <div class="box">觀察點：這本書沒有 EPUB 3 的 nav document、fixed-layout metadata、HTML5 semantic section、ruby/MathML/SVG 這些測試點。</div>
+        <p class="note">這個範例故意很普通，用來當 baseline。</p>
+        </body></html>
+        """
+        let attributedString = await builder.build(html: html, config: config).attributedString
+        let layout = await CoreTextPaginator().paginate(
+            spineIndex: 0,
+            attrStr: attributedString,
+            renderSize: CGSize(width: 320, height: 720),
+            fontSize: 18,
+            lineSpacing: 4,
+            paragraphSpacing: 4,
+            letterSpacing: 0,
+            contentInsets: UIEdgeInsets(top: 20, left: 30, bottom: 20, right: 30),
+            writingMode: .horizontal
+        )
+
+        let box = try #require(layout.blockRenderables[0]?.first(where: { $0.style.backgroundFillColor != nil }))
+        let fillColor = try #require(box.style.backgroundFillColor)
+        #expect(colorsApproximatelyEqual(fillColor, UIColor(red: 246.0 / 255.0, green: 246.0 / 255.0, blue: 246.0 / 255.0, alpha: 1)))
+        if let text = box.attributedText {
+            var hasLineBackground = false
+            text.enumerateAttribute(.backgroundColor, in: NSRange(location: 0, length: text.length)) { value, _, stop in
+                if value != nil {
+                    hasLineBackground = true
+                    stop.pointee = true
+                }
+            }
+            #expect(!hasLineBackground)
+        }
+        #expect(box.style.borderTopWidth > 0)
+        #expect(box.style.borderBottomWidth > 0)
+        #expect(box.style.borderLeftWidth > 0)
+        #expect(box.style.borderRightWidth > 0)
+        #expect(abs(box.style.paddingTop - 14.4) < 0.5)
+        #expect(abs(box.style.paddingBottom - 14.4) < 0.5)
+        #expect(abs(box.style.paddingLeft - 14.4) < 0.5)
+        #expect(abs(box.style.paddingRight - 14.4) < 0.5)
+        #expect(box.rect.height >= 28.8 + box.style.paddingTop + box.style.paddingBottom - 0.5)
+
+        let headingLine = try #require(firstLineRect(containing: "Reflow", in: layout, pageIndex: 0))
+        let boxTextLine = try #require(firstLineRect(containing: "觀察點", in: layout, pageIndex: 0))
+        #expect(abs(headingLine.midX - layout.renderSize.width / 2) < 2)
+        #expect(box.rect.minY >= headingLine.maxY)
+        #expect(boxTextLine.minY >= box.rect.minY + box.style.paddingTop - 0.5)
+        #expect(boxTextLine.maxY <= box.rect.maxY - box.style.paddingBottom + 0.5)
+
+        if let noteLine = firstLineRect(containing: "baseline", in: layout, pageIndex: 0) {
+            #expect(noteLine.minY >= box.rect.maxY - 0.5)
+        }
+    }
+
+    @Test func coreTextPaginatorCacheHandlesConcurrentPreloadRequests() async {
+        let paginator = CoreTextPaginator()
+        let first = NSAttributedString(string: "第一章\n這是普通 EPUB reflow 測試內容。")
+        let second = NSAttributedString(string: "第二章\n這是另一個同時預載的章節。")
+
+        await withTaskGroup(of: Void.self) { group in
+            for index in 0..<20 {
+                group.addTask {
+                    let attr = index.isMultiple(of: 2) ? first : second
+                    _ = await paginator.paginate(
+                        spineIndex: index % 2,
+                        attrStr: attr,
+                        renderSize: CGSize(width: 320, height: 480),
+                        fontSize: 18,
+                        lineSpacing: 4,
+                        paragraphSpacing: 4,
+                        contentInsets: UIEdgeInsets(top: 20, left: 24, bottom: 20, right: 24),
+                        writingMode: .horizontal
+                    )
+                }
+            }
+        }
+    }
+
     @Test func htmlBuilderMapsFontFamilyAlias() async {
         let builder = HTMLAttributedStringBuilder()
         builder.resolvedFontFamily = { name in
@@ -2872,7 +2971,9 @@ struct yuedu_appTests {
                 CoreTextPageView.drawBlockRenderableText(
                     text,
                     in: cardRect,
+                    paddingTop: 0,
                     paddingLeft: 0,
+                    paddingBottom: 0,
                     paddingRight: 0,
                     boundsHeight: pageSize.height,
                     context: context.cgContext

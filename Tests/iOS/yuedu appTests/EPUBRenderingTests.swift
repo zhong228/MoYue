@@ -18,6 +18,7 @@ struct EPUBRenderingTests {
             marginLeft: 0,
             marginRight: 0,
             inheritedBlockMarginLeft: 0,
+            inheritedBlockMarginRight: 0,
             alignment: .natural,
             isHorizontallyCentered: false
         )

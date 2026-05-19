@@ -93,6 +93,7 @@ struct NodeAttributedStringRenderer {
                 marginLeft: style.marginLeft,
                 marginRight: style.marginRight,
                 inheritedBlockMarginLeft: ctx.inheritedBlockMarginLeft,
+                inheritedBlockMarginRight: ctx.inheritedBlockMarginRight,
                 alignment: {
                     switch style.textAlign {
                     case .left: return .left
@@ -339,14 +340,15 @@ struct NodeAttributedStringRenderer {
 
         // ── Paragraph Style ──
         let para = NSMutableParagraphStyle()
-        para.minimumLineHeight = targetLineHeight(ctx: newCtx)
-        para.maximumLineHeight = targetLineHeight(ctx: newCtx)
+        let lineBoxHeight = targetLineHeight(ctx: newCtx)
+        para.minimumLineHeight = lineBoxHeight
+        para.maximumLineHeight = lineBoxHeight
         let resolvedParagraphSpacing = style.paragraphSpacingAfter > 0
             ? style.paragraphSpacingAfter
             : (isHeading ? config.paragraphSpacing * 0.6 : config.paragraphSpacing)
         para.paragraphSpacing = isVertical(style)
             ? min(resolvedParagraphSpacing, newCtx.font.pointSize)
-            : resolvedParagraphSpacing
+            : resolvedParagraphSpacing + style.paddingBottom
         // In vertical mode, CSS margin-top (→ paragraphSpacingBefore) adds space
         // in the block-progression direction (right-to-left for vertical-rl).
         // Large values (e.g. 10em on .normalp1) were authored for horizontal layout
@@ -354,12 +356,14 @@ struct NodeAttributedStringRenderer {
         if isVertical(style) {
             para.paragraphSpacingBefore = 0
         } else {
-            para.paragraphSpacingBefore = style.paragraphSpacingBefore
+            para.paragraphSpacingBefore = style.paragraphSpacingBefore + style.paddingTop
         }
         let cumulativeMarginLeft = ctx.inheritedBlockMarginLeft + style.marginLeft
+        let cumulativeMarginRight = ctx.inheritedBlockMarginRight + style.marginRight
         para.firstLineHeadIndent = cumulativeMarginLeft + style.paddingLeft + style.textIndent
         para.headIndent = cumulativeMarginLeft + style.paddingLeft
-        para.tailIndent = style.paddingRight > 0 ? -style.paddingRight : 0
+        let rightInset = cumulativeMarginRight + style.paddingRight
+        para.tailIndent = rightInset > 0 ? -rightInset : 0
         para.alignment = nsTextAlignment(from: style.textAlign)
         newCtx.paragraphStyle = para
         newCtx.baselineOffset = ReaderTypographyCorrection.baselineOffset(
@@ -371,6 +375,7 @@ struct NodeAttributedStringRenderer {
         if style.strikethrough { newCtx.strikethrough = true }
         // Accumulate for nested child blocks
         newCtx.inheritedBlockMarginLeft = cumulativeMarginLeft
+        newCtx.inheritedBlockMarginRight = cumulativeMarginRight
 
         return newCtx
     }
@@ -551,7 +556,9 @@ struct NodeAttributedStringRenderer {
         if let height = payload.style.height {
             attachmentStyle.height = height
         }
+        attachmentStyle.paddingTop += payload.style.paddingTop
         attachmentStyle.paddingLeft += payload.style.paddingLeft
+        attachmentStyle.paddingBottom += payload.style.paddingBottom
         attachmentStyle.paddingRight += payload.style.paddingRight
         attachmentStyle.opacity = payload.style.opacity
 
@@ -562,7 +569,9 @@ struct NodeAttributedStringRenderer {
             drawSize: CGSize(width: imageMetrics.drawWidth, height: imageMetrics.drawHeight),
             opacity: attachmentStyle.opacity,
             alignment: nsTextAlignment(from: attachmentStyle.textAlign),
+            paddingTop: attachmentStyle.paddingTop,
             paddingLeft: attachmentStyle.paddingLeft,
+            paddingBottom: attachmentStyle.paddingBottom,
             paddingRight: attachmentStyle.paddingRight
         )
 
@@ -871,7 +880,9 @@ struct NodeAttributedStringRenderer {
             isHorizontallyCentered: style.isHorizontallyCentered,
             paragraphSpacingBefore: style.paragraphSpacingBefore,
             visualOffsetBefore: style.visualOffsetBefore,
+            paddingTop: style.paddingTop,
             paddingLeft: style.paddingLeft,
+            paddingBottom: style.paddingBottom,
             paddingRight: style.paddingRight,
             blockImage: blockImage
         )
@@ -916,6 +927,7 @@ struct NodeAttributedStringRenderer {
         var underline: Bool
         var strikethrough: Bool
         var inheritedBlockMarginLeft: CGFloat
+        var inheritedBlockMarginRight: CGFloat
 
         /// Records the body's base font size for heading proportional scaling.
         var baseSize: CGFloat
@@ -974,6 +986,7 @@ struct NodeAttributedStringRenderer {
                 underline: false,
                 strikethrough: false,
                 inheritedBlockMarginLeft: 0,
+                inheritedBlockMarginRight: 0,
                 baseSize: config.baseFontSize
             )
         }

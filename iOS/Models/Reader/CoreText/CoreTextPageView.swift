@@ -273,7 +273,9 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             drawBlockRenderableText(
                 text,
                 in: item.rect,
+                paddingTop: item.style.paddingTop,
                 paddingLeft: item.style.paddingLeft,
+                paddingBottom: item.style.paddingBottom,
                 paddingRight: item.style.paddingRight,
                 boundsHeight: layoutSize.height,
                 context: ctx
@@ -645,16 +647,18 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     nonisolated static func drawBlockRenderableText(
         _ text: NSAttributedString,
         in rect: CGRect,
+        paddingTop: CGFloat,
         paddingLeft: CGFloat,
+        paddingBottom: CGFloat,
         paddingRight: CGFloat,
         boundsHeight: CGFloat,
         context ctx: CGContext
     ) {
         let contentRect = CGRect(
             x: rect.minX + paddingLeft,
-            y: rect.minY,
+            y: rect.minY + paddingTop,
             width: max(1, rect.width - paddingLeft - paddingRight),
-            height: rect.height
+            height: max(1, rect.height - paddingTop - paddingBottom)
         )
         let framesetter = CTFramesetterCreateWithAttributedString(text)
         let suggestedSize = CTFramesetterSuggestFrameSizeWithConstraints(

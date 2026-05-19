@@ -101,7 +101,9 @@ final class HTMLAttributedStringBuilder {
         var rawWidthPercent: CGFloat?
         var rawHeightPercent: CGFloat?
         var marginRight: CGFloat
+        var paddingTop: CGFloat
         var paddingLeft: CGFloat
+        var paddingBottom: CGFloat
         var paddingRight: CGFloat
         var isHorizontallyCentered: Bool
         var borderTopWidth: CGFloat
@@ -129,9 +131,10 @@ final class HTMLAttributedStringBuilder {
         var firstLetterColor: UIColor?
         var underline: Bool
         var strikethrough: Bool
-        /// Accumulated margin-left from ancestor block containers.
+        /// Accumulated margins from ancestor block containers.
         /// CoreText uses a single frame so parent block margins must be added to child paragraph indents.
         var inheritedBlockMarginLeft: CGFloat
+        var inheritedBlockMarginRight: CGFloat
         /// Detected from CSS `writing-mode: vertical-rl` on this element.
         var isVerticalWritingMode: Bool = false
         var pageBreakBefore: Bool = false
@@ -147,6 +150,7 @@ final class HTMLAttributedStringBuilder {
         let marginLeft: CGFloat
         let marginRight: CGFloat
         let inheritedBlockMarginLeft: CGFloat
+        let inheritedBlockMarginRight: CGFloat
         let alignment: NSTextAlignment
         let isHorizontallyCentered: Bool
     }
@@ -158,7 +162,9 @@ final class HTMLAttributedStringBuilder {
             let drawSize: CGSize
             let opacity: CGFloat
             let alignment: NSTextAlignment
+            let paddingTop: CGFloat
             let paddingLeft: CGFloat
+            let paddingBottom: CGFloat
             let paddingRight: CGFloat
         }
 
@@ -177,7 +183,9 @@ final class HTMLAttributedStringBuilder {
         let isHorizontallyCentered: Bool
         let paragraphSpacingBefore: CGFloat
         let visualOffsetBefore: CGFloat
+        let paddingTop: CGFloat
         let paddingLeft: CGFloat
+        let paddingBottom: CGFloat
         let paddingRight: CGFloat
         let blockImage: BlockImage?
 
@@ -205,7 +213,9 @@ final class HTMLAttributedStringBuilder {
                 isHorizontallyCentered: isHorizontallyCentered,
                 paragraphSpacingBefore: paragraphSpacingBefore,
                 visualOffsetBefore: visualOffsetBefore,
+                paddingTop: paddingTop,
                 paddingLeft: paddingLeft,
+                paddingBottom: paddingBottom,
                 paddingRight: paddingRight,
                 blockImage: blockImage
             )
@@ -886,6 +896,7 @@ final class HTMLAttributedStringBuilder {
             marginLeft: style.marginLeft,
             marginRight: style.marginRight,
             inheritedBlockMarginLeft: style.inheritedBlockMarginLeft,
+            inheritedBlockMarginRight: style.inheritedBlockMarginRight,
             alignment: style.textAlign,
             isHorizontallyCentered: style.isHorizontallyCentered
         )
@@ -1135,7 +1146,9 @@ final class HTMLAttributedStringBuilder {
         if let height = imageElement.resolvedStyle.height ?? attachmentStyle.height {
             attachmentStyle.height = height
         }
+        attachmentStyle.paddingTop += imageElement.resolvedStyle.paddingTop
         attachmentStyle.paddingLeft += imageElement.resolvedStyle.paddingLeft
+        attachmentStyle.paddingBottom += imageElement.resolvedStyle.paddingBottom
         attachmentStyle.paddingRight += imageElement.resolvedStyle.paddingRight
         attachmentStyle.opacity = imageElement.resolvedStyle.opacity
 
@@ -1184,7 +1197,9 @@ final class HTMLAttributedStringBuilder {
                 drawSize: CGSize(width: imageMetrics.drawWidth, height: imageMetrics.drawHeight),
                 opacity: segmentStyle.opacity,
                 alignment: segmentStyle.textAlign,
+                paddingTop: segmentStyle.paddingTop,
                 paddingLeft: segmentStyle.paddingLeft,
+                paddingBottom: segmentStyle.paddingBottom,
                 paddingRight: segmentStyle.paddingRight
             )
         ) {
@@ -1313,7 +1328,9 @@ final class HTMLAttributedStringBuilder {
             isHorizontallyCentered: style.isHorizontallyCentered,
             paragraphSpacingBefore: style.paragraphSpacingBefore,
             visualOffsetBefore: style.visualOffsetBefore,
+            paddingTop: style.paddingTop,
             paddingLeft: style.paddingLeft,
+            paddingBottom: style.paddingBottom,
             paddingRight: style.paddingRight,
             blockImage: blockImage
         )
@@ -1668,8 +1685,8 @@ final class HTMLAttributedStringBuilder {
             paragraph.paragraphSpacing = min(style.paragraphSpacing, style.fontSize)
             paragraph.paragraphSpacingBefore = 0
         } else {
-            paragraph.paragraphSpacing = style.paragraphSpacing
-            paragraph.paragraphSpacingBefore = style.paragraphSpacingBefore
+            paragraph.paragraphSpacing = style.paragraphSpacing + style.paddingBottom
+            paragraph.paragraphSpacingBefore = style.paragraphSpacingBefore + style.paddingTop
         }
 
         if let bullet = style.listBullet {
@@ -1688,7 +1705,7 @@ final class HTMLAttributedStringBuilder {
                 widthInset = 0
             }
             let leftInset = widthInset + style.marginLeft + style.paddingLeft + style.inheritedBlockMarginLeft
-            let rightInset = widthInset + style.marginRight + style.paddingRight
+            let rightInset = widthInset + style.marginRight + style.paddingRight + style.inheritedBlockMarginRight
             paragraph.headIndent = leftInset
             paragraph.firstLineHeadIndent = leftInset + style.textIndent
             paragraph.tailIndent = -rightInset
@@ -2003,10 +2020,11 @@ final class HTMLAttributedStringBuilder {
         default: break
         }
 
-        // Accumulate margin-left so nested block children inherit the full indent.
+        // Accumulate block margins so nested block children inherit the parent content box.
         // CoreText uses a single frame — parent block margins must compound into child paragraph indents.
         if style.isBlock {
             style.inheritedBlockMarginLeft = style.inheritedBlockMarginLeft + style.marginLeft
+            style.inheritedBlockMarginRight = style.inheritedBlockMarginRight + style.marginRight
         }
 
         let tag = element.tagName().lowercased()
@@ -2041,7 +2059,7 @@ final class HTMLAttributedStringBuilder {
             paragraphSpacing: parent.paragraphSpacing,
             paragraphSpacingBefore: 0,
             visualOffsetBefore: 0,
-            marginLeft: parent.marginLeft,
+            marginLeft: 0,
             listBullet: nil,
             verticalAlign: .baseline,
             isBlock: false,
@@ -2050,7 +2068,9 @@ final class HTMLAttributedStringBuilder {
             width: nil,
             height: nil,
             marginRight: 0,
+            paddingTop: 0,
             paddingLeft: 0,
+            paddingBottom: 0,
             paddingRight: 0,
             isHorizontallyCentered: false,
             borderTopWidth: 0,
@@ -2072,6 +2092,7 @@ final class HTMLAttributedStringBuilder {
             underline: parent.underline,
             strikethrough: parent.strikethrough,
             inheritedBlockMarginLeft: parent.inheritedBlockMarginLeft,
+            inheritedBlockMarginRight: parent.inheritedBlockMarginRight,
             isVerticalWritingMode: parent.isVerticalWritingMode,
             pageBreakBefore: false,
             pageBreakAfter: false
@@ -2105,7 +2126,9 @@ final class HTMLAttributedStringBuilder {
             width: nil,
             height: nil,
             marginRight: 0,
+            paddingTop: 0,
             paddingLeft: 0,
+            paddingBottom: 0,
             paddingRight: 0,
             isHorizontallyCentered: false,
             borderTopWidth: 0,
@@ -2127,6 +2150,7 @@ final class HTMLAttributedStringBuilder {
             underline: false,
             strikethrough: false,
             inheritedBlockMarginLeft: 0,
+            inheritedBlockMarginRight: 0,
             isVerticalWritingMode: false,
             pageBreakBefore: false,
             pageBreakAfter: false
@@ -2376,6 +2400,16 @@ final class HTMLAttributedStringBuilder {
                 percentageBase: percentageBase
             )
         }
+        if let paddingTop = declarations["padding-top"],
+           let value = resolveLength(
+                paddingTop,
+                currentFontSize: style.fontSize,
+                rootFontSize: rootFontSize,
+                relativeBase: style.fontSize,
+                percentageBase: percentageBase
+           ) {
+            style.paddingTop = max(0, value)
+        }
         if let paddingLeft = declarations["padding-left"],
            let value = resolveLength(
                 paddingLeft,
@@ -2395,6 +2429,16 @@ final class HTMLAttributedStringBuilder {
                 percentageBase: percentageBase
            ) {
             style.paddingRight = max(0, value)
+        }
+        if let paddingBottom = declarations["padding-bottom"],
+           let value = resolveLength(
+                paddingBottom,
+                currentFontSize: style.fontSize,
+                rootFontSize: rootFontSize,
+                relativeBase: style.fontSize,
+                percentageBase: percentageBase
+           ) {
+            style.paddingBottom = max(0, value)
         }
         if let verticalAlign = declarations["vertical-align"] {
             switch verticalAlign.trimmingCharacters(in: .whitespaces).lowercased() {
@@ -2648,8 +2692,14 @@ final class HTMLAttributedStringBuilder {
             .map(String.init)
         guard !tokens.isEmpty else { return }
         let resolved = expandBoxShorthand(tokens)
+        if let top = resolved.top, let topValue = resolveBoxValue(top, currentFontSize: currentFontSize, rootFontSize: rootFontSize, percentageBase: percentageBase) {
+            style.paddingTop = max(0, topValue)
+        }
         if let left = resolved.left, let leftValue = resolveBoxValue(left, currentFontSize: currentFontSize, rootFontSize: rootFontSize, percentageBase: percentageBase) {
             style.paddingLeft = max(0, leftValue)
+        }
+        if let bottom = resolved.bottom, let bottomValue = resolveBoxValue(bottom, currentFontSize: currentFontSize, rootFontSize: rootFontSize, percentageBase: percentageBase) {
+            style.paddingBottom = max(0, bottomValue)
         }
         if let right = resolved.right, let rightValue = resolveBoxValue(right, currentFontSize: currentFontSize, rootFontSize: rootFontSize, percentageBase: percentageBase) {
             style.paddingRight = max(0, rightValue)
@@ -2822,7 +2872,7 @@ final class HTMLAttributedStringBuilder {
         if let rgbaRange = value.range(of: #"rgba?\([^)]+\)"#, options: .regularExpression) {
             return parseColor(String(value[rgbaRange]))
         }
-        if let hexRange = value.range(of: #"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})"#, options: .regularExpression) {
+        if let hexRange = value.range(of: #"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})"#, options: .regularExpression) {
             return parseColor(String(value[hexRange]))
         }
         return nil

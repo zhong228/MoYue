@@ -178,6 +178,7 @@ final class CoreTextPaginator {
     }
 
     private var cache: [CacheKey: ChapterLayout] = [:]
+    private let cacheLock = NSLock()
     private struct CacheKey: Hashable {
         let spineIndex: Int
         let width: CGFloat
@@ -289,7 +290,7 @@ final class CoreTextPaginator {
                            writingMode: writingMode,
                            contentFingerprint: Self.layoutFingerprint(for: attrStr))
         Self.debugVerticalLog("EPUBFLOW paginator.request spine=\(spineIndex) writingMode=\(writingMode) isVertical=\(writingMode.isVertical) size=\(renderSize) fontSize=\(fontSize) insets=\(contentInsets) attrLen=\(attrStr.length) fingerprint=\(key.contentFingerprint)")
-        if let cached = cache[key] {
+        if let cached = cachedLayout(for: key) {
             Self.debugVerticalLog("EPUBFLOW paginator.cacheHit spine=\(spineIndex) fingerprint=\(key.contentFingerprint)")
             if writingMode.isVertical {
                 Self.debugVerticalLog("paginate cacheHit spine=\(spineIndex) size=\(renderSize) fontSize=\(fontSize) insets=\(contentInsets) attrLen=\(attrStr.length)", verbose: true)
@@ -314,18 +315,36 @@ final class CoreTextPaginator {
                                writingMode: writingMode)
         }.value
 
-        cache[key] = layout
+        storeLayout(layout, for: key)
         return layout
+    }
+
+    private func cachedLayout(for key: CacheKey) -> ChapterLayout? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return cache[key]
+    }
+
+    private func storeLayout(_ layout: ChapterLayout, for key: CacheKey) {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        cache[key] = layout
     }
 
     @MainActor
     func invalidate(reason: InvalidationReason) {
         switch reason {
         case .fontSizeChanged, .viewSizeChanged:
-            cache.removeAll()
+            removeAllCachedLayouts()
         case .themeChanged:
             break
         }
+    }
+
+    private func removeAllCachedLayouts() {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        cache.removeAll()
     }
 
     // MARK: - Core pagination algorithm (static, runs on any thread)
@@ -1484,8 +1503,10 @@ final class CoreTextPaginator {
                         let blockExtent = lineAscent + abs(lineDescent)
                         lineHeight = lineWidth
                         blockHeight = max(lineWidth,
-                            groups[groupIndex].style.blockImage?.drawSize.height
-                            ?? groups[groupIndex].style.height ?? 0)
+                            (groups[groupIndex].style.blockImage?.drawSize.height
+                                ?? groups[groupIndex].style.height ?? 0)
+                                + groups[groupIndex].style.paddingTop
+                                + groups[groupIndex].style.paddingBottom)
                         rectW = max(preferredWidth,
                             groups[groupIndex].style.blockImage?.drawSize.width
                             ?? blockExtent)
@@ -1494,9 +1515,11 @@ final class CoreTextPaginator {
                     } else {
                         lineHeight = max(paragraphStyle.minimumLineHeight, lineAscent + lineDescent)
                         blockHeight = max(lineHeight,
-                            groups[groupIndex].style.blockImage?.drawSize.height
-                            ?? groups[groupIndex].style.height ?? 0)
-                        uiY = renderSize.height - (adjustedOrigin.y + lineAscent)
+                            (groups[groupIndex].style.blockImage?.drawSize.height
+                                ?? groups[groupIndex].style.height ?? 0)
+                                + groups[groupIndex].style.paddingTop
+                                + groups[groupIndex].style.paddingBottom)
+                        uiY = renderSize.height - (adjustedOrigin.y + lineAscent) - groups[groupIndex].style.paddingTop
                         rectX = blockX
                         rectW = preferredWidth
                     }
@@ -1567,7 +1590,7 @@ final class CoreTextPaginator {
             || style.blockImage != nil
         let hasExplicitGeometryHint =
             style.height != nil
-            || style.visualOffsetBefore > 0
+            || style.blockImage != nil
             || (style.width != nil && style.isHorizontallyCentered)
         let usesExplicitGeometry =
             hasVisualDecoration
@@ -1618,12 +1641,16 @@ final class CoreTextPaginator {
         let blockHeight: CGFloat
         if let blockImage = style.blockImage {
             blockHeight = max(blockImage.drawSize.height, style.height ?? 0)
+                + style.paddingTop
+                + style.paddingBottom
         } else {
             let measured = measureHeight(
                 for: attrStr.attributedSubstring(from: mergedRange),
                 constrainedWidth: constrainedWidth
             )
             blockHeight = max(measured, style.height ?? 0)
+                + style.paddingTop
+                + style.paddingBottom
         }
 
         let uiTop = (renderSize.height - contentPathRect.maxY) + style.visualOffsetBefore
@@ -1717,7 +1744,9 @@ final class CoreTextPaginator {
                 imgX = availableRect.minX + blockImage.paddingLeft
             }
         }
-        let imgY = availableRect.minY + max(0, (availableRect.height - drawHeight) / 2)
+        let contentY = availableRect.minY + blockImage.paddingTop
+        let contentHeight = max(1, availableRect.height - blockImage.paddingTop - blockImage.paddingBottom)
+        let imgY = contentY + max(0, (contentHeight - drawHeight) / 2)
         return CGRect(x: imgX, y: imgY, width: drawWidth, height: drawHeight)
     }
 
@@ -1754,7 +1783,6 @@ final class CoreTextPaginator {
             for key in [
                 NSAttributedString.Key.font,
                 .foregroundColor,
-                .backgroundColor,
                 .kern,
                 .baselineOffset,
                 .underlineStyle,

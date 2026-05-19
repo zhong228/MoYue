@@ -95,8 +95,12 @@ public struct RenderStyle: Sendable {
     public var marginRight: CGFloat
     /// CSS raw width percentage (before resolution to points), used by hr dividers
     public var rawWidthPercent: CGFloat?
+    /// CSS padding-top
+    public var paddingTop: CGFloat
     /// CSS padding-left
     public var paddingLeft: CGFloat
+    /// CSS padding-bottom
+    public var paddingBottom: CGFloat
     /// CSS padding-right
     public var paddingRight: CGFloat
     /// Paragraph spacing before (multiplied by baseFontSize at render time)
@@ -144,7 +148,9 @@ public struct RenderStyle: Sendable {
         marginLeft: CGFloat = 0,
         marginRight: CGFloat = 0,
         rawWidthPercent: CGFloat? = nil,
+        paddingTop: CGFloat = 0,
         paddingLeft: CGFloat = 0,
+        paddingBottom: CGFloat = 0,
         paddingRight: CGFloat = 0,
         paragraphSpacingBefore: CGFloat = 0,
         visualOffsetBefore: CGFloat = 0,
@@ -182,7 +188,9 @@ public struct RenderStyle: Sendable {
         self.marginLeft = marginLeft
         self.marginRight = marginRight
         self.rawWidthPercent = rawWidthPercent
+        self.paddingTop = paddingTop
         self.paddingLeft = paddingLeft
+        self.paddingBottom = paddingBottom
         self.paddingRight = paddingRight
         self.paragraphSpacingBefore = paragraphSpacingBefore
         self.visualOffsetBefore = visualOffsetBefore

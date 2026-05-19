@@ -217,7 +217,9 @@ struct CSSPropertyApplierTests {
             width: nil,
             height: nil,
             marginRight: 0,
+            paddingTop: 0,
             paddingLeft: 0,
+            paddingBottom: 0,
             paddingRight: 0,
             isHorizontallyCentered: false,
             borderTopWidth: 0,
@@ -239,6 +241,7 @@ struct CSSPropertyApplierTests {
             underline: false,
             strikethrough: false,
             inheritedBlockMarginLeft: 0,
+            inheritedBlockMarginRight: 0,
             isVerticalWritingMode: false,
             pageBreakBefore: false,
             pageBreakAfter: false
