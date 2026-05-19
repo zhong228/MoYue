@@ -642,10 +642,10 @@ _layouts[spineIndex] == nil,
         }
 
         let title = chapterTitle(at: position.spineIndex)
-        let estimatedGlobalPage = estimatedGlobalPage(for: position)
+        let estimated = estimatedGlobalPage(for: position) ?? 0
         let placeholder = PlaceholderPageViewController(
             chapterTitle: title,
-            globalPage: estimatedGlobalPage,
+            globalPage: estimated,
             readingPosition: position,
             themeBackgroundColor: themeBackgroundColor,
             themeTextColor: themeTextColor
@@ -1254,8 +1254,8 @@ _layouts[spineIndex] = _layouts[spineIndex]?.withUpdatedColors(textColor: textCo
         return url
     }
 
-    private func estimatedGlobalPage(for position: CoreTextReadingPosition) -> Int {
-        guard spinePageOffsets.indices.contains(position.spineIndex) else { return 0 }
+    func estimatedGlobalPage(for position: CoreTextReadingPosition) -> Int? {
+        guard spinePageOffsets.indices.contains(position.spineIndex) else { return nil }
         return spinePageOffsets[position.spineIndex]
     }
 

@@ -1805,24 +1805,29 @@ struct ReaderView: View {
     private func jumpToChapter(_ idx: Int, charOffset: Int = 0) {
         guard chapters.indices.contains(idx) else { return }
         if let engine = epubRenderer.engine, usesCoreTextEPUB {
-            Task { @MainActor in
-                engine.cancelPendingWork()
-                await engine.preloadChapter(at: idx)
-                // Preload adjacent chapters so layouts are ready when flipping pages.
-                if idx > 0 { Task { await engine.preloadChapter(at: idx - 1) } }
-                if idx < chapters.count - 1 { Task { await engine.preloadChapter(at: idx + 1) } }
-                let targetPage = engine.pageIndex(forSpine: idx, charOffset: charOffset)
-                currentChapterIndex = idx
-                currentPage = targetPage
-                epubRenderer.currentEpubPage = targetPage
-                // Before ensureChapterReady, capture whether the chapter is already .ready.
-                // If it is, ensureChapterReady won't trigger handleChapterStateChanges,
-                // but the engine may hold a stale placeholder layout from pre-reading. Force rebuild.
-                let alreadyReady = readerViewModel.chapterState(for: idx) == .ready
-                ensureChapterReady(chapterIndex: idx, priority: .jump)
-                if alreadyReady, isChapterContentAvailable(at: idx) {
-                    await engine.notifyChapterDataChanged(at: idx)
-                }
+            engine.cancelPendingWork()
+            let position = CoreTextReadingPosition(spineIndex: idx, charOffset: charOffset)
+            // Navigate via position: pageViewController(for:) returns a VC immediately
+            // (placeholder if layout not ready, real page if cached). The placeholder
+            // triggers preload internally; when layout is ready, onChapterReady refreshes the page.
+            _ = engine.pageViewController(for: position)
+
+            // Preload adjacent chapters in background so flip-to-adjacent is instant.
+            if idx > 0 { Task { await engine.preloadChapter(at: idx - 1) } }
+            if idx < chapters.count - 1 { Task { await engine.preloadChapter(at: idx + 1) } }
+
+            currentChapterIndex = idx
+            if let exactPage = engine.pageIndex(for: position) {
+                currentPage = exactPage
+            } else if let estimatedPage = engine.estimatedGlobalPage(for: position) {
+                currentPage = estimatedPage
+            }
+            epubRenderer.currentEpubPage = currentPage
+
+            let alreadyReady = readerViewModel.chapterState(for: idx) == .ready
+            ensureChapterReady(chapterIndex: idx, priority: .jump)
+            if alreadyReady, isChapterContentAvailable(at: idx) {
+                Task { await engine.notifyChapterDataChanged(at: idx) }
             }
         } else {
             currentChapterIndex = idx

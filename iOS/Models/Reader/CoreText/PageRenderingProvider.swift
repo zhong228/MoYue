@@ -3,6 +3,7 @@ import UIKit
 // MARK: - PageIndexProviding / CoreTextReadingPositionProviding
 
 /// A UIViewController that tracks its position in the global page sequence.
+@MainActor
 protocol PageIndexProviding: AnyObject {
     var globalPageIndex: Int { get }
 }
@@ -34,6 +35,8 @@ protocol PageLayoutEngine: AnyObject {
     func pageIndex(forSpine spineIndex: Int, charOffset: Int) -> Int
     /// Stable position → global page index
     func pageIndex(for position: CoreTextReadingPosition) -> Int?
+    /// Best available global page estimate for a position (may be inexact if offsets not built yet)
+    func estimatedGlobalPage(for position: CoreTextReadingPosition) -> Int?
     /// Global page → stable position
     func readingPosition(forPage page: Int) -> CoreTextReadingPosition?
     /// Global page → (spineIndex, charOffset)
@@ -104,6 +107,7 @@ typealias PageRenderingProvider = PageLayoutEngine & PageViewControllerVending
 extension PageLayoutEngine {
     func pageIndex(for position: CoreTextReadingPosition) -> Int? { nil }
     func readingPosition(forPage page: Int) -> CoreTextReadingPosition? { nil }
+    func estimatedGlobalPage(for position: CoreTextReadingPosition) -> Int? { nil }
     func lastPageIndex(ofChapter spineIndex: Int) -> Int? { nil }
     func localPosition(for globalPage: Int) -> (spineIndex: Int, localPage: Int) { (0, globalPage) }
     func resolveInternalLink(_ href: String, fromSpineIndex spineIndex: Int) async -> Int? { nil }
