@@ -3,6 +3,7 @@ import UIKit
 final class FixedLayoutViewportResolver {
     let defaultViewport: CGSize?
     private var pageCache: [Int: CGSize] = [:]
+    private let lock = NSLock()
 
     init(defaultViewport: CGSize?) {
         self.defaultViewport = defaultViewport
@@ -12,13 +13,20 @@ final class FixedLayoutViewportResolver {
         for spineIndex: Int,
         resourceProvider: BookResourceProvider
     ) async -> CGSize {
+        lock.lock()
         if let cached = pageCache[spineIndex] {
+            lock.unlock()
             return cached
         }
+        lock.unlock()
 
         let parsed = await parseViewportFromXHTML(spineIndex: spineIndex, resourceProvider: resourceProvider)
         let result = parsed ?? defaultViewport ?? CGSize(width: 600, height: 800)
+
+        lock.lock()
         pageCache[spineIndex] = result
+        lock.unlock()
+
         return result
     }
 
@@ -26,10 +34,18 @@ final class FixedLayoutViewportResolver {
         spineIndices: [Int],
         resourceProvider: BookResourceProvider
     ) async {
-        for i in spineIndices where pageCache[i] == nil {
+        for i in spineIndices {
+            lock.lock()
+            let isCached = pageCache[i] != nil
+            lock.unlock()
+            if isCached { continue }
+
             let parsed = await parseViewportFromXHTML(spineIndex: i, resourceProvider: resourceProvider)
             let result = parsed ?? defaultViewport ?? CGSize(width: 600, height: 800)
+
+            lock.lock()
             pageCache[i] = result
+            lock.unlock()
         }
     }
 
