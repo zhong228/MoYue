@@ -786,6 +786,11 @@ struct ReaderView: View {
                 ReaderMenuView(
                     chapters: chapters,
                     bookmarks: book?.bookmarks ?? [],
+                    coverImagePath: book?.coverImagePath,
+                    bookTitle: book?.title ?? "",
+                    currentPage: currentPage,
+                    totalPages: renderedPageCount,
+                    tocLayoutMode: .from(writingMode: effectiveWritingMode),
                     currentIndex: Binding(
                         get: { currentChapterIndex },
                         set: { jumpToChapter($0) }
@@ -2521,6 +2526,11 @@ enum ReaderMenuTab: String, CaseIterable {
 struct ReaderMenuView: View {
     let chapters: [BookChapter]
     let bookmarks: [Bookmark]
+    let coverImagePath: String?
+    let bookTitle: String
+    let currentPage: Int
+    let totalPages: Int
+    let tocLayoutMode: TOCLayoutMode
 
     @Binding var currentIndex: Int
     @Binding var isPresented: Bool
@@ -2533,6 +2543,13 @@ struct ReaderMenuView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
+                TOCBookHeader(
+                    coverImagePath: coverImagePath,
+                    bookTitle: bookTitle,
+                    currentPage: currentPage,
+                    totalPages: totalPages
+                )
+
                 tabBar
 
                 Divider()
@@ -2547,7 +2564,7 @@ struct ReaderMenuView: View {
                     }
                 }
             }
-            .navigationTitle(localized("目錄") + " / " + localized("書籤"))
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -2606,23 +2623,29 @@ struct ReaderMenuView: View {
                                 ? .system(size: 15, weight: .medium)
                                 : .system(size: 13)
                             )
-                            .foregroundColor(chapter.level == 0 ? .primary : .secondary)
+                            .foregroundColor(
+                                chapter.index == currentIndex
+                                ? .accentColor
+                                : (chapter.level == 0 ? .primary : .secondary)
+                            )
                             .lineLimit(2)
 
                         Spacer()
 
-                        if chapter.index == currentIndex {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 12))
-                                .foregroundColor(.blue)
-                        }
+                        Text("\(chapter.index + 1)")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(
+                                chapter.index == currentIndex
+                                ? .accentColor
+                                : .secondary.opacity(0.6)
+                            )
                     }
-                    .padding(.vertical, chapter.level == 0 ? 2 : 0)
+                    .padding(.vertical, chapter.level == 0 ? 6 : 4)
                 }
                 .buttonStyle(.plain)
                 .listRowBackground(
                     chapter.index == currentIndex
-                    ? Color.blue.opacity(0.08)
+                    ? DSColor.highlight
                     : Color.clear
                 )
                 .animation(.easeInOut(duration: 0.2), value: currentIndex)
