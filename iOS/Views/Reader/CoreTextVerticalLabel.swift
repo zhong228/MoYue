@@ -1,6 +1,6 @@
 import SwiftUI
-import CoreText
 import UIKit
+import CoreText
 
 struct CoreTextVerticalLabel: UIViewRepresentable {
     let text: String
@@ -17,16 +17,16 @@ struct CoreTextVerticalLabel: UIViewRepresentable {
     }
 
     func updateUIView(_ view: CoreTextVerticalLabelView, context: Context) {
-        view.text = maxCharacters.map { truncate(text, maxCount: $0) } ?? text
+        if let maxCharacters, text.count > maxCharacters {
+            view.text = String(text.prefix(max(0, maxCharacters - 1))) + "\u{2026}"
+        } else {
+            view.text = text
+        }
+
         view.fontSize = fontSize
         view.weight = weight
         view.textColor = textColor
         view.setNeedsDisplay()
-    }
-
-    private func truncate(_ value: String, maxCount: Int) -> String {
-        guard value.count > maxCount else { return value }
-        return String(value.prefix(max(0, maxCount - 1))) + "\u{2026}"
     }
 }
 
@@ -43,45 +43,49 @@ final class CoreTextVerticalLabelView: UIView {
         defer { context.restoreGState() }
 
         context.textMatrix = .identity
-        context.translateBy(x: 0, y: bounds.height)
-        context.scaleBy(x: 1, y: -1)
 
         let font = UIFont.systemFont(ofSize: fontSize, weight: weight)
         let ctFont = font as CTFont
 
-        let attr = NSMutableAttributedString(
-            string: text,
-            attributes: [
-                kCTFontAttributeName as NSAttributedString.Key: ctFont,
-                kCTForegroundColorAttributeName as NSAttributedString.Key: textColor.cgColor,
-                kCTVerticalFormsAttributeName as NSAttributedString.Key: true
-            ]
-        )
+        let x = bounds.midX
+        var y: CGFloat = 0
+        let advance = ceil(fontSize * 1.15)
 
-        let framesetter = CTFramesetterCreateWithAttributedString(attr)
+        for scalar in text.map(String.init) {
+            let advanceY = adjustedAdvance(for: scalar)
 
-        let columnWidth = ceil(fontSize * 1.35)
-        let drawRect = CGRect(
-            x: bounds.width - columnWidth,
-            y: 0,
-            width: columnWidth,
-            height: bounds.height
-        )
+            let attr = NSAttributedString(
+                string: scalar,
+                attributes: [
+                    kCTFontAttributeName as NSAttributedString.Key: ctFont,
+                    kCTForegroundColorAttributeName as NSAttributedString.Key: textColor.cgColor,
+                    kCTVerticalFormsAttributeName as NSAttributedString.Key: true
+                ]
+            )
 
-        let path = CGMutablePath()
-        path.addRect(drawRect)
+            let line = CTLineCreateWithAttributedString(attr)
 
-        let frameAttributes: CFDictionary = [
-            kCTFrameProgressionAttributeName: CTFrameProgression.rightToLeft.rawValue
-        ] as CFDictionary
+            let lineBounds = CTLineGetBoundsWithOptions(line, [.useGlyphPathBounds])
+            let drawX = x - lineBounds.width / 2 - lineBounds.origin.x
+            let drawY = bounds.height - y - fontSize
 
-        let frame = CTFramesetterCreateFrame(
-            framesetter,
-            CFRange(location: 0, length: attr.length),
-            path,
-            frameAttributes
-        )
+            context.textPosition = CGPoint(x: drawX, y: drawY)
+            CTLineDraw(line, context)
 
-        CTFrameDraw(frame, context)
+            y += advanceY
+
+            if y + fontSize > bounds.height {
+                break
+            }
+        }
+    }
+
+    private func adjustedAdvance(for scalar: String) -> CGFloat {
+        switch scalar {
+        case "\u{3001}", "\u{3002}", "\u{FF0C}", "\u{FF0E}":  // 、。，．
+            return ceil(fontSize * 0.65)
+        default:
+            return ceil(fontSize * 1.15)
+        }
     }
 }
