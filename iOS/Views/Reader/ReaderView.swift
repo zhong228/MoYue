@@ -2665,6 +2665,8 @@ private struct VerticalTOCView: View {
     let currentIndex: Int
     let onSelectChapter: (Int) -> Void
 
+    @State private var didInitialTOCScroll = false
+
     private var reversedChapters: [BookChapter] {
         Array(chapters.reversed())
     }
@@ -2673,10 +2675,10 @@ private struct VerticalTOCView: View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: VerticalTOCLayout.columnSpacing) {
-                    ForEach(reversedChapters) { chapter in
+                    ForEach(Array(reversedChapters.enumerated()), id: \.element.id) { offset, chapter in
                         VerticalTOCColumn(
                             title: chapter.title,
-                            page: chapter.index + 1,
+                            page: offset + 1,
                             isSelected: chapter.index == currentIndex
                         ) {
                             onSelectChapter(chapter.index)
@@ -2688,12 +2690,11 @@ private struct VerticalTOCView: View {
                 .padding(.top, 18)
             }
             .onAppear {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    if chapters.first(where: { $0.index == currentIndex }) != nil {
-                        withAnimation {
-                            proxy.scrollTo(currentIndex, anchor: .trailing)
-                        }
-                    }
+                guard !didInitialTOCScroll else { return }
+                didInitialTOCScroll = true
+
+                if chapters.first(where: { $0.index == currentIndex }) != nil {
+                    proxy.scrollTo(currentIndex, anchor: .trailing)
                 }
             }
         }
