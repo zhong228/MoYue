@@ -1,0 +1,189 @@
+import UIKit
+
+@MainActor
+final class FixedLayoutPageEngine: PageRenderingProvider {
+    private let session: PublicationSession
+    private let resourceProvider: BookResourceProvider
+    private var viewportResolver: FixedLayoutViewportResolver
+
+    private(set) var totalPages: Int = 0
+    private(set) var currentPage: Int = 0
+    private(set) var renderSize: CGSize = .zero
+    let offsetStore: CharOffsetStore
+
+    private var pageVCs: [Int: FixedLayoutPageViewController] = [:]
+
+    var onChapterReady: ((Int?) -> Void)?
+    var onNavigateToPage: ((Int) -> Void)?
+
+    init(session: PublicationSession, renderSize: CGSize) {
+        self.session = session
+        self.resourceProvider = ReadiumBookResourceAdapter(session: session)
+        self.totalPages = session.chapters.count
+        self.renderSize = renderSize
+        self.viewportResolver = FixedLayoutViewportResolver(
+            defaultViewport: session.fixedLayoutViewport?.defaultViewport
+        )
+        let storeDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("epub_charoffsets/\(session.id)")
+        self.offsetStore = CharOffsetStore(directoryURL: storeDir)
+    }
+
+    // MARK: - PageLayoutEngine
+
+    var layouts: [Int : CoreTextPaginator.ChapterLayout] { [:] }
+
+    func pageIndex(forSpine spineIndex: Int, charOffset: Int) -> Int {
+        spineIndex
+    }
+
+    func pageIndex(for position: CoreTextReadingPosition) -> Int? {
+        let idx = position.spineIndex
+        guard idx >= 0, idx < totalPages else { return nil }
+        return idx
+    }
+
+    func readingPosition(forPage page: Int) -> CoreTextReadingPosition? {
+        guard page >= 0, page < totalPages else { return nil }
+        return CoreTextReadingPosition(spineIndex: page, charOffset: 0)
+    }
+
+    func charOffset(forPage page: Int) -> (spineIndex: Int, charOffset: Int) {
+        if page >= 0, page < totalPages {
+            return (page, 0)
+        }
+        return (0, 0)
+    }
+
+    func localPosition(for globalPage: Int) -> (spineIndex: Int, localPage: Int) {
+        if globalPage >= 0, globalPage < totalPages {
+            return (globalPage, 0)
+        }
+        return (0, 0)
+    }
+
+    func lastPageIndex(ofChapter spineIndex: Int) -> Int? {
+        guard spineIndex >= 0, spineIndex < totalPages else { return nil }
+        return spineIndex
+    }
+
+    func plainText(forPage page: Int) -> String {
+        ""
+    }
+
+    func totalProgress(forSpine spineIndex: Int, charOffset: Int) -> Double {
+        guard totalPages > 0 else { return 0 }
+        return Double(spineIndex) / Double(totalPages)
+    }
+
+    func position(forProgress progress: Double) -> (spineIndex: Int, charOffset: Int) {
+        let idx = Int((progress * Double(max(totalPages - 1, 0))).rounded())
+        return (max(0, min(idx, totalPages - 1)), 0)
+    }
+
+    func resolveInternalLink(_ href: String, fromSpineIndex spineIndex: Int) async -> Int? {
+        nil
+    }
+
+    func start(renderSize: CGSize, bookId: String) async {
+        self.renderSize = renderSize
+        guard totalPages > 0 else { return }
+
+        let priority = Set([0, 1].filter { $0 < totalPages })
+        await withTaskGroup(of: Void.self) { group in
+            for i in priority {
+                group.addTask { [weak self] in
+                    guard let self else { return }
+                    _ = await self.viewportResolver.viewport(for: i, resourceProvider: self.resourceProvider)
+                }
+            }
+        }
+    }
+
+    func preloadChapter(at spineIndex: Int) async {
+        guard spineIndex >= 0, spineIndex < totalPages else { return }
+        _ = await viewportResolver.viewport(for: spineIndex, resourceProvider: resourceProvider)
+    }
+
+    func invalidateLayout(newSize: CGSize) async {
+        renderSize = newSize
+        pageVCs.removeAll()
+        onChapterReady?(nil)
+    }
+
+    func warmUpNext(currentGlobalPage: Int) {
+        let idx = max(0, min(currentGlobalPage, totalPages - 1))
+        var priority: [Int] = []
+        if idx > 0 { priority.append(idx - 1) }
+        priority.append(idx)
+        if idx < totalPages - 1 { priority.append(idx + 1) }
+        for i in pageVCs.keys {
+            if !priority.contains(i) {
+                pageVCs[i] = nil
+            }
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.viewportResolver.prewarm(
+                spineIndices: priority,
+                resourceProvider: self.resourceProvider
+            )
+        }
+    }
+
+    func cancelPendingWork() {}
+
+    func notifyChapterDataChanged(at spineIndex: Int) async {
+        pageVCs[spineIndex] = nil
+        onChapterReady?(spineIndex)
+    }
+
+    func applyThemeChange(textColor: UIColor, backgroundColor: UIColor) {
+        pageVCs.removeAll()
+        onChapterReady?(nil)
+    }
+
+    func updateRenderSettings(_ settings: ReaderRenderSettings) {}
+
+    func setTextAnnotations(_ annotations: [CoreTextTextAnnotation]) {}
+
+    // MARK: - PageViewControllerVending
+
+    func pageViewController(at index: Int) -> UIViewController {
+        let spineIndex = max(0, min(index, totalPages - 1))
+        if let vc = pageVCs[spineIndex] {
+            return vc
+        }
+
+        let vc = FixedLayoutPageViewController()
+        pageVCs[spineIndex] = vc
+
+        Task { [weak self] in
+            guard let self else { return }
+            let pageSize = await self.viewportResolver.viewport(
+                for: spineIndex,
+                resourceProvider: self.resourceProvider
+            )
+            let html = (try? await self.resourceProvider.chapterHTML(at: spineIndex)) ?? ""
+            let baseURL = self.session.resourceURL(for: self.session.chapters[spineIndex].href)
+                .deletingLastPathComponent()
+            await MainActor.run {
+                vc.load(html: html, baseURL: baseURL, pageSize: pageSize, availableSize: self.renderSize)
+            }
+        }
+
+        return vc
+    }
+
+    func pageViewController(for position: CoreTextReadingPosition) -> UIViewController {
+        pageViewController(at: max(0, min(position.spineIndex, totalPages - 1)))
+    }
+
+    func snapshotViewController(at index: Int) -> UIViewController? {
+        pageViewController(at: max(0, min(index, totalPages - 1)))
+    }
+
+    func renderSnapshot(forPage globalPage: Int) -> UIImage? {
+        nil
+    }
+}

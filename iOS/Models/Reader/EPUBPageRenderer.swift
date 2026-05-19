@@ -86,7 +86,17 @@ final class EPUBPageRenderer: ObservableObject {
         layoutMode = session.layoutMode
         fixedLayoutViewport = session.fixedLayoutViewport
 
-        guard session.layoutMode != .prePaginated else { return }
+        let effectiveSize = renderSize.width > 0 ? renderSize : lastViewportSize
+
+        guard session.layoutMode != .prePaginated else {
+            let fixedEngine = FixedLayoutPageEngine(session: session, renderSize: effectiveSize)
+            self.engine = fixedEngine
+            isCoreTextReady = true
+            Task {
+                await fixedEngine.start(renderSize: effectiveSize, bookId: bookIdentifier)
+            }
+            return
+        }
 
         let docsURL = FileManager.default.urls(
             for: .documentDirectory, in: .userDomainMask
@@ -96,7 +106,6 @@ final class EPUBPageRenderer: ObservableObject {
         )
         let store = CharOffsetStore(directoryURL: progressDir)
 
-        let effectiveSize = renderSize.width > 0 ? renderSize : lastViewportSize
         configureProgressStore(bookIdentifier: bookIdentifier)
         progressChapters = session.chapters.map {
             ProgressChapterMetadata(href: $0.href, title: $0.title)

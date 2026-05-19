@@ -400,6 +400,7 @@
 "主題" = "Theme";
 "背景" = "Background";
 "白天" = "Day";
+"深色" = "Dark";
 "護眼" = "Sepia";
 "夜間" = "Night";
 "閱" = "Read";
@@ -494,8 +495,8 @@
 "RSS 解析成功，但沒有找到文章。" = "RSS parsed successfully, but no articles were found.";
 "RSS XML 解析失敗。" = "RSS XML parse failed.";
 "章節進度" = "Chapter Progress";
-"上一章" = "Previous Chapter";
-"下一章" = "Next Chapter";
+"上一章" = "Prev";
+"下一章" = "Next";
 "章節開始" = "Chapter Start";
 "章節結尾" = "Chapter End";
 "聽書位置不同步" = "Listening Position Changed";

@@ -513,14 +513,33 @@ struct ReaderView: View {
                     Spacer()
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            } else if usesFixedLayoutRenderer {
-                VStack {
-                    Spacer()
-                    Text(localized("Fixed-layout EPUB detected"))
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            } else if usesFixedLayoutRenderer, let flEngine = epubRenderer.engine {
+                CoreTextPageEngineView(
+                    engine: flEngine,
+                    pageTurnStyle: settings.pageTurnStyle,
+                    theme: readerTheme,
+                    playbackHighlightText: nil,
+                    isRTL: false,
+                    currentPage: $currentPage,
+                    onPageChanged: { newPage in
+                        currentPage = newPage
+                    },
+                    onTapZone: { zone in
+                        switch zone {
+                        case "left":
+                            guard !showBars else { return }
+                            goToPrevPage()
+                        case "right":
+                            guard !showBars else { return }
+                            goToNextPage()
+                        default:
+                            withAnimation(.easeInOut(duration: 0.2)) { showBars.toggle() }
+                        }
+                    }
+                )
+                .id(settings.pageTurnStyle)
+                .ignoresSafeArea()
+                .transition(.opacity.animation(.easeOut(duration: 0.25)))
             } else if settings.scrollMode {
                 scrollBody
                     .transition(.opacity.animation(.easeOut(duration: 0.25)))
@@ -2509,6 +2528,81 @@ private struct TOCBookHeader: View {
 }
 
 // MARK: - Combined Bookmarks & TOC Panel
+
+private struct VerticalTOCView: View {
+    let chapters: [BookChapter]
+    let currentIndex: Int
+    let onSelectChapter: (Int) -> Void
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(chapters.reversed()) { chapter in
+                        VStack(spacing: 0) {
+                            Text(chapter.title)
+                                .font(
+                                    chapter.level == 0
+                                    ? .system(size: 13, weight: .medium)
+                                    : .system(size: 11)
+                                )
+                                .foregroundColor(
+                                    chapter.index == currentIndex
+                                    ? .accentColor
+                                    : (chapter.level == 0 ? .primary : .secondary)
+                                )
+                                .lineLimit(6)
+
+                            Spacer()
+
+                            Text("\(chapter.index + 1)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(.secondary.opacity(0.6))
+                        }
+                        .frame(width: 56)
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 8)
+                        .background(
+                            chapter.index == currentIndex
+                            ? DSColor.accentLight
+                            : Color.clear
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            HStack(spacing: 0) {
+                                if chapter.index == currentIndex {
+                                    Rectangle()
+                                        .fill(Color.accentColor)
+                                        .frame(width: 3)
+                                    Spacer()
+                                }
+                            }
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            onSelectChapter(chapter.index)
+                        }
+                        .id(chapter.index)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+            }
+            .flipsForRightToLeftLayoutDirection(true)
+            .environment(\.layoutDirection, .rightToLeft)
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    if chapters.first(where: { $0.index == currentIndex }) != nil {
+                        withAnimation {
+                            proxy.scrollTo(currentIndex, anchor: .center)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 enum ReaderMenuTab: String, CaseIterable {
     case toc
     case bookmarks
@@ -2557,7 +2651,18 @@ struct ReaderMenuView: View {
                 Group {
                     switch selectedTab {
                     case .toc:
-                        tocContent
+                        if tocLayoutMode == .verticalRTLColumns {
+                            VerticalTOCView(
+                                chapters: chapters,
+                                currentIndex: currentIndex,
+                                onSelectChapter: { idx in
+                                    currentIndex = idx
+                                    isPresented = false
+                                }
+                            )
+                        } else {
+                            tocContent
+                        }
 
                     case .bookmarks:
                         bookmarkContent
