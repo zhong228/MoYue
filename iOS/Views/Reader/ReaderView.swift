@@ -2639,7 +2639,7 @@ private struct VerticalTOCColumn: View {
                         cornerRadius: VerticalTOCLayout.selectedCornerRadius,
                         style: .continuous
                     )
-                    .fill(isSelected ? Color.primary.opacity(0.08) : Color.clear)
+                    .fill(isSelected ? Color.primary.opacity(0.06) : Color.clear)
                 }
             }
             .overlay(alignment: .leading) {
