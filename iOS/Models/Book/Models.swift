@@ -548,6 +548,15 @@ enum ReaderWritingMode: String, CaseIterable, Codable {
     }
 }
 
+enum TOCLayoutMode {
+    case horizontalList
+    case verticalRTLColumns
+
+    static func from(writingMode: ReaderWritingMode) -> TOCLayoutMode {
+        writingMode.isVertical ? .verticalRTLColumns : .horizontalList
+    }
+}
+
 extension ReadingBook {
     var allowsVerticalWritingMode: Bool {
         if isOnline { return true }
