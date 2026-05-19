@@ -2525,6 +2525,96 @@ private struct TOCBookHeader: View {
 
 // MARK: - Combined Bookmarks & TOC Panel
 
+private enum VerticalTOCGlyph: Identifiable {
+    case cjk(String, id: UUID = UUID())
+    case punctuation(String, id: UUID = UUID())
+    case ascii(String, id: UUID = UUID())
+    case spacer(CGFloat, id: UUID = UUID())
+
+    var id: UUID {
+        switch self {
+        case .cjk(_, let id), .punctuation(_, let id), .ascii(_, let id), .spacer(_, let id):
+            return id
+        }
+    }
+}
+
+private struct VerticalChapterText: View {
+    let title: String
+    var fontSize: CGFloat = 24
+    var weight: Font.Weight = .bold
+    var color: Color = .primary
+    var maxCount: Int = 28
+
+    private var glyphs: [VerticalTOCGlyph] {
+        makeVerticalGlyphs(title, maxCount: maxCount)
+    }
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ForEach(glyphs) { glyph in
+                glyphView(glyph)
+            }
+        }
+        .frame(width: fontSize + 12, alignment: .top)
+    }
+
+    @ViewBuilder
+    private func glyphView(_ glyph: VerticalTOCGlyph) -> some View {
+        switch glyph {
+        case .cjk(let s, _):
+            Text(s)
+                .font(.system(size: fontSize, weight: weight))
+                .foregroundStyle(color)
+                .frame(width: fontSize + 8, height: fontSize + 4)
+
+        case .punctuation(let s, _):
+            Text(s)
+                .font(.system(size: fontSize * 0.9, weight: weight))
+                .foregroundStyle(color)
+                .frame(width: fontSize + 8, height: fontSize * 0.55, alignment: .topTrailing)
+                .offset(x: fontSize * 0.16, y: -fontSize * 0.12)
+
+        case .ascii(let s, _):
+            Text(s)
+                .font(.system(size: fontSize * 0.68, weight: weight))
+                .foregroundStyle(color)
+                .rotationEffect(.degrees(90))
+                .frame(width: fontSize + 8, height: fontSize)
+
+        case .spacer(let h, _):
+            Color.clear.frame(height: h)
+        }
+    }
+}
+
+private func makeVerticalGlyphs(_ title: String, maxCount: Int) -> [VerticalTOCGlyph] {
+    let cleaned = title
+        .replacingOccurrences(of: " ", with: "")
+        .replacingOccurrences(of: "\u{3000}", with: "")
+        .replacingOccurrences(of: "\u{FF08}", with: "(")
+        .replacingOccurrences(of: "\u{FF09}", with: ")")
+
+    let chars = Array(cleaned)
+    let limited = chars.count > maxCount
+        ? Array(chars.prefix(maxCount - 1)) + ["\u{2026}"]
+        : chars
+
+    return limited.map { ch in
+        let s = String(ch)
+
+        if "\u{FF0C}\u{3002}\u{3001}\u{FF0E}\u{FF61}\u{FF64}".contains(ch) {
+            return .punctuation(s)
+        }
+
+        if ch.unicodeScalars.allSatisfy({ $0.isASCII }) {
+            return .ascii(s)
+        }
+
+        return .cjk(s)
+    }
+}
+
 private struct VerticalTOCView: View {
     let chapters: [BookChapter]
     let currentIndex: Int
@@ -2537,7 +2627,12 @@ private struct VerticalTOCView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                columnsView
+                HStack(alignment: .top, spacing: 8) {
+                    ForEach(reversedChapters) { chapter in
+                        chapterColumn(chapter)
+                            .id(chapter.index)
+                    }
+                }
                 .padding(.horizontal, 24)
                 .padding(.top, 28)
             }
@@ -2553,56 +2648,44 @@ private struct VerticalTOCView: View {
         }
     }
 
-    private var columnsView: some View {
-        HStack(alignment: .top, spacing: 8) {
-            ForEach(reversedChapters) { chapter in
-                chapterColumn(chapter)
-                    .id(chapter.index)
-            }
-        }
-    }
-
     private func chapterColumn(_ chapter: BookChapter) -> some View {
         let isSelected = chapter.index == currentIndex
-        let fontSize: CGFloat = chapter.level == 0 ? 22 : 18
-        let weight: UIFont.Weight = isSelected ? .bold : .regular
-        let color: UIColor = isSelected ? .systemBlue : .label
 
-        return VStack(alignment: .center, spacing: 0) {
-            CoreTextVerticalLabel(
-                text: chapter.title,
-                fontSize: fontSize,
-                weight: weight,
-                textColor: color,
-                maxCharacters: 28
+        return Button {
+            onSelectChapter(chapter.index)
+        } label: {
+            VStack(spacing: 10) {
+                VerticalChapterText(
+                    title: chapter.title,
+                    fontSize: chapter.level == 0 ? 22 : 18,
+                    weight: isSelected ? .bold : .regular,
+                    color: isSelected ? .accentColor : .primary,
+                    maxCount: 28
+                )
+                .frame(width: 44, alignment: .top)
+
+                Spacer(minLength: 8)
+
+                Text("\(chapter.index + 1)")
+                    .font(.system(size: 14, design: .monospaced))
+                    .foregroundColor(isSelected ? .accentColor : .secondary)
+            }
+            .frame(minWidth: 76, maxHeight: .infinity, alignment: .top)
+            .padding(.top, 24)
+            .padding(.bottom, 20)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isSelected ? DSColor.accentLight : Color.clear)
             )
-            .frame(width: 40, height: 420, alignment: .top)
-            .clipped()
-
-            Spacer(minLength: 8)
-
-            Text("\(chapter.index + 1)")
-                .font(.system(size: 14, design: .monospaced))
-                .foregroundColor(isSelected ? .accentColor : .secondary)
-        }
-        .frame(minWidth: 76, maxHeight: .infinity, alignment: .top)
-        .padding(.top, 24)
-        .padding(.bottom, 20)
-        .background(
-            isSelected ? DSColor.accentLight : Color.clear
-        )
-        .overlay(alignment: .leading) {
-            if isSelected {
-                Rectangle()
-                    .fill(Color.accentColor)
-                    .frame(width: 4)
+            .overlay(alignment: .leading) {
+                if isSelected {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(width: 4)
+                }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onSelectChapter(chapter.index)
-        }
+        .buttonStyle(.plain)
     }
 }
 
