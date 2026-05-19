@@ -2525,93 +2525,112 @@ private struct TOCBookHeader: View {
 
 // MARK: - Combined Bookmarks & TOC Panel
 
-private enum VerticalTOCGlyph: Identifiable {
-    case cjk(String, id: UUID = UUID())
-    case punctuation(String, id: UUID = UUID())
-    case ascii(String, id: UUID = UUID())
-    case spacer(CGFloat, id: UUID = UUID())
-
-    var id: UUID {
-        switch self {
-        case .cjk(_, let id), .punctuation(_, let id), .ascii(_, let id), .spacer(_, let id):
-            return id
-        }
-    }
-}
-
-private struct VerticalChapterText: View {
-    let title: String
-    var fontSize: CGFloat = 24
-    var weight: Font.Weight = .bold
+private struct VerticalTOCText: View {
+    let text: String
+    var font: Font = .system(size: 24, weight: .bold)
     var color: Color = .primary
-    var maxCount: Int = 28
+    var maxCharacters: Int = 28
 
-    private var glyphs: [VerticalTOCGlyph] {
-        makeVerticalGlyphs(title, maxCount: maxCount)
+    private var displayCharacters: [String] {
+        let cleaned = text
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "\u{3000}", with: "")
+
+        let chars = Array(cleaned)
+        let limited: [Character]
+
+        if chars.count > maxCharacters {
+            limited = Array(chars.prefix(maxCharacters - 1)) + ["\u{2026}"]
+        } else {
+            limited = chars
+        }
+
+        return limited.map(String.init)
     }
 
     var body: some View {
         VStack(spacing: 2) {
-            ForEach(glyphs) { glyph in
-                glyphView(glyph)
+            ForEach(Array(displayCharacters.enumerated()), id: \.offset) { _, char in
+                verticalGlyph(char)
             }
         }
-        .frame(width: fontSize + 12, alignment: .top)
+        .frame(width: 44, alignment: .top)
     }
 
     @ViewBuilder
-    private func glyphView(_ glyph: VerticalTOCGlyph) -> some View {
-        switch glyph {
-        case .cjk(let s, _):
-            Text(s)
-                .font(.system(size: fontSize, weight: weight))
+    private func verticalGlyph(_ char: String) -> some View {
+        if isCompressedPunctuation(char) {
+            Text(char)
+                .font(font)
                 .foregroundStyle(color)
-                .frame(width: fontSize + 8, height: fontSize + 4)
-
-        case .punctuation(let s, _):
-            Text(s)
-                .font(.system(size: fontSize * 0.9, weight: weight))
-                .foregroundStyle(color)
-                .frame(width: fontSize + 8, height: fontSize * 0.55, alignment: .topTrailing)
-                .offset(x: fontSize * 0.16, y: -fontSize * 0.12)
-
-        case .ascii(let s, _):
-            Text(s)
-                .font(.system(size: fontSize * 0.68, weight: weight))
+                .frame(width: 34, height: 14, alignment: .topTrailing)
+                .offset(x: 5, y: -2)
+        } else if isASCII(char) {
+            Text(char)
+                .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(color)
                 .rotationEffect(.degrees(90))
-                .frame(width: fontSize + 8, height: fontSize)
-
-        case .spacer(let h, _):
-            Color.clear.frame(height: h)
+                .frame(width: 34, height: 24)
+        } else {
+            Text(char)
+                .font(font)
+                .foregroundStyle(color)
+                .frame(width: 34, height: 28)
         }
+    }
+
+    private func isCompressedPunctuation(_ char: String) -> Bool {
+        ["\u{FF0C}", "\u{3002}", "\u{3001}", "\u{FF0E}", ".", ",", "\u{FF61}", "\u{FF64}"].contains(char)
+    }
+
+    private func isASCII(_ char: String) -> Bool {
+        char.unicodeScalars.allSatisfy { $0.isASCII }
     }
 }
 
-private func makeVerticalGlyphs(_ title: String, maxCount: Int) -> [VerticalTOCGlyph] {
-    let cleaned = title
-        .replacingOccurrences(of: " ", with: "")
-        .replacingOccurrences(of: "\u{3000}", with: "")
-        .replacingOccurrences(of: "\u{FF08}", with: "(")
-        .replacingOccurrences(of: "\u{FF09}", with: ")")
+private struct VerticalTOCColumn<ItemID: Hashable>: View {
+    let id: ItemID
+    let title: String
+    let page: Int
+    let isSelected: Bool
+    let action: () -> Void
 
-    let chars = Array(cleaned)
-    let limited = chars.count > maxCount
-        ? Array(chars.prefix(maxCount - 1)) + ["\u{2026}"]
-        : chars
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 10) {
+                VerticalTOCText(
+                    text: title,
+                    font: .system(size: 24, weight: .bold),
+                    color: isSelected ? .accentColor : .primary,
+                    maxCharacters: 28
+                )
+                .frame(width: 44, alignment: .top)
+                .frame(maxHeight: .infinity, alignment: .top)
 
-    return limited.map { ch in
-        let s = String(ch)
+                Spacer(minLength: 8)
 
-        if "\u{FF0C}\u{3002}\u{3001}\u{FF0E}\u{FF61}\u{FF64}".contains(ch) {
-            return .punctuation(s)
+                Text("\(page)")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(isSelected ? Color.blue : Color.secondary)
+            }
+            .frame(width: 76, alignment: .top)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .padding(.top, 24)
+            .padding(.bottom, 20)
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+            }
+            .overlay(alignment: .leading) {
+                if isSelected {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(width: 4)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
-
-        if ch.unicodeScalars.allSatisfy({ $0.isASCII }) {
-            return .ascii(s)
-        }
-
-        return .cjk(s)
+        .buttonStyle(.plain)
     }
 }
 
@@ -2629,8 +2648,15 @@ private struct VerticalTOCView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 8) {
                     ForEach(reversedChapters) { chapter in
-                        chapterColumn(chapter)
-                            .id(chapter.index)
+                        VerticalTOCColumn(
+                            id: chapter.index,
+                            title: chapter.title,
+                            page: chapter.index + 1,
+                            isSelected: chapter.index == currentIndex
+                        ) {
+                            onSelectChapter(chapter.index)
+                        }
+                        .id(chapter.index)
                     }
                 }
                 .padding(.horizontal, 24)
@@ -2646,46 +2672,6 @@ private struct VerticalTOCView: View {
                 }
             }
         }
-    }
-
-    private func chapterColumn(_ chapter: BookChapter) -> some View {
-        let isSelected = chapter.index == currentIndex
-
-        return Button {
-            onSelectChapter(chapter.index)
-        } label: {
-            VStack(spacing: 10) {
-                VerticalChapterText(
-                    title: chapter.title,
-                    fontSize: chapter.level == 0 ? 22 : 18,
-                    weight: isSelected ? .bold : .regular,
-                    color: isSelected ? .accentColor : .primary,
-                    maxCount: 28
-                )
-                .frame(width: 44, alignment: .top)
-
-                Spacer(minLength: 8)
-
-                Text("\(chapter.index + 1)")
-                    .font(.system(size: 14, design: .monospaced))
-                    .foregroundColor(isSelected ? .accentColor : .secondary)
-            }
-            .frame(minWidth: 76, maxHeight: .infinity, alignment: .top)
-            .padding(.top, 24)
-            .padding(.bottom, 20)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isSelected ? DSColor.accentLight : Color.clear)
-            )
-            .overlay(alignment: .leading) {
-                if isSelected {
-                    Rectangle()
-                        .fill(Color.accentColor)
-                        .frame(width: 4)
-                }
-            }
-        }
-        .buttonStyle(.plain)
     }
 }
 
