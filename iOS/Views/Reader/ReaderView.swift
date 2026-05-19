@@ -2455,6 +2455,47 @@ struct ReaderView: View {
     }
 }
 
+private struct TOCBookHeader: View {
+    let coverImagePath: String?
+    let bookTitle: String
+    let currentPage: Int
+    let totalPages: Int
+
+    var body: some View {
+        HStack(spacing: 16) {
+            if let coverPath = coverImagePath,
+               let image = UIImage(contentsOfFile: coverPath) {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 60, height: 84)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .shadow(color: DSColor.shadow, radius: 4, y: 2)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(bookTitle)
+                    .font(.headline)
+                    .lineLimit(2)
+
+                if totalPages > 0 {
+                    Text("第\(currentPage + 1)頁 / 共\(totalPages)頁")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else if totalPages == 0 {
+                    Text("第\(currentPage + 1)頁")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 12)
+    }
+}
+
 // MARK: - Combined Bookmarks & TOC Panel
 enum ReaderMenuTab: String, CaseIterable {
     case toc
