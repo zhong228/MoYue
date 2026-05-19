@@ -217,6 +217,17 @@ struct ReaderView: View {
         return allPages.count
     }
 
+    private var tocPageOffsets: [Int: Int] {
+        guard let engine = epubRenderer.engine, usesCoreTextEPUB else { return [:] }
+        var offsets: [Int: Int] = [:]
+        for chapter in chapters {
+            if offsets[chapter.index] == nil {
+                offsets[chapter.index] = engine.pageIndex(forSpine: chapter.index, charOffset: 0)
+            }
+        }
+        return offsets
+    }
+
     private var localEPUBBookIdentifier: String? {
         guard let currentBook = book, usesCoreTextEPUB else { return nil }
         if currentBook.resolvedPipelineKind == .epub {
@@ -810,6 +821,7 @@ struct ReaderView: View {
                     currentPage: currentPage,
                     totalPages: renderedPageCount,
                     tocLayoutMode: .from(writingMode: effectiveWritingMode),
+                    pageOffsets: tocPageOffsets,
                     currentIndex: Binding(
                         get: { currentChapterIndex },
                         set: { jumpToChapter($0) }
@@ -2712,6 +2724,7 @@ private struct VerticalTOCColumn: View {
 private struct VerticalTOCView: View {
     let chapters: [BookChapter]
     let currentIndex: Int
+    let pageOffsets: [Int: Int]
     let onSelectChapter: (Int) -> Void
 
     @State private var didInitialTOCScroll = false
@@ -2724,10 +2737,16 @@ private struct VerticalTOCView: View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: VerticalTOCLayout.columnSpacing) {
-                    ForEach(Array(reversedChapters.enumerated()), id: \.element.id) { offset, chapter in
+                    ForEach(Array(reversedChapters.enumerated()), id: \.element.id) { _, chapter in
+                        let pageNumber: Int = {
+                            if let offset = pageOffsets[chapter.index] {
+                                return offset + 1
+                            }
+                            return chapter.index + 1
+                        }()
                         VerticalTOCColumn(
                             title: chapter.title,
-                            page: offset + 1,
+                            page: pageNumber,
                             isSelected: chapter.index == currentIndex
                         ) {
                             onSelectChapter(chapter.index)
@@ -2772,6 +2791,7 @@ struct ReaderMenuView: View {
     let currentPage: Int
     let totalPages: Int
     let tocLayoutMode: TOCLayoutMode
+    let pageOffsets: [Int: Int]
 
     @Binding var currentIndex: Int
     @Binding var isPresented: Bool
@@ -2804,6 +2824,7 @@ struct ReaderMenuView: View {
                             VerticalTOCView(
                                 chapters: chapters,
                                 currentIndex: currentIndex,
+                                pageOffsets: pageOffsets,
                                 onSelectChapter: { idx in
                                     currentIndex = idx
                                     isPresented = false
@@ -2823,6 +2844,13 @@ struct ReaderMenuView: View {
             .navigationBarHidden(true)
         }
         .navigationViewStyle(.stack)
+    }
+
+    private func pageNumber(for chapter: BookChapter) -> Int {
+        if let offset = pageOffsets[chapter.index] {
+            return offset + 1
+        }
+        return chapter.index + 1
     }
 
     private var tabBar: some View {
@@ -2876,7 +2904,7 @@ struct ReaderMenuView: View {
 
                         Spacer()
 
-                        Text("\(chapter.index + 1)")
+                        Text("\(pageNumber(for: chapter))")
                             .font(.system(size: 18, weight: .regular, design: .monospaced))
                             .foregroundColor(.secondary)
                     }
