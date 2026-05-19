@@ -85,6 +85,7 @@ final class VerticalLayoutConfig {
     // MARK: - Cache
 
     private static var cache: [FontKey: [String: String]] = [:]
+    private static let lock = NSLock()
 
     private struct FontKey: Hashable {
         let name: String
@@ -96,7 +97,12 @@ final class VerticalLayoutConfig {
             name: CTFontCopyFullName(font) as String,
             size: CTFontGetSize(font)
         )
-        if let cached = cache[key] { return cached }
+        lock.lock()
+        if let cached = cache[key] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
 
         var map: [String: String] = [:]
         for (horizontal, vertical) in candidates {
@@ -105,7 +111,10 @@ final class VerticalLayoutConfig {
                 map[horizontal] = vertical
             }
         }
+        lock.lock()
         cache[key] = map
+        lock.unlock()
         return map
     }
 }
+
