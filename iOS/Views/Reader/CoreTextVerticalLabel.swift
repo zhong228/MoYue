@@ -60,7 +60,7 @@ final class CoreTextVerticalLabelView: UIView {
 
         let framesetter = CTFramesetterCreateWithAttributedString(attr)
 
-        let columnWidth = fontSize + 8
+        let columnWidth = ceil(fontSize * 1.35)
         let drawRect = CGRect(
             x: bounds.width - columnWidth,
             y: 0,
@@ -71,11 +71,15 @@ final class CoreTextVerticalLabelView: UIView {
         let path = CGMutablePath()
         path.addRect(drawRect)
 
+        let frameAttributes: CFDictionary = [
+            kCTFrameProgressionAttributeName: CTFrameProgression.rightToLeft.rawValue
+        ] as CFDictionary
+
         let frame = CTFramesetterCreateFrame(
             framesetter,
             CFRange(location: 0, length: attr.length),
             path,
-            nil
+            frameAttributes
         )
 
         CTFrameDraw(frame, context)

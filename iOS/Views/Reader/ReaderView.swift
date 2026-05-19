@@ -2577,6 +2577,7 @@ private struct VerticalTOCView: View {
                 maxCharacters: 28
             )
             .frame(width: 40, height: 420, alignment: .top)
+            .clipped()
 
             Spacer(minLength: 8)
 
