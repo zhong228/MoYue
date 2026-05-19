@@ -2525,71 +2525,71 @@ private struct TOCBookHeader: View {
 
 // MARK: - Combined Bookmarks & TOC Panel
 
+private enum VerticalTOCLayout {
+    static let columnWidth: CGFloat = 54
+    static let textWidth: CGFloat = 28
+    static let fontSize: CGFloat = 18
+    static let glyphHeight: CGFloat = 22
+    static let glyphSpacing: CGFloat = 0
+    static let columnSpacing: CGFloat = 6
+    static let topPadding: CGFloat = 22
+    static let bottomPadding: CGFloat = 20
+    static let selectedCornerRadius: CGFloat = 8
+    static let selectedBarWidth: CGFloat = 3
+}
+
 private struct VerticalTOCText: View {
     let text: String
-    var font: Font = .system(size: 24, weight: .bold)
-    var color: Color = .primary
-    var maxCharacters: Int = 28
+    var isSelected: Bool = false
+    var maxCharacters: Int = 24
 
-    private var displayCharacters: [String] {
+    private var chars: [String] {
         let cleaned = text
             .replacingOccurrences(of: " ", with: "")
             .replacingOccurrences(of: "\u{3000}", with: "")
 
-        let chars = Array(cleaned)
-        let limited: [Character]
-
-        if chars.count > maxCharacters {
-            limited = Array(chars.prefix(maxCharacters - 1)) + ["\u{2026}"]
-        } else {
-            limited = chars
-        }
+        let raw = Array(cleaned)
+        let limited = raw.count > maxCharacters
+            ? Array(raw.prefix(maxCharacters - 1)) + ["\u{2026}"]
+            : raw
 
         return limited.map(String.init)
     }
 
     var body: some View {
-        VStack(spacing: 2) {
-            ForEach(Array(displayCharacters.enumerated()), id: \.offset) { _, char in
-                verticalGlyph(char)
+        VStack(spacing: VerticalTOCLayout.glyphSpacing) {
+            ForEach(Array(chars.enumerated()), id: \.offset) { _, ch in
+                glyph(ch)
             }
         }
-        .frame(width: 44, alignment: .top)
+        .frame(width: VerticalTOCLayout.textWidth, alignment: .top)
     }
 
     @ViewBuilder
-    private func verticalGlyph(_ char: String) -> some View {
-        if isCompressedPunctuation(char) {
-            Text(char)
-                .font(font)
-                .foregroundStyle(color)
-                .frame(width: 34, height: 14, alignment: .topTrailing)
-                .offset(x: 5, y: -2)
-        } else if isASCII(char) {
-            Text(char)
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(color)
+    private func glyph(_ ch: String) -> some View {
+        if ["\u{FF0C}", "\u{3002}", "\u{3001}", "\u{FF0E}", ".", ","].contains(ch) {
+            Text(ch)
+                .font(.system(size: VerticalTOCLayout.fontSize * 0.82, weight: .semibold))
+                .frame(
+                    width: VerticalTOCLayout.textWidth,
+                    height: VerticalTOCLayout.glyphHeight * 0.55,
+                    alignment: .topTrailing
+                )
+                .offset(x: 3, y: -2)
+        } else if ch.unicodeScalars.allSatisfy({ $0.isASCII }) {
+            Text(ch)
+                .font(.system(size: 12, weight: .semibold))
                 .rotationEffect(.degrees(90))
-                .frame(width: 34, height: 24)
+                .frame(width: VerticalTOCLayout.textWidth, height: VerticalTOCLayout.glyphHeight)
         } else {
-            Text(char)
-                .font(font)
-                .foregroundStyle(color)
-                .frame(width: 34, height: 28)
+            Text(ch)
+                .font(.system(size: VerticalTOCLayout.fontSize, weight: .semibold))
+                .frame(width: VerticalTOCLayout.textWidth, height: VerticalTOCLayout.glyphHeight)
         }
-    }
-
-    private func isCompressedPunctuation(_ char: String) -> Bool {
-        ["\u{FF0C}", "\u{3002}", "\u{3001}", "\u{FF0E}", ".", ",", "\u{FF61}", "\u{FF64}"].contains(char)
-    }
-
-    private func isASCII(_ char: String) -> Bool {
-        char.unicodeScalars.allSatisfy { $0.isASCII }
     }
 }
 
-private struct VerticalTOCColumn<ItemID: Hashable>: View {
-    let id: ItemID
+private struct VerticalTOCColumn: View {
     let title: String
     let page: Int
     let isSelected: Bool
@@ -2597,38 +2597,48 @@ private struct VerticalTOCColumn<ItemID: Hashable>: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 10) {
+            VStack(spacing: 8) {
                 VerticalTOCText(
                     text: title,
-                    font: .system(size: 24, weight: .bold),
-                    color: isSelected ? .accentColor : .primary,
-                    maxCharacters: 28
+                    isSelected: isSelected,
+                    maxCharacters: 24
                 )
-                .frame(width: 44, alignment: .top)
+                .foregroundStyle(isSelected ? Color.blue : Color.primary)
+                .frame(width: VerticalTOCLayout.textWidth, alignment: .top)
                 .frame(maxHeight: .infinity, alignment: .top)
 
                 Spacer(minLength: 8)
 
                 Text("\(page)")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(isSelected ? Color.blue : Color.secondary)
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
             }
-            .frame(width: 76, alignment: .top)
+            .frame(width: VerticalTOCLayout.columnWidth, alignment: .top)
             .frame(maxHeight: .infinity, alignment: .top)
-            .padding(.top, 24)
-            .padding(.bottom, 20)
+            .padding(.top, VerticalTOCLayout.topPadding)
+            .padding(.bottom, VerticalTOCLayout.bottomPadding)
             .background {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+                if isSelected {
+                    RoundedRectangle(
+                        cornerRadius: VerticalTOCLayout.selectedCornerRadius,
+                        style: .continuous
+                    )
+                    .fill(Color.blue.opacity(0.12))
+                }
             }
             .overlay(alignment: .leading) {
                 if isSelected {
                     Rectangle()
-                        .fill(Color.accentColor)
-                        .frame(width: 4)
+                        .fill(Color.blue)
+                        .frame(width: VerticalTOCLayout.selectedBarWidth)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: VerticalTOCLayout.selectedCornerRadius,
+                    style: .continuous
+                )
+            )
         }
         .buttonStyle(.plain)
     }
@@ -2646,10 +2656,9 @@ private struct VerticalTOCView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 8) {
+                HStack(alignment: .top, spacing: VerticalTOCLayout.columnSpacing) {
                     ForEach(reversedChapters) { chapter in
                         VerticalTOCColumn(
-                            id: chapter.index,
                             title: chapter.title,
                             page: chapter.index + 1,
                             isSelected: chapter.index == currentIndex
@@ -2659,8 +2668,8 @@ private struct VerticalTOCView: View {
                         .id(chapter.index)
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 28)
+                .padding(.horizontal, 18)
+                .padding(.top, 18)
             }
             .onAppear {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
