@@ -3159,8 +3159,8 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             }
             var direction: UIPageViewController.NavigationDirection =
                 clampedPage >= visible.globalPageIndex ? .forward : .reverse
-            // RTL books have swapped data source methods; navigation direction must match (except for curl which uses spineLocation).
-            if isRTL && pageTurnStyle != .curl {
+            // RTL: swap navigation direction to match data source swap (Before↔After).
+            if isRTL {
                 direction = direction == .forward ? .reverse : .forward
             }
 
@@ -3446,9 +3446,10 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                   let view = recognizer.view else { return }
             let x = recognizer.location(in: view).x
             let w = view.bounds.width
-            // RTL books: swap tap zones. Left (away from spine) → next, right (near spine) → prev.
             let rawZone = x < w * 0.3 ? "left" : x > w * 0.7 ? "right" : "center"
             let zone: String
+            // Mirror the data source swap: swipe left-to-right = "before" = next page.
+            // Tap left side → same as swiping left → next page.  Tap right → prev page.
             if isRTL {
                 zone = rawZone == "left" ? "right" : rawZone == "right" ? "left" : "center"
             } else {
