@@ -1177,9 +1177,13 @@ _layouts[spineIndex] = _layouts[spineIndex]?.withUpdatedColors(textColor: textCo
         let oldOffsets = spinePageOffsets
         let oldPage = currentPage
         var offset = 0
-        
-        // Estimate bytes per page (~600 bytes per page for CJK text)
-        let avgBytesPerPage = 600 
+
+        // Estimate bytes per page, scaled by font size so totalPages tracks layout changes.
+        // At 20pt CJK, ~600 bytes/page. Larger font → fewer chars per page → fewer bytes per page.
+        let baseFontSize: CGFloat = 20
+        let referenceBytesPerPage: CGFloat = 600
+        let scale = baseFontSize / max(1, renderSettings.fontSize)
+        let avgBytesPerPage = max(100, Int(referenceBytesPerPage * scale * scale)) 
 
         spinePageOffsets = (0..<chapterCount).map { i in
             let start = offset
