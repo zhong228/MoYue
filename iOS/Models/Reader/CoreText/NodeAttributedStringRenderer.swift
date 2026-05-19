@@ -521,7 +521,8 @@ struct NodeAttributedStringRenderer {
         ctx: RenderContext
     ) async -> NSAttributedString {
         if let svgContent, !svgContent.isEmpty {
-            let resolvedWidth = config.renderWidth ?? UIScreen.main.bounds.width
+            let screenWidth = await MainActor.run { UIScreen.main.bounds.width }
+            let resolvedWidth = config.renderWidth ?? screenWidth
             let targetSize = await SVGWebViewRasterizer.shared.resolveSVGSize(
                 styleWidth: style.width,
                 styleHeight: style.height,
@@ -539,8 +540,8 @@ struct NodeAttributedStringRenderer {
                 attrs[.foregroundColor] = UIColor.secondaryLabel
                 return NSAttributedString(string: "[\(alt)]", attributes: attrs)
             }
-            let metrics = resolvedImageMetrics(image: image, style: style, font: ctx.font, displayMode: .inline)
-            return makeImagePlaceholder(
+            let metrics = await resolvedImageMetrics(image: image, style: style, font: ctx.font, displayMode: .inline)
+            return await makeImagePlaceholder(
                 image: image,
                 style: style,
                 ctx: ctx,
@@ -562,7 +563,7 @@ struct NodeAttributedStringRenderer {
 
         let image = src.isEmpty ? nil : await config.imageLoader?(src)
         CoreTextPaginator.debugVerticalLog("EPUBFLOW render.inlineImage.node src=\(src) alt=\(alt) imageLoaded=\(image != nil) writingMode=\(config.writingMode) fontSize=\(ctx.font.pointSize) styleWidth=\(style.width.map { "\($0)" } ?? "nil") styleHeight=\(style.height.map { "\($0)" } ?? "nil")")
-        return makeImagePlaceholder(
+        return await makeImagePlaceholder(
             image: image,
             style: style,
             ctx: ctx,
@@ -582,7 +583,8 @@ struct NodeAttributedStringRenderer {
         let blockCtx = applyBlockStyle(blockStyle, to: ctx, isHeading: isHeading, headingLevel: headingLevel)
         let image: UIImage?
         if let svgContent = payload.svgContent, !svgContent.isEmpty {
-            let resolvedWidth = config.renderWidth ?? UIScreen.main.bounds.width
+            let screenWidth = await MainActor.run { UIScreen.main.bounds.width }
+            let resolvedWidth = config.renderWidth ?? screenWidth
             let targetSize = await SVGWebViewRasterizer.shared.resolveSVGSize(
                 styleWidth: payload.style.width,
                 styleHeight: payload.style.height,
@@ -611,7 +613,7 @@ struct NodeAttributedStringRenderer {
         attachmentStyle.paddingRight += payload.style.paddingRight
         attachmentStyle.opacity = payload.style.opacity
 
-        let imageMetrics = resolvedImageMetrics(image: image, style: attachmentStyle, font: blockCtx.font, displayMode: .block)
+        let imageMetrics = await resolvedImageMetrics(image: image, style: attachmentStyle, font: blockCtx.font, displayMode: .block)
         let blockImage = HTMLAttributedStringBuilder.BlockRenderStyle.BlockImage(
             image: image,
             source: payload.src,
@@ -625,7 +627,7 @@ struct NodeAttributedStringRenderer {
         )
 
         let placeholder = NSMutableAttributedString(
-            attributedString: makeImagePlaceholder(
+            attributedString: await makeImagePlaceholder(
                 image: image,
                 style: attachmentStyle,
                 ctx: blockCtx,
@@ -670,8 +672,13 @@ struct NodeAttributedStringRenderer {
         imageAlt: String? = nil,
         displayMode: ImageRunInfo.DisplayMode,
         precomputedMetrics: ImageMetrics? = nil
-    ) -> NSAttributedString {
-        let metrics = precomputedMetrics ?? resolvedImageMetrics(image: image, style: style, font: ctx.font, displayMode: displayMode)
+    ) async -> NSAttributedString {
+        let metrics: ImageMetrics
+        if let precomputedMetrics {
+            metrics = precomputedMetrics
+        } else {
+            metrics = await resolvedImageMetrics(image: image, style: style, font: ctx.font, displayMode: displayMode)
+        }
         let placeholder = NSMutableAttributedString(
             attributedString: RunDelegateProvider.makeImagePlaceholder(
                 image: image,
@@ -752,9 +759,11 @@ struct NodeAttributedStringRenderer {
         return String(normalized.prefix(limit))
     }
 
-    private func resolvedImageMetrics(image: UIImage?, style: RenderStyle, font: UIFont, displayMode: ImageRunInfo.DisplayMode = .inline) -> ImageMetrics {
-        let availableWidth = max(1, (config.renderWidth ?? UIScreen.main.bounds.width) - style.paddingLeft - style.paddingRight)
-        let maxDrawHeight = max(1, (config.renderWidth ?? UIScreen.main.bounds.width) * 1.5)
+    private func resolvedImageMetrics(image: UIImage?, style: RenderStyle, font: UIFont, displayMode: ImageRunInfo.DisplayMode = .inline) async -> ImageMetrics {
+        let screenWidth = await MainActor.run { UIScreen.main.bounds.width }
+        let baseWidth = config.renderWidth ?? screenWidth
+        let availableWidth = max(1, baseWidth - style.paddingLeft - style.paddingRight)
+        let maxDrawHeight = max(1, baseWidth * 1.5)
         let isVertical = self.isVertical(style)
 
         var drawWidth: CGFloat

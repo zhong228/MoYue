@@ -2,7 +2,7 @@ import UIKit
 import WebKit
 
 @MainActor
-final class FixedLayoutPageViewController: UIViewController, PageIndexProviding {
+final class FixedLayoutPageViewController: UIViewController,    PageIndexProviding {
     private(set) var globalPageIndex: Int = 0
 
     private let webView: WKWebView = {

@@ -13,19 +13,16 @@ final class FixedLayoutViewportResolver {
         for spineIndex: Int,
         resourceProvider: BookResourceProvider
     ) async -> CGSize {
-        lock.lock()
-        if let cached = pageCache[spineIndex] {
-            lock.unlock()
+        if let cached = lock.withLock({ pageCache[spineIndex] }) {
             return cached
         }
-        lock.unlock()
 
         let parsed = await parseViewportFromXHTML(spineIndex: spineIndex, resourceProvider: resourceProvider)
         let result = parsed ?? defaultViewport ?? CGSize(width: 600, height: 800)
 
-        lock.lock()
-        pageCache[spineIndex] = result
-        lock.unlock()
+        lock.withLock {
+            pageCache[spineIndex] = result
+        }
 
         return result
     }
@@ -35,17 +32,15 @@ final class FixedLayoutViewportResolver {
         resourceProvider: BookResourceProvider
     ) async {
         for i in spineIndices {
-            lock.lock()
-            let isCached = pageCache[i] != nil
-            lock.unlock()
+            let isCached = lock.withLock { pageCache[i] != nil }
             if isCached { continue }
 
             let parsed = await parseViewportFromXHTML(spineIndex: i, resourceProvider: resourceProvider)
             let result = parsed ?? defaultViewport ?? CGSize(width: 600, height: 800)
 
-            lock.lock()
-            pageCache[i] = result
-            lock.unlock()
+            lock.withLock {
+                pageCache[i] = result
+            }
         }
     }
 
