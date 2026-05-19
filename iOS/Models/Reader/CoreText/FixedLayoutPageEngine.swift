@@ -4,7 +4,7 @@ import UIKit
 final class FixedLayoutPageEngine: PageRenderingProvider {
     private let session: PublicationSession
     private let resourceProvider: BookResourceProvider
-    private var viewportResolver: FixedLayoutViewportResolver
+    private let viewportResolver: FixedLayoutViewportResolver
 
     private(set) var totalPages: Int = 0
     private(set) var currentPage: Int = 0
@@ -38,9 +38,8 @@ final class FixedLayoutPageEngine: PageRenderingProvider {
     }
 
     func pageIndex(for position: CoreTextReadingPosition) -> Int? {
-        let idx = position.spineIndex
-        guard idx >= 0, idx < totalPages else { return nil }
-        return idx
+        guard position.spineIndex >= 0, position.spineIndex < totalPages else { return nil }
+        return position.spineIndex
     }
 
     func readingPosition(forPage page: Int) -> CoreTextReadingPosition? {
@@ -49,17 +48,13 @@ final class FixedLayoutPageEngine: PageRenderingProvider {
     }
 
     func charOffset(forPage page: Int) -> (spineIndex: Int, charOffset: Int) {
-        if page >= 0, page < totalPages {
-            return (page, 0)
-        }
-        return (0, 0)
+        guard page >= 0, page < totalPages else { return (0, 0) }
+        return (page, 0)
     }
 
     func localPosition(for globalPage: Int) -> (spineIndex: Int, localPage: Int) {
-        if globalPage >= 0, globalPage < totalPages {
-            return (globalPage, 0)
-        }
-        return (0, 0)
+        guard globalPage >= 0, globalPage < totalPages else { return (0, 0) }
+        return (globalPage, 0)
     }
 
     func lastPageIndex(ofChapter spineIndex: Int) -> Int? {
@@ -67,9 +62,7 @@ final class FixedLayoutPageEngine: PageRenderingProvider {
         return spineIndex
     }
 
-    func plainText(forPage page: Int) -> String {
-        ""
-    }
+    func plainText(forPage page: Int) -> String { "" }
 
     func totalProgress(forSpine spineIndex: Int, charOffset: Int) -> Double {
         guard totalPages > 0 else { return 0 }
@@ -81,18 +74,16 @@ final class FixedLayoutPageEngine: PageRenderingProvider {
         return (max(0, min(idx, totalPages - 1)), 0)
     }
 
-    func resolveInternalLink(_ href: String, fromSpineIndex spineIndex: Int) async -> Int? {
-        nil
-    }
+    func resolveInternalLink(_ href: String, fromSpineIndex spineIndex: Int) async -> Int? { nil }
 
     func start(renderSize: CGSize, bookId: String) async {
         self.renderSize = renderSize
         guard totalPages > 0 else { return }
 
         let priority = Set([0, 1].filter { $0 < totalPages })
-        await withTaskGroup(of: Void.self) { group in
+        await withTaskGroup(of: Void.self) { @MainActor group in
             for i in priority {
-                group.addTask { [weak self] in
+                group.addTask { @MainActor [weak self] in
                     guard let self else { return }
                     _ = await self.viewportResolver.viewport(for: i, resourceProvider: self.resourceProvider)
                 }
@@ -117,12 +108,10 @@ final class FixedLayoutPageEngine: PageRenderingProvider {
         if idx > 0 { priority.append(idx - 1) }
         priority.append(idx)
         if idx < totalPages - 1 { priority.append(idx + 1) }
-        for i in pageVCs.keys {
-            if !priority.contains(i) {
-                pageVCs[i] = nil
-            }
+        for i in pageVCs.keys where !priority.contains(i) {
+            pageVCs[i] = nil
         }
-        Task { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
             await self.viewportResolver.prewarm(
                 spineIndices: priority,
@@ -159,7 +148,7 @@ final class FixedLayoutPageEngine: PageRenderingProvider {
         vc.configure(globalPage: index)
         pageVCs[spineIndex] = vc
 
-        Task { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
             let pageSize = await self.viewportResolver.viewport(
                 for: spineIndex,
@@ -184,7 +173,5 @@ final class FixedLayoutPageEngine: PageRenderingProvider {
         pageViewController(at: max(0, min(index, totalPages - 1)))
     }
 
-    func renderSnapshot(forPage globalPage: Int) -> UIImage? {
-        nil
-    }
+    func renderSnapshot(forPage globalPage: Int) -> UIImage? { nil }
 }
