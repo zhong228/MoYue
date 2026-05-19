@@ -2,7 +2,9 @@ import UIKit
 import WebKit
 
 @MainActor
-final class FixedLayoutPageViewController: UIViewController {
+final class FixedLayoutPageViewController: UIViewController, PageIndexProviding {
+    private(set) var globalPageIndex: Int = 0
+
     private let webView: WKWebView = {
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = true
@@ -29,6 +31,10 @@ final class FixedLayoutPageViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         webView.frame = view.bounds
+    }
+
+    func configure(globalPage: Int) {
+        self.globalPageIndex = globalPage
     }
 
     func load(

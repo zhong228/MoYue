@@ -156,6 +156,7 @@ final class FixedLayoutPageEngine: PageRenderingProvider {
         }
 
         let vc = FixedLayoutPageViewController()
+        vc.configure(globalPage: index)
         pageVCs[spineIndex] = vc
 
         Task { [weak self] in
