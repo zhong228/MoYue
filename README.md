@@ -77,6 +77,31 @@ Yuedu Reader is not only a local EPUB reader. It also includes RSS reading and w
 - Legado-compatible source rules
 - EPUB regression samples for rendering compatibility
 
+## Roadmap
+
+### Now
+
+- Improve EPUB rendering compatibility
+- Polish CJK vertical reading and TOC behavior
+- Add EPUB rendering bug templates and regression samples
+- Improve RSS loading error handling
+
+### Next
+
+- OPDS catalog browsing and EPUB import
+- WebDAV remote library browser
+- Better web article normalization
+- Fixed-layout EPUB prototype
+
+### Later
+
+- App Store release
+- TestFlight feedback loop
+- More accessibility work
+- More automated rendering regression tests
+
+See open issues labeled `help wanted` or `good first issue` if you want to contribute.
+
 ## Why CoreText?
 
 Most EPUB readers use WebView. Yuedu uses CoreText for the main reader so it can control pagination, text ranges, highlights, TTS synchronization, and CJK vertical rendering more precisely.
