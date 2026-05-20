@@ -19,7 +19,7 @@
   <img src="docs/demo/cjk-vertical-toc.gif" width="320" alt="Yuedu Reader CJK vertical reading demo">
 </p>
 
-Yuedu Reader, named `閱讀` in Traditional Chinese and `阅读` in Simplified Chinese, is a native iOS reading app built for serious long-form reading. It focuses on CJK typography, local EPUB/TXT libraries, online article normalization, RSS, TTS, WebDAV sync, and a reader UI that stays native instead of WebView-based.
+Yuedu Reader is a native iOS reading app for serious long-form reading, focused on CJK typography, local EPUB/TXT libraries, RSS, web article normalization, TTS, WebDAV sync, and a reader UI that stays native instead of WebView-based.
 
 ## CJK Vertical Reading
 
@@ -142,7 +142,7 @@ Legado compatibility is a source-rule format compatibility target only. Yuedu Re
 
 ## AI-Assisted Development
 
-This repository is developed with heavy AI-assisted collaboration, including code generation, refactoring, documentation, and review support. Human review and project ownership remain part of the workflow, but AI-assisted code is intentionally present throughout the project.
+This repository is developed with heavy AI-assisted collaboration, including code generation, refactoring, documentation, and review support. Human review and project ownership remain part of the workflow.
 
 If you strongly prefer strictly human-authored code or are uncomfortable with AI-assisted development, please review the project with that expectation in mind. Your understanding is appreciated.
 
