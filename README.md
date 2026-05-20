@@ -64,8 +64,6 @@ Yuedu Reader is not only a local EPUB reader. It also includes RSS reading and w
 - **RSS Reader**: RSS / Atom feeds, article extraction, and reading inside the native reader.
 - **Web Article Normalization**: convert web pages into clean long-form reading content.
 
-Short workflow GIFs should live in `docs/demo/rss-reading.gif` and `docs/demo/web-normalization.gif`. They are intentionally kept out of the first screen so the README loads quickly and stays focused.
-
 ## Features
 
 - SwiftUI + CoreText native iOS reader

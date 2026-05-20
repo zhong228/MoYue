@@ -64,8 +64,6 @@
 - **RSS 閱讀器**：RSS / Atom feed、文章擷取，並在原生閱讀器內閱讀。
 - **網頁文章轉碼**：將網頁轉成乾淨的長文本閱讀內容。
 
-短工作流 GIF 應放在 `docs/demo/rss-reading.gif` 和 `docs/demo/web-normalization.gif`。它們刻意不放在第一屏，避免 README 載入過慢或展示重點分散。
-
 ## 功能
 
 - SwiftUI + CoreText 原生 iOS 閱讀器
