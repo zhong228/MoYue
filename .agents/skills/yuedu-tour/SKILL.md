@@ -173,6 +173,7 @@ The legacy path calls `build()` which internally calls `buildStyledAST()` + `cor
 
 ### Reader Settings UI
 
+- Reader UI development should use native SwiftUI/UIKit presentation by default for navigation bars, toolbar items, dismiss/close buttons, sheets, menus, pickers, and standard controls. Do not hand-roll custom circular header buttons, fake navigation bars, or bespoke chrome unless the user explicitly asks for a custom visual treatment.
 - Reader settings should remain a SwiftUI/system-control surface. Prefer system `Picker`, `Menu`, `Stepper`, `Slider`, `Toggle`, `Button`, and SF Symbols; customize with tint, spacing, and grouping before creating custom controls.
 - Keep `ReaderSettingsView` navigation actions system-native by default. Do not replace the standard inline title and `完成` toolbar button with custom circular header buttons unless the user explicitly requests that specific custom header.
 - Keep high-frequency settings visible and low-frequency settings compact: reading mode can stay segmented, while multi-option page-turn animation is better as a `Menu` or another compact system selection.
