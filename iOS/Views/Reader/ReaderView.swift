@@ -832,7 +832,6 @@ struct ReaderView: View {
             AdaptiveSheetContainer(maxWidth: 760) {
                 ReaderMenuView(
                     chapters: chapters,
-                    bookmarks: book?.bookmarks ?? [],
                     coverImagePath: book?.coverImagePath,
                     bookTitle: book?.title ?? "",
                     currentPage: currentPage,
@@ -843,14 +842,7 @@ struct ReaderView: View {
                         get: { currentChapterIndex },
                         set: { jumpToChapter($0) }
                     ),
-                    isPresented: $showTOC,
-                    onSelectBookmark: { bookmark in
-                        showTOC = false
-                        jumpToBookmark(bookmark)
-                    },
-                    onDeleteBookmark: { bookmark in
-                        store.removeBookmark(bookId: bookId, bookmarkId: bookmark.id)
-                    }
+                    isPresented: $showTOC
                 )
             }
         }
@@ -2533,27 +2525,23 @@ private struct TOCBookHeader: View {
     private var isVertical: Bool { tocLayoutMode == .verticalRTLColumns }
 
     private var coverSize: CGSize {
-        isVertical ? CGSize(width: 48, height: 72) : CGSize(width: 56, height: 84)
+        CGSize(width: 48, height: 72)
     }
 
     private var titleFont: Font {
-        .system(size: isVertical ? 18 : 20, weight: .semibold)
+        .system(size: 16, weight: .semibold)
     }
 
     private var progressFont: Font {
-        .system(size: isVertical ? 15 : 16, weight: .regular)
-    }
-
-    private var headerTopPadding: CGFloat {
-        isVertical ? 18 : 24
+        .system(size: 14, weight: .regular)
     }
 
     private var headerBottomPadding: CGFloat {
-        isVertical ? 12 : 18
+        28
     }
 
-    private var closeSize: CGFloat {
-        isVertical ? 52 : 54
+    private var closeButtonSize: CGFloat {
+        50
     }
 
     var body: some View {
@@ -2579,27 +2567,36 @@ private struct TOCBookHeader: View {
                     .multilineTextAlignment(.leading)
 
                 if totalPages > 0 {
-                    Text(String(format: localized("第%d頁 / 共%d頁"), currentPage + 1, totalPages))
-                        .font(progressFont)
-                        .foregroundColor(.secondary)
+                    HStack(spacing: 6) {
+                        Text(localized("頁面"))
+                            .foregroundColor(.secondary)
+
+                        Text(String(format: localized("第 %d 頁（共 %d 頁）"), currentPage + 1, totalPages))
+                            .foregroundColor(.primary)
+                    }
+                    .font(progressFont)
                 }
             }
-
+            
             Spacer(minLength: 12)
 
-            Button(action: onClose) {
+            Button(role: .cancel, action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 22, weight: .regular))
-                    .foregroundColor(.secondary)
-                    .frame(width: closeSize, height: closeSize)
-                    .background(Color.primary.opacity(0.06))
-                    .clipShape(Circle())
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(Color(uiColor: .systemGray))
+                    .frame(width: closeButtonSize, height: closeButtonSize)
+                    .background(
+                        Circle()
+                            .fill(Color(uiColor: .secondarySystemBackground))
+                    )
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(localized("關閉"))
         }
         .padding(.horizontal, 30)
-        .padding(.top, headerTopPadding)
         .padding(.bottom, headerBottomPadding)
+        .padding(.top,15)
+
     }
 
     private func loadCoverImage(filename: String) -> UIImage? {
@@ -2795,23 +2792,8 @@ private struct VerticalTOCView: View {
     }
 }
 
-enum ReaderMenuTab: String, CaseIterable {
-    case toc
-    case bookmarks
-
-    var title: String {
-        switch self {
-        case .toc:
-            return localized("目錄")
-        case .bookmarks:
-            return localized("書籤")
-        }
-    }
-}
-
 struct ReaderMenuView: View {
     let chapters: [BookChapter]
-    let bookmarks: [Bookmark]
     let coverImagePath: String?
     let bookTitle: String
     let currentPage: Int
@@ -2822,54 +2804,32 @@ struct ReaderMenuView: View {
     @Binding var currentIndex: Int
     @Binding var isPresented: Bool
 
-    let onSelectBookmark: (Bookmark) -> Void
-    let onDeleteBookmark: (Bookmark) -> Void
-
-    @State private var selectedTab: ReaderMenuTab = .toc
-
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                TOCBookHeader(
-                    coverImagePath: coverImagePath,
-                    bookTitle: bookTitle,
-                    currentPage: currentPage,
-                    totalPages: totalPages,
-                    tocLayoutMode: tocLayoutMode,
-                    onClose: { isPresented = false }
-                )
+        VStack(spacing: 0) {
+            TOCBookHeader(
+                coverImagePath: coverImagePath,
+                bookTitle: bookTitle,
+                currentPage: currentPage,
+                totalPages: totalPages,
+                tocLayoutMode: tocLayoutMode,
+                onClose: { isPresented = false }
+            )
 
-                tabBar
-
-                Divider()
-
-                Group {
-                    switch selectedTab {
-                    case .toc:
-                        if tocLayoutMode == .verticalRTLColumns {
-                            VerticalTOCView(
-                                chapters: chapters,
-                                currentIndex: currentIndex,
-                                pageOffsets: pageOffsets,
-                                onSelectChapter: { idx in
-                                    currentIndex = idx
-                                    isPresented = false
-                                }
-                            )
-                        } else {
-                            tocContent
-                        }
-
-                    case .bookmarks:
-                        bookmarkContent
+            if tocLayoutMode == .verticalRTLColumns {
+                VerticalTOCView(
+                    chapters: chapters,
+                    currentIndex: currentIndex,
+                    pageOffsets: pageOffsets,
+                    onSelectChapter: { idx in
+                        currentIndex = idx
+                        isPresented = false
                     }
-                }
+                )
+            } else {
+                tocContent
             }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarHidden(true)
         }
-        .navigationViewStyle(.stack)
+        .background(Color(uiColor: .systemBackground))
     }
 
     private func pageNumber(for chapter: BookChapter) -> Int {
@@ -2877,33 +2837,6 @@ struct ReaderMenuView: View {
             return offset + 1
         }
         return chapter.index + 1
-    }
-
-    private var tabBar: some View {
-        HStack(spacing: 8) {
-            ForEach(ReaderMenuTab.allCases, id: \.self) { tab in
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        selectedTab = tab
-                    }
-                } label: {
-                    Text(tab.title)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(selectedTab == tab ? .white : .primary)
-                        .padding(.horizontal, 22)
-                        .padding(.vertical, 9)
-                        .background(
-                            selectedTab == tab ? Color.accentColor : Color.secondary.opacity(0.10)
-                        )
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-
-            Spacer()
-        }
-        .padding(.horizontal, 30)
-        .padding(.vertical, 12)
     }
 
     private var tocContent: some View {
@@ -2922,8 +2855,8 @@ struct ReaderMenuView: View {
                         Text(chapter.title)
                             .font(
                                 chapter.level == 0
-                                ? .system(size: 19, weight: .semibold)
-                                : .system(size: 16, weight: .regular)
+                                ? .system(size: 14, weight: .semibold)
+                                : .system(size: 12, weight: .regular)
                             )
                             .foregroundColor(.primary)
                             .lineLimit(2)
@@ -2934,7 +2867,7 @@ struct ReaderMenuView: View {
                             .font(.system(size: 18, weight: .regular, design: .monospaced))
                             .foregroundColor(.secondary)
                     }
-                    .frame(height: 64)
+                    .frame(height: 48)
                     .padding(.horizontal, 30)
                     .background {
                         if chapter.index == currentIndex {
@@ -2945,10 +2878,13 @@ struct ReaderMenuView: View {
                 }
                 .buttonStyle(.plain)
                 .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
+                .listRowSeparator(.hidden, edges: chapter.id == chapters.first?.id ? .top : [])
+                .listRowSeparator(.visible, edges: .bottom)
+                .listRowSeparatorTint(Color.secondary.opacity(0.18))
                 .id(chapter.index)
             }
             .listStyle(.plain)
+            .contentMargins(.top, 0, for: .scrollContent)
             .onAppear {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     if chapters.first(where: { $0.index == currentIndex }) != nil {
@@ -2960,70 +2896,54 @@ struct ReaderMenuView: View {
             }
         }
     }
+}
 
-    private var bookmarkContent: some View {
-        Group {
-            if bookmarks.isEmpty {
-                VStack(spacing: 16) {
-                    Spacer()
+#Preview("Reader Menu - Horizontal TOC") {
+    ReaderMenuView(
+        chapters: ReaderMenuPreviewData.chapters,
+        coverImagePath: nil,
+        bookTitle: "紅樓夢脂評匯校本",
+        currentPage: 12,
+        totalPages: 860,
+        tocLayoutMode: .horizontalList,
+        pageOffsets: ReaderMenuPreviewData.pageOffsets,
+        currentIndex: .constant(2),
+        isPresented: .constant(true)
+    )
+}
 
-                    Image(systemName: "bookmark")
-                        .font(.system(size: 48))
-                        .foregroundColor(Color.secondary.opacity(0.3))
+#Preview("Reader Menu - Vertical TOC") {
+    ReaderMenuView(
+        chapters: ReaderMenuPreviewData.chapters,
+        coverImagePath: nil,
+        bookTitle: "紅樓夢脂評匯校本",
+        currentPage: 12,
+        totalPages: 860,
+        tocLayoutMode: .verticalRTLColumns,
+        pageOffsets: ReaderMenuPreviewData.pageOffsets,
+        currentIndex: .constant(2),
+        isPresented: .constant(true)
+    )
+}
 
-                    Text(localized("尚無書籤"))
-                        .font(.headline)
-                        .foregroundColor(.secondary)
+private enum ReaderMenuPreviewData {
+    static let chapters: [BookChapter] = [
+        BookChapter(index: 0, title: "書名頁", content: ""),
+        BookChapter(index: 1, title: "整理說明", content: ""),
+        BookChapter(index: 2, title: "凡例", content: ""),
+        BookChapter(index: 3, title: "第一回 甄士隱夢幻識通靈", content: ""),
+        BookChapter(index: 4, title: "第二回 賈夫人仙逝揚州城", content: ""),
+        BookChapter(index: 5, title: "脂硯齋重評石頭記校注", content: "", level: 1),
+    ]
 
-                    Text(localized("在閱讀時點擊右上角書籤按鈕添加"))
-                        .font(.subheadline)
-                        .foregroundColor(Color.secondary.opacity(0.7))
-
-                    Spacer()
-                }
-            } else {
-                List {
-                    ForEach(bookmarks) { bm in
-                        Button {
-                            onSelectBookmark(bm)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text(bm.chapterTitle)
-                                        .font(.system(size: 15, weight: .medium))
-                                        .foregroundColor(.primary)
-                                .fixedSize(horizontal: false, vertical: true)
-
-                                    Spacer()
-
-                                    Text(bm.date, style: .date)
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.secondary)
-                                }
-
-                                if !bm.excerpt.isEmpty {
-                                    Text(bm.excerpt + "…")
-                                        .font(.system(size: 13))
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(2)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .onDelete { idxs in
-                        for idx in idxs {
-                            if idx < bookmarks.count {
-                                onDeleteBookmark(bookmarks[idx])
-                            }
-                        }
-                    }
-                }
-                .listStyle(.plain)
-            }
-        }
-    }
+    static let pageOffsets: [Int: Int] = [
+        0: 0,
+        1: 2,
+        2: 12,
+        3: 24,
+        4: 48,
+        5: 76,
+    ]
 }
 // MARK: - Scroll Config Observer
 
