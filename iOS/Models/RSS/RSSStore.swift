@@ -35,9 +35,13 @@ final class RSSStore: ObservableObject {
     }
 
     func addSources(_ newSources: [RSSSource]) -> Int {
-        guard !newSources.isEmpty else { return 0 }
+        addSourcesReturningAdded(newSources).count
+    }
+
+    func addSourcesReturningAdded(_ newSources: [RSSSource]) -> [RSSSource] {
+        guard !newSources.isEmpty else { return [] }
         var existingURLs = Set(sources.map(\.url))
-        var added = 0
+        var addedSources: [RSSSource] = []
 
         for var source in newSources where !existingURLs.contains(source.url) {
             let groupName = normalizedFolderName(source.sourceGroup)
@@ -48,13 +52,13 @@ final class RSSStore: ObservableObject {
             source.sortOrder = nextSourceSortOrder(inFolderNamed: groupName)
             sources.append(source)
             existingURLs.insert(source.url)
-            added += 1
+            addedSources.append(source)
         }
 
-        if added > 0 {
+        if !addedSources.isEmpty {
             save()
         }
-        return added
+        return addedSources
     }
 
     func removeSource(at offsets: IndexSet) {
@@ -89,6 +93,32 @@ final class RSSStore: ObservableObject {
                 ensureFolderExists(named: groupName)
             }
             sources[index] = normalized
+            save()
+        }
+    }
+
+    func applyResolvedFeedURL(_ feedURL: String?, homepageURL: String?, to sourceID: String) {
+        guard let index = sources.firstIndex(where: { $0.id == sourceID }) else { return }
+
+        var source = sources[index]
+        var didChange = false
+
+        if let feedURL,
+           !feedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           source.url != feedURL {
+            source.url = feedURL
+            didChange = true
+        }
+
+        if let homepageURL,
+           !homepageURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           source.homepageURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            source.homepageURL = homepageURL
+            didChange = true
+        }
+
+        if didChange {
+            sources[index] = source
             save()
         }
     }

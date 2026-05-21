@@ -10,12 +10,29 @@ final class RSSFetcher: ObservableObject {
     @Published var response: RSSFeedResponse?
     @Published var isLoading: Bool = false
     @Published var error: String? = nil
+    @Published var resolvedFeedURL: String?
+    @Published var resolvedHomepageURL: String?
 
     func fetchItems(from source: RSSSource, metadata: RSSFeedFetchMetadata? = nil) async {
         isLoading = true
         error = nil
         response = nil
+        resolvedFeedURL = nil
+        resolvedHomepageURL = nil
         defer { isLoading = false }
+
+        if source.isLegadoRuleBased {
+            await fetchWithLegadoRules(source: source)
+            return
+        }
+
+        await fetchItems(from: source, metadata: metadata, allowFeedDiscovery: true)
+    }
+
+    private func fetchItems(from source: RSSSource, metadata: RSSFeedFetchMetadata?, allowFeedDiscovery: Bool) async {
+        error = nil
+        response = nil
+        items = []
 
         if source.isLegadoRuleBased {
             await fetchWithLegadoRules(source: source)
@@ -46,6 +63,12 @@ final class RSSFetcher: ObservableObject {
             let parsedItems = parser.parse(data: data)
 
             if let parserError = parser.error {
+                if allowFeedDiscovery,
+                   let sourceURL = request.url,
+                   RSSFeedDiscovery.isProbablyHTML(data),
+                   await fetchDiscoveredFeed(from: data, sourceURL: sourceURL, originalSource: source) {
+                    return
+                }
                 error = parserError
                 items = []
                 return
@@ -70,6 +93,21 @@ final class RSSFetcher: ObservableObject {
                 self.error = error.localizedDescription
             }
         }
+    }
+
+    private func fetchDiscoveredFeed(from data: Data, sourceURL: URL, originalSource: RSSSource) async -> Bool {
+        let candidates = RSSFeedDiscovery.feedURLs(inHTML: data, baseURL: sourceURL)
+        for candidate in candidates where candidate.absoluteString != sourceURL.absoluteString {
+            var resolvedSource = originalSource
+            resolvedSource.url = candidate.absoluteString
+            await fetchItems(from: resolvedSource, metadata: nil, allowFeedDiscovery: false)
+            if error == nil, response != nil || !items.isEmpty {
+                resolvedFeedURL = candidate.absoluteString
+                resolvedHomepageURL = sourceURL.absoluteString
+                return true
+            }
+        }
+        return false
     }
 
     private func isATSBlockedError(_ error: Error) -> Bool {

@@ -127,7 +127,9 @@ struct RSSListView: View {
                 RSSOPMLImportSheet(
                     isPresented: $showOPMLImportSheet,
                     onFileCompletion: importOPML,
-                    onDataImport: importOPMLData
+                    onDataImport: { data in
+                        importOPMLData(data)
+                    }
                 )
             }
             .sheet(item: $safariURL) { url in
@@ -455,6 +457,7 @@ struct RSSListView: View {
             let fetcher = RSSFetcher()
             await fetcher.fetchItems(from: source, metadata: store.feedMetadata(for: source.id))
             guard let response = fetcher.response else { continue }
+            store.applyResolvedFeedURL(fetcher.resolvedFeedURL, homepageURL: fetcher.resolvedHomepageURL, to: source.id)
             store.applyFeedResponse(response, for: source.id)
         }
     }
@@ -475,13 +478,15 @@ struct RSSListView: View {
             let fetcher = RSSFetcher()
             await fetcher.fetchItems(from: source, metadata: store.feedMetadata(for: source.id))
             if fetcher.error == nil {
+                store.applyResolvedFeedURL(fetcher.resolvedFeedURL, homepageURL: fetcher.resolvedHomepageURL, to: source.id)
+                let currentSource = store.source(id: source.id) ?? source
                 let newArticles: [RSSArticleRecord]
                 if let response = fetcher.response {
                     newArticles = store.applyFeedResponse(response, for: source.id)
                 } else {
                     newArticles = store.mergeFetchedItems(fetcher.items, for: source.id)
                 }
-                RSSNotificationManager.shared.notifyNewArticles(newArticles, source: source)
+                RSSNotificationManager.shared.notifyNewArticles(newArticles, source: currentSource)
             }
             refreshProgress.completed += 1
         }
@@ -499,9 +504,10 @@ struct RSSListView: View {
 
             let data = try Data(contentsOf: url)
             let sources = try LegadoSourceJSONParser.parse(data: data)
-            let addedCount = store.addSources(sources)
-            importMessage = String(format: localized("已匯入 %d 個訂閱源"), addedCount)
+            let addedSources = store.addSourcesReturningAdded(sources)
+            importMessage = String(format: localized("已匯入 %d 個訂閱源"), addedSources.count)
             showImportResult = true
+            Task { await refreshImportedSources(addedSources) }
         } catch {
             importMessage = String(format: localized("Legado JSON 匯入失敗：%@"), error.localizedDescription)
             showImportResult = true
@@ -529,12 +535,29 @@ struct RSSListView: View {
     private func importOPMLData(_ data: Data) {
         do {
             let sources = try RSSOPMLParser.parse(data: data)
-            let addedCount = store.addSources(sources)
-            importMessage = String(format: localized("已匯入 %d 個訂閱源"), addedCount)
+            let addedSources = store.addSourcesReturningAdded(sources)
+            importMessage = String(format: localized("已匯入 %d 個訂閱源"), addedSources.count)
             showImportResult = true
+            Task { await refreshImportedSources(addedSources) }
         } catch {
             importMessage = String(format: localized("OPML 匯入失敗：%@"), error.localizedDescription)
             showImportResult = true
+        }
+    }
+
+    @MainActor
+    private func refreshImportedSources(_ sources: [RSSSource]) async {
+        for source in sources where source.enabled {
+            let fetcher = RSSFetcher()
+            await fetcher.fetchItems(from: source, metadata: nil)
+            guard fetcher.error == nil else { continue }
+
+            store.applyResolvedFeedURL(fetcher.resolvedFeedURL, homepageURL: fetcher.resolvedHomepageURL, to: source.id)
+            if let response = fetcher.response {
+                store.applyFeedResponse(response, for: source.id)
+            } else {
+                store.mergeFetchedItems(fetcher.items, for: source.id)
+            }
         }
     }
 
@@ -1262,7 +1285,22 @@ private struct AddRSSSourceSheet: View {
             sourceGroup: folder?.name
         )
         store.addSource(source)
+        await refreshInitialArticles(for: source)
         isPresented = false
+    }
+
+    @MainActor
+    private func refreshInitialArticles(for source: RSSSource) async {
+        let fetcher = RSSFetcher()
+        await fetcher.fetchItems(from: source, metadata: nil)
+        guard fetcher.error == nil else { return }
+
+        store.applyResolvedFeedURL(fetcher.resolvedFeedURL, homepageURL: fetcher.resolvedHomepageURL, to: source.id)
+        if let response = fetcher.response {
+            store.applyFeedResponse(response, for: source.id)
+        } else {
+            store.mergeFetchedItems(fetcher.items, for: source.id)
+        }
     }
 }
 

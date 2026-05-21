@@ -13,6 +13,78 @@ struct RSSFeedInfo: Codable, Equatable {
     var faviconURL: String?
 }
 
+enum RSSFeedDiscovery {
+    static func isProbablyHTML(_ data: Data) -> Bool {
+        guard let prefix = String(data: data.prefix(512), encoding: .utf8)?.lowercased() else {
+            return false
+        }
+        return prefix.contains("<!doctype html")
+            || prefix.contains("<html")
+            || prefix.contains("<head")
+    }
+
+    static func isProbablyFeed(_ data: Data) -> Bool {
+        guard let prefix = String(data: data.prefix(512), encoding: .utf8)?.lowercased() else {
+            return false
+        }
+        return prefix.contains("<rss")
+            || prefix.contains("<feed")
+            || prefix.contains("<rdf:rdf")
+    }
+
+    static func feedURLs(inHTML data: Data, baseURL: URL) -> [URL] {
+        guard let html = String(data: data, encoding: .utf8),
+              let document = try? SwiftSoup.parse(html, baseURL.absoluteString) else {
+            return fallbackFeedURLs(for: baseURL)
+        }
+
+        var urls: [URL] = []
+        let links = (try? document.select("link[rel]").array()) ?? []
+        for link in links {
+            let rel = ((try? link.attr("rel")) ?? "").lowercased()
+            guard rel.split(whereSeparator: \.isWhitespace).contains("alternate") else { continue }
+
+            let type = ((try? link.attr("type")) ?? "").lowercased()
+            let href = ((try? link.attr("href")) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !href.isEmpty else { continue }
+
+            let isFeedType = type.contains("rss")
+                || type.contains("atom")
+                || type.contains("json")
+                || type.contains("feed")
+            let looksLikeFeed = type.isEmpty && hrefLooksLikeFeed(href)
+            guard isFeedType || looksLikeFeed else { continue }
+
+            if let url = URL(string: href, relativeTo: baseURL)?.absoluteURL,
+               ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+               !urls.contains(url) {
+                urls.append(url)
+            }
+        }
+
+        if urls.isEmpty {
+            urls.append(contentsOf: fallbackFeedURLs(for: baseURL))
+        }
+        return urls
+    }
+
+    private static func hrefLooksLikeFeed(_ href: String) -> Bool {
+        let lowercased = href.lowercased()
+        return lowercased.contains("feed")
+            || lowercased.contains("rss")
+            || lowercased.contains("atom")
+            || lowercased.contains(".xml")
+            || lowercased.contains(".json")
+    }
+
+    private static func fallbackFeedURLs(for baseURL: URL) -> [URL] {
+        [
+            baseURL.appendingPathComponent("feed", isDirectory: true),
+            baseURL.appendingPathComponent("index.xml", isDirectory: false)
+        ]
+    }
+}
+
 enum RSSFeedResponse {
     case notModified
     case updated(items: [RSSItem], metadata: RSSFeedFetchMetadata, feedInfo: RSSFeedInfo?)

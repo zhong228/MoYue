@@ -355,13 +355,15 @@ struct RSSFeedView: View {
     private func refresh() async {
         await fetcher.fetchItems(from: currentSource, metadata: store.feedMetadata(for: currentSource.id))
         if fetcher.error == nil {
+            store.applyResolvedFeedURL(fetcher.resolvedFeedURL, homepageURL: fetcher.resolvedHomepageURL, to: currentSource.id)
+            let notificationSource = store.source(id: currentSource.id) ?? currentSource
             let newArticles: [RSSArticleRecord]
             if let response = fetcher.response {
                 newArticles = store.applyFeedResponse(response, for: currentSource.id)
             } else {
                 newArticles = store.mergeFetchedItems(fetcher.items, for: currentSource.id)
             }
-            RSSNotificationManager.shared.notifyNewArticles(newArticles, source: currentSource)
+            RSSNotificationManager.shared.notifyNewArticles(newArticles, source: notificationSource)
         }
     }
 }

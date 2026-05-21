@@ -116,6 +116,26 @@ struct RSSStoreTests {
         #expect(store.totalUnreadCount() == 2)
     }
 
+    @Test("feed discovery extracts alternate RSS URL from HTML page")
+    func feedDiscoveryExtractsAlternateRSSURL() throws {
+        let html = """
+        <!doctype html>
+        <html>
+          <head>
+            <title>Latest News and News Headlines</title>
+            <link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml">
+          </head>
+        </html>
+        """
+
+        let urls = RSSFeedDiscovery.feedURLs(
+            inHTML: Data(html.utf8),
+            baseURL: try #require(URL(string: "https://example.com/news"))
+        )
+
+        #expect(urls.first?.absoluteString == "https://example.com/rss.xml")
+    }
+
     @Test("removing source clears cached articles and statuses")
     func removingSourceClearsCachedArticlesAndStatuses() throws {
         let store = RSSStore(storageDirectory: try temporaryDirectory())
@@ -575,7 +595,8 @@ struct RSSStoreTests {
         #expect(document.html.contains(#"src="https://example.com/image.jpg""#))
         #expect(!document.html.contains("<script>alert"))
         #expect(!document.html.contains("onclick"))
-        #expect(!document.html.contains("onerror"))
+        #expect(!document.html.contains(#"onerror="bad()""#))
+        #expect(document.html.contains("window.yueduFallbackImage(this)"))
         #expect(!document.html.contains("<iframe"))
     }
 
