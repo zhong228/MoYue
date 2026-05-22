@@ -31,6 +31,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     private var focusIndex: Int?
     private var selectedText: String?
     private var playbackHighlightText: String?
+    private var textAnnotations: [CoreTextTextAnnotation] = []
 
     init(
         engine: CoreTextScrollEngine,
@@ -98,7 +99,8 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     override var canBecomeFirstResponder: Bool { true }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        action == #selector(copy(_:)) && (selectedText?.isEmpty == false)
+        guard selectedText?.isEmpty == false else { return false }
+        return action == #selector(copy(_:)) || action == #selector(underlineSelection(_:))
     }
 
     func editMenuInteraction(
@@ -106,7 +108,49 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         menuFor configuration: UIEditMenuConfiguration,
         suggestedActions: [UIMenuElement]
     ) -> UIMenu? {
-        nil
+        guard selectedText?.isEmpty == false else { return nil }
+        var actions = suggestedActions
+        actions.append(UIAction(
+            title: localized("下劃線"),
+            image: nil,
+            handler: { [weak self] _ in
+                self?.requestUnderline(style: .underline, color: .yellow)
+            }
+        ))
+        actions.append(UIAction(
+            title: localized("螢光筆"),
+            image: nil,
+            handler: { [weak self] _ in
+                self?.requestUnderline(style: .highlight, color: .yellow)
+            }
+        ))
+        return UIMenu(children: actions)
+    }
+
+    @objc private func underlineSelection(_ sender: Any?) {
+        requestUnderline(style: .underline, color: .yellow)
+    }
+
+    private func requestUnderline(style: AnnotationStyle, color: AnnotationColor) {
+        guard let chapter = selectionChapter,
+              let range = currentSelectionRange,
+              range.length > 0
+        else { return }
+        NotificationCenter.default.post(
+            name: .coreTextUnderlineSelectionRequested,
+            object: self,
+            userInfo: [
+                "request": CoreTextUnderlineSelectionRequest(
+                    position: CoreTextReadingPosition(spineIndex: chapter, charOffset: range.location),
+                    length: range.length,
+                    excerpt: selectedText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+                    removesExistingUnderline: false,
+                    style: style,
+                    color: color
+                )
+            ]
+        )
+        clearSelection()
     }
 
     @objc override func copy(_ sender: Any?) {
@@ -154,6 +198,16 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     func updateBackgroundColor(_ color: UIColor) {
         view.backgroundColor = color
         collectionView.backgroundColor = color
+    }
+
+    func setTextAnnotations(_ annotations: [CoreTextTextAnnotation]) {
+        textAnnotations = annotations
+        // Refresh visible cells
+        for indexPath in collectionView.indexPathsForVisibleItems {
+            if let cell = collectionView.cellForItem(at: indexPath) as? CoreTextChunkCollectionCell {
+                cell.applyAnnotations(annotations)
+            }
+        }
     }
 
     func setPlaybackHighlight(text: String?) {
@@ -208,6 +262,18 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
             .receive(on: RunLoop.main)
             .sink { [weak self] event in
                 self?.handle(event: event)
+            }
+            .store(in: &cancellables)
+
+        engine.$textAnnotations
+            .receive(on: RunLoop.main)
+            .sink { [weak self] annotations in
+                self?.textAnnotations = annotations
+                for indexPath in self?.collectionView.indexPathsForVisibleItems ?? [] {
+                    if let cell = self?.collectionView.cellForItem(at: indexPath) as? CoreTextChunkCollectionCell {
+                        cell.applyAnnotations(annotations)
+                    }
+                }
             }
             .store(in: &cancellables)
 
@@ -328,7 +394,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
                 minOffsetX,
                 collectionView.contentSize.width - visibleWidth + collectionView.adjustedContentInset.right
             )
-            let desiredOffsetX = attributes.frame.minX - collectionView.adjustedContentInset.left
+            let desiredOffsetX = attributes.frame.maxX - visibleWidth + collectionView.adjustedContentInset.right
             let offsetX = min(max(desiredOffsetX, minOffsetX), maxOffsetX)
             collectionView.setContentOffset(
                 CGPoint(
@@ -351,13 +417,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         let point = gesture.location(in: collectionView)
         if let (_, chunk, localPoint) = hitTestChunk(at: point),
            let idx = chunk.stringIndex(atLocalPoint: localPoint),
-           idx < chunk.attributedString.length,
-           let href = chunk.attributedString.attribute(
-               HTMLAttributedStringBuilder.internalLinkAttribute,
-               at: idx,
-               effectiveRange: nil
-           ) as? String,
-           !href.isEmpty {
+           let href = HTMLAttributedStringBuilder.linkHref(at: idx, in: chunk.attributedString) {
             onInternalLinkTap?(href)
             return
         }
@@ -535,6 +595,7 @@ extension CoreTextCollectionScrollViewController: UICollectionViewDataSource, UI
                 chunkCell.applySelection(chapterIndex: chapter, chapterRange: currentSelectionRange)
             }
             chunkCell.applyPlaybackHighlight(text: playbackHighlightText)
+            chunkCell.applyAnnotations(textAnnotations)
         }
     }
 
