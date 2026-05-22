@@ -3,6 +3,7 @@ import UIKit
 
 /// Extracts image attachment rects (UIKit coordinates: origin top-left, y downward) from a chunk's CTFrame.
 /// chunkSize is the chunk's path size (width × height); the coordinate system matches the cell's drawView bounds.
+/// Mirrors CoreTextPaginator.extractImages but operates on a single chunk frame.
 enum CoreTextChunkAttachmentExtractor {
 
     static func extract(
@@ -32,75 +33,87 @@ enum CoreTextChunkAttachmentExtractor {
                 let info = Unmanaged<ImageRunInfo>.fromOpaque(ptr).takeUnretainedValue()
                 guard let img = info.image else { continue }
 
-                // Use the run's position in the original attributedString to look up paragraphStyle
-                let runStart = CTRunGetStringRange(run).location
-                let lookupIdx = max(0, min(attributedString.length - 1, runStart))
+                let runLocation = CTRunGetStringRange(run).location
                 let paragraphStyle = attributedString.attribute(
                     .paragraphStyle,
-                    at: lookupIdx,
+                    at: max(0, min(attributedString.length - 1, runLocation)),
                     effectiveRange: nil
                 ) as? NSParagraphStyle
-
-                let flush: CGFloat
-                switch paragraphStyle?.alignment ?? .natural {
-                case .center: flush = 0.5
-                case .right:  flush = 1
-                default:      flush = 0
-                }
-                let penOffset = CGFloat(
-                    CTLineGetPenOffsetForFlush(line, Double(flush), Double(chunkSize.width))
-                )
 
                 var lineAscent: CGFloat = 0
                 var lineDescent: CGFloat = 0
                 _ = CTLineGetTypographicBounds(line, &lineAscent, &lineDescent, nil)
 
-                // CoreText baseline Y (chunk path origin is bottom-left, positive upward)
-                let baselineY = lineOrigin.y
-                let lineHeight = lineAscent + lineDescent
-                let lineBottom = baselineY - lineDescent
-                let centeredBottom = lineBottom + max(0, (lineHeight - info.drawHeight) / 2)
-                // Convert to UIKit (origin top-left, positive downward)
-                let uiY = chunkSize.height - centeredBottom - info.drawHeight
-
                 let rect: CGRect
                 switch info.displayMode {
                 case .inline:
                     if isVertical {
-                        let textAdvance = CTLineGetOffsetForStringIndex(line, runStart, nil)
+                        let textAdvance = CTLineGetOffsetForStringIndex(line, runLocation, nil)
                         let lineTypographicCenterX = lineOrigin.x + (lineAscent - lineDescent) / 2
+                        let uiY = chunkSize.height - lineOrigin.y + textAdvance
                         rect = CGRect(
                             x: lineTypographicCenterX - (info.drawWidth / 2),
-                            y: chunkSize.height - lineOrigin.y + textAdvance,
+                            y: uiY,
                             width: info.drawWidth,
                             height: info.drawHeight
                         )
                     } else {
-                        let xOffset = CTLineGetOffsetForStringIndex(line, runStart, nil)
+                        let flush: CGFloat
+                        switch paragraphStyle?.alignment ?? .natural {
+                        case .center: flush = 0.5
+                        case .right:  flush = 1
+                        default:      flush = 0
+                        }
+                        let penOffset = CGFloat(
+                            CTLineGetPenOffsetForFlush(line, Double(flush), Double(chunkSize.width))
+                        )
+                        let textAdvance = CTLineGetOffsetForStringIndex(line, runLocation, nil)
+                        let baselineY = lineOrigin.y
+                        let lineHeight = lineAscent + lineDescent
+                        let lineBottom = baselineY - lineDescent
+                        let centeredBottom = lineBottom + max(0, (lineHeight - info.drawHeight) / 2)
+                        let uiY = chunkSize.height - centeredBottom - info.drawHeight
                         rect = CGRect(
-                            x: lineOrigin.x + penOffset + xOffset + info.paddingLeft,
+                            x: lineOrigin.x + penOffset + textAdvance + info.paddingLeft,
                             y: uiY,
                             width: info.drawWidth,
                             height: info.drawHeight
                         )
                     }
                 case .block:
-                    let leftInset = min(paragraphStyle?.headIndent ?? 0, paragraphStyle?.firstLineHeadIndent ?? 0)
-                    let rightInset = (paragraphStyle?.tailIndent ?? 0) < 0 ? -(paragraphStyle?.tailIndent ?? 0) : 0
-                    let boxWidth = max(1, chunkSize.width - leftInset - rightInset)
-                    let occupiedWidth = min(boxWidth, info.width)
-                    let alignedX: CGFloat
-                    switch paragraphStyle?.alignment ?? .left {
-                    case .center: alignedX = leftInset + max(0, (boxWidth - occupiedWidth) / 2)
-                    case .right:  alignedX = leftInset + max(0, boxWidth - occupiedWidth)
-                    default:      alignedX = leftInset
+                    if isVertical {
+                        let textAdvance = CTLineGetOffsetForStringIndex(line, runLocation, nil)
+                        let lineTypographicCenterX = lineOrigin.x + (lineAscent - lineDescent) / 2
+                        let uiY = chunkSize.height - lineOrigin.y + textAdvance
+                        rect = CGRect(
+                            x: lineTypographicCenterX - (info.drawWidth / 2),
+                            y: uiY,
+                            width: info.drawWidth,
+                            height: info.drawHeight
+                        )
+                    } else {
+                        let leftInset = min(paragraphStyle?.headIndent ?? 0, paragraphStyle?.firstLineHeadIndent ?? 0)
+                        let rightInset = (paragraphStyle?.tailIndent ?? 0) < 0 ? -(paragraphStyle?.tailIndent ?? 0) : 0
+                        let boxWidth = max(1, chunkSize.width - leftInset - rightInset)
+                        let occupiedWidth = min(boxWidth, info.width)
+                        let alignedX: CGFloat
+                        switch paragraphStyle?.alignment ?? .left {
+                        case .center: alignedX = leftInset + max(0, (boxWidth - occupiedWidth) / 2)
+                        case .right:  alignedX = leftInset + max(0, boxWidth - occupiedWidth)
+                        default:      alignedX = leftInset
+                        }
+                        let baselineY = lineOrigin.y
+                        let lineHeight = lineAscent + lineDescent
+                        let lineBottom = baselineY - lineDescent
+                        let centeredBottom = lineBottom + max(0, (lineHeight - info.drawHeight) / 2)
+                        let uiY = chunkSize.height - centeredBottom - info.drawHeight
+                        rect = CGRect(
+                            x: alignedX + info.paddingLeft,
+                            y: uiY,
+                            width: info.drawWidth,
+                            height: info.drawHeight
+                        )
                     }
-                    rect = CGRect(
-                        x: alignedX + info.paddingLeft,
-                        y: uiY,
-                        width: info.drawWidth,
-                        height: info.drawHeight
-                    )
                 }
 
                 result.append(CoreTextPaginator.RenderedAttachment(
@@ -115,7 +128,7 @@ enum CoreTextChunkAttachmentExtractor {
             }
         }
 
-        _ = rangeInChapter // Reserved for future chapter-level positioning if needed
+        _ = rangeInChapter
         return result
     }
 }
