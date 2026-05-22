@@ -3,7 +3,7 @@ import UIKit
 
 /// UICollectionView-backed CoreText continuous reader.
 /// Horizontal books scroll vertically; vertical-rl books scroll horizontally right-to-left.
-final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenuInteractionDelegate {
+final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenuInteractionDelegate, UIGestureRecognizerDelegate {
 
     static let chapterGap: CGFloat = 24
 
@@ -32,6 +32,12 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     private var selectedText: String?
     private var playbackHighlightText: String?
     private var textAnnotations: [CoreTextTextAnnotation] = []
+    private lazy var tapGesture: UITapGestureRecognizer = {
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        tap.cancelsTouchesInView = false
+        tap.delegate = self
+        return tap
+    }()
 
     init(
         engine: CoreTextScrollEngine,
@@ -76,6 +82,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         collectionView.contentInset = contentInset
 
         collectionView.translatesAutoresizingMaskIntoConstraints = false
+        collectionView.allowsSelection = false
         view.addSubview(collectionView)
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -84,19 +91,40 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         ])
 
-        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
-        tap.cancelsTouchesInView = false
-        collectionView.addGestureRecognizer(tap)
+        collectionView.addGestureRecognizer(tapGesture)
 
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
         longPress.minimumPressDuration = 0.4
         longPress.cancelsTouchesInView = false
         collectionView.addGestureRecognizer(longPress)
 
+        configureTapPriority()
         bindEngine()
     }
 
-    override var canBecomeFirstResponder: Bool { true }
+    // MARK: - Gesture priority
+
+    /// Mirrors CoreTextPageView.configureTapPriority: makes all other tap recognizers
+    /// in the view hierarchy require the link-tap gesture to fail first.
+    private func configureTapPriority() {
+        // Walk up from the collection view through its superview chain
+        var current: UIView? = collectionView
+        while let view = current {
+            for recognizer in view.gestureRecognizers ?? [] {
+                guard recognizer !== tapGesture,
+                      recognizer is UITapGestureRecognizer
+                else { continue }
+                recognizer.require(toFail: tapGesture)
+            }
+            current = view.superview
+        }
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        return true
+    }
+
+    override var canBecomeFirstResponder: Bool { return true }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         guard selectedText?.isEmpty == false else { return false }
@@ -394,11 +422,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
                 minOffsetX,
                 collectionView.contentSize.width - visibleWidth + collectionView.adjustedContentInset.right
             )
-            // RTL flow layout with flipsHorizontally flips frames: item 0 is at
-            // contentSize.width - itemWidth (far right). frame.minX points to the
-            // item's LEFT edge. Vertical-rl text starts from the RIGHT edge, so
-            // align the visible area with frame.maxX (right edge).
-            let desiredOffsetX = attributes.frame.maxX - visibleWidth
+            let desiredOffsetX = attributes.frame.maxX - visibleWidth + collectionView.adjustedContentInset.right
             let offsetX = min(max(desiredOffsetX, minOffsetX), maxOffsetX)
             collectionView.setContentOffset(
                 CGPoint(
