@@ -17,13 +17,33 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
 
     private var layout: CoreTextPaginator.ChapterLayout?
     private var localPageIndex: Int = 0
-    private let selectionManager = TextSelectionManager()
+    private let interactor = TextSelectionInteractor()
     private let playbackOverlay = InteractionOverlayView()
-    private let annotationOverlay = InteractionOverlayView()
     private let interactionOverlay = InteractionOverlayView()
-    private var selectedTextForCopy: String?
     private var playbackHighlightText: String?
     private var textAnnotations: [CoreTextTextAnnotation] = []
+    private var annotationOverlays: [LayerKey: InteractionOverlayView] = [:]
+
+    private func annotationOverlay(for layer: CoreTextAnnotationRenderer.Layer) -> InteractionOverlayView {
+        let key = LayerKey(style: layer.style, color: layer.color)
+        if let existing = annotationOverlays[key] { return existing }
+        let overlay = InteractionOverlayView()
+        overlay.frame = bounds
+        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        overlay.fillColor = .clear
+        overlay.showsHandles = false
+        overlay.underlineColor = layer.color.uiColor.withAlphaComponent(0.85)
+        if layer.style == .highlight {
+            overlay.fillColor = layer.color.uiColor.withAlphaComponent(0.25)
+            overlay.selectionRects = layer.rects
+        } else {
+            overlay.underlineRects = layer.rects
+            overlay.drawsVerticalUnderlines = layout?.writingMode.isVertical ?? false
+        }
+        addSubview(overlay)
+        annotationOverlays[key] = overlay
+        return overlay
+    }
     private enum SelectionDragHandle {
         case start
         case end
@@ -64,16 +84,11 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         playbackOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         playbackOverlay.fillColor = UIColor.systemYellow.withAlphaComponent(0.28)
         playbackOverlay.showsHandles = false
-        annotationOverlay.frame = bounds
-        annotationOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        annotationOverlay.fillColor = .clear
-        annotationOverlay.showsHandles = false
         interactionOverlay.frame = bounds
         interactionOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         interactionOverlay.fillColor = UIColor.systemYellow.withAlphaComponent(0.30)
         interactionOverlay.handleColor = UIColor(red: 0.63, green: 0.40, blue: 0.00, alpha: 1.0)
         addSubview(playbackOverlay)
-        addSubview(annotationOverlay)
         addSubview(interactionOverlay)
 
         addGestureRecognizer(linkTapGesture)
@@ -110,7 +125,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     override var canBecomeFirstResponder: Bool { true }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        guard selectedTextForCopy?.isEmpty == false else { return false }
+        guard interactor.selectedTextForCopy?.isEmpty == false else { return false }
         return action == #selector(copy(_:)) || action == #selector(underlineSelection(_:))
     }
 
@@ -119,16 +134,68 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         menuFor configuration: UIEditMenuConfiguration,
         suggestedActions: [UIMenuElement]
     ) -> UIMenu? {
-        guard selectedTextForCopy?.isEmpty == false else { return nil }
-        let removesExistingUnderline = selectedRangeHasExactUnderline()
+        guard interactor.selectedTextForCopy?.isEmpty == false else { return nil }
         var actions = suggestedActions
-        actions.append(UIAction(
-            title: localized(removesExistingUnderline ? "解除下劃線" : "下劃線"),
-            image: nil,
-            handler: { [weak self] _ in
-                self?.toggleUnderlineSelection(removesExistingUnderline: removesExistingUnderline)
+
+        if let existingAnnotation = interactor.tappedAnnotation {
+            // Menu for existing annotation: change color, delete, add note
+            let deleteAction = UIAction(
+                title: localized("刪除標註"),
+                image: nil,
+                attributes: .destructive,
+                handler: { [weak self] _ in
+                    self?.deleteTappedAnnotation()
+                }
+            )
+            actions.append(deleteAction)
+
+            // Color submenu
+            var colorActions: [UIAction] = []
+            for color in AnnotationColor.allCases {
+                let isCurrent = color == existingAnnotation.color
+                colorActions.append(UIAction(
+                    title: isCurrent ? "\(localized(colorName(for: color))) ✓" : localized(colorName(for: color)),
+                    image: nil,
+                    handler: { [weak self] _ in
+                        self?.changeAnnotationColor(to: color)
+                    }
+                ))
             }
-        ))
+            let colorMenu = UIMenu(title: localized("顏色"), children: colorActions)
+            actions.append(colorMenu)
+
+            // Style toggle
+            let currentStyle = existingAnnotation.style
+            let otherStyle: AnnotationStyle = currentStyle == .underline ? .highlight : .underline
+            actions.append(UIAction(
+                title: localized(currentStyle == .underline ? "切換為螢光筆" : "切換為下劃線"),
+                image: nil,
+                handler: { [weak self] _ in
+                    self?.changeAnnotationStyle(to: otherStyle)
+                }
+            ))
+        } else {
+            let removesExistingUnderline = selectedRangeHasExactUnderline()
+            // Underline action
+            actions.append(UIAction(
+                title: localized(removesExistingUnderline ? "解除下劃線" : "下劃線"),
+                image: nil,
+                handler: { [weak self] _ in
+                    self?.toggleUnderlineSelection(removesExistingUnderline: removesExistingUnderline)
+                }
+            ))
+            // Highlight action (if not removing)
+            if !removesExistingUnderline {
+                actions.append(UIAction(
+                    title: localized("螢光筆"),
+                    image: nil,
+                    handler: { [weak self] _ in
+                        self?.toggleUnderlineSelection(removesExistingUnderline: false, style: .highlight, color: .yellow)
+                    }
+                ))
+            }
+        }
+
         return UIMenu(children: actions)
     }
 
@@ -208,14 +275,6 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             range: range,
             path: path,
             writingMode: layout.writingMode
-        )
-        // ── Diagnostics: log all text/image positions for problem pages ──
-        logPageDiagnostics(
-            layout: layout,
-            pageIndex: pageIndex,
-            frame: frame,
-            contentPathRect: contentPathRect,
-            layoutSize: layoutSize
         )
 
         // Collect ranges that will be redrawn by drawBlockRenderableText so drawLines can skip them.
@@ -420,124 +479,6 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     ///   - contentMinX: Left edge of the content area (CoreText coordinates), used for drawing HR line start points
     ///   - contentMinY: Bottom of the content area (CoreText coordinates), used for calculating last-page remaining space
     ///   - isLastPage: Whether this is the last page of the chapter; last pages do not apply vertical justification
-    // MARK: - Page Diagnostics (page-level text/image position logging)
-
-    /// Logs every text line, image, and block renderable position for pages
-    /// matching keywords like "版權", "整理說明", etc.
-    private nonisolated static func logPageDiagnostics(
-        layout: CoreTextPaginator.ChapterLayout,
-        pageIndex: Int,
-        frame: CTFrame,
-        contentPathRect: CGRect,
-        layoutSize: CGSize
-    ) {
-        let range = layout.pageRanges[pageIndex]
-        guard range.length > 0 else { return }
-        let nsRange = NSRange(location: range.location, length: min(range.length, layout.attributedString.length - range.location))
-        guard nsRange.length > 0 else { return }
-        let pageText = (layout.attributedString.string as NSString).substring(with: nsRange)
-
-        let keywords = ["版權", "Copyright", "BookDNA", "經典復刻", "浙版數媒", "書名頁", "曹雪芹著 脂硯齋評"]
-        let matched = keywords.filter { pageText.contains($0) }
-        let inlineImgs = layout.inlineAttachments[pageIndex] ?? []
-        let inlineAnnotations = layout.inlineAnnotations[pageIndex] ?? []
-        let oversizedAnnotations = inlineAnnotations.filter { $0.uiRect.height > contentPathRect.height }
-        guard !matched.isEmpty || !inlineImgs.isEmpty || !oversizedAnnotations.isEmpty else { return }
-
-        print("[PageDiag] ===============================================================")
-        print("[PageDiag] PAGE \(pageIndex) spine=\(layout.spineIndex) matched=\(matched)")
-        print("[PageDiag] writingMode=\(layout.writingMode.isVertical ? "vertical-rl" : "horizontal")")
-        print("[PageDiag] renderSize=\(layout.renderSize) layoutSize=\(layoutSize)")
-        print("[PageDiag] contentInsets=\(layout.contentInsets)")
-        print("[PageDiag] contentPathRect=\(contentPathRect)")
-        print("[PageDiag] pageRange=(\(range.location), \(range.length))")
-        let preview = String(pageText.replacingOccurrences(of: "\n", with: "\\n").prefix(300))
-        print("[PageDiag] pageText prefix: \"\(preview)\"")
-
-        // ── Text lines ──
-        let lines = CTFrameGetLines(frame) as! [CTLine]
-        var origins = [CGPoint](repeating: .zero, count: lines.count)
-        CTFrameGetLineOrigins(frame, CFRangeMake(0, lines.count), &origins)
-        print("[PageDiag] --- Text Lines: \(lines.count) ---")
-        for (i, line) in lines.enumerated() {
-            let lineRange = CTLineGetStringRange(line)
-            let origin = origins[i]
-            var ascent: CGFloat = 0
-            var descent: CGFloat = 0
-            var leading: CGFloat = 0
-            let lineWidth = CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
-            let baselineX = contentPathRect.minX + origin.x
-            let typographicCenterX = baselineX + (ascent - descent) / 2
-            // CoreText rect
-            let coreTextRect = CGRect(
-                x: baselineX,
-                y: contentPathRect.minY + origin.y - descent,
-                width: max(0, lineWidth),
-                height: max(0, ascent + descent)
-            )
-            // UIKit rect
-            let uiRect = CGRect(
-                x: coreTextRect.minX,
-                y: layoutSize.height - coreTextRect.maxY,
-                width: coreTextRect.width,
-                height: coreTextRect.height
-            )
-            var lineText = ""
-            if lineRange.location < layout.attributedString.length {
-                let end = min(lineRange.location + lineRange.length, layout.attributedString.length)
-                if end > lineRange.location {
-                    let t = (layout.attributedString.string as NSString)
-                        .substring(with: NSRange(location: lineRange.location, length: min(end - lineRange.location, 60)))
-                    lineText = t.replacingOccurrences(of: "\n", with: "\\n")
-                }
-            }
-            // Paragraph style for this line
-            var psInfo = "ps=nil"
-            if lineRange.location < layout.attributedString.length {
-                if let ps = layout.attributedString.attribute(.paragraphStyle, at: lineRange.location, effectiveRange: nil) as? NSParagraphStyle {
-                    psInfo = "ps.firstLineHeadIndent=\(String(format: "%.1f", ps.firstLineHeadIndent)) headIndent=\(String(format: "%.1f", ps.headIndent)) tailIndent=\(String(format: "%.1f", ps.tailIndent)) paraSpacingBefore=\(String(format: "%.1f", ps.paragraphSpacingBefore)) paraSpacing=\(String(format: "%.1f", ps.paragraphSpacing)) lineSpacing=\(String(format: "%.1f", ps.lineSpacing)) alignment=\(ps.alignment.rawValue) minLineHeight=\(String(format: "%.1f", ps.minimumLineHeight)) maxLineHeight=\(String(format: "%.1f", ps.maximumLineHeight))"
-                }
-            }
-            print("[PageDiag]   L[\(i)] origin=(\(String(format: "%.1f", origin.x)), \(String(format: "%.1f", origin.y))) baselineX=\(String(format: "%.1f", baselineX)) typeCenterX=\(String(format: "%.1f", typographicCenterX)) centerDelta=\(String(format: "%.1f", typographicCenterX - baselineX)) w=\(String(format: "%.1f", lineWidth)) asc=\(String(format: "%.1f", ascent)) desc=\(String(format: "%.1f", descent)) ctRect=\(String(format: "%.1f", coreTextRect.minX)),\(String(format: "%.1f", coreTextRect.minY)),\(String(format: "%.1f", coreTextRect.width)),\(String(format: "%.1f", coreTextRect.height)) uiRect=\(String(format: "%.1f", uiRect.minX)),\(String(format: "%.1f", uiRect.minY)),\(String(format: "%.1f", uiRect.width)),\(String(format: "%.1f", uiRect.height)) range=(\(lineRange.location),\(lineRange.length)) \"\(lineText)\"")
-            print("[PageDiag]          \(psInfo)")
-        }
-
-        // ── Inline attachments ──
-        print("[PageDiag] --- Inline Images: \(inlineImgs.count) ---")
-        for (i, img) in inlineImgs.enumerated() {
-            print("[PageDiag]   IMG-inline[\(i)] rect=(\(String(format: "%.1f", img.rect.minX)), \(String(format: "%.1f", img.rect.minY)), \(String(format: "%.1f", img.rect.width)), \(String(format: "%.1f", img.rect.height))) drawSize=\(img.originalSize) src=\(img.sourceHref ?? "nil") alt=\(img.alt ?? "nil")")
-        }
-
-        print("[PageDiag] --- Inline Annotations: \(inlineAnnotations.count) ---")
-        for (i, annotation) in inlineAnnotations.enumerated() {
-            print("[PageDiag]   ANNO-inline[\(i)] uiRect=(\(String(format: "%.1f", annotation.uiRect.minX)), \(String(format: "%.1f", annotation.uiRect.minY)), \(String(format: "%.1f", annotation.uiRect.width)), \(String(format: "%.1f", annotation.uiRect.height))) len=\(annotation.attributedString.length) text=\"\(inlineAnnotationDebugPreview(annotation.attributedString.string, limit: 100))\"")
-        }
-
-        // ── Block attachments ──
-        let blockImgs = layout.blockAttachments[pageIndex] ?? []
-        print("[PageDiag] --- Block Images: \(blockImgs.count) ---")
-        for (i, img) in blockImgs.enumerated() {
-            print("[PageDiag]   IMG-block[\(i)] rect=(\(String(format: "%.1f", img.rect.minX)), \(String(format: "%.1f", img.rect.minY)), \(String(format: "%.1f", img.rect.width)), \(String(format: "%.1f", img.rect.height))) drawSize=\(img.originalSize) src=\(img.sourceHref ?? "nil")")
-        }
-
-        // ── Block renderables ──
-        let renderables = layout.blockRenderables[pageIndex] ?? []
-        print("[PageDiag] --- Block Renderables: \(renderables.count) ---")
-        for (i, br) in renderables.enumerated() {
-            let imgInfo: String
-            if let img = br.imageAttachment {
-                imgInfo = "img=(\(String(format: "%.1f", img.rect.minX)),\(String(format: "%.1f", img.rect.minY)),\(String(format: "%.1f", img.rect.width)),\(String(format: "%.1f", img.rect.height))) src=\(img.sourceHref ?? "nil")"
-            } else {
-                imgInfo = "no-image"
-            }
-            let textInfo = br.attributedText != nil ? "hasText len=\(br.attributedText!.length)" : "no-text"
-            let styleInfo = "bg=\(br.style.backgroundFillColor != nil ? "Y" : "N") borderTop=\(br.style.borderTopWidth) borderBot=\(br.style.borderBottomWidth) w=\(br.style.width?.description ?? "nil")"
-            print("[PageDiag]   BLOCK[\(i)] rect=(\(String(format: "%.1f", br.rect.minX)), \(String(format: "%.1f", br.rect.minY)), \(String(format: "%.1f", br.rect.width)), \(String(format: "%.1f", br.rect.height))) \(imgInfo) \(textInfo) \(styleInfo)")
-        }
-
-        print("[PageDiag] ===============================================================")
-    }
-
     // MARK: - Phase 2a: Vertical text rendering
 
     /// Draw a CTFrame in vertical-rl mode.
@@ -747,7 +688,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     }
 
     @objc override func copy(_ sender: Any?) {
-        guard let text = selectedTextForCopy, !text.isEmpty else { return }
+        guard let text = interactor.selectedTextForCopy, !text.isEmpty else { return }
         UIPasteboard.general.string = text
     }
 
@@ -755,25 +696,30 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         toggleUnderlineSelection(removesExistingUnderline: selectedRangeHasExactUnderline())
     }
 
-    private func toggleUnderlineSelection(removesExistingUnderline: Bool) {
+    private func toggleUnderlineSelection(removesExistingUnderline: Bool, style: AnnotationStyle = .underline, color: AnnotationColor = .yellow) {
         guard let layout,
-              let range = selectionManager.selectedRange,
+              let range = interactor.selectionManager.selectedRange,
               range.length > 0,
               range.location >= 0,
               range.location + range.length <= layout.attributedString.length
         else { return }
-        let excerpt = selectedTextForCopy ?? selectionManager.selectedText(in: layout.attributedString) ?? ""
+        let excerpt = interactor.selectedTextForCopy ?? interactor.selectionManager.selectedText(in: layout.attributedString) ?? ""
         if removesExistingUnderline {
-            textAnnotations.removeAll {
-                $0.spineIndex == layout.spineIndex && NSEqualRanges($0.range, range)
-            }
-        } else {
-            let annotation = CoreTextTextAnnotation(
-                id: UUID(),
+            let (remaining, _) = AnnotationStore.removeExact(
                 spineIndex: layout.spineIndex,
-                range: range
+                range: range,
+                from: textAnnotations
             )
-            textAnnotations.append(annotation)
+            textAnnotations = remaining
+        } else {
+            let newAnnotation = CoreTextTextAnnotation(
+                spineIndex: layout.spineIndex,
+                range: range,
+                style: style,
+                color: color
+            )
+            let (merged, _) = AnnotationStore.merge(newAnnotation, into: textAnnotations)
+            textAnnotations = merged
         }
         updateAnnotationOverlay()
         NotificationCenter.default.post(
@@ -787,7 +733,9 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
                     ),
                     length: range.length,
                     excerpt: excerpt.trimmingCharacters(in: .whitespacesAndNewlines),
-                    removesExistingUnderline: removesExistingUnderline
+                    removesExistingUnderline: removesExistingUnderline,
+                    style: style,
+                    color: color
                 )
             ]
         )
@@ -801,12 +749,32 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             return
         }
 
-        if selectionManager.hasSelection {
+        let point = gesture.location(in: self)
+
+        if interactor.selectionManager.hasSelection {
+            // If tap is on the existing selection, keep it and show menu again
+            if let context = makeInteractionContext(),
+               let index = stringIndex(at: point, in: context),
+               let selRange = interactor.selectionManager.selectedRange,
+               index >= selRange.location,
+               index < selRange.location + selRange.length {
+                interactor.selectedTextForCopy = interactor.selectionManager.selectedText(in: layout.attributedString)
+                interactor.tappedAnnotation = AnnotationStore.annotationAt(
+                    spineIndex: layout.spineIndex,
+                    charOffset: index,
+                    in: textAnnotations,
+                    tolerance: 3
+                )
+                becomeFirstResponder()
+                editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
+                    identifier: nil,
+                    sourcePoint: point))
+                return
+            }
             clearSelection()
             return
         }
 
-        let point = gesture.location(in: self)
         if let attachment = imageAttachment(at: point) {
             onImageAttachmentTap?(attachment)
             return
@@ -818,14 +786,26 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             return
         }
 
-        guard index < layout.attributedString.length,
-              let href = layout.attributedString.attribute(
-                  HTMLAttributedStringBuilder.internalLinkAttribute,
-                  at: index,
-                  effectiveRange: nil
-              ) as? String,
-              !href.isEmpty
-        else {
+        // Hit-test existing annotation first
+        if let annotation = AnnotationStore.annotationAt(
+            spineIndex: layout.spineIndex,
+            charOffset: index,
+            in: textAnnotations,
+            tolerance: 3
+        ) {
+            interactor.tappedAnnotation = annotation
+            interactor.selectionManager.setSelection(range: annotation.range, maxLength: layout.attributedString.length)
+            updateSelectionOverlay(with: context)
+            interactor.selectedTextForCopy = interactor.selectionManager.selectedText(in: layout.attributedString)
+            becomeFirstResponder()
+            editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
+                identifier: nil,
+                sourcePoint: point))
+            return
+        }
+
+        // Fall through to link detection
+        guard let href = HTMLAttributedStringBuilder.linkHref(at: index, in: layout.attributedString) else {
             return
         }
 
@@ -839,7 +819,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
 
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         if gestureRecognizer === selectionHandlePanGesture {
-            return selectionManager.hasSelection
+            return interactor.selectionManager.hasSelection
                 && nearestHandle(to: selectionHandlePanGesture.location(in: self)) != nil
         }
         return true
@@ -860,12 +840,35 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         switch gesture.state {
         case .began:
             let paragraphRange = defaultSelectionRange(around: index, in: layout.attributedString)
-            selectionManager.setSelection(range: paragraphRange, maxLength: layout.attributedString.length)
+            // Snap selection to nearby annotations
+            let snappedRange = AnnotationStore.expandedSelectionRange(
+                spineIndex: layout.spineIndex,
+                start: paragraphRange.location,
+                end: paragraphRange.location + paragraphRange.length,
+                in: textAnnotations,
+                tolerance: 2
+            )
+            // If selection is fully inside an existing annotation, mark it for edit
+            interactor.tappedAnnotation = AnnotationStore.annotationFullyContaining(
+                spineIndex: layout.spineIndex,
+                range: snappedRange,
+                in: textAnnotations
+            )
+            interactor.selectionManager.setSelection(range: snappedRange, maxLength: layout.attributedString.length)
             updateSelectionOverlay(with: context)
         case .ended:
             updateSelectionOverlay(with: context)
-            guard selectionManager.hasSelection else { return }
-            selectedTextForCopy = selectionManager.selectedText(in: layout.attributedString)
+            guard interactor.selectionManager.hasSelection else { return }
+            interactor.selectedTextForCopy = interactor.selectionManager.selectedText(in: layout.attributedString)
+            // If no tapped annotation found yet, check if selection is on an annotation
+            if interactor.tappedAnnotation == nil, let selRange = interactor.selectionManager.selectedRange {
+                interactor.tappedAnnotation = AnnotationStore.annotationAt(
+                    spineIndex: layout.spineIndex,
+                    charOffset: selRange.location,
+                    in: textAnnotations,
+                    tolerance: 0
+                )
+            }
             becomeFirstResponder()
             let point = gesture.location(in: self)
             editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
@@ -879,7 +882,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     }
 
     @objc private func handleSelectionHandlePan(_ gesture: UIPanGestureRecognizer) {
-        guard selectionManager.hasSelection,
+        guard interactor.selectionManager.hasSelection,
               let layout,
               localPageIndex < layout.pageRanges.count,
               let context = makeInteractionContext()
@@ -897,14 +900,34 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
                   let index = stringIndex(at: point, in: context) else { return }
             switch activeDragHandle {
             case .start:
-                selectionManager.updateSelectionStart(to: index, maxLength: layout.attributedString.length)
+                interactor.selectionManager.updateSelectionStart(to: index, maxLength: layout.attributedString.length)
             case .end:
-                selectionManager.updateSelectionEnd(to: index, maxLength: layout.attributedString.length)
+                interactor.selectionManager.updateSelectionEnd(to: index, maxLength: layout.attributedString.length)
+            }
+            // Snap to annotation boundaries
+            if let selRange = interactor.selectionManager.selectedRange {
+                let snapped = AnnotationStore.expandedSelectionRange(
+                    spineIndex: layout.spineIndex,
+                    start: selRange.location,
+                    end: selRange.location + selRange.length,
+                    in: textAnnotations,
+                    tolerance: 3
+                )
+                if snapped != selRange {
+                    interactor.selectionManager.setSelection(range: snapped, maxLength: layout.attributedString.length)
+                }
             }
             updateSelectionOverlay(with: context)
-            selectedTextForCopy = selectionManager.selectedText(in: layout.attributedString)
+            interactor.selectedTextForCopy = interactor.selectionManager.selectedText(in: layout.attributedString)
         case .ended:
-            selectedTextForCopy = selectionManager.selectedText(in: layout.attributedString)
+            interactor.selectedTextForCopy = interactor.selectionManager.selectedText(in: layout.attributedString)
+            if let selRange = interactor.selectionManager.selectedRange {
+                interactor.tappedAnnotation = AnnotationStore.annotationFullyContaining(
+                    spineIndex: layout.spineIndex,
+                    range: selRange,
+                    in: textAnnotations
+                )
+            }
             becomeFirstResponder()
             editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
                 identifier: nil,
@@ -931,7 +954,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     }
 
     private func shouldHandleTap(at point: CGPoint) -> Bool {
-        if selectionManager.hasSelection {
+        if interactor.selectionManager.hasSelection {
             return true
         }
 
@@ -943,16 +966,11 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
               localPageIndex < layout.pageRanges.count,
               let context = makeInteractionContext(),
               let index = stringIndex(at: point, in: context),
-              index < layout.attributedString.length,
-              let href = layout.attributedString.attribute(
-                  HTMLAttributedStringBuilder.internalLinkAttribute,
-                  at: index,
-                  effectiveRange: nil
-              ) as? String
+              HTMLAttributedStringBuilder.linkHref(at: index, in: layout.attributedString) != nil
         else {
             return false
         }
-        return !href.isEmpty
+        return true
     }
 
     private func imageAttachment(at point: CGPoint) -> CoreTextPaginator.RenderedAttachment? {
@@ -982,11 +1000,11 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     }
 
     private func clearSelection() {
-        selectionManager.clear()
-        selectedTextForCopy = nil
+        interactor.selectionManager.clear()
+        interactor.selectedTextForCopy = nil
+        interactor.tappedAnnotation = nil
         activeDragHandle = nil
         interactionOverlay.clearSelection()
-        // Also dismiss the copy menu so it doesn't stick around after the highlight is dismissed
         editMenuInteraction.dismissMenu()
     }
 
@@ -1228,7 +1246,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     }
 
     private func updateSelectionOverlay(with context: InteractionContext) {
-        guard let range = selectionManager.selectedRange,
+        guard let range = interactor.selectionManager.selectedRange,
               range.length > 0
         else {
             interactionOverlay.clearSelection()
@@ -1246,32 +1264,159 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
               localPageIndex < layout.pageRanges.count,
               let context = makeInteractionContext()
         else {
-            annotationOverlay.clearSelection()
+            for overlay in annotationOverlays.values {
+                overlay.clearSelection()
+                overlay.isHidden = true
+            }
             return
         }
         let pageCFRange = layout.pageRanges[localPageIndex]
         let pageRange = NSRange(location: pageCFRange.location, length: pageCFRange.length)
-        let rects = textAnnotations
-            .filter { $0.spineIndex == layout.spineIndex }
-            .flatMap { annotation -> [CGRect] in
-                let intersection = NSIntersectionRange(pageRange, annotation.range)
-                guard intersection.length > 0 else { return [] }
-                return selectionRects(for: intersection, in: context)
+
+        let layers = CoreTextAnnotationRenderer.render(
+            annotations: textAnnotations,
+            spineIndex: layout.spineIndex,
+            pageCharRange: pageRange,
+            lines: context.lines,
+            lineOrigins: context.origins,
+            contentOffset: CGPoint(x: context.contentPathRect.minX, y: context.contentPathRect.minY),
+            layoutHeight: context.layoutSize.height,
+            writingMode: context.writingMode
+        )
+
+        // Scale rects to view coordinates
+        let scaledLayers = layers.map { layer -> CoreTextAnnotationRenderer.Layer in
+            let scaledRects = layer.rects.map { rect in
+                CGRect(
+                    x: rect.minX * context.scaleX + bounds.minX,
+                    y: rect.minY * context.scaleY + bounds.minY,
+                    width: rect.width * context.scaleX,
+                    height: rect.height * context.scaleY
+                )
             }
-        annotationOverlay.selectionRects = []
-        annotationOverlay.drawsVerticalUnderlines = layout.writingMode.isVertical
-        annotationOverlay.underlineRects = rects
-        annotationOverlay.startHandlePoint = nil
-        annotationOverlay.endHandlePoint = nil
+            return CoreTextAnnotationRenderer.Layer(rects: scaledRects, style: layer.style, color: layer.color)
+        }
+
+        // Update or create overlay for each layer
+        var activeKeys = Set<LayerKey>()
+        for layer in scaledLayers {
+            let key = LayerKey(style: layer.style, color: layer.color)
+            activeKeys.insert(key)
+            let overlay = annotationOverlay(for: layer)
+            overlay.frame = bounds
+            if layer.style == .highlight {
+                overlay.fillColor = layer.color.uiColor.withAlphaComponent(0.25)
+                overlay.selectionRects = layer.rects
+                overlay.underlineRects = []
+            } else {
+                overlay.fillColor = .clear
+                overlay.underlineColor = layer.color.uiColor.withAlphaComponent(0.85)
+                overlay.underlineRects = layer.rects
+                overlay.drawsVerticalUnderlines = layout.writingMode.isVertical
+                overlay.selectionRects = []
+            }
+            overlay.startHandlePoint = nil
+            overlay.endHandlePoint = nil
+            overlay.isHidden = false
+        }
+
+        // Hide unused overlays
+        for (key, overlay) in annotationOverlays where !activeKeys.contains(key) {
+            overlay.isHidden = true
+            overlay.clearSelection()
+        }
     }
 
     private func selectedRangeHasExactUnderline() -> Bool {
         guard let layout,
-              let range = selectionManager.selectedRange,
+              let range = interactor.selectionManager.selectedRange,
               range.length > 0
         else { return false }
         return textAnnotations.contains {
             $0.spineIndex == layout.spineIndex && NSEqualRanges($0.range, range)
+        }
+    }
+
+    private func deleteTappedAnnotation() {
+        guard let annotation = interactor.tappedAnnotation else { return }
+        textAnnotations.removeAll { $0.id == annotation.id }
+        updateAnnotationOverlay()
+        NotificationCenter.default.post(
+            name: .coreTextUnderlineSelectionRequested,
+            object: self,
+            userInfo: [
+                "request": CoreTextUnderlineSelectionRequest(
+                    position: CoreTextReadingPosition(
+                        spineIndex: annotation.spineIndex,
+                        charOffset: annotation.startOffset
+                    ),
+                    length: annotation.range.length,
+                    excerpt: interactor.selectedTextForCopy ?? "",
+                    removesExistingUnderline: true,
+                    style: annotation.style,
+                    color: annotation.color
+                )
+            ]
+        )
+        clearSelection()
+    }
+
+    private func changeAnnotationColor(to color: AnnotationColor) {
+        guard var annotation = interactor.tappedAnnotation,
+              let layout,
+              let context = makeInteractionContext()
+        else { return }
+        annotation.color = color
+        let (merged, _) = AnnotationStore.merge(annotation, into: textAnnotations)
+        textAnnotations = merged
+        interactor.tappedAnnotation = textAnnotations.first { $0.spineIndex == annotation.spineIndex && $0.range == annotation.range }
+        updateAnnotationOverlay()
+        updateSelectionOverlay(with: context)
+        notifyAnnotationChange()
+    }
+
+    private func changeAnnotationStyle(to style: AnnotationStyle) {
+        guard var annotation = interactor.tappedAnnotation,
+              let layout,
+              let context = makeInteractionContext()
+        else { return }
+        annotation.style = style
+        let (merged, _) = AnnotationStore.merge(annotation, into: textAnnotations)
+        textAnnotations = merged
+        interactor.tappedAnnotation = textAnnotations.first { $0.spineIndex == annotation.spineIndex && $0.range == annotation.range }
+        updateAnnotationOverlay()
+        updateSelectionOverlay(with: context)
+        notifyAnnotationChange()
+    }
+
+    private func notifyAnnotationChange() {
+        guard let annotation = interactor.tappedAnnotation else { return }
+        NotificationCenter.default.post(
+            name: .coreTextUnderlineSelectionRequested,
+            object: self,
+            userInfo: [
+                "request": CoreTextUnderlineSelectionRequest(
+                    position: CoreTextReadingPosition(
+                        spineIndex: annotation.spineIndex,
+                        charOffset: annotation.startOffset
+                    ),
+                    length: annotation.range.length,
+                    excerpt: interactor.selectedTextForCopy ?? "",
+                    removesExistingUnderline: false,
+                    style: annotation.style,
+                    color: annotation.color
+                )
+            ]
+        )
+    }
+
+    private func colorName(for color: AnnotationColor) -> String {
+        switch color {
+        case .yellow: return "黃色"
+        case .green: return "綠色"
+        case .blue: return "藍色"
+        case .pink: return "粉色"
+        case .orange: return "橙色"
         }
     }
 
@@ -1314,102 +1459,22 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     }
 
     private func selectionRects(for range: NSRange, in context: InteractionContext) -> [CGRect] {
-        if context.writingMode.isVertical {
-            return verticalSelectionRects(for: range, in: context)
+        let rects = CoreTextAnnotationRenderer.rects(
+            forRange: range,
+            lines: context.lines,
+            lineOrigins: context.origins,
+            contentOffset: CGPoint(x: context.contentPathRect.minX, y: context.contentPathRect.minY),
+            layoutHeight: context.layoutSize.height,
+            writingMode: context.writingMode
+        )
+        return rects.map { rect in
+            CGRect(
+                x: rect.minX * context.scaleX + bounds.minX,
+                y: rect.minY * context.scaleY + bounds.minY,
+                width: rect.width * context.scaleX,
+                height: rect.height * context.scaleY
+            )
         }
-
-        var result: [CGRect] = []
-
-        for idx in context.lines.indices {
-            let line = context.lines[idx]
-            let lineRange = CTLineGetStringRange(line)
-            guard lineRange.length > 0 else { continue }
-
-            let lineNSRange = NSRange(location: lineRange.location, length: lineRange.length)
-            let intersection = NSIntersectionRange(lineNSRange, range)
-            guard intersection.length > 0 else { continue }
-
-            let startOffset = CGFloat(CTLineGetOffsetForStringIndex(line, intersection.location, nil))
-            let endOffset = CGFloat(
-                CTLineGetOffsetForStringIndex(
-                    line,
-                    intersection.location + intersection.length,
-                    nil
-                )
-            )
-
-            var ascent: CGFloat = 0
-            var descent: CGFloat = 0
-            _ = CTLineGetTypographicBounds(line, &ascent, &descent, nil)
-
-            let baselineY = context.contentPathRect.minY + context.origins[idx].y
-            let lineTop = baselineY + ascent
-            let lineHeight = max(1, ascent + descent)
-            let canonicalRect = CGRect(
-                x: context.contentPathRect.minX + context.origins[idx].x + min(startOffset, endOffset),
-                y: context.layoutSize.height - lineTop,
-                width: max(1, abs(endOffset - startOffset)),
-                height: lineHeight
-            )
-
-            let scaled = CGRect(
-                x: canonicalRect.minX * context.scaleX + bounds.minX,
-                y: canonicalRect.minY * context.scaleY + bounds.minY,
-                width: canonicalRect.width * context.scaleX,
-                height: canonicalRect.height * context.scaleY
-            )
-            result.append(scaled)
-        }
-
-        return result
-    }
-
-    private func verticalSelectionRects(for range: NSRange, in context: InteractionContext) -> [CGRect] {
-        var result: [CGRect] = []
-
-        for idx in context.lines.indices {
-            let line = context.lines[idx]
-            let lineRange = CTLineGetStringRange(line)
-            guard lineRange.length > 0 else { continue }
-
-            let lineNSRange = NSRange(location: lineRange.location, length: lineRange.length)
-            let intersection = NSIntersectionRange(lineNSRange, range)
-            guard intersection.length > 0 else { continue }
-
-            let startOffset = CGFloat(CTLineGetOffsetForStringIndex(line, intersection.location, nil))
-            let endOffset = CGFloat(
-                CTLineGetOffsetForStringIndex(
-                    line,
-                    intersection.location + intersection.length,
-                    nil
-                )
-            )
-
-            var ascent: CGFloat = 0
-            var descent: CGFloat = 0
-            _ = CTLineGetTypographicBounds(line, &ascent, &descent, nil)
-
-            let baselineX = context.contentPathRect.minX + context.origins[idx].x
-            let x1 = baselineX - descent
-            let x2 = baselineX + ascent
-            let lineTopY = context.layoutSize.height - (context.contentPathRect.minY + context.origins[idx].y)
-            let canonicalRect = CGRect(
-                x: min(x1, x2),
-                y: lineTopY + min(startOffset, endOffset),
-                width: max(1, abs(x2 - x1)),
-                height: max(1, abs(endOffset - startOffset))
-            )
-
-            let scaled = CGRect(
-                x: canonicalRect.minX * context.scaleX + bounds.minX,
-                y: canonicalRect.minY * context.scaleY + bounds.minY,
-                width: canonicalRect.width * context.scaleX,
-                height: canonicalRect.height * context.scaleY
-            )
-            result.append(scaled)
-        }
-
-        return result
     }
 
     #if DEBUG
