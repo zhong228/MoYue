@@ -1183,7 +1183,16 @@ struct ReaderView: View {
                 engine: scrollEngine,
                 axis: scrollAxis,
                 horizontalInset: effectivePageMarginH,
-                verticalInset: readerConfig.pageMarginV,
+                verticalInset: scrollAxis.isHorizontalRTL
+                    ? ReaderLayoutMetrics.topInset(safeTop: effectiveReaderSafeTop)
+                    : readerConfig.pageMarginV,
+                bottomMargin: scrollAxis.isHorizontalRTL
+                    ? ReaderLayoutMetrics.bottomInset(
+                        safeBottom: 0,
+                        footerBottomPadding: readerConfig.footerBottomPadding,
+                        footerTextGap: readerConfig.footerTextGap
+                      )
+                    : 0,
                 backgroundColor: readerTheme.uiBackgroundColor,
                 initialChapter: initialPos.chapter,
                 initialCharOffset: initialPos.charOffset,

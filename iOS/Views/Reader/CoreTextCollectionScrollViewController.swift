@@ -11,8 +11,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     private(set) var scrollAxis: CoreTextScrollAxis
     private var horizontalInset: CGFloat
     private var verticalInset: CGFloat
-    private var safeTop: CGFloat = 0
-    private var safeBottom: CGFloat = 0
+    var bottomMargin: CGFloat = 0
     var onProgressCommit: ((ScrollProgress) -> Void)?
     var onTap: (() -> Void)?
     var onInternalLinkTap: ((String) -> Void)?
@@ -127,13 +126,14 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         applyPendingInitialScrollIfPossible()
     }
 
-    func update(axis: CoreTextScrollAxis, horizontal: CGFloat, vertical: CGFloat) {
+    func update(axis: CoreTextScrollAxis, horizontal: CGFloat, vertical: CGFloat, bottomMargin: CGFloat = 0) {
         let oldExtent = currentContentExtent
         let restoreChapter = visibleProgressChapter()
         let axisChanged = axis != scrollAxis
         scrollAxis = axis
         horizontalInset = horizontal
         verticalInset = vertical
+        self.bottomMargin = bottomMargin
         collectionView.contentInset = contentInset
         collectionView.semanticContentAttribute = axis.semanticContentAttribute
         if let layout = collectionView.collectionViewLayout as? UICollectionViewFlowLayout {
@@ -179,7 +179,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         case .vertical:
             return UIEdgeInsets(top: verticalInset, left: 0, bottom: verticalInset, right: 0)
         case .horizontalRTL:
-            return UIEdgeInsets(top: safeTop, left: horizontalInset, bottom: safeBottom, right: horizontalInset)
+            return UIEdgeInsets(top: 0, left: horizontalInset, bottom: 0, right: horizontalInset)
         }
     }
 
@@ -188,7 +188,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         case .vertical:
             return max(0, view.bounds.width - 2 * horizontalInset)
         case .horizontalRTL:
-            return max(0, view.bounds.height - safeTop - safeBottom)
+            return max(0, view.bounds.height - verticalInset - bottomMargin)
         }
     }
 
