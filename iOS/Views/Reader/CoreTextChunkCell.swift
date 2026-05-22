@@ -82,12 +82,8 @@ final class CoreTextChunkDrawView: UIView {
         }
 
         // Phase 4: Inline image attachments (UIKit coordinates)
-        if !chunk.attachments.isEmpty {
-            print("[ImageDraw] chunk=\(chunk.charRange.location) vertical=\(chunk.writingMode.isVertical) images=\(chunk.attachments.count) bounds=\(bounds)")
-            for (i, attachment) in chunk.attachments.enumerated() {
-                print("[ImageDraw]   [\(i)] rect=\(attachment.rect) src=\(attachment.sourceHref ?? "nil") size=\(attachment.image.size)")
-                attachment.image.draw(in: attachment.rect, blendMode: .normal, alpha: attachment.opacity)
-            }
+        for attachment in chunk.attachments {
+            attachment.image.draw(in: attachment.rect, blendMode: .normal, alpha: attachment.opacity)
         }
     }
 }
@@ -270,35 +266,41 @@ final class CoreTextChunkCollectionCell: UICollectionViewCell {
         )
 
         // Apply layers — reuse overlay views per (style, color)
+        // Insert below the selection overlay (overlay) so selection stays on top
         var activeKeys = Set<LayerKey>()
         for layer in layers {
             let key = LayerKey(style: layer.style, color: layer.color)
             activeKeys.insert(key)
-            let overlay: InteractionOverlayView
+            let overlayView: InteractionOverlayView
             if let existing = annotationOverlays[key] {
-                overlay = existing
+                overlayView = existing
             } else {
-                overlay = InteractionOverlayView()
-                overlay.frame = drawView.bounds
-                overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-                overlay.showsHandles = false
-                contentView.addSubview(overlay)
-                annotationOverlays[key] = overlay
+                overlayView = InteractionOverlayView()
+                overlayView.translatesAutoresizingMaskIntoConstraints = false
+                overlayView.showsHandles = false
+                contentView.insertSubview(overlayView, belowSubview: overlay)
+                NSLayoutConstraint.activate([
+                    overlayView.leadingAnchor.constraint(equalTo: drawView.leadingAnchor),
+                    overlayView.trailingAnchor.constraint(equalTo: drawView.trailingAnchor),
+                    overlayView.topAnchor.constraint(equalTo: drawView.topAnchor),
+                    overlayView.bottomAnchor.constraint(equalTo: drawView.bottomAnchor),
+                ])
+                annotationOverlays[key] = overlayView
             }
             if layer.style == .highlight {
-                overlay.fillColor = layer.color.uiColor.withAlphaComponent(0.25)
-                overlay.selectionRects = layer.rects
-                overlay.underlineRects = []
+                overlayView.fillColor = layer.color.uiColor.withAlphaComponent(0.25)
+                overlayView.selectionRects = layer.rects
+                overlayView.underlineRects = []
             } else {
-                overlay.fillColor = .clear
-                overlay.underlineColor = layer.color.uiColor.withAlphaComponent(0.85)
-                overlay.underlineRects = layer.rects
-                overlay.drawsVerticalUnderlines = chunk.writingMode.isVertical
-                overlay.selectionRects = []
+                overlayView.fillColor = .clear
+                overlayView.underlineColor = layer.color.uiColor.withAlphaComponent(0.85)
+                overlayView.underlineRects = layer.rects
+                overlayView.drawsVerticalUnderlines = chunk.writingMode.isVertical
+                overlayView.selectionRects = []
             }
-            overlay.startHandlePoint = nil
-            overlay.endHandlePoint = nil
-            overlay.isHidden = false
+            overlayView.startHandlePoint = nil
+            overlayView.endHandlePoint = nil
+            overlayView.isHidden = false
         }
 
         // Hide unused overlays
@@ -322,5 +324,6 @@ final class CoreTextChunkCollectionCell: UICollectionViewCell {
         currentChunk = nil
         overlay.clearSelection()
         playbackOverlay.clearSelection()
+        clearAnnotationOverlays()
     }
 }

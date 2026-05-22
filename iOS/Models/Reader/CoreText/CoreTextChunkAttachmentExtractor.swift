@@ -20,9 +20,6 @@ enum CoreTextChunkAttachmentExtractor {
         let isVertical = writingMode.isVertical
 
         var result: [CoreTextPaginator.RenderedAttachment] = []
-        var totalDelegateRuns = 0
-        var spacerSkipped = 0
-        var nilImageSkipped = 0
 
         for (lineIdx, line) in lines.enumerated() {
             let lineOrigin = origins[lineIdx]
@@ -30,12 +27,11 @@ enum CoreTextChunkAttachmentExtractor {
             for run in runs {
                 let attrs = CTRunGetAttributes(run) as! [NSAttributedString.Key: Any]
                 guard let delegate = attrs[delegateKey] else { continue }
-                totalDelegateRuns += 1
-                guard attrs[HTMLAttributedStringBuilder.spacerRunAttribute] == nil else { spacerSkipped += 1; continue }
+                guard attrs[HTMLAttributedStringBuilder.spacerRunAttribute] == nil else { continue }
                 let ctDelegate = delegate as! CTRunDelegate
                 let ptr = CTRunDelegateGetRefCon(ctDelegate)
                 let info = Unmanaged<ImageRunInfo>.fromOpaque(ptr).takeUnretainedValue()
-                guard let img = info.image else { nilImageSkipped += 1; continue }
+                guard let img = info.image else { continue }
 
                 let runLocation = CTRunGetStringRange(run).location
                 let paragraphStyle = attributedString.attribute(
@@ -133,9 +129,6 @@ enum CoreTextChunkAttachmentExtractor {
         }
 
         _ = rangeInChapter
-        if totalDelegateRuns > 0 {
-            print("[ImageExtract] vertical=\(isVertical) lines=\(lines.count) delegateRuns=\(totalDelegateRuns) spacerSkipped=\(spacerSkipped) nilImage=\(nilImageSkipped) found=\(result.count)")
-        }
         return result
     }
 }
