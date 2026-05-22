@@ -6,6 +6,7 @@ import UIKit
 final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenuInteractionDelegate, UIGestureRecognizerDelegate {
 
     static let chapterGap: CGFloat = 24
+    static let verticalRTLChapterGap: CGFloat = 72
 
     private let engine: CoreTextScrollEngine
     private(set) var scrollAxis: CoreTextScrollAxis
@@ -27,9 +28,8 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     private var lastWarmRow: Int?
 
     private var selectionChapter: Int?
-    private var anchorIndex: Int?
-    private var focusIndex: Int?
     private var selectedText: String?
+    private let interactor = TextSelectionInteractor()
     private var playbackHighlightText: String?
     private var textAnnotations: [CoreTextTextAnnotation] = []
     private lazy var tapGesture: UITapGestureRecognizer = {
@@ -200,6 +200,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
 
     func update(axis: CoreTextScrollAxis, horizontal: CGFloat, vertical: CGFloat, bottomMargin: CGFloat = 0) {
         let oldExtent = currentContentExtent
+        let oldImageExtent = currentImageContentWidth
         let restoreChapter = visibleProgressChapter()
         let axisChanged = axis != scrollAxis
         scrollAxis = axis
@@ -214,7 +215,10 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         }
 
         let newExtent = currentContentExtent
-        if axisChanged || abs(newExtent - oldExtent) > 0.5 {
+        let newImageExtent = currentImageContentWidth
+        if axisChanged
+            || abs(newExtent - oldExtent) > 0.5
+            || abs(newImageExtent - oldImageExtent) > 0.5 {
             requestReslice(at: restoreChapter)
         } else {
             displayedCount = engine.chunks.count
@@ -247,12 +251,17 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
 
     func requestReslice(at chapter: Int) {
         let extent = currentContentExtent
+        let imageExtent = currentImageContentWidth
         guard extent > 0 else { return }
         Task { [weak self] in
             guard let self = self else { return }
             self.hasAppliedInitialScroll = false
             self.pendingInitialScroll = (chapter, 0)
-            await self.engine.reslice(restoreAt: chapter, contentWidth: extent)
+            await self.engine.reslice(
+                restoreAt: chapter,
+                contentWidth: extent,
+                imageContentWidth: imageExtent
+            )
         }
     }
 
@@ -274,14 +283,28 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         }
     }
 
+    private var currentImageContentWidth: CGFloat {
+        switch scrollAxis {
+        case .vertical:
+            return currentContentExtent
+        case .horizontalRTL:
+            return max(0, view.bounds.width - 2 * horizontalInset)
+        }
+    }
+
     private func kickoffEngineIfNeeded() {
         guard !hasKickedOffEngine else { return }
         let extent = currentContentExtent
+        let imageExtent = currentImageContentWidth
         guard extent > 0 else { return }
         hasKickedOffEngine = true
         Task { [weak self] in
             guard let self = self else { return }
-            await self.engine.start(initialChapter: self.pendingInitialChapter, contentWidth: extent)
+            await self.engine.start(
+                initialChapter: self.pendingInitialChapter,
+                contentWidth: extent,
+                imageContentWidth: imageExtent
+            )
         }
     }
 
@@ -437,7 +460,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
         guard gesture.state == .ended else { return }
-        if anchorIndex != nil || focusIndex != nil {
+        if interactor.hasSelection {
             clearSelection()
             return
         }
@@ -454,32 +477,36 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     }
 
     @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
-        guard !scrollAxis.isHorizontalRTL else {
-            clearSelection()
-            return
-        }
         let point = gesture.location(in: collectionView)
         switch gesture.state {
         case .began:
-            guard let (cell, chunk, localPoint) = hitTestChunk(at: point) else {
+            guard let (_, chunk, localPoint) = hitTestChunk(at: point),
+                  let idx = chunk.stringIndex(atLocalPoint: localPoint) else {
                 clearSelection()
                 return
             }
-            guard let idx = chunk.stringIndex(atLocalPoint: localPoint) else { return }
             selectionChapter = chunk.chapterIndex
-            anchorIndex = idx
-            focusIndex = idx
+            interactor.textAnnotations = textAnnotations
+            interactor.beginSelection(
+                at: idx,
+                in: chunk.attributedString,
+                spineIndex: selectionChapter!,
+                maxLength: chunk.attributedString.length
+            )
             refreshSelectionOverlays()
-            _ = cell
         case .changed:
             guard let chapter = selectionChapter,
                   let (_, chunk, localPoint) = hitTestChunk(at: point),
                   chunk.chapterIndex == chapter,
                   let idx = chunk.stringIndex(atLocalPoint: localPoint) else { return }
-            focusIndex = idx
+            interactor.updateSelection(to: idx, maxLength: chunk.attributedString.length)
             refreshSelectionOverlays()
         case .ended:
-            updateSelectedText()
+            guard let chapter = selectionChapter,
+                  let chunk = engine.chunks.first(where: { $0.chapterIndex == chapter })
+            else { clearSelection(); return }
+            interactor.finalizeSelection(in: chunk.attributedString)
+            selectedText = interactor.selectedTextForCopy
             guard let text = selectedText, !text.isEmpty else { clearSelection(); return }
             becomeFirstResponder()
             let viewPoint = collectionView.convert(point, to: view)
@@ -501,10 +528,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     }
 
     private var currentSelectionRange: NSRange? {
-        guard let a = anchorIndex, let f = focusIndex else { return nil }
-        let start = min(a, f)
-        let end = max(a, f)
-        return NSRange(location: start, length: end - start + 1)
+        interactor.selectedRange
     }
 
     private func refreshSelectionOverlays() {
@@ -519,23 +543,9 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         }
     }
 
-    private func updateSelectedText() {
-        guard let chapter = selectionChapter,
-              let range = currentSelectionRange,
-              range.length > 0 else { selectedText = nil; return }
-        if let chunk = engine.chunks.first(where: { $0.chapterIndex == chapter }) {
-            let s = chunk.attributedString
-            guard range.location + range.length <= s.length else { selectedText = nil; return }
-            selectedText = (s.string as NSString).substring(with: range)
-        } else {
-            selectedText = nil
-        }
-    }
-
     private func clearSelection() {
         selectionChapter = nil
-        anchorIndex = nil
-        focusIndex = nil
+        interactor.clear()
         selectedText = nil
         refreshSelectionOverlays()
         editMenuInteraction.dismissMenu()
@@ -567,9 +577,8 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
 
     private func chapterGap(for row: Int) -> CGFloat {
         guard row > 0, row < engine.chunks.count else { return 0 }
-        return engine.chunks[row].chapterIndex != engine.chunks[row - 1].chapterIndex
-            ? Self.chapterGap
-            : 0
+        guard engine.chunks[row].chapterIndex != engine.chunks[row - 1].chapterIndex else { return 0 }
+        return scrollAxis == .horizontalRTL ? Self.verticalRTLChapterGap : Self.chapterGap
     }
 }
 
@@ -586,8 +595,9 @@ extension CoreTextCollectionScrollViewController: UICollectionViewDataSource, UI
         )
         if let chunkCell = cell as? CoreTextChunkCollectionCell,
            indexPath.item < engine.chunks.count {
+            let chunk = engine.chunks[indexPath.item]
             chunkCell.bind(
-                chunk: engine.chunks[indexPath.item],
+                chunk: chunk,
                 axis: scrollAxis,
                 horizontalInset: horizontalInset,
                 verticalInset: verticalInset,

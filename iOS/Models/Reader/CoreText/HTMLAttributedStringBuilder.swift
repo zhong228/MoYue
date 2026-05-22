@@ -28,6 +28,19 @@ final class HTMLAttributedStringBuilder {
     private static let lineSeparator = "\u{2028}"
     static let pageBreakMarker = "\u{200B}"
 
+    /// Shared link resolution: extracts the internal-link href from an attributed string at the given character index.
+    static func linkHref(at index: Int, in attributedString: NSAttributedString) -> String? {
+        guard index >= 0, index < attributedString.length,
+              let href = attributedString.attribute(
+                  internalLinkAttribute,
+                  at: index,
+                  effectiveRange: nil
+              ) as? String,
+              !href.isEmpty
+        else { return nil }
+        return href
+    }
+
     struct Config {
         var fontSize: CGFloat
         var lineHeightMultiple: CGFloat
@@ -309,9 +322,7 @@ final class HTMLAttributedStringBuilder {
             loadBackgroundImage: { ast in
                 return await self.loadBackgroundImage(from: ast)
             },
-            debugLog: { result in
-                self.debugLog(result: result)
-            }
+            debugLog: { _ in }
         )
 
         return BuildResult(
@@ -406,19 +417,15 @@ final class HTMLAttributedStringBuilder {
 
             let links = (try? head.select("link[rel=stylesheet]").array()) ?? []
             epubFlowLog("css.links count=\(links.count)")
-            print("[HTMLBuilder] injectLinkedCSS: found \(links.count) stylesheet link(s)")
             for link in links {
                 let href = (try? link.attr("href")) ?? ""
                 guard !href.isEmpty else { continue }
                 epubFlowLog("css.fetch href=\(href)")
-                print("[HTMLBuilder] injectLinkedCSS: fetching CSS href=\(href)")
                 guard let cssText = await cssLoader?(href), !cssText.isEmpty else {
                     epubFlowLog("css.failed href=\(href)")
-                    print("[HTMLBuilder] injectLinkedCSS: FAILED or empty CSS for href=\(href)")
                     continue
                 }
                 epubFlowLog("css.loaded href=\(href) len=\(cssText.count) hasVertical=\(cssContainsVerticalWritingMode(cssText))")
-                print("[HTMLBuilder] injectLinkedCSS: injected CSS len=\(cssText.count) for href=\(href)")
                 scanCSSForVerticalWritingMode(cssText)
                 styles.append(cssText)
             }
@@ -3086,16 +3093,6 @@ final class HTMLAttributedStringBuilder {
 
     private func normalizeFontName(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'"))).lowercased()
-    }
-
-    private func debugLog(result: NSAttributedString) {
-        print("[HTMLBuilder] build: rawAttrStr.length=\(result.length)")
-        guard result.length > 0 else { return }
-        let attrs = result.attributes(at: 0, effectiveRange: nil)
-        let font = attrs[.font] as? UIFont
-        let paragraph = attrs[.paragraphStyle] as? NSParagraphStyle
-        print("[HTMLBuilder] build: first-char font=\(font?.fontName ?? "nil") size=\(font?.pointSize ?? 0)")
-        print("[HTMLBuilder] build: first-char alignment=\(paragraph?.alignment.rawValue ?? -999)")
     }
 
     private func collectAnchorOffsets(in attributedString: NSAttributedString) -> [String: Int] {

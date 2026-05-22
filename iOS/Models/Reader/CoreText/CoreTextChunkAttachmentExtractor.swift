@@ -128,7 +128,6 @@ enum CoreTextChunkAttachmentExtractor {
             }
         }
 
-        _ = rangeInChapter
         return result
     }
 }

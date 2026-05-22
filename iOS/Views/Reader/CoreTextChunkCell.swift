@@ -64,14 +64,7 @@ final class CoreTextChunkDrawView: UIView {
 
         // Phase 2b: Inline text annotations (span.small notes in vertical writing)
         if chunk.writingMode.isVertical, !chunk.inlineAnnotations.isEmpty {
-            for annotation in chunk.inlineAnnotations where annotation.attributedString.length > 0 {
-                let sanitized = RunDelegateProvider.sanitizedInlineAnnotationString(annotation.attributedString)
-                let style = NSMutableParagraphStyle()
-                style.alignment = .center
-                let mutable = NSMutableAttributedString(attributedString: sanitized)
-                mutable.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: mutable.length))
-                mutable.draw(with: annotation.uiRect, options: [.usesLineFragmentOrigin], context: nil)
-            }
+            CoreTextPageView.drawInlineAnnotations(chunk.inlineAnnotations)
         }
 
         // Phase 3: Block image attachments (UIKit coordinates)
@@ -110,6 +103,8 @@ final class CoreTextChunkCollectionCell: UICollectionViewCell {
         overlay.translatesAutoresizingMaskIntoConstraints = false
         playbackOverlay.fillColor = UIColor.systemYellow.withAlphaComponent(0.28)
         playbackOverlay.showsHandles = false
+        overlay.fillColor = UIColor.systemYellow.withAlphaComponent(0.30)
+        overlay.handleColor = UIColor(red: 0.63, green: 0.40, blue: 0.00, alpha: 1.0)
         contentView.addSubview(drawView)
         contentView.addSubview(playbackOverlay)
         contentView.addSubview(overlay)

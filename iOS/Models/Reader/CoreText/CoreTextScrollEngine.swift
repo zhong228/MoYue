@@ -23,6 +23,7 @@ final class CoreTextScrollEngine: ObservableObject {
     /// chapter → index range within chunks (inclusive start, exclusive end)
     @Published private(set) var chapterRanges: [Int: Range<Int>] = [:]
     @Published private(set) var isReady: Bool = false
+    @Published var textAnnotations: [CoreTextTextAnnotation] = []
 
     /// Change event stream: VC subscribes to perform insertRows / contentOffset compensation
     enum Event {
@@ -37,6 +38,7 @@ final class CoreTextScrollEngine: ObservableObject {
     private let builder: any AttributedStringBuilding
     private(set) var renderSettings: ReaderRenderSettings
     private(set) var contentWidth: CGFloat = 0
+    private var imageContentWidth: CGFloat?
 
     /// Chapters currently being sliced (deduplication)
     private var slicingChapters: Set<Int> = []
@@ -58,8 +60,9 @@ final class CoreTextScrollEngine: ObservableObject {
     // MARK: - Lifecycle
 
     /// Initial load: slices the starting chapter + adjacent chapters
-    func start(initialChapter: Int, contentWidth: CGFloat) async {
+    func start(initialChapter: Int, contentWidth: CGFloat, imageContentWidth: CGFloat? = nil) async {
         self.contentWidth = contentWidth
+        self.imageContentWidth = imageContentWidth
         let clamped = max(0, min(initialChapter, max(0, builder.chapterCount - 1)))
         await loadChapter(clamped)
         isReady = true
@@ -90,15 +93,21 @@ final class CoreTextScrollEngine: ObservableObject {
     }
 
     /// Reslice (settings changed): clear all chunks and re-slice from the specified chapter
-    func reslice(restoreAt chapterIndex: Int, contentWidth: CGFloat) async {
+    func reslice(restoreAt chapterIndex: Int, contentWidth: CGFloat, imageContentWidth: CGFloat? = nil) async {
+        let resolvedImageContentWidth = imageContentWidth ?? self.imageContentWidth
         self.contentWidth = contentWidth
+        self.imageContentWidth = resolvedImageContentWidth
         chunks = []
         chapterRanges = [:]
         loadedChapters = []
         slicingChapters = []
         isReady = false
         events.send(.reset)
-        await start(initialChapter: chapterIndex, contentWidth: contentWidth)
+        await start(
+            initialChapter: chapterIndex,
+            contentWidth: contentWidth,
+            imageContentWidth: resolvedImageContentWidth
+        )
     }
 
     func updateRenderSettings(_ settings: ReaderRenderSettings) {
@@ -108,6 +117,7 @@ final class CoreTextScrollEngine: ObservableObject {
     private func prepareAttributedString(_ raw: NSAttributedString) -> NSAttributedString {
         guard renderSettings.writingMode.isVertical, raw.length > 0 else { return raw }
         let advance = max(renderSettings.fontSize * 4, contentWidth - renderSettings.fontSize * 2)
+
         return CoreTextPaginator.preparedAttributedString(
             raw,
             writingMode: renderSettings.writingMode,
@@ -146,10 +156,8 @@ final class CoreTextScrollEngine: ObservableObject {
             let attrStr = prepareAttributedString(result.attributedString)
             let width = contentWidth
             let cIdx = chapterIndex
-            print("[ScrollEngine] built chapter=\(cIdx) length=\(attrStr.length) width=\(width)")
 
             // Single-image page (cover / chapter illustration): builder puts the image in result.imagePage while attrStr is just a placeholder.
-            // Create a synthetic chunk directly, aspect-fitting the image to contentWidth.
             if let imagePage = result.imagePage, let img = imagePage.image {
                 let chunk = makeImageOnlyChunk(
                     image: img,
@@ -174,7 +182,6 @@ final class CoreTextScrollEngine: ObservableObject {
                     writingMode: writingMode
                 )
             }.value
-            print("[ScrollEngine] sliced chapter=\(cIdx) chunks=\(output.chunks.count)")
 
             insert(chunks: output.chunks, chapterIndex: chapterIndex, prepend: prepend)
             if let range = chapterRanges[chapterIndex] {
@@ -215,13 +222,34 @@ final class CoreTextScrollEngine: ObservableObject {
 
     // MARK: - Single-image chunk
 
-    /// Creates a single chunk for cover / full-page illustrations. Aspect-fits to contentWidth × min(naturalHeight, screenHeight).
+    /// Creates a single chunk for cover / full-page illustrations.
     private func makeImageOnlyChunk(
         image: UIImage,
         chapterIndex: Int,
         contentWidth: CGFloat,
         fallbackAttrStr: NSAttributedString
     ) -> CoreTextChunk {
+        if renderSettings.writingMode.isVertical, let imageContentWidth, imageContentWidth > 0 {
+            let container = CGRect(
+                origin: .zero,
+                size: CGSize(width: imageContentWidth, height: contentWidth)
+            )
+            let rect = Self.aspectFitRect(for: image.size, in: container)
+            let attachment = CoreTextPaginator.RenderedAttachment(rect: rect, image: image, opacity: 1.0)
+            let framesetter = CTFramesetterCreateWithAttributedString(fallbackAttrStr as CFAttributedString)
+            return CoreTextChunk(
+                chapterIndex: chapterIndex,
+                charRange: CFRange(location: 0, length: max(fallbackAttrStr.length, 1)),
+                size: container.size,
+                framesetter: framesetter,
+                attributedString: fallbackAttrStr,
+                frame: nil,
+                writingMode: renderSettings.writingMode,
+                presetAttachments: [attachment],
+                isImageOnly: true
+            )
+        }
+
         let aspect = image.size.height / max(image.size.width, 1)
         let naturalHeight = contentWidth * aspect
         let maxHeight = max(UIScreen.main.bounds.height - 80, contentWidth)
@@ -241,6 +269,18 @@ final class CoreTextScrollEngine: ObservableObject {
             writingMode: renderSettings.writingMode,
             presetAttachments: [attachment],
             isImageOnly: true
+        )
+    }
+
+    private static func aspectFitRect(for imageSize: CGSize, in bounds: CGRect) -> CGRect {
+        guard imageSize.width > 0, imageSize.height > 0 else { return bounds }
+        let ratio = min(bounds.width / imageSize.width, bounds.height / imageSize.height)
+        let size = CGSize(width: imageSize.width * ratio, height: imageSize.height * ratio)
+        return CGRect(
+            x: bounds.minX + (bounds.width - size.width) / 2,
+            y: bounds.minY + (bounds.height - size.height) / 2,
+            width: size.width,
+            height: size.height
         )
     }
 

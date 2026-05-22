@@ -117,6 +117,10 @@ final class CoreTextChunk {
         var origins = [CGPoint](repeating: .zero, count: lines.count)
         CTFrameGetLineOrigins(frame, CFRangeMake(0, lines.count), &origins)
 
+        if writingMode.isVertical {
+            return verticalStringIndex(point: point, lines: lines, origins: origins)
+        }
+
         let coreY = height - point.y
         var bestIdx = 0
         var bestDist: CGFloat = .greatestFiniteMagnitude
@@ -157,39 +161,48 @@ final class CoreTextChunk {
         return max(0, range.location + range.length - 1)
     }
 
-    /// Intersects the chapter range with this chunk's character range and produces cell-local (UIKit coordinate) highlight rectangles
-    func selectionRects(forChapterRange chapterRange: NSRange) -> [CGRect] {
-        if isImageOnly { return [] }
-        materializeFrameIfNeeded()
-        guard let frame = frame else { return [] }
-        let chunkNS = NSRange(location: charRange.location, length: charRange.length)
-        let inter = NSIntersectionRange(chunkNS, chapterRange)
-        guard inter.length > 0 else { return [] }
-        let lines = CTFrameGetLines(frame) as! [CTLine]
-        var origins = [CGPoint](repeating: .zero, count: lines.count)
-        CTFrameGetLineOrigins(frame, CFRangeMake(0, lines.count), &origins)
+    /// Vertical-rl hit-testing: columns are lines; X selects the column, Y is inline advance within the column.
+    private func verticalStringIndex(point: CGPoint, lines: [CTLine], origins: [CGPoint]) -> Int? {
+        let tapTolerance: CGFloat = 10
 
-        var rects: [CGRect] = []
+        // Find column by X (block-direction position)
+        var bestIdx: Int?
+        var bestDist: CGFloat = .greatestFiniteMagnitude
         for i in lines.indices {
-            let line = lines[i]
-            let lineRange = CTLineGetStringRange(line)
-            let lineNS = NSRange(location: lineRange.location, length: lineRange.length)
-            let lineInter = NSIntersectionRange(lineNS, inter)
-            guard lineInter.length > 0 else { continue }
-            let startOffset = CGFloat(CTLineGetOffsetForStringIndex(line, lineInter.location, nil))
-            let endOffset = CGFloat(CTLineGetOffsetForStringIndex(line, lineInter.location + lineInter.length, nil))
             var ascent: CGFloat = 0, descent: CGFloat = 0
-            _ = CTLineGetTypographicBounds(line, &ascent, &descent, nil)
-            let originY = origins[i].y
-            let uiTop = height - (originY + ascent)
-            let uiBottom = height - (originY - descent)
-            rects.append(CGRect(
-                x: origins[i].x + startOffset,
-                y: uiTop,
-                width: max(0, endOffset - startOffset),
-                height: max(0, uiBottom - uiTop)
-            ))
+            _ = CTLineGetTypographicBounds(lines[i], &ascent, &descent, nil)
+            let baselineX = origins[i].x
+            let x1 = baselineX - descent
+            let x2 = baselineX + ascent
+            let minX = min(x1, x2)
+            let maxX = max(x1, x2)
+            if point.x >= minX - tapTolerance, point.x <= maxX + tapTolerance {
+                bestIdx = i; bestDist = 0; break
+            }
+            let d = point.x < minX ? minX - point.x : point.x - maxX
+            if d < bestDist { bestDist = d; bestIdx = i }
         }
-        return rects
+        guard let lineIdx = bestIdx, bestDist <= tapTolerance else { return nil }
+
+        let line = lines[lineIdx]
+        let lineOrigin = origins[lineIdx]
+
+        var ascent: CGFloat = 0, descent: CGFloat = 0
+        let lineAdvance = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, nil))
+
+        // Inline Y bounds: lineOrigin.y is CoreText Y-up → convert to UIKit Y-down
+        let lineTopY = height - lineOrigin.y
+        let relativeAdvance = point.y - lineTopY
+        guard relativeAdvance >= -tapTolerance, relativeAdvance <= lineAdvance + tapTolerance else {
+            return nil
+        }
+
+        let idx = CTLineGetStringIndexForPosition(line, CGPoint(x: max(0, min(lineAdvance, relativeAdvance)), y: 0))
+        if idx != kCFNotFound { return max(0, idx) }
+        let range = CTLineGetStringRange(line)
+        guard range.length > 0 else { return nil }
+        if relativeAdvance <= 0 { return max(0, range.location) }
+        return max(0, range.location + range.length - 1)
     }
+
 }

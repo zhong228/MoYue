@@ -183,9 +183,33 @@ enum CoreTextChunkSlicer {
                 path: path,
                 writingMode: writingMode
             )
-            let chunkSize = CGSize(width: chunkWidth, height: chunkHeight)
+            var finalFrame = frame
+            var finalChunkWidth = chunkWidth
+            if actualRange.location + actualRange.length >= totalLen {
+                let usedWidth = min(chunkWidth, max(1, verticalUsedWidth(of: frame) + 2))
+                if usedWidth < chunkWidth {
+                    let compactPath = CGPath(
+                        rect: CGRect(x: 0, y: 0, width: usedWidth, height: chunkHeight),
+                        transform: nil
+                    )
+                    let compactFrame = CoreTextPaginator.makeFrame(
+                        framesetter: framesetter,
+                        range: actualRange,
+                        path: compactPath,
+                        writingMode: writingMode
+                    )
+                    let compactVisible = CTFrameGetVisibleStringRange(compactFrame)
+                    if compactVisible.location == actualRange.location,
+                       compactVisible.length >= actualRange.length {
+                        finalFrame = compactFrame
+                        finalChunkWidth = usedWidth
+                    }
+                }
+            }
+
+            let chunkSize = CGSize(width: finalChunkWidth, height: chunkHeight)
             let annotations = extractInlineAnnotations(
-                frame: frame,
+                frame: finalFrame,
                 chunkSize: chunkSize,
                 attributedString: attrStr
             )
@@ -195,7 +219,7 @@ enum CoreTextChunkSlicer {
                 size: chunkSize,
                 framesetter: framesetter,
                 attributedString: attrStr,
-                frame: frame,
+                frame: finalFrame,
                 writingMode: writingMode,
                 blockRenderables: [],
                 inlineAnnotations: annotations
@@ -204,6 +228,28 @@ enum CoreTextChunkSlicer {
         }
 
         return Output(chunks: chunks, framesetter: framesetter, attributedString: attrStr)
+    }
+
+    private static func verticalUsedWidth(of frame: CTFrame) -> CGFloat {
+        let lines = CTFrameGetLines(frame) as! [CTLine]
+        guard !lines.isEmpty else { return 1 }
+
+        var origins = [CGPoint](repeating: .zero, count: lines.count)
+        CTFrameGetLineOrigins(frame, CFRangeMake(0, lines.count), &origins)
+
+        var minX = CGFloat.greatestFiniteMagnitude
+        var maxX = -CGFloat.greatestFiniteMagnitude
+        for (index, line) in lines.enumerated() {
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            _ = CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+            let originX = origins[index].x
+            minX = min(minX, originX - descent)
+            maxX = max(maxX, originX + ascent)
+        }
+
+        guard minX.isFinite, maxX.isFinite, maxX > minX else { return 1 }
+        return ceil(maxX - minX)
     }
 
     /// Scans the specified range for block images with CTRunDelegate and returns the maximum drawHeight.

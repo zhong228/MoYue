@@ -2,15 +2,7 @@ import CoreText
 import UIKit
 
 final class CoreTextPaginator {
-    private static let verboseVerticalDebugLogging = false
-
     static func debugVerticalLog(_ message: @autoclosure () -> String, verbose: Bool = false) {
-        #if DEBUG
-        guard !verbose || verboseVerticalDebugLogging else { return }
-        let line = "[YDEBUG-CTVERT] \(message())"
-        print(line)
-        NSLog("%@", line)
-        #endif
     }
 
 
