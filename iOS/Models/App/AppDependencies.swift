@@ -233,6 +233,7 @@ struct AppDependencies {
     var bookSourceFetcher: BookSourceFetching
     var chapterFetcher: ChapterFetching
     var onlineBookCoordinator: OnlineBookCoordinating
+    var readingPositionStore: ReadingPositionStore
 
     static let live: AppDependencies = {
         let webFetcher = WebFetcher()
@@ -243,7 +244,8 @@ struct AppDependencies {
             webContentFetcher: LiveWebContentFetcher(webFetcher: webFetcher),
             bookSourceFetcher: LiveBookSourceFetcher(bookSourceFetcher: bsf),
             chapterFetcher: LiveChapterFetcher(chapterFetchManager: cfm),
-            onlineBookCoordinator: OnlineBookCoordinator.shared
+            onlineBookCoordinator: OnlineBookCoordinator.shared,
+            readingPositionStore: JSONFileReadingPositionStore()
         )
     }()
 }

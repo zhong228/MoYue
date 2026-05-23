@@ -91,11 +91,37 @@ Both built from same `AttributedStringBuilding` in `EPUBPageRenderer.load()`.
 
 ## Localization
 
-All UI strings use `localized()`:
+所有 UI 文字必須透過 `localized()` 包裹，禁止直接寫死字串：
+
 ```swift
+// ✅ 正確
 Text(localized("選取"))
+Button(localized("新增 RSS 訂閱"))
+
+// ❌ 錯誤 — 直接寫死字串
+Text("選取")
+Text("RSS Source")
 ```
-Update all 3 files per key: `zh-Hant.lproj/`, `zh-Hans.lproj/`, `en.lproj/`.
+
+### 新增 UI 文字的規則
+
+1. 用 `localized("key")` 包裹，key 本身用繁體中文
+2. 同步更新三個 lproj 檔案，缺一不可：
+   - `zh-Hant.lproj/Localizable.strings` — key = value（繁體）
+   - `zh-Hans.lproj/Localizable.strings` — value 為簡體中文
+   - `en.lproj/Localizable.strings` — value 為英文
+3. 新增 key 前先確認該 key 是否已存在於三個檔案中
+4. RSS/feed 相關的 "訂閱" 概念在英文檔影射為 "Feed"（如 "RSS 訂閱" → "RSS Subscriptions"、"訂閱源" → "Feed"）
+
+### 驗證
+
+```bash
+# 確認 key 存在於三個 lproj
+ROOT="/Users/zhangruilin/Desktop/Yuedu-reader/iOS"
+for lproj in zh-Hant zh-Hans en; do
+  grep -F '"你的 key"' "$ROOT/$lproj.lproj/Localizable.strings" || echo "缺少: $lproj"
+done
+```
 
 ## Extension Points
 

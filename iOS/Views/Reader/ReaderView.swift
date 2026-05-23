@@ -95,6 +95,8 @@ struct ReaderView: View {
     @State private var scrollVisibleChapter = 0
     @State private var scrollResliceToken: UInt = 0
 
+    @State private var positionCoordinator: ReadingPositionCoordinator?
+
     // Source change
     @State private var showChangeSourceSheet = false
     @State private var runtimeState = ReaderRuntimeState()
@@ -526,6 +528,15 @@ struct ReaderView: View {
     // ── Body ──
     var body: some View {
         buildBody()
+            .task {
+                guard positionCoordinator == nil else { return }
+                let store = dependencies.readingPositionStore
+                let bookIdStr = book?.id.uuidString ?? ""
+                let fallback = CoreTextReadingPosition(spineIndex: 0, charOffset: 0)
+                let c = ReadingPositionCoordinator(store: store, bookId: bookIdStr, fallback: fallback)
+                await c.restore()
+                positionCoordinator = c
+            }
     }
 
     private func buildBody() -> AnyView {
