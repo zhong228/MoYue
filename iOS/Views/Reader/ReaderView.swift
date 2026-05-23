@@ -317,10 +317,6 @@ struct ReaderView: View {
         if let position = engine.readingPosition(forPage: newPage) {
             positionCoordinator?.commit(position)
         }
-
-        if let progressBookId = localEPUBBookIdentifier {
-            epubRenderer.syncProgress(bookId: progressBookId)
-        }
     }
 
     /// EPUB font asset directory (Documents/{uuid}_epub_assets/).
@@ -719,9 +715,6 @@ struct ReaderView: View {
                 ttsCoordinator.refreshNowPlayingForSystemSurfaces()
                 epubRenderer.engine?.cancelPendingWork()
                 saveProgress()
-                if let bookId = localEPUBBookIdentifier {
-                    epubRenderer.flushProgress(bookId: bookId)
-                }
             } else if phase == .active {
                 restoreReaderDisplayStateAfterResume()
             }
@@ -735,9 +728,6 @@ struct ReaderView: View {
         ) { _ in
             epubRenderer.engine?.cancelPendingWork()
             saveProgress()
-            if let bookId = localEPUBBookIdentifier {
-                epubRenderer.flushProgress(bookId: bookId)
-            }
         }
         .onReceive(
             NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)
