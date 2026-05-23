@@ -13,7 +13,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     private var horizontalInset: CGFloat
     private var verticalInset: CGFloat
     var bottomMargin: CGFloat = 0
-    var onProgressCommit: ((ScrollProgress) -> Void)?
+    var onProgressCommit: ((CoreTextReadingPosition) -> Void)?
     var onTap: (() -> Void)?
     var onInternalLinkTap: ((String) -> Void)?
 
@@ -24,7 +24,6 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     private var hasKickedOffEngine = false
     private var pendingInitialChapter: Int = 0
     private var displayedCount: Int = 0
-    private var pendingProgress: ScrollProgress?
     private var lastWarmRow: Int?
 
     private var selectionChapter: Int?
@@ -338,7 +337,6 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         switch event {
         case .reset:
             displayedCount = engine.chunks.count
-            pendingProgress = nil
             lastWarmRow = nil
             collectionView.reloadData()
         case .insertedAtBottom(let count, _):
@@ -663,16 +661,6 @@ extension CoreTextCollectionScrollViewController: UICollectionViewDataSource, UI
             lastWarmRow = path.item
             engine.warmChunks(around: path.item, radius: 6)
         }
-
-        // Record position for commit-on-stop. No save / store update / SwiftUI state here.
-        let chunk = chunks[path.item]
-        let total = max(1, engine.chapterCount)
-        let pct = Double(chunk.chapterIndex) / Double(total - 1 == 0 ? 1 : total - 1)
-        pendingProgress = ScrollProgress(
-            chapter: chunk.chapterIndex,
-            charOffset: chunk.charRange.location,
-            percentage: min(1, max(0, pct))
-        )
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
@@ -688,8 +676,27 @@ extension CoreTextCollectionScrollViewController: UICollectionViewDataSource, UI
     }
 
     private func commitProgress() {
-        guard let pos = pendingProgress else { return }
+        guard let pos = visibleCanonicalPosition() else { return }
         onProgressCommit?(pos)
+    }
+
+    private func visibleCanonicalPosition() -> CoreTextReadingPosition? {
+        guard !engine.chunks.isEmpty else { return nil }
+
+        let visibleCenter = CGPoint(
+            x: collectionView.bounds.midX + collectionView.contentOffset.x,
+            y: collectionView.bounds.midY + collectionView.contentOffset.y
+        )
+
+        if let (_, chunk, localPoint) = hitTestChunk(at: visibleCenter) {
+            let char = chunk.stringIndex(atLocalPoint: localPoint) ?? chunk.charRange.location
+            return CoreTextReadingPosition(spineIndex: chunk.chapterIndex, charOffset: char)
+        }
+
+        guard let path = visibleProgressIndexPath(),
+              path.item < engine.chunks.count else { return nil }
+        let chunk = engine.chunks[path.item]
+        return CoreTextReadingPosition(spineIndex: chunk.chapterIndex, charOffset: chunk.charRange.location)
     }
 }
 

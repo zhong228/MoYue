@@ -16,7 +16,7 @@ struct CoreTextScrollHostView: UIViewControllerRepresentable {
     let playbackHighlightText: String?
     let textAnnotations: [CoreTextTextAnnotation]
     var onTap: () -> Void = {}
-    var onProgressCommit: (ScrollProgress) -> Void = { _ in }
+    var onProgressCommit: (CoreTextReadingPosition) -> Void = { _ in }
     var onInternalLinkTap: (String) -> Void = { _ in }
 
     func makeUIViewController(context: Context) -> UIViewController {
