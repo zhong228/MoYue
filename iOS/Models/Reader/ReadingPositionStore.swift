@@ -25,9 +25,7 @@ final class JSONFileReadingPositionStore: ReadingPositionStore {
     func save(_ position: CoreTextReadingPosition, for bookId: String) async {
         guard let data = try? encoder.encode(position) else { return }
         let url = fileURL(for: bookId)
-        let tmp = url.appendingPathExtension("tmp")
-        try? data.write(to: tmp, options: .atomic)
-        try? fileManager.replaceItemAt(url, withItemAt: tmp, backupItemName: nil, resultingItemURL: nil)
+        try? data.write(to: url, options: .atomic)
     }
 
     func load(for bookId: String) async -> CoreTextReadingPosition? {

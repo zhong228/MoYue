@@ -1972,6 +1972,7 @@ struct ReaderView: View {
                 await coordinator.flush()
             }
         }
+    }
 
     private func refreshCurrentChapter() {
         guard let b = book, let refs = b.onlineChapters, !refs.isEmpty else { return }

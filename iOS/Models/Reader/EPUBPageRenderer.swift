@@ -332,15 +332,6 @@ final class EPUBPageRenderer: ObservableObject {
     func flushProgress(bookId: String) {
         logProgress("flushProgress deprecated bookId=\(bookId)")
     }
-        logProgress("syncProgress bookId=\(bookId) globalPage=\(currentEpubPage) spine=\(savedSpineIndex) charOffset=\(savedCharOffset) partialCFI=\(EPUBPartialCFI.make(spineIndex: savedSpineIndex, charOffset: savedCharOffset))")
-    }
-
-    /// Flushes pending saves synchronously.
-    func flushProgress(bookId: String) {
-        engine?.offsetStore.flushSync()
-        locatorStore?.flushSync()
-        logProgress("flushProgress bookId=\(bookId)")
-    }
 
     private func makeCurrentLocator(engine eng: any PageRenderingProvider) -> ReaderLocator? {
         let metadata = progressChapters.indices.contains(savedSpineIndex)
