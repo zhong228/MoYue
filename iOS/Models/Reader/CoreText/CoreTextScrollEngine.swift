@@ -32,6 +32,7 @@ final class CoreTextScrollEngine: ObservableObject {
         case insertedAtTop(count: Int, addedHeight: CGFloat, chapter: Int)
     }
     let events = PassthroughSubject<Event, Never>()
+    var onChapterContentRequired: ((Int) -> Void)?
 
     // MARK: - Inputs
 
@@ -44,6 +45,8 @@ final class CoreTextScrollEngine: ObservableObject {
     private var slicingChapters: Set<Int> = []
     /// Chapters that have been fully sliced
     private var loadedChapters: Set<Int> = []
+    /// Chapters that could not be sliced because their online content was not cached yet.
+    private var pendingMissingChapters: [Int: Bool] = [:]
 
     // MARK: - Init
 
@@ -101,6 +104,7 @@ final class CoreTextScrollEngine: ObservableObject {
         chapterRanges = [:]
         loadedChapters = []
         slicingChapters = []
+        pendingMissingChapters = [:]
         isReady = false
         events.send(.reset)
         await start(
@@ -135,6 +139,17 @@ final class CoreTextScrollEngine: ObservableObject {
         for index in start...end {
             chunks[index].materializeFrameIfNeeded()
         }
+    }
+
+    @discardableResult
+    func retryChapterIfNeeded(_ chapterIndex: Int) async -> Bool {
+        guard let prepend = pendingMissingChapters.removeValue(forKey: chapterIndex),
+              !loadedChapters.contains(chapterIndex),
+              !slicingChapters.contains(chapterIndex)
+        else { return false }
+
+        await loadChapter(chapterIndex, prepend: prepend)
+        return loadedChapters.contains(chapterIndex)
     }
 
     // MARK: - Internal load
@@ -188,6 +203,12 @@ final class CoreTextScrollEngine: ObservableObject {
                 warmChunks(around: range.lowerBound, radius: 4)
             }
             loadedChapters.insert(chapterIndex)
+            pendingMissingChapters.removeValue(forKey: chapterIndex)
+        } catch AttributedStringBuildingError.contentNotCached(let missingChapter) {
+            let requestedChapter = missingChapter == chapterIndex ? missingChapter : chapterIndex
+            pendingMissingChapters[requestedChapter] = prepend
+            print("[ScrollEngine] chapter content missing chapter=\(requestedChapter) prepend=\(prepend)")
+            onChapterContentRequired?(requestedChapter)
         } catch {
             print("[ScrollEngine] buildChapter error chapter=\(chapterIndex) error=\(error)")
         }

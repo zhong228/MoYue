@@ -28,4 +28,5 @@ Pods/
 
 # Agent instructions (local dev only)
 AGENTS.md
+CLAUDE.md
 .codex/

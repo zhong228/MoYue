@@ -584,9 +584,11 @@ final class CoreTextPageEngine: PageRenderingProvider {
             )
         }
         let title = chapterTitle(at: spineIndex)
-        let readingPosition: CoreTextReadingPosition? = localPage == 0
-            ? .chapterStart(spineIndex)
-            : nil
+        let readingPosition = placeholderReadingPosition(
+            spineIndex: spineIndex,
+            localPage: localPage,
+            globalPage: index
+        )
         print("[FlipTrace] pageVC PLACEHOLDER page=\(index) spine=\(spineIndex) local=\(localPage) layouts=\(_layouts.keys.sorted()) pending=\(preloadTasks.keys.sorted())")
         let placeholder = PlaceholderPageViewController(
             chapterTitle: title,
@@ -1306,7 +1308,46 @@ _layouts[spineIndex] = _layouts[spineIndex]?.withUpdatedColors(textColor: textCo
 
     func estimatedGlobalPage(for position: CoreTextReadingPosition) -> Int? {
         guard spinePageOffsets.indices.contains(position.spineIndex) else { return nil }
-        return spinePageOffsets[position.spineIndex]
+        let chapterStart = spinePageOffsets[position.spineIndex]
+        if let layout = _layouts[position.spineIndex] {
+            let localPage = layout.pageIndex(
+                for: CoreTextReadingPositionMapper.clampedCharOffset(for: position, in: layout)
+            )
+            return chapterStart + localPage
+        }
+        if position.charOffset == .max {
+            return chapterStart + max(0, estimatedPageCount(forChapter: position.spineIndex) - 1)
+        }
+        let estimatedLocal = max(0, position.charOffset / 400)
+        return chapterStart + min(estimatedLocal, max(0, estimatedPageCount(forChapter: position.spineIndex) - 1))
+    }
+
+    private func estimatedPageCount(forChapter spineIndex: Int) -> Int {
+        guard spinePageOffsets.indices.contains(spineIndex) else { return 1 }
+        if let layout = _layouts[spineIndex] {
+            return max(1, layout.pageRanges.count)
+        }
+        if spineIndex + 1 < spinePageOffsets.count {
+            return max(1, spinePageOffsets[spineIndex + 1] - spinePageOffsets[spineIndex])
+        }
+        return max(1, totalPages - spinePageOffsets[spineIndex])
+    }
+
+    private func placeholderReadingPosition(
+        spineIndex: Int,
+        localPage: Int,
+        globalPage: Int
+    ) -> CoreTextReadingPosition? {
+        if localPage == 0 {
+            return .chapterStart(spineIndex)
+        }
+        let estimatedLastPage = spinePageOffsets.indices.contains(spineIndex)
+            ? spinePageOffsets[spineIndex] + max(0, estimatedPageCount(forChapter: spineIndex) - 1)
+            : globalPage
+        if globalPage >= estimatedLastPage {
+            return .chapterEnd(spineIndex)
+        }
+        return nil
     }
 
     private func resolvedPageIndex(forSpine spineIndex: Int, charOffset: Int) -> Int? {

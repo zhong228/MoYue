@@ -1200,6 +1200,9 @@ struct ReaderView: View {
                             scrollResliceToken &+= 1
                         }
                     }
+                },
+                onChapterContentRequired: { chapterIndex in
+                    ensureChapterReady(chapterIndex: chapterIndex)
                 }
             )
             .background(readerTheme.backgroundColor)
@@ -2010,6 +2013,19 @@ struct ReaderView: View {
 
     private func applyChapterRefreshAction(for chapterIndex: Int, newState: ChapterLoadState) {
         let contentAvailable = isChapterContentAvailable(at: chapterIndex)
+        if effectiveScrollMode, let scrollEngine = epubRenderer.scrollEngine {
+            if newState == .ready, contentAvailable {
+                Task { await scrollEngine.retryChapterIfNeeded(chapterIndex) }
+                return
+            }
+            if chapterIndex == currentChapterIndex,
+               newState == .ready,
+               !contentAvailable {
+                print("[StateDebug] scroll resetAndRefetchChapter ch=\(chapterIndex)")
+                refreshCurrentChapter()
+                return
+            }
+        }
         let action = ReaderChapterPresentation.refreshAction(
             changedChapterIndex: chapterIndex,
             currentChapterIndex: currentChapterIndex,
@@ -2995,23 +3011,17 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
     let onTapZone: (String) -> Void
 
     func makeUIViewController(context: Context) -> UIPageViewController {
-        let transitionStyle: UIPageViewController.TransitionStyle
-        switch pageTurnStyle {
-        case .curl:              transitionStyle = .pageCurl
-        case .slide, .cover, .none: transitionStyle = .scroll
-        }
+        let adapterDescriptor = PageViewControllerPagingAdapterDescriptor(pageTurnStyle: pageTurnStyle)
         let options: [UIPageViewController.OptionsKey: Any] = [
-            .spineLocation: isRTL && pageTurnStyle == .curl
-                ? UIPageViewController.SpineLocation.max.rawValue
-                : UIPageViewController.SpineLocation.min.rawValue
+            .spineLocation: adapterDescriptor.spineLocation(isRTL: isRTL).rawValue
         ]
         let pvc = UIPageViewController(
-            transitionStyle: transitionStyle,
+            transitionStyle: adapterDescriptor.transitionStyle,
             navigationOrientation: .horizontal,
             options: options
         )
         // cover / none mode: disable built-in swipe gesture (use custom pan or tap for page turns).
-        if pageTurnStyle == .cover || pageTurnStyle == .none {
+        if adapterDescriptor.disablesBuiltInSwipe {
             pvc.dataSource = nil
             for case let sv as UIScrollView in pvc.view.subviews {
                 sv.isScrollEnabled = false
@@ -3056,7 +3066,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         pvc.view.addGestureRecognizer(tap)
 
         // cover mode: add custom pan gesture + overlay
-        if pageTurnStyle == .cover {
+        if adapterDescriptor.usesCoverOverlay {
             context.coordinator.setupCoverOverlay(on: pvc.view)
             context.coordinator.coverPageViewController = pvc
             let pan = UIPanGestureRecognizer(
@@ -3555,12 +3565,23 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             if viewController is PlaceholderPageViewController {
                 pendingNavigation = PendingNavigation(target: target)
                 print("[FlipTrace] navigation \(mode) placeholder target=\(pageDescription)")
-                return mode.allowsPlaceholder ? viewController : nil
+                return mode.allowsPlaceholder || allowsInteractiveChapterEndPlaceholder(target, mode: mode)
+                    ? viewController
+                    : nil
             }
 
             pendingNavigation = nil
             applyPlaybackHighlight(to: viewController)
             return viewController
+        }
+
+        private func allowsInteractiveChapterEndPlaceholder(
+            _ target: NavigationTarget,
+            mode: NavigationMode
+        ) -> Bool {
+            guard mode == .interactiveTurn else { return false }
+            guard case .position(let position) = target else { return false }
+            return position.charOffset == .max
         }
 
         // MARK: - UIPageViewControllerDataSource
