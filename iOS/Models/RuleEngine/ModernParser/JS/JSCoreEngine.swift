@@ -203,6 +203,16 @@ class JSCoreEngine {
         }
     }
 
+    /// Evaluate a rule snippet in a block scope so `let`/`const` declarations
+    /// from one Legado rule segment do not leak into later segments.
+    func evaluateIsolated(_ script: String, result: Any?, bindings: [String: Any] = [:]) -> String? {
+        evaluate("{\n\(script)\n}", result: result, bindings: bindings)
+    }
+
+    func evaluateIsolated(_ script: String, bindings: [String: Any]) -> String? {
+        evaluate("{\n\(script)\n}", bindings: bindings)
+    }
+
     /// Reset the context — clears all JS variables and re-injects the bridge.
     func reset() {
         onJSQueue {

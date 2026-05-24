@@ -61,7 +61,7 @@ class ModernParserBridge {
             // Safe because jsEngine serialises all evaluations on its dedicated queue.
             self.jsEngine.getStringHandler = { ruleStr in engine.getString(ruleStr: ruleStr) }
             self.jsEngine.getStringListHandler = { ruleStr in engine.getStringList(ruleStr: ruleStr) }
-            return self.jsEngine.evaluate(
+            return self.jsEngine.evaluateIsolated(
                 jsCode,
                 result: prevResult,
                 bindings: [
@@ -154,7 +154,7 @@ class ModernParserBridge {
                 baseUrl: self.sourceRuleData.source.bookSourceUrl,
                 source: self.sourceRuleData,
                 jsEvaluator: { [weak self] jsCode, bindings in
-                    self?.jsEngine.evaluate(jsCode, bindings: bindings)
+                    self?.jsEngine.evaluateIsolated(jsCode, bindings: bindings)
                 }
             )
             if analyzeUrl.isDataUri {
@@ -564,7 +564,7 @@ class ModernParserBridge {
                 "page": page,
                 "baseUrl": source.bookSourceUrl,
             ]
-            if let result = jsEngine.evaluate(jsCode, bindings: bindings) {
+            if let result = jsEngine.evaluateIsolated(jsCode, bindings: bindings) {
                 return parseDiscoverJSON(result)
             }
             return []
@@ -664,7 +664,7 @@ class ModernParserBridge {
             baseUrl: sourceRuleData.source.bookSourceUrl,
             source: sourceRuleData,
             jsEvaluator: { [weak self] jsCode, bindings in
-                self?.jsEngine.evaluate(jsCode, bindings: bindings)
+                self?.jsEngine.evaluateIsolated(jsCode, bindings: bindings)
             }
         )
 

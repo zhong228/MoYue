@@ -344,7 +344,7 @@ final class ModernRuleEngine {
             if matchStart > start {
                 let segment = nsRule.substring(
                     with: NSRange(location: start, length: matchStart - start)
-                ).trimmingCharacters(in: .whitespaces)
+                ).trimmingCharacters(in: .whitespacesAndNewlines)
                 if !segment.isEmpty {
                     ruleList.append(
                         SourceRule(ruleStr: segment, mainMode: mMode, isJSON: isJSON)
@@ -376,7 +376,7 @@ final class ModernRuleEngine {
         // Remaining text after the last JS match
         if nsRule.length > start {
             let segment = nsRule.substring(from: start)
-                .trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             if !segment.isEmpty {
                 ruleList.append(
                     SourceRule(ruleStr: segment, mainMode: mMode, isJSON: isJSON)

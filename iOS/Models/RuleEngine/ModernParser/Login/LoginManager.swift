@@ -328,6 +328,9 @@ final class LoginManager {
             }
             return String(trimmed.dropFirst(4))
         }
+        if trimmed.hasPrefix("//"), trimmed.contains("\n") {
+            return trimmed
+        }
         // If it looks like JS code (contains function definitions / statements)
         // rather than a URL, treat it as JS. Legado does this implicitly.
         if !trimmed.hasPrefix("http://") && !trimmed.hasPrefix("https://") && !trimmed.hasPrefix("/") {
