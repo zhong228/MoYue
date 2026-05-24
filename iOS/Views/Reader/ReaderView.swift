@@ -45,7 +45,13 @@ struct ReaderView: View {
     private func speculativePreLayoutNextChapter() {
         Task { @MainActor in
             guard currentChapterIndex + 1 < chapters.count else { return }
-            epubRenderer.engine?.warmUpNext(currentGlobalPage: currentPage + 1)
+            if let engine = epubRenderer.engine {
+                applyReaderEffects(
+                    readerSessionCoordinator?.send(.warmUpNext(currentGlobalPage: currentPage + 1))
+                        ?? [.warmUpNext(currentGlobalPage: currentPage + 1)],
+                    engine: engine
+                )
+            }
         }
     }
 
@@ -103,7 +109,7 @@ struct ReaderView: View {
     @State private var scrollResliceToken: UInt = 0
     @State private var pendingScrollJumpTarget: CoreTextReadingPosition?
 
-    @State private var readerNavigator: ReaderNavigator?
+    @State private var readerSessionCoordinator: ReaderSessionCoordinator?
 
     @State private var isRestoringPosition = true
     @State private var savedPositionSnapshot: Double = 0
@@ -117,7 +123,7 @@ struct ReaderView: View {
 
     // Source change
     @State private var showChangeSourceSheet = false
-    @State private var pendingCoreTextJumpTarget: CoreTextReadingPosition?
+    @State private var coreTextExternalTargetVersion: UInt = 0
     @State private var bookDocument: (any BookDocument)? = nil
     @State private var contentProvider: (any BookContentProvider)? = nil
     @State private var readerCapabilities: ReaderCapabilities = .reflowableText
@@ -271,7 +277,7 @@ struct ReaderView: View {
 
     private var currentReaderPresentationState: ReaderPresentationState {
         ReaderPresentationState(
-            location: readerNavigator?.state.location
+            location: readerSessionCoordinator?.state.location
                 ?? ReaderLocation(spineIndex: currentChapterIndex, charOffset: 0),
             direction: effectiveWritingMode.isVertical ? .rtl : .ltr,
             spreadMode: .singlePage,
@@ -282,20 +288,21 @@ struct ReaderView: View {
     }
 
     private func ensureReaderNavigator(initialPosition: CoreTextReadingPosition) {
-        if readerNavigator == nil {
+        if readerSessionCoordinator == nil {
             var state = currentReaderPresentationState
             state.location = ReaderLocation(initialPosition, source: .restored)
-            readerNavigator = ReaderNavigator(
+            let navigator = ReaderNavigator(
                 initialState: state,
                 positionStore: dependencies.readingPositionStore,
                 bookId: book?.id.uuidString ?? bookId.uuidString
             )
+            readerSessionCoordinator = ReaderSessionCoordinator(navigator: navigator)
             return
         }
-        readerNavigator?.updateAppearance(currentReaderPresentationState.appearance)
-        readerNavigator?.updateViewport(readerViewportSize)
-        readerNavigator?.updateDirection(effectiveWritingMode.isVertical ? .rtl : .ltr)
-        readerNavigator?.switchPagingStyle(ReaderPagingStyle(pageTurnStyle: settings.pageTurnStyle))
+        readerSessionCoordinator?.send(.updateAppearance(currentReaderPresentationState.appearance))
+        readerSessionCoordinator?.send(.updateViewport(readerViewportSize))
+        readerSessionCoordinator?.send(.updateDirection(effectiveWritingMode.isVertical ? .rtl : .ltr))
+        readerSessionCoordinator?.send(.updatePagingStyle(ReaderPagingStyle(pageTurnStyle: settings.pageTurnStyle)))
     }
 
     private func moveReaderSession(
@@ -309,19 +316,67 @@ struct ReaderView: View {
         ensureReaderNavigator(initialPosition: position)
         switch source {
         case .settledPage:
-            readerNavigator?.settle(at: position, pageIndex: pageIndex, totalPages: totalPages, persist: shouldPersist)
+            readerSessionCoordinator?.send(.settlePage(
+                position: position,
+                pageIndex: pageIndex,
+                totalPages: totalPages,
+                persist: shouldPersist
+            ))
         case .scrollCommit:
-            readerNavigator?.scrollCommit(to: position)
+            readerSessionCoordinator?.send(.scrollCommit(position: position))
         case .internalLink:
-            readerNavigator?.internalLink(to: position, pageIndex: pageIndex, totalPages: totalPages)
+            readerSessionCoordinator?.send(.internalLinkResolved(
+                position: position,
+                pageIndex: pageIndex,
+                totalPages: totalPages
+            ))
         case .jump:
-            readerNavigator?.jump(to: position, pageIndex: pageIndex, totalPages: totalPages, isEstimated: isEstimated)
+            readerSessionCoordinator?.send(.jumpToPosition(
+                position: position,
+                pageIndex: pageIndex,
+                totalPages: totalPages,
+                isEstimated: isEstimated
+            ))
         case .modeSwitch:
-            readerNavigator?.switchMode(to: position)
+            readerSessionCoordinator?.send(.switchMode(position: position))
         case .restored:
-            readerNavigator?.restore(to: position, pageIndex: pageIndex, totalPages: totalPages, isEstimated: isEstimated)
+            readerSessionCoordinator?.navigator.restore(
+                to: position,
+                pageIndex: pageIndex,
+                totalPages: totalPages,
+                isEstimated: isEstimated
+            )
         case .placeholder:
-            readerNavigator?.jump(to: position, pageIndex: pageIndex, totalPages: totalPages, isEstimated: true)
+            readerSessionCoordinator?.send(.jumpToPosition(
+                position: position,
+                pageIndex: pageIndex,
+                totalPages: totalPages,
+                isEstimated: true
+            ))
+        }
+    }
+
+    private func setCoreTextExternalTarget(_ position: CoreTextReadingPosition) {
+        readerSessionCoordinator?.setExternalTarget(position)
+        coreTextExternalTargetVersion &+= 1
+    }
+
+    private func clearCoreTextExternalTarget() {
+        readerSessionCoordinator?.send(.clearExternalTarget)
+        coreTextExternalTargetVersion &+= 1
+    }
+
+    private func applyReaderEffects(
+        _ effects: [ReaderEffect],
+        engine: any PageRenderingProvider
+    ) {
+        for effect in effects {
+            switch effect {
+            case let .warmUpNext(currentGlobalPage):
+                engine.warmUpNext(currentGlobalPage: currentGlobalPage)
+            default:
+                break
+            }
         }
     }
 
@@ -391,11 +446,12 @@ struct ReaderView: View {
 
         epubRenderer.updateCurrentPosition(globalPage: newPage, engine: engine)
 
-        readerNavigator?.settle(
-            at: settledPosition,
+        readerSessionCoordinator?.send(.settlePage(
+            position: settledPosition,
             pageIndex: newPage,
-            totalPages: engine.totalPages
-        )
+            totalPages: engine.totalPages,
+            persist: true
+        ))
     }
 
     /// EPUB font asset directory (Documents/{uuid}_epub_assets/).
@@ -569,10 +625,10 @@ struct ReaderView: View {
     var body: some View {
         buildBody()
             .task {
-                guard readerNavigator == nil else { return }
+                guard readerSessionCoordinator == nil else { return }
                 let fallback = CoreTextReadingPosition(spineIndex: 0, charOffset: 0)
                 ensureReaderNavigator(initialPosition: fallback)
-                let restored = await readerNavigator?.restore()
+                let restored = await readerSessionCoordinator?.restore()
                 if let restored {
                     currentChapterIndex = restored.spineIndex
                     scrollVisibleChapter = restored.spineIndex
@@ -603,6 +659,8 @@ struct ReaderView: View {
                     theme: readerTheme,
                     playbackHighlightText: nil,
                     isRTL: false,
+                    sessionCoordinator: nil,
+                    externalTargetVersion: 0,
                     externalTargetPosition: nil,
                     clearExternalTargetPosition: {},
                     currentPage: $currentPage,
@@ -638,8 +696,10 @@ struct ReaderView: View {
                         ? nil
                         : ttsCoordinator.currentSegmentText,
                     isRTL: effectiveWritingMode.isVertical,
-                    externalTargetPosition: pendingCoreTextJumpTarget,
-                    clearExternalTargetPosition: { pendingCoreTextJumpTarget = nil },
+                    sessionCoordinator: readerSessionCoordinator,
+                    externalTargetVersion: coreTextExternalTargetVersion,
+                    externalTargetPosition: readerSessionCoordinator?.externalTargetPosition,
+                    clearExternalTargetPosition: { clearCoreTextExternalTarget() },
                     currentPage: $currentPage,
                     onPageChanged: { newPage, visiblePosition in
                         scheduleCoreTextPageChanged(newPage, engine: ctEngine, visiblePosition: visiblePosition)
@@ -1221,13 +1281,13 @@ struct ReaderView: View {
         }
 
         pendingScrollJumpTarget = nil
-        let position = readerNavigator?.state.location.coreTextPosition
+        let position = readerSessionCoordinator?.state.location.coreTextPosition
             ?? CoreTextReadingPosition(spineIndex: scrollVisibleChapter, charOffset: 0)
         moveReaderSession(to: position, source: .modeSwitch)
         currentChapterIndex = position.spineIndex
 
         if let engine = epubRenderer.engine, usesCoreTextEPUB {
-            pendingCoreTextJumpTarget = position
+            setCoreTextExternalTarget(position)
             _ = engine.pageViewController(for: position)
             if let exactPage = engine.pageIndex(for: position) {
                 currentPage = exactPage
@@ -1399,7 +1459,7 @@ struct ReaderView: View {
     /// 2) Persisted snapshot (mode == .scroll) → restore from last exit position (cold start)
     /// 3) Fallback to currentChapterIndex / 0
     private func computeScrollInitialPosition() -> (chapter: Int, charOffset: Int) {
-        if let position = readerNavigator?.state.location.coreTextPosition {
+        if let position = readerSessionCoordinator?.state.location.coreTextPosition {
             return (position.spineIndex, position.charOffset)
         }
         if let target = pendingScrollJumpTarget {
@@ -2018,7 +2078,8 @@ struct ReaderView: View {
         if let engine = epubRenderer.engine, usesCoreTextEPUB {
             let position = CoreTextReadingPosition(spineIndex: idx, charOffset: charOffset)
             print("[FlipTrace] ReaderView.jumpToChapter request spine=\(idx) charOffset=\(charOffset) layoutReady=\(engine.layouts[idx] != nil)")
-            pendingCoreTextJumpTarget = position
+            ensureReaderNavigator(initialPosition: position)
+            setCoreTextExternalTarget(position)
             _ = engine.pageViewController(for: position)
             currentChapterIndex = idx
             if let exactPage = engine.pageIndex(for: position) {
@@ -2114,7 +2175,7 @@ struct ReaderView: View {
         isRestoringPosition = false
         autoSaveProgress()
         isRestoringPosition = wasRestoring
-        if let navigator = readerNavigator {
+        if let navigator = readerSessionCoordinator?.navigator {
             Task {
                 await navigator.flush()
             }
@@ -3196,6 +3257,8 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
     let theme: ReaderTheme
     let playbackHighlightText: String?
     let isRTL: Bool
+    let sessionCoordinator: ReaderSessionCoordinator?
+    let externalTargetVersion: UInt
     let externalTargetPosition: CoreTextReadingPosition?
     let clearExternalTargetPosition: () -> Void
     @Binding var currentPage: Int
@@ -3276,6 +3339,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: UIPageViewController, context: Context) {
         context.coordinator.currentEngine = engine
+        context.coordinator.sessionCoordinator = sessionCoordinator
         context.coordinator.currentPlaybackHighlightText = playbackHighlightText
         context.coordinator.externalTargetPosition = externalTargetPosition
         context.coordinator.bindEngineCallbacks(to: engine, pageViewController: uiViewController)
@@ -3354,13 +3418,13 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             }
 
             if shouldAnimate {
-                let decision = context.coordinator.transitionQueue.requestTransition(
+                let effects = context.coordinator.requestPageTransition(
                     to: clampedPage,
                     visiblePage: visible.globalPageIndex
                 )
-                guard decision == .startImmediately else { return }
-            } else if context.coordinator.transitionQueue.isTransitioning {
-                _ = context.coordinator.transitionQueue.requestTransition(
+                guard effects.contains(.requestPageTransition(targetPage: clampedPage)) else { return }
+            } else if context.coordinator.isPageTransitioning {
+                _ = context.coordinator.requestPageTransition(
                     to: clampedPage,
                     visiblePage: visible.globalPageIndex
                 )
@@ -3389,6 +3453,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             theme: theme,
             playbackHighlightText: playbackHighlightText,
             isRTL: isRTL,
+            sessionCoordinator: sessionCoordinator,
             externalTargetPosition: externalTargetPosition,
             clearExternalTargetPosition: clearExternalTargetPosition,
             currentPage: $currentPage,
@@ -3405,6 +3470,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         let pageTurnStyle: PageTurnStyle
         var currentTheme: ReaderTheme
         var currentPlaybackHighlightText: String?
+        var sessionCoordinator: ReaderSessionCoordinator?
         @Binding var currentPage: Int
         let onPageChanged: (Int, CoreTextReadingPosition?) -> Void
         let onTapZone: (String) -> Void
@@ -3453,9 +3519,12 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
         private weak var callbackEngineObject: AnyObject?
         private var callbackEngineIdentifier: ObjectIdentifier?
         fileprivate var isTransitioning = false
-        fileprivate var transitionQueue = ReaderPageTransitionQueue()
         private var isCurlTransitionActive = false
         private var pendingCurlRefresh = false
+
+        var isPageTransitioning: Bool {
+            sessionCoordinator?.isPageTransitioning ?? false
+        }
 
         private var curlBackPageColor: UIColor {
             UIColor(currentTheme.backgroundColor)
@@ -3481,6 +3550,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
              theme: ReaderTheme,
              playbackHighlightText: String?,
              isRTL: Bool,
+             sessionCoordinator: ReaderSessionCoordinator?,
              externalTargetPosition: CoreTextReadingPosition?,
              clearExternalTargetPosition: @escaping () -> Void,
              currentPage: Binding<Int>,
@@ -3491,6 +3561,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             self.currentTheme = theme
             self.currentPlaybackHighlightText = playbackHighlightText
             self.isRTL = isRTL
+            self.sessionCoordinator = sessionCoordinator
             self.externalTargetPosition = externalTargetPosition
             self.clearExternalTargetPosition = clearExternalTargetPosition
             self._currentPage = currentPage
@@ -3629,21 +3700,62 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             publishCurrentPage(clamped, notify: true)
         }
 
+        @discardableResult
+        func requestPageTransition(to targetPage: Int, visiblePage: Int) -> [ReaderEffect] {
+            sessionCoordinator?.send(.pageTurnRequested(
+                targetPage: targetPage,
+                visiblePage: visiblePage
+            )) ?? [.requestPageTransition(targetPage: targetPage)]
+        }
+
+        func warmUpNext(currentGlobalPage: Int) {
+            let effects = sessionCoordinator?.send(.warmUpNext(currentGlobalPage: currentGlobalPage))
+                ?? [.warmUpNext(currentGlobalPage: currentGlobalPage)]
+            for effect in effects {
+                guard case let .warmUpNext(page) = effect else { continue }
+                Task { @MainActor in
+                    self.currentEngine.warmUpNext(currentGlobalPage: page)
+                }
+            }
+        }
+
+        private func applyTransitionEffects(
+            _ effects: [ReaderEffect],
+            on pageViewController: UIPageViewController,
+            showing visiblePage: Int
+        ) {
+            for effect in effects {
+                switch effect {
+                case let .warmUpNext(currentGlobalPage):
+                    warmUpNext(currentGlobalPage: currentGlobalPage)
+
+                case let .requestPageTransition(targetPage):
+                    var direction: UIPageViewController.NavigationDirection =
+                        targetPage >= visiblePage ? .forward : .reverse
+                    if isRTL {
+                        direction = direction == .forward ? .reverse : .forward
+                    }
+                    let shouldAnimate = (pageTurnStyle != .none) && abs(targetPage - visiblePage) == 1
+                    performProgrammaticTransition(
+                        on: pageViewController,
+                        to: targetPage,
+                        direction: direction,
+                        animated: shouldAnimate
+                    )
+
+                default:
+                    break
+                }
+            }
+        }
+
         private func continueQueuedTransitionIfNeeded(
             on pageViewController: UIPageViewController,
             showing visiblePage: Int
         ) {
-            guard let queuedPage = transitionQueue.transitionFinished(showing: visiblePage) else { return }
-            var direction: UIPageViewController.NavigationDirection =
-                queuedPage >= visiblePage ? .forward : .reverse
-            if isRTL { direction = direction == .forward ? .reverse : .forward }
-            let shouldAnimate = (pageTurnStyle != .none) && abs(queuedPage - visiblePage) == 1
-            performProgrammaticTransition(
-                on: pageViewController,
-                to: queuedPage,
-                direction: direction,
-                animated: shouldAnimate
-            )
+            guard let sessionCoordinator else { return }
+            let effects = sessionCoordinator.send(.pageTransitionSettled(visiblePage: visiblePage))
+            applyTransitionEffects(effects, on: pageViewController, showing: visiblePage)
         }
 
         fileprivate func performProgrammaticTransition(
@@ -3656,13 +3768,25 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             applyPlaybackHighlight(to: targetViewController)
             let finishTransition: (UIViewController) -> Void = { shownViewController in
                 if let resolvedPage = self.syncStablePosition(afterShowing: shownViewController, notifyFallback: true) {
-                    Task { @MainActor in
-                        self.currentEngine.warmUpNext(currentGlobalPage: resolvedPage)
-                    }
                     self.continueQueuedTransitionIfNeeded(on: pageViewController, showing: resolvedPage)
                 } else {
                     self.continueQueuedTransitionIfNeeded(on: pageViewController, showing: targetPage)
                 }
+            }
+
+            if let sessionCoordinator {
+                sessionCoordinator.performProgrammaticPageTransition(
+                    pageTurnStyle: pageTurnStyle,
+                    on: pageViewController,
+                    targetViewController: targetViewController,
+                    targetViewControllers: viewControllerStack(startingWith: targetViewController),
+                    direction: direction,
+                    animated: animated,
+                    restoringDataSource: self
+                ) { settledViewController in
+                    finishTransition(settledViewController)
+                }
+                return
             }
 
             ProgrammaticPageTransitionPerformer(pageTurnStyle: pageTurnStyle).perform(
@@ -3933,7 +4057,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             _ pvc: UIPageViewController,
             willTransitionTo pendingViewControllers: [UIViewController]
         ) {
-            transitionQueue.beginInteractiveTransition()
+            sessionCoordinator?.beginInteractivePageTransition()
             if pageTurnStyle == .curl {
                 isCurlTransitionActive = true
             }
@@ -3985,9 +4109,6 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 applyPlaybackHighlight(to: realVC)
                 pvc.setViewControllers([realVC], direction: .forward, animated: false)
                 if let resolvedPage = syncStablePosition(afterShowing: realVC, notifyFallback: false) {
-                    Task { @MainActor in
-                        currentEngine.warmUpNext(currentGlobalPage: resolvedPage)
-                    }
                     continueQueuedTransitionIfNeeded(on: pvc, showing: resolvedPage)
                 } else {
                     continueQueuedTransitionIfNeeded(on: pvc, showing: snapVC.globalPageIndex)
@@ -3998,9 +4119,6 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
             guard let vc = pvc.viewControllers?.first as? any PageIndexProviding & UIViewController else { return }
             print("[FlipTrace] didFinish landing type=\(type(of: vc)) page=\(vc.globalPageIndex)")
             if let resolvedPage = syncStablePosition(afterShowing: vc, notifyFallback: false) {
-                Task { @MainActor in
-                    currentEngine.warmUpNext(currentGlobalPage: resolvedPage)
-                }
                 continueQueuedTransitionIfNeeded(on: pvc, showing: resolvedPage)
             } else {
                 continueQueuedTransitionIfNeeded(on: pvc, showing: vc.globalPageIndex)
@@ -4167,9 +4285,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                             position: settledPosition,
                             notify: true
                         )
-                        Task { @MainActor in
-                            self.currentEngine.warmUpNext(currentGlobalPage: targetPage)
-                        }
+                        self.warmUpNext(currentGlobalPage: targetPage)
                     }
                     self.resetCoverOverlay()
                     self.isTransitioning = false
@@ -4241,7 +4357,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                         position: self.readingPosition(from: realVC),
                         notify: true
                     )
-                    Task { @MainActor in self.currentEngine.warmUpNext(currentGlobalPage: latestPage) }
+                    self.warmUpNext(currentGlobalPage: latestPage)
 
                     self.resetCoverOverlay()
                     self.isTransitioning = false
@@ -4261,7 +4377,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                         position: self.readingPosition(from: realVC),
                         notify: true
                     )
-                    Task { @MainActor in self.currentEngine.warmUpNext(currentGlobalPage: latestPage) }
+                    self.warmUpNext(currentGlobalPage: latestPage)
                     self.resetCoverOverlay()
                     self.isTransitioning = false
                     return
@@ -4286,7 +4402,7 @@ private struct CoreTextPageEngineView: UIViewControllerRepresentable {
                         position: self.readingPosition(from: realVC),
                         notify: true
                     )
-                    Task { @MainActor in self.currentEngine.warmUpNext(currentGlobalPage: latestPage) }
+                    self.warmUpNext(currentGlobalPage: latestPage)
 
                     self.resetCoverOverlay()
                     self.isTransitioning = false

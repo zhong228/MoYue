@@ -124,12 +124,12 @@ enum ReaderPagingStyle: Hashable, Codable {
     }
 }
 
-enum ReaderReadingDirection: String, Codable {
+enum ReaderReadingDirection: String, Codable, Equatable {
     case ltr
     case rtl
 }
 
-enum ReaderSpreadMode: String, Codable {
+enum ReaderSpreadMode: String, Codable, Equatable {
     case singlePage
     case doublePage
     case auto

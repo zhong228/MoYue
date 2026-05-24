@@ -123,6 +123,82 @@ struct ReaderPresentationContractTests {
         ))
         #expect(await positionStore.load(for: "navigator-test") == CoreTextReadingPosition(spineIndex: 4, charOffset: 96))
     }
+
+    @Test("session coordinator owns transition queue and page-turn effects")
+    func sessionCoordinatorOwnsTransitionQueue() {
+        let coordinator = makeSessionCoordinator(bookId: "coordinator-transition")
+
+        let first = coordinator.send(.pageTurnRequested(targetPage: 11, visiblePage: 10))
+        #expect(first == [.requestPageTransition(targetPage: 11)])
+        #expect(coordinator.isPageTransitioning)
+
+        let second = coordinator.send(.pageTurnRequested(targetPage: 12, visiblePage: 10))
+        #expect(second.isEmpty)
+
+        let settled = coordinator.send(.pageTransitionSettled(visiblePage: 11))
+        #expect(settled == [
+            .warmUpNext(currentGlobalPage: 11),
+            .requestPageTransition(targetPage: 12)
+        ])
+        #expect(!coordinator.isPageTransitioning)
+
+        #expect(coordinator.send(.warmUpNext(currentGlobalPage: 12)) == [
+            .warmUpNext(currentGlobalPage: 12)
+        ])
+    }
+
+    @Test("session coordinator routes location actions through navigator")
+    func sessionCoordinatorRoutesLocationActions() async {
+        let store = InMemoryReadingPositionStore()
+        let coordinator = makeSessionCoordinator(bookId: "coordinator-location", positionStore: store)
+        let position = CoreTextReadingPosition(spineIndex: 2, charOffset: 64)
+
+        let effects = coordinator.send(.jumpToPosition(
+            position: position,
+            pageIndex: 5,
+            totalPages: 40,
+            isEstimated: false
+        ))
+        #expect(effects == [.persistPosition(position)])
+
+        await coordinator.navigator.flush()
+
+        #expect(coordinator.state.location == ReaderLocation(
+            position,
+            source: .jump,
+            progression: ReaderLocation.Progression(pageIndex: 5, totalPages: 40, fraction: 5.0 / 39.0)
+        ))
+        #expect(await store.load(for: "coordinator-location") == position)
+    }
+
+    private func makeSessionCoordinator(
+        bookId: String,
+        positionStore: InMemoryReadingPositionStore = InMemoryReadingPositionStore()
+    ) -> ReaderSessionCoordinator {
+        ReaderSessionCoordinator(navigator: ReaderNavigator(
+            initialState: ReaderPresentationState(
+                location: .chapterStart(0),
+                direction: .ltr,
+                spreadMode: .singlePage,
+                viewportSize: CGSize(width: 320, height: 480),
+                appearance: ReaderAppearance(
+                    theme: .sepia,
+                    fontSize: 18,
+                    lineHeightMultiple: 1.4,
+                    lineSpacing: 2,
+                    paragraphSpacing: 6,
+                    letterSpacing: 0,
+                    marginH: 24,
+                    marginV: 28,
+                    footerHeight: 20,
+                    writingMode: .horizontal
+                ),
+                pagingStyle: .slide
+            ),
+            positionStore: positionStore,
+            bookId: bookId
+        ))
+    }
 }
 
 private final class InMemoryReadingPositionStore: ReadingPositionStore, @unchecked Sendable {
