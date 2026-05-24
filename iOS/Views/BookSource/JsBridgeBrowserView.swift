@@ -75,7 +75,7 @@ struct JsBridgeBrowserRepresentable: UIViewRepresentable {
         }
 
         if let url = URL(string: urlString) {
-            wv.load(URLRequest(url: url))
+            context.coordinator.load(url: url, in: wv)
         }
         return wv
     }
@@ -85,6 +85,42 @@ struct JsBridgeBrowserRepresentable: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         weak var webView: WKWebView?
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            guard let url = navigationAction.request.url,
+                  url.scheme?.lowercased() == "yuedu" else {
+                decisionHandler(.allow)
+                return
+            }
+
+            handleYueduURL(url, webView: webView)
+            decisionHandler(.cancel)
+        }
+
+        func load(url: URL, in webView: WKWebView) {
+            let request = URLRequest(url: url)
+            let cookies = Self.cookiesForInitialLoad(url: url)
+            guard !cookies.isEmpty else {
+                webView.load(request)
+                return
+            }
+
+            let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
+            let group = DispatchGroup()
+            for cookie in cookies {
+                group.enter()
+                cookieStore.setCookie(cookie) {
+                    group.leave()
+                }
+            }
+            group.notify(queue: .main) {
+                webView.load(request)
+            }
+        }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             syncCookiesAndDismiss(from: webView, completion: nil)
@@ -113,6 +149,60 @@ struct JsBridgeBrowserRepresentable: UIViewRepresentable {
                 }
             }
         }
+
+        private func handleYueduURL(_ url: URL, webView: WKWebView) {
+            guard let sourceURL = Self.onlineImportSourceURL(from: url) else {
+                presentImportResult("無效的書源導入連結", in: webView)
+                return
+            }
+
+            URLSession.shared.dataTask(with: sourceURL) { data, _, error in
+                DispatchQueue.main.async {
+                    if let error {
+                        self.presentImportResult(error.localizedDescription, in: webView)
+                        return
+                    }
+                    guard let data else {
+                        self.presentImportResult("無法讀取書源資料", in: webView)
+                        return
+                    }
+                    do {
+                        let ext = sourceURL.pathExtension.isEmpty ? "json" : sourceURL.pathExtension
+                        let count = try BookSourceStore.shared.importFromData(data, fileExtension: ext)
+                        self.presentImportResult("成功匯入 \(count) 個書源", in: webView)
+                    } catch {
+                        self.presentImportResult(error.localizedDescription, in: webView)
+                    }
+                }
+            }.resume()
+        }
+
+        private func presentImportResult(_ message: String, in webView: WKWebView) {
+            guard let presenter = webView.window?.rootViewController else { return }
+            var top = presenter
+            while let presented = top.presentedViewController {
+                top = presented
+            }
+            let alert = UIAlertController(title: "書源導入", message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "完成", style: .default))
+            top.present(alert, animated: true)
+        }
+
+        static func onlineImportSourceURL(from url: URL) -> URL? {
+            guard url.scheme?.lowercased() == "yuedu",
+                  url.host?.lowercased() == "booksource",
+                  url.path.lowercased() == "/importonline",
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                  let sourceString = components.queryItems?.first(where: {
+                      $0.name == "src" || $0.name == "url"
+                  })?.value else {
+                return nil
+            }
+            return URL(string: sourceString)
+        }
+
+        static func cookiesForInitialLoad(url: URL) -> [HTTPCookie] {
+            HTTPCookieStorage.shared.cookies(for: url) ?? []
+        }
     }
 }
-
