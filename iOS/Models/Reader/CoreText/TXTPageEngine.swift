@@ -188,6 +188,18 @@ final class TXTPageEngine: PageRenderingProvider {
         )
     }
 
+    func estimatedGlobalPage(for position: CoreTextReadingPosition) -> Int? {
+        if let exact = pageIndex(for: position) {
+            return exact
+        }
+        guard chapterCount > 0 else { return nil }
+        let spineIndex = max(0, min(position.spineIndex, chapterCount - 1))
+        if spinePageOffsets.indices.contains(spineIndex) {
+            return spinePageOffsets[spineIndex]
+        }
+        return spineIndex
+    }
+
     func readingPosition(forPage page: Int) -> CoreTextReadingPosition? {
         let (spineIndex, localPage) = localPosition(for: page)
         guard let layout = layouts[spineIndex],
@@ -236,6 +248,15 @@ final class TXTPageEngine: PageRenderingProvider {
         let task = makePreloadTask(spineIndex: spineIndex, generation: generation)
         preloadTasks[spineIndex] = task
         await task.value
+    }
+
+    func notifyChapterDataChanged(at spineIndex: Int) async {
+        guard (0..<chapterCount).contains(spineIndex) else { return }
+        layouts.removeValue(forKey: spineIndex)
+        chapterSnapshots.removeValue(forKey: spineIndex)
+        await preloadChapter(at: spineIndex)
+        rebuildPageOffsets()
+        onChapterReady?(spineIndex)
     }
 
     private func preloadChapterInternal(at spineIndex: Int, generation: Int) async {
@@ -367,6 +388,12 @@ final class TXTPageEngine: PageRenderingProvider {
         let targetIndex = Int(progress * Double(chapterCount - 1))
         let clamped = max(0, min(targetIndex, chapterCount - 1))
         return (clamped, 0)
+    }
+
+    func resolveInternalLink(_ href: String, fromSpineIndex spineIndex: Int) async -> Int? {
+        _ = href
+        _ = spineIndex
+        return nil
     }
 
     func renderSnapshot(forPage globalPage: Int) -> UIImage? {

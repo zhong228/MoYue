@@ -29,7 +29,7 @@ final class FixedLayoutPageEngine: PageRenderingProvider {
         self.offsetStore = CharOffsetStore(directoryURL: storeDir)
     }
 
-    // MARK: - PageLayoutEngine
+    // MARK: - PagedReaderEngine
 
     var layouts: [Int : CoreTextPaginator.ChapterLayout] { [:] }
 
@@ -40,6 +40,10 @@ final class FixedLayoutPageEngine: PageRenderingProvider {
     func pageIndex(for position: CoreTextReadingPosition) -> Int? {
         guard position.spineIndex >= 0, position.spineIndex < totalPages else { return nil }
         return position.spineIndex
+    }
+
+    func estimatedGlobalPage(for position: CoreTextReadingPosition) -> Int? {
+        pageIndex(for: position)
     }
 
     func readingPosition(forPage page: Int) -> CoreTextReadingPosition? {

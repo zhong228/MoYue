@@ -14,7 +14,7 @@ struct ScrollProgress {
 /// Dedicated scroll-mode engine: slices each chapter's attributedString into a series of chunks for UICollectionView rendering.
 /// Operates alongside the page-oriented `CoreTextPageEngine` without interfering with it.
 @MainActor
-final class CoreTextScrollEngine: ObservableObject {
+final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
 
     // MARK: - Published
 
@@ -116,6 +116,28 @@ final class CoreTextScrollEngine: ObservableObject {
 
     func updateRenderSettings(_ settings: ReaderRenderSettings) {
         renderSettings = settings
+    }
+
+    func applyThemeChange(textColor: UIColor, backgroundColor: UIColor) {
+        renderSettings = ReaderRenderSettings(
+            theme: renderSettings.theme,
+            textColor: textColor,
+            backgroundColor: backgroundColor,
+            fontSize: renderSettings.fontSize,
+            lineHeightMultiple: renderSettings.lineHeightMultiple,
+            lineSpacing: renderSettings.lineSpacing,
+            paragraphSpacing: renderSettings.paragraphSpacing,
+            letterSpacing: renderSettings.letterSpacing,
+            marginH: renderSettings.marginH,
+            marginV: renderSettings.marginV,
+            footerHeight: renderSettings.footerHeight,
+            contentInsets: renderSettings.contentInsets,
+            writingMode: renderSettings.writingMode
+        )
+    }
+
+    func setTextAnnotations(_ annotations: [CoreTextTextAnnotation]) {
+        textAnnotations = annotations
     }
 
     private func prepareAttributedString(_ raw: NSAttributedString) -> NSAttributedString {
