@@ -141,6 +141,10 @@ Yuedu includes a small EPUB regression corpus and compatibility checklist for te
 - Xcode 16+
 - Swift 5 language mode in the Xcode project
 
+## Download
+
+The latest IPA is available from [GitHub Releases](https://github.com/CHANG-JUI-LIN/Yuedu-reader/releases/latest).
+
 ## Getting Started
 
 ```bash

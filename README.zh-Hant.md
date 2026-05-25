@@ -116,6 +116,10 @@
 - Xcode 16+
 - Xcode 專案目前使用 Swift 5 language mode
 
+## 下載
+
+最新版 IPA 可從 [GitHub Releases](https://github.com/CHANG-JUI-LIN/Yuedu-reader/releases/latest) 下載。
+
 ## 快速開始
 
 ```bash
