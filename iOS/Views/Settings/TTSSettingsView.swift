@@ -11,6 +11,7 @@ struct TTSSettingsView: View {
     @State private var showSourceFileImporter = false
     @State private var showNetworkImport = false
     @State private var searchText = ""
+    @State private var selectedSourceIds: Set<String> = []
 
     private var filteredSources: [ImportedTTSSource] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -19,6 +20,10 @@ struct TTSSettingsView: View {
             $0.name.localizedCaseInsensitiveContains(q)
                 || $0.urlTemplate.localizedCaseInsensitiveContains(q)
         }
+    }
+
+    private var filteredSourceIds: Set<String> {
+        Set(filteredSources.map(\.id))
     }
 
     var body: some View {
@@ -114,11 +119,13 @@ struct TTSSettingsView: View {
     private func sourceRow(_ source: ImportedTTSSource) -> some View {
         HStack(spacing: 0) {
             Button {
-                selectSource(source)
+                toggleSelection(source.id)
             } label: {
-                Image(systemName: isSelected(source) ? "checkmark.circle.fill" : "circle")
+                Image(systemName: selectedSourceIds.contains(source.id) ? "checkmark.square.fill" : "square")
                     .font(.system(size: 20))
-                    .foregroundColor(isSelected(source) ? DSColor.accent : Color(UIColor.systemGray3))
+                    .foregroundColor(
+                        selectedSourceIds.contains(source.id) ? DSColor.accent : Color(UIColor.systemGray3)
+                    )
             }
             .buttonStyle(.plain)
             .padding(.leading, 16)
@@ -221,29 +228,77 @@ struct TTSSettingsView: View {
     }
 
     private var bottomToolbar: some View {
-        HStack(spacing: 12) {
-            Text(localized("已載入") + " \(gs.importedTTSSources.count) " + localized("個語音源"))
-                .font(.system(size: 13))
-                .foregroundColor(DSColor.textSecondary)
-                .lineLimit(1)
+        HStack(spacing: 0) {
+            Button {
+                toggleSelectAll()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(
+                        systemName: selectedSourceIds == filteredSourceIds && !filteredSources.isEmpty
+                            ? "checkmark.square.fill" : "square"
+                    )
+                    .font(.system(size: 18))
+                    .foregroundColor(
+                        selectedSourceIds == filteredSourceIds && !filteredSources.isEmpty
+                            ? DSColor.accent : Color(UIColor.systemGray3)
+                    )
+                    Text(localized("全選") + "(\(selectedSourceIds.count)/\(gs.importedTTSSources.count))")
+                        .font(.system(size: 13))
+                        .foregroundColor(DSColor.textPrimary)
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 16)
 
             Spacer()
 
-            Button(role: .destructive) {
-                clearSources()
+            Button {
+                invertSelection()
             } label: {
-                Text(localized("清除已匯入語音源"))
+                Text(localized("反選"))
                     .font(.system(size: 13))
-                    .foregroundColor(gs.importedTTSSources.isEmpty ? .secondary : .red)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 7)
                     .background(Color(UIColor.systemGray5))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(.plain)
-            .disabled(gs.importedTTSSources.isEmpty)
+            .disabled(filteredSources.isEmpty)
+
+            Spacer().frame(width: 10)
+
+            Button(role: .destructive) {
+                deleteSelectedSources()
+            } label: {
+                Text(localized("刪除"))
+                    .font(.system(size: 13))
+                    .foregroundColor(selectedSourceIds.isEmpty ? .secondary : .red)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 7)
+                    .background(Color(UIColor.systemGray5))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .disabled(selectedSourceIds.isEmpty)
+
+            Spacer().frame(width: 10)
+
+            Menu {
+                Button(role: .destructive) {
+                    clearSources()
+                } label: {
+                    Label(localized("清除已匯入語音源"), systemImage: "trash")
+                }
+                .disabled(gs.importedTTSSources.isEmpty)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(DSFont.toolbarIcon)
+                    .foregroundColor(DSColor.textSecondary)
+                    .frame(width: 32, height: 32)
+                    .rotationEffect(.degrees(90))
+            }
+            .padding(.trailing, 12)
         }
-        .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(Color(UIColor.systemBackground))
     }
@@ -321,6 +376,27 @@ struct TTSSettingsView: View {
         gs.httpTtsHeaders = source.headers
     }
 
+    private func toggleSelection(_ id: String) {
+        if selectedSourceIds.contains(id) {
+            selectedSourceIds.remove(id)
+        } else {
+            selectedSourceIds.insert(id)
+        }
+    }
+
+    private func toggleSelectAll() {
+        let allIds = filteredSourceIds
+        if selectedSourceIds == allIds {
+            selectedSourceIds.removeAll()
+        } else {
+            selectedSourceIds = allIds
+        }
+    }
+
+    private func invertSelection() {
+        selectedSourceIds = filteredSourceIds.subtracting(selectedSourceIds)
+    }
+
     private func testPlayback(_ source: ImportedTTSSource) {
         selectSource(source)
         switch testCoordinator.playbackState {
@@ -344,6 +420,7 @@ struct TTSSettingsView: View {
 
     private func deleteSource(_ source: ImportedTTSSource) {
         gs.importedTTSSources.removeAll { $0.id == source.id }
+        selectedSourceIds.remove(source.id)
         if isSelected(source) {
             gs.httpTtsUrlTemplate = ""
             gs.httpTtsHeaders = [:]
@@ -351,8 +428,24 @@ struct TTSSettingsView: View {
         }
     }
 
+    private func deleteSelectedSources() {
+        let selected = selectedSourceIds
+        guard !selected.isEmpty else { return }
+        let deletingActiveSource = gs.importedTTSSources.contains {
+            selected.contains($0.id) && isSelected($0)
+        }
+        gs.importedTTSSources.removeAll { selected.contains($0.id) }
+        selectedSourceIds.removeAll()
+        if deletingActiveSource {
+            gs.httpTtsUrlTemplate = ""
+            gs.httpTtsHeaders = [:]
+            testCoordinator.stop(reason: "deleted selected sources")
+        }
+    }
+
     private func clearSources() {
         gs.importedTTSSources = []
+        selectedSourceIds.removeAll()
         gs.httpTtsUrlTemplate = ""
         gs.httpTtsHeaders = [:]
         testCoordinator.stop(reason: "cleared sources")
@@ -379,6 +472,8 @@ struct TTSSettingsView: View {
             let imported = try TTSSourceJSONParser.parse(data: data)
             gs.importedTTSSources = mergeSources(existing: gs.importedTTSSources, imported: imported)
             sourceImportMessage = String(format: localized("已載入 %d 個語音源"), imported.count)
+            sourceListURL = ""
+            showNetworkImport = false
         } catch {
             sourceImportMessage = String(format: localized("載入失敗：%@"), error.localizedDescription)
         }
