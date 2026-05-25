@@ -3,6 +3,7 @@ import Foundation
 protocol ReadingPositionStore: AnyObject, Sendable {
     func save(_ position: CoreTextReadingPosition, for bookId: String) async
     func load(for bookId: String) async -> CoreTextReadingPosition?
+    func loadSync(for bookId: String) -> CoreTextReadingPosition?
     func flush(for bookId: String) async
 }
 
@@ -26,13 +27,23 @@ final class JSONFileReadingPositionStore: ReadingPositionStore {
         guard let data = try? encoder.encode(position) else { return }
         let url = fileURL(for: bookId)
         try? data.write(to: url, options: .atomic)
+        print("[ProgressTrace][PositionStore] save bookId=\(bookId) spine=\(position.spineIndex) charOffset=\(position.charOffset)")
     }
 
     func load(for bookId: String) async -> CoreTextReadingPosition? {
+        loadSync(for: bookId)
+    }
+
+    func loadSync(for bookId: String) -> CoreTextReadingPosition? {
         let url = fileURL(for: bookId)
         guard fileManager.fileExists(atPath: url.path),
-              let data = try? Data(contentsOf: url) else { return nil }
-        return try? decoder.decode(CoreTextReadingPosition.self, from: data)
+              let data = try? Data(contentsOf: url) else {
+            print("[ProgressTrace][PositionStore] load bookId=\(bookId) result=miss")
+            return nil
+        }
+        let position = try? decoder.decode(CoreTextReadingPosition.self, from: data)
+        print("[ProgressTrace][PositionStore] load bookId=\(bookId) spine=\(position?.spineIndex.description ?? "nil") charOffset=\(position?.charOffset.description ?? "nil")")
+        return position
     }
 
     func flush(for bookId: String) async {

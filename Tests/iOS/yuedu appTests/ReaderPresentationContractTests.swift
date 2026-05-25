@@ -212,6 +212,10 @@ private final class InMemoryReadingPositionStore: ReadingPositionStore, @uncheck
         storage[bookId]
     }
 
+    func loadSync(for bookId: String) -> CoreTextReadingPosition? {
+        storage[bookId]
+    }
+
     func flush(for bookId: String) async {
     }
 }

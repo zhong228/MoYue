@@ -405,6 +405,8 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         guard !hasAppliedInitialScroll, let target = pendingInitialScroll else { return }
         guard let row = engine.chunkIndex(forChapter: target.chapter, charOffset: target.charOffset),
               row < engine.chunks.count else { return }
+        let chunkStart = engine.chunks[row].charRange.location
+        print("[ProgressTrace][ScrollVC] restoreLanding target=(ch\(target.chapter),off\(target.charOffset)) -> row=\(row) chunkStartOffset=\(chunkStart) lostWithinChunk=\(target.charOffset - chunkStart)")
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             guard self.scrollToInitialRow(row) else { return }
@@ -664,6 +666,7 @@ extension CoreTextCollectionScrollViewController: UICollectionViewDataSource, UI
 
     private func commitProgress() {
         guard let pos = visibleCanonicalPosition() else { return }
+        print("[ProgressTrace][ScrollVC] commit(visibleCenter) spine=\(pos.spineIndex) charOffset=\(pos.charOffset)")
         onProgressCommit?(pos)
     }
 

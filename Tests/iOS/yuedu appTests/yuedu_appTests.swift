@@ -1838,6 +1838,19 @@ struct yuedu_appTests {
         #expect(shouldUseDirectly == false)
     }
 
+    @Test func readerProgressSyncPolicyPrefersRestoreTargetOverTransientEnginePage() {
+        // A precise restore target must win even if the engine transiently reports a
+        // non-zero page during the cold-restore window, otherwise restore can race to
+        // the chapter start intermittently.
+        let shouldUseDirectly = ReaderProgressSyncPolicy.shouldUseEnginePageDirectly(
+            enginePage: 5,
+            totalPages: 100,
+            savedPositionSnapshot: 0,
+            hasRestoreTarget: true
+        )
+        #expect(shouldUseDirectly == false)
+    }
+
     @Test func coreTextProgressFallsBackToChapterRatioBeforeByteScan() async {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("CoreTextProgressFallback-\(UUID().uuidString)")

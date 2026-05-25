@@ -1074,9 +1074,12 @@ struct ReaderView: View {
     private func refreshInitialRestoreState() {
         let snapshot = progressManager.loadSnapshot(bookId: bookId)
         savedPositionSnapshot = min(1.0, max(0.0, snapshot?.percentage ?? book?.currentPosition ?? 0))
-        if let snapshot,
-           snapshot.mode == .coreText,
-           let charOffset = snapshot.charOffset {
+        let storeKey = book?.id.uuidString ?? bookId.uuidString
+        if let stored = dependencies.readingPositionStore.loadSync(for: storeKey) {
+            savedCoreTextRestoreTarget = (stored.spineIndex, max(0, stored.charOffset))
+        } else if let snapshot,
+                  snapshot.mode == .coreText,
+                  let charOffset = snapshot.charOffset {
             savedCoreTextRestoreTarget = (snapshot.chapterIndex, max(0, charOffset))
         } else {
             savedCoreTextRestoreTarget = nil
@@ -1094,7 +1097,8 @@ struct ReaderView: View {
             progressTrace(
                 "applyInitialProgress start enginePage=\(currentEnginePage) totalPages=\(engine.totalPages) savedPct=\(String(format: "%.6f", savedPositionSnapshot)) target=\(savedCoreTextRestoreTarget.map { "(\($0.chapterIndex),\($0.charOffset))" } ?? "nil")"
             )
-            // Prefer the engine (CharOffsetStore) restore result, unaffected by snapshot=0.
+            // With a precise restore target, the precise branch below wins; otherwise
+            // prefer the engine's own restored page (unaffected by snapshot=0).
             if ReaderProgressSyncPolicy.shouldUseEnginePageDirectly(
                 enginePage: currentEnginePage,
                 totalPages: engine.totalPages,
@@ -1166,6 +1170,11 @@ struct ReaderView: View {
                 }
                 return
             }
+
+            // A precise restore target owns the CoreText restore (including while its
+            // async apply is in flight). Don't let the percentage fallback move the page
+            // or clear the target underneath it.
+            guard savedCoreTextRestoreTarget == nil else { return }
 
             let progress = min(1.0, max(0.0, savedPositionSnapshot))
             guard progress > 0 else { return }
