@@ -235,6 +235,9 @@ class GlobalSettings: ObservableObject {
     @Published var accountProvider: String {
         didSet { UserDefaults.standard.set(accountProvider, forKey: "yd_account_provider") }
     }
+    @Published var accountUserIdentifier: String {
+        didSet { UserDefaults.standard.set(accountUserIdentifier, forKey: "yd_account_user_identifier") }
+    }
     @Published var accountAvatarData: Data? {
         didSet {
             if let accountAvatarData {
@@ -361,6 +364,7 @@ class GlobalSettings: ObservableObject {
         accountDisplayName = UserDefaults.standard.string(forKey: "yd_account_display_name") ?? ""
         accountEmail = UserDefaults.standard.string(forKey: "yd_account_email") ?? ""
         accountProvider = UserDefaults.standard.string(forKey: "yd_account_provider") ?? ""
+        accountUserIdentifier = UserDefaults.standard.string(forKey: "yd_account_user_identifier") ?? ""
         accountAvatarData = UserDefaults.standard.data(forKey: "yd_account_avatar_data")
         let rawConv = UserDefaults.standard.string(forKey: "yd_text_conv") ?? ""
         textConversion = TextConversion(rawValue: rawConv) ?? .original
@@ -484,12 +488,14 @@ class GlobalSettings: ObservableObject {
         }
     }
 
-    func signIn(displayName: String, email: String, provider: String) {
+    func signIn(displayName: String, email: String, provider: String, userIdentifier: String = "") {
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedIdentifier = userIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
         accountDisplayName = trimmedName.isEmpty ? trimmedEmail : trimmedName
         accountEmail = trimmedEmail
         accountProvider = provider
+        accountUserIdentifier = trimmedIdentifier
         isLoggedIn = true
     }
 
@@ -532,6 +538,7 @@ class GlobalSettings: ObservableObject {
         accountDisplayName = ""
         accountEmail = ""
         accountProvider = ""
+        accountUserIdentifier = ""
         accountAvatarData = nil
     }
 }

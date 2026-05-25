@@ -1,3 +1,4 @@
+import CloudKit
 import SwiftUI
 import PhotosUI
 import UIKit
@@ -5,6 +6,7 @@ import UIKit
 struct UserDetailView: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var gs = GlobalSettings.shared
+    @StateObject private var iCloudSync = ICloudSyncManager.shared
     @State private var showLogin = false
     @State private var selectedAvatarItem: PhotosPickerItem?
     @State private var avatarErrorMessage: String?
@@ -27,14 +29,20 @@ struct UserDetailView: View {
 
                     VStack(spacing: 8) {
                         HStack(spacing: 4) {
-                            Image(systemName: gs.isLoggedIn ? "icloud.fill" : "icloud.slash")
-                            Text(gs.isLoggedIn ? localized("iCloud 同步已開啟") : localized("尚未開啟同步"))
+                            Image(systemName: syncStatusIcon)
+                            Text(iCloudSync.statusTitle(isAppSignedIn: gs.isLoggedIn))
                                 .font(.system(size: 12, weight: .semibold))
                         }
                         .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(Color.blue.opacity(0.1))
-                        .foregroundColor(.blue)
+                        .background(syncStatusColor.opacity(0.1))
+                        .foregroundColor(syncStatusColor)
                         .clipShape(Capsule())
+
+                        if gs.isLoggedIn, let date = iCloudSync.lastSyncDate {
+                            Text("\(localized("上次同步")) \(date.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
 
                         if !gs.isLoggedIn {
                             Text(localized("登入後可跨設備同步書籍與進度"))
@@ -82,6 +90,19 @@ struct UserDetailView: View {
                         }
                     }
                     .disabled(isSigningOut)
+                    .confirmationDialog(
+                        localized("登出帳號"),
+                        isPresented: $showSignOutConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button(localized("登出"), role: .destructive) {
+                            performSignOut(revokeGoogleAccess: true)
+                        }
+
+                        Button(localized("取消"), role: .cancel) {}
+                    } message: {
+                        Text(localized("登出後此裝置會停止使用目前帳號同步。"))
+                    }
                 }
             }
         }
@@ -89,25 +110,6 @@ struct UserDetailView: View {
         .navigationTitle(localized("個人資料"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
-        .confirmationDialog(
-            localized("登出帳號"),
-            isPresented: $showSignOutConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button(localized("登出"), role: .destructive) {
-                performSignOut(revokeGoogleAccess: false)
-            }
-
-            if gs.accountProvider == "Google" {
-                Button(localized("解除 Google 授權並登出"), role: .destructive) {
-                    performSignOut(revokeGoogleAccess: true)
-                }
-            }
-
-            Button(localized("取消"), role: .cancel) {}
-        } message: {
-            Text(localized("登出後此裝置會停止使用目前帳號同步。"))
-        }
         .fullScreenCover(isPresented: $showLogin) {
             LoginView {
                 showLogin = false
@@ -117,6 +119,28 @@ struct UserDetailView: View {
             Task {
                 await updateAvatar(from: newItem)
             }
+        }
+        .task {
+            if gs.isLoggedIn {
+                _ = await iCloudSync.refreshAccountStatus()
+            }
+        }
+    }
+
+    private var syncStatusIcon: String {
+        guard gs.isLoggedIn else { return "icloud.slash" }
+        return iCloudSync.accountStatus == .available ? "icloud.fill" : "exclamationmark.icloud"
+    }
+
+    private var syncStatusColor: Color {
+        guard gs.isLoggedIn else { return .blue }
+        switch iCloudSync.accountStatus {
+        case .available:
+            return .blue
+        case .noAccount, .restricted, .temporarilyUnavailable:
+            return .orange
+        default:
+            return .secondary
         }
     }
 

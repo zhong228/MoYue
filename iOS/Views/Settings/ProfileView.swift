@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var showDownloadManager = false
     @State private var showReplaceRules = false
     @State private var showReadingStats = false
+    @State private var showICloudSync = false
     @State private var showWebDAVSync = false
     @State private var showLanServer = false
     @State private var showLegadoMigration = false
@@ -96,6 +97,11 @@ struct SettingsView: View {
                     // ── Data Management ──
                     Section(header: Text(localized("資料管理"))) {
                         DSSettingsRow(
+                            icon: "icloud.fill",
+                            title: localized("iCloud 同步"),
+                            action: { showICloudSync = true }
+                        )
+                        DSSettingsRow(
                             icon: "icloud.and.arrow.up.fill",
                             title: localized("WebDAV 同步"),
                             action: { showWebDAVSync = true }
@@ -163,6 +169,11 @@ struct SettingsView: View {
             .sheet(isPresented: $showReadingStats) {
                 AdaptiveSheetContainer(maxWidth: 760) {
                     ReadingStatsView()
+                }
+            }
+            .sheet(isPresented: $showICloudSync) {
+                AdaptiveSheetContainer(maxWidth: 640) {
+                    ICloudSyncView()
                 }
             }
             .sheet(isPresented: $showWebDAVSync) {
