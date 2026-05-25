@@ -116,16 +116,6 @@
 - Xcode 16+
 - Xcode 项目目前使用 Swift 5 language mode
 
-## 下载
-
-最新版 IPA 可从 [GitHub Releases](https://github.com/CHANG-JUI-LIN/Yuedu-reader/releases/latest) 下载。
-
-AltStore Classic 源：
-
-```text
-https://raw.githubusercontent.com/CHANG-JUI-LIN/Yuedu-reader/main/altstore/apps.json
-```
-
 ## 快速开始
 
 ```bash

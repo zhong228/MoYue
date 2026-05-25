@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "460D36582F51C5B8006E774C"
-               BuildableName = "yuedu app.app"
+               BuildableName = "YueduReader.app"
                BlueprintName = "yuedu app"
                ReferencedContainer = "container:Yuedu-Reader.xcodeproj">
             </BuildableReference>
@@ -69,7 +69,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "460D36582F51C5B8006E774C"
-            BuildableName = "yuedu app.app"
+            BuildableName = "YueduReader.app"
             BlueprintName = "yuedu app"
             ReferencedContainer = "container:Yuedu-Reader.xcodeproj">
          </BuildableReference>
@@ -86,7 +86,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "460D36582F51C5B8006E774C"
-            BuildableName = "yuedu app.app"
+            BuildableName = "YueduReader.app"
             BlueprintName = "yuedu app"
             ReferencedContainer = "container:Yuedu-Reader.xcodeproj">
          </BuildableReference>
