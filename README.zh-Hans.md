@@ -22,6 +22,11 @@
 </p>
 
 <p align="center">
+  <a href="https://chang-jui-lin.github.io/Yuedu-reader/support.html">支持</a> ·
+  <a href="https://chang-jui-lin.github.io/Yuedu-reader/privacy.html">隐私政策</a>
+</p>
+
+<p align="center">
   <img src="docs/demo/cjk-vertical-toc.gif" width="320" alt="阅读 CJK 竖排演示">
 </p>
 
