@@ -39,21 +39,17 @@ struct ExploreHomeView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: DSSpacing.lg) {
-                    segmentedPicker
+            VStack(spacing: 0) {
+                segmentedPicker
+                    .padding(.horizontal, DSSpacing.lg)
+                    .padding(.vertical, DSSpacing.sm)
 
-                    switch tab {
-                    case .discover: discoverContent
-                    case .web: webContent
-                    }
+                switch tab {
+                case .discover: discoverContent
+                case .web: webScroll
                 }
-                .padding(.horizontal, DSSpacing.lg)
-                .padding(.top, DSSpacing.sm)
-                .padding(.bottom, 130)
             }
             .background(DSColor.groupedBackground.ignoresSafeArea())
-            .scrollDismissesKeyboard(.immediately)
             .navigationTitle(localized("探索"))
             .toolbarTitleDisplayMode(.inlineLarge)
             .searchable(
@@ -106,159 +102,156 @@ struct ExploreHomeView: View {
     @ViewBuilder
     private var discoverContent: some View {
         if discover.hasExploreSource {
-            sourceCard
-            discoverSection
-            booksSection
+            discoverList
         } else {
-            emptySourceCard
+            emptySourceState
         }
     }
 
-    private var sourceCard: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.md) {
-            Text(localized("目前書源"))
+    private var discoverList: some View {
+        List {
+            Section(localized("目前書源")) {
+                Button { showSourcePicker = true } label: {
+                    HStack(spacing: DSSpacing.md) {
+                        Image(systemName: "sun.max.fill").foregroundColor(.orange)
+                        Text(discover.selectedSource?.bookSourceName ?? "")
+                            .foregroundColor(DSColor.textPrimary)
+                            .lineLimit(1)
+                        Spacer(minLength: DSSpacing.sm)
+                        if discover.showsFilters {
+                            Text(typeDisplay(discover.selectedType))
+                                .font(DSFont.caption)
+                                .foregroundColor(DSColor.textSecondary)
+                        }
+                        disclosureChevron
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Button { showSourceManager = true } label: {
+                    HStack {
+                        Label(localized("書源設定"), systemImage: "gearshape")
+                            .foregroundColor(DSColor.textPrimary)
+                        Spacer()
+                        disclosureChevron
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+
+            if discover.showsFilters {
+                Section(localized("分類篩選")) {
+                    filterRow(localized("類型"), system: "square.grid.2x2",
+                              options: discover.typeOptions, selected: discover.selectedType,
+                              display: typeDisplay) { discover.setType($0) }
+                    filterRow(localized("頻道"), system: "person.2",
+                              options: discover.channelOptions, selected: discover.selectedChannel,
+                              display: channelDisplay) { discover.setChannel($0) }
+                    filterRow(localized("來源"), system: "circle.grid.2x2",
+                              options: discover.platformOptions, selected: discover.selectedPlatform,
+                              display: platformDisplay) { discover.setPlatform($0) }
+                }
+            }
+
+            Section {
+                discoverGridContent
+                    .listRowInsets(EdgeInsets(top: DSSpacing.md, leading: DSSpacing.lg,
+                                              bottom: DSSpacing.md, trailing: DSSpacing.lg))
+            } header: {
+                HStack {
+                    Text(localized("發現"))
+                    Spacer()
+                    Button { discover.reload() } label: {
+                        Label(localized("換一批"), systemImage: "arrow.triangle.2.circlepath")
+                            .font(DSFont.caption)
+                            .textCase(nil)
+                    }
+                }
+            }
+
+            Section(discover.booksSectionTitle.isEmpty ? localized("今日必讀") : discover.booksSectionTitle) {
+                discoverBooksContent
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollDismissesKeyboard(.immediately)
+    }
+
+    private var emptySourceState: some View {
+        ContentUnavailableView {
+            Label(localized("尚未啟用支援發現的書源"), systemImage: "books.vertical")
+        } description: {
+            Text(localized("前往書源管理新增並啟用書源"))
+        } actions: {
+            Button(localized("前往書源管理")) { showSourceManager = true }
+                .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var discoverGridContent: some View {
+        if discover.isLoadingItems && discover.items.isEmpty {
+            loadingRow
+        } else if discover.items.isEmpty {
+            Text(localized("暫無發現內容"))
                 .font(DSFont.caption)
                 .foregroundColor(DSColor.textSecondary)
-
-            HStack(spacing: DSSpacing.sm) {
-                Image(systemName: "sun.max.fill")
-                    .foregroundColor(.orange)
-                    .font(.system(size: 20))
-                Text(discover.selectedSource?.bookSourceName ?? "")
-                    .font(.system(size: 18, weight: .semibold))
-                    .lineLimit(1)
-                Text(typeDisplay(discover.selectedType))
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(DSColor.accent)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(DSColor.accentLight)
-                    .clipShape(Capsule())
-                Spacer(minLength: 4)
-            }
-
-            HStack(spacing: DSSpacing.sm) {
-                pillButton(localized("切換書源"), system: "arrow.left.arrow.right") {
-                    showSourcePicker = true
-                }
-                pillButton(localized("書源設定"), system: "gearshape") {
-                    showSourceManager = true
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, DSSpacing.sm)
+        } else {
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: DSSpacing.md), count: 3),
+                spacing: DSSpacing.md
+            ) {
+                ForEach(discover.items) { item in
+                    DiscoverGridCard(item: item) {
+                        discover.handleTap(item, onNavigate: onNavigate)
+                    }
                 }
             }
-
-            Divider()
-
-            filterRow(localized("類型"), system: "square.grid.2x2",
-                      options: discover.typeOptions, selected: discover.selectedType,
-                      display: typeDisplay) { discover.setType($0) }
-            filterRow(localized("頻道"), system: "person.2",
-                      options: discover.channelOptions, selected: discover.selectedChannel,
-                      display: channelDisplay) { discover.setChannel($0) }
-            filterRow(localized("來源"), system: "circle.grid.2x2",
-                      options: discover.platformOptions, selected: discover.selectedPlatform,
-                      display: platformDisplay) { discover.setPlatform($0) }
         }
-        .padding(DSSpacing.lg)
-        .background(DSColor.accent.opacity(0.05))
-        .clipShape(RoundedRectangle(cornerRadius: DSRadius.xl))
     }
 
-    private var emptySourceCard: some View {
-        VStack(spacing: DSSpacing.md) {
-            Image(systemName: "books.vertical")
-                .font(.system(size: 40))
-                .foregroundColor(DSColor.textSecondary.opacity(0.5))
-            Text(localized("尚未啟用支援發現的書源"))
-                .font(DSFont.subheadline)
+    @ViewBuilder
+    private var discoverBooksContent: some View {
+        if discover.isLoadingBooks && discover.books.isEmpty {
+            loadingRow
+        } else if discover.books.isEmpty {
+            Text(localized("選擇上方分類以載入書籍"))
+                .font(DSFont.caption)
                 .foregroundColor(DSColor.textSecondary)
-            Button {
-                showSourceManager = true
-            } label: {
-                Text(localized("前往書源管理"))
-                    .font(DSFont.bodyBold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, DSSpacing.lg).padding(.vertical, 10)
-                    .background(DSColor.accent)
-                    .clipShape(Capsule())
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, DSSpacing.sm)
+        } else {
+            ForEach(discover.books) { book in
+                Button { openingBook = book } label: {
+                    DiscoverBookRow(book: book)
+                }
+                .buttonStyle(.plain)
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, DSSpacing.xxl)
-        .background(DSColor.background)
-        .clipShape(RoundedRectangle(cornerRadius: DSRadius.xl))
     }
 
-    private var discoverSection: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.md) {
-            HStack {
-                Text(localized("發現")).font(DSFont.headline)
-                Spacer()
-                Button { discover.reload() } label: {
-                    HStack(spacing: 4) {
-                        Text(localized("換一批"))
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                    }
-                    .font(DSFont.caption)
-                    .foregroundColor(DSColor.accent)
-                }
-            }
-
-            if discover.isLoadingItems && discover.items.isEmpty {
-                loadingRow
-            } else if discover.items.isEmpty {
-                Text(localized("暫無發現內容"))
-                    .font(DSFont.caption)
-                    .foregroundColor(DSColor.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, DSSpacing.lg)
-            } else {
-                LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: DSSpacing.md), count: 3),
-                    spacing: DSSpacing.md
-                ) {
-                    ForEach(discover.items) { item in
-                        DiscoverGridCard(item: item) {
-                            discover.handleTap(item, onNavigate: onNavigate)
-                        }
-                    }
-                }
-            }
-        }
-        .padding(DSSpacing.lg)
-        .background(DSColor.background)
-        .clipShape(RoundedRectangle(cornerRadius: DSRadius.xl))
-    }
-
-    private var booksSection: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.md) {
-            Text(discover.booksSectionTitle.isEmpty ? localized("今日必讀") : discover.booksSectionTitle)
-                .font(DSFont.headline)
-
-            if discover.isLoadingBooks && discover.books.isEmpty {
-                loadingRow
-            } else if discover.books.isEmpty {
-                Text(localized("選擇上方分類以載入書籍"))
-                    .font(DSFont.caption)
-                    .foregroundColor(DSColor.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, DSSpacing.lg)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(discover.books.enumerated()), id: \.element.id) { index, book in
-                        Button { openingBook = book } label: {
-                            DiscoverBookRow(book: book)
-                        }
-                        .buttonStyle(.plain)
-                        if index < discover.books.count - 1 { Divider() }
-                    }
-                }
-            }
-        }
-        .padding(DSSpacing.lg)
-        .background(DSColor.background)
-        .clipShape(RoundedRectangle(cornerRadius: DSRadius.xl))
+    private var disclosureChevron: some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(Color(.tertiaryLabel))
     }
 
     // MARK: - Web Segment
+
+    private var webScroll: some View {
+        ScrollView {
+            VStack(spacing: DSSpacing.lg) {
+                webContent
+            }
+            .padding(.horizontal, DSSpacing.lg)
+            .padding(.top, DSSpacing.sm)
+            .padding(.bottom, 130)
+        }
+        .scrollDismissesKeyboard(.immediately)
+    }
 
     @ViewBuilder
     private var webContent: some View {
@@ -504,19 +497,6 @@ struct ExploreHomeView: View {
         .padding(.vertical, DSSpacing.lg)
     }
 
-    private func pillButton(_ title: String, system: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: system).font(.system(size: 12))
-                Text(title).font(.system(size: 13, weight: .medium))
-            }
-            .foregroundColor(DSColor.accent)
-            .padding(.horizontal, DSSpacing.md).padding(.vertical, 6)
-            .overlay(Capsule().stroke(DSColor.accent.opacity(0.5), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-    }
-
     private func filterRow(
         _ label: String,
         system: String,
@@ -542,7 +522,7 @@ struct ExploreHomeView: View {
                                 .font(.system(size: 13, weight: isOn ? .semibold : .regular))
                                 .foregroundColor(isOn ? .white : DSColor.textPrimary)
                                 .padding(.horizontal, DSSpacing.md).padding(.vertical, 6)
-                                .background(isOn ? DSColor.accent : DSColor.surface)
+                                .background(isOn ? DSColor.accent : Color(.systemGray5))
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
@@ -606,13 +586,11 @@ private struct DiscoverGridCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 6) {
-                ZStack {
-                    Circle().fill(style.color.opacity(0.15)).frame(width: 40, height: 40)
-                    Image(systemName: style.icon)
-                        .font(.system(size: 18))
-                        .foregroundColor(style.color)
-                }
+            VStack(spacing: DSSpacing.sm) {
+                Image(systemName: icon)
+                    .font(.system(size: 22))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(height: 26)
                 Text(item.title)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(DSColor.textPrimary)
@@ -621,23 +599,23 @@ private struct DiscoverGridCard: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, DSSpacing.md)
-            .background(DSColor.surface)
+            .background(Color(.systemGray6))
             .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg))
         }
         .buttonStyle(.plain)
     }
 
-    private var style: (icon: String, color: Color) {
+    private var icon: String {
         let t = item.title
-        if item.isAction { return ("person.crop.circle.badge.plus", .orange) }
-        if t.contains("番茄") { return ("books.vertical.fill", .red) }
-        if t.contains("推荐") || t.contains("推薦") { return ("star.fill", .yellow) }
-        if t.contains("历史") || t.contains("歷史") { return ("clock.fill", .blue) }
-        if t.contains("完本") || t.contains("完结") || t.contains("榜") { return ("crown.fill", .green) }
-        if t.contains("女") { return ("sparkles", .purple) }
-        if t.contains("男") || t.contains("热") || t.contains("熱") { return ("flame.fill", .orange) }
-        if t.contains("晴天") { return ("sun.max.fill", .teal) }
-        return ("square.grid.2x2.fill", .accentColor)
+        if item.isAction { return "person.crop.circle.badge.plus" }
+        if t.contains("番茄") { return "books.vertical.fill" }
+        if t.contains("推荐") || t.contains("推薦") { return "star.fill" }
+        if t.contains("历史") || t.contains("歷史") { return "clock.fill" }
+        if t.contains("完本") || t.contains("完结") || t.contains("榜") { return "crown.fill" }
+        if t.contains("女") { return "sparkles" }
+        if t.contains("男") || t.contains("热") || t.contains("熱") { return "flame.fill" }
+        if t.contains("晴天") { return "sun.max.fill" }
+        return "square.grid.2x2.fill"
     }
 }
 

@@ -553,6 +553,26 @@ class ModernParserBridge {
             case title, url, style, type, action, chars, `default`, viewName
         }
 
+        init(
+            title: String? = nil,
+            url: String? = nil,
+            style: [String: String]? = nil,
+            type: String? = nil,
+            action: String? = nil,
+            chars: [String]? = nil,
+            default defaultValue: String? = nil,
+            viewName: String? = nil
+        ) {
+            self.title = title
+            self.url = url
+            self.style = style
+            self.type = type
+            self.action = action
+            self.chars = chars
+            self.default = defaultValue
+            self.viewName = viewName
+        }
+
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             title = try? c.decodeIfPresent(String.self, forKey: .title)
@@ -584,36 +604,29 @@ class ModernParserBridge {
     }
 
     /// Evaluate exploreUrl for a book source and return discover items.
-    /// Handles JS-based exploreUrl (e.g. 光遇聚合 `<js>...</js>`).
+    /// Mirrors Legado's exploreKinds(): JS may produce a rule string, JSON is
+    /// decoded directly, and plain text is split into title::url kinds.
     func getExploreItems(page: Int = 1) async -> [DiscoverItem] {
         let source = sourceRuleData.source
         let rawExploreUrl = source.exploreUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rawExploreUrl.isEmpty else { return [] }
 
-        // If exploreUrl is JS-based (`<js>...</js>` or `@js:`), evaluate directly
-        let isJS = rawExploreUrl.hasPrefix("<js>") || rawExploreUrl.hasPrefix("@js:")
-        if isJS {
-            let jsCode = rawExploreUrl
-                .replacingOccurrences(of: "<js>", with: "")
-                .replacingOccurrences(of: "</js>", with: "")
-                .replacingOccurrences(of: "@js:", with: "")
+        var ruleStr = rawExploreUrl
+        if Self.isJSExploreRule(rawExploreUrl) {
+            let jsCode = Self.jsCode(fromExploreRule: rawExploreUrl)
             let bindings: [String: Any] = [
                 "page": page,
                 "baseUrl": source.bookSourceUrl,
             ]
-            if let result = jsEngine.evaluateIsolated(jsCode, bindings: bindings) {
-                return parseDiscoverJSON(result)
-            }
-            return []
+            ruleStr = jsEngine.evaluateIsolated(jsCode, bindings: bindings)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         }
 
-        // Fallback: fetch as URL
-        do {
-            let (body, _) = try await fetch(ruleUrl: rawExploreUrl, page: page)
-            return parseDiscoverJSON(body)
-        } catch {
-            return []
+        guard !ruleStr.isEmpty else { return [] }
+        if Self.isJsonArrayOrObject(ruleStr) {
+            return parseDiscoverJSON(ruleStr)
         }
+        return parseExploreKindText(ruleStr)
     }
 
     /// Parse a JSON array string into DiscoverItem list.
@@ -626,6 +639,50 @@ class ModernParserBridge {
             return [single]
         }
         return []
+    }
+
+    private func parseExploreKindText(_ text: String) -> [DiscoverItem] {
+        let normalized = text.replacingOccurrences(
+            of: #"(&&|\r?\n)+"#,
+            with: "\n",
+            options: .regularExpression
+        )
+        return normalized
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .compactMap { rawEntry in
+                let entry = rawEntry.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !entry.isEmpty else { return nil }
+
+                guard let separator = entry.range(of: "::") else {
+                    return DiscoverItem(title: entry, url: nil)
+                }
+
+                let title = entry[..<separator.lowerBound]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let url = entry[separator.upperBound...]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !title.isEmpty else { return nil }
+                return DiscoverItem(title: title, url: url.isEmpty ? nil : url)
+            }
+    }
+
+    private static func isJSExploreRule(_ value: String) -> Bool {
+        value.hasPrefix("<js>") || value.hasPrefix("@js:")
+    }
+
+    private static func jsCode(fromExploreRule value: String) -> String {
+        if value.hasPrefix("@js:") {
+            return String(value.dropFirst(4))
+        }
+        if value.hasPrefix("<js>"), value.hasSuffix("</js>") {
+            return String(value.dropFirst(4).dropLast(5))
+        }
+        return value
+    }
+
+    private static func isJsonArrayOrObject(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("[") || trimmed.hasPrefix("{")
     }
 
     /// Parse explore results using ruleExplore rules (for non-JS exploreUrl).

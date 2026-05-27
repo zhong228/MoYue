@@ -49,6 +49,11 @@ final class DiscoverViewModel: ObservableObject {
 
     var hasExploreSource: Bool { selectedSource != nil }
 
+    var showsFilters: Bool {
+        guard let source = selectedSource else { return false }
+        return Self.sourceUsesDiscoverFilters(source)
+    }
+
     /// 來源 (platform) chips, derived from the source's group list minus the aggregator name.
     var platformOptions: [String] {
         guard let group = selectedSource?.bookSourceGroup else { return ["全部"] }
@@ -95,21 +100,21 @@ final class DiscoverViewModel: ObservableObject {
     func setType(_ value: String) {
         guard value != selectedType else { return }
         selectedType = value
-        applyFilters()
+        if showsFilters { applyFilters() }
         reload()
     }
 
     func setChannel(_ value: String) {
         guard value != selectedChannel else { return }
         selectedChannel = value
-        applyFilters()
+        if showsFilters { applyFilters() }
         reload()
     }
 
     func setPlatform(_ value: String) {
         guard value != selectedPlatform else { return }
         selectedPlatform = value
-        applyFilters()
+        if showsFilters { applyFilters() }
         reload()
     }
 
@@ -197,7 +202,7 @@ final class DiscoverViewModel: ObservableObject {
     /// Filter selections persist as the source's Legado runtime variables, which the
     /// JS `exploreUrl` reads on its next run (`getVariable('频道')`, etc.).
     private func loadVariablesFromSource() {
-        guard let source = selectedSource else { return }
+        guard let source = selectedSource, showsFilters else { return }
         let dict = currentVariableDict(for: source)
         if let value = dict["频道"] as? String, channelOptions.contains(value) {
             selectedChannel = value
@@ -214,7 +219,7 @@ final class DiscoverViewModel: ObservableObject {
     }
 
     private func applyFilters() {
-        guard let source = selectedSource else { return }
+        guard let source = selectedSource, showsFilters else { return }
         var dict = currentVariableDict(for: source)
         dict["频道"] = selectedChannel
         dict["发现页来源"] = selectedPlatform
@@ -244,5 +249,13 @@ final class DiscoverViewModel: ObservableObject {
     private func persistSelectedSource() {
         guard let id = selectedSourceId else { return }
         UserDefaults.standard.set(id.uuidString, forKey: selectedSourceKey)
+    }
+
+    static func sourceUsesDiscoverFilters(_ source: BookSource) -> Bool {
+        let probes = [source.exploreUrl, source.jsLib]
+        let markers = ["频道", "发现页来源", "发现页类型", "搜索模式"]
+        return probes.contains { text in
+            markers.contains { text.contains($0) }
+        }
     }
 }

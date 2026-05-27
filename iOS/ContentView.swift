@@ -24,7 +24,7 @@ struct ContentView: View {
                 RSSListView()
             }
             .badge(rssUnreadCount > 0 ? Text("\(rssUnreadCount)") : nil)
-            
+
             Tab(localized("設定"), systemImage: "gearshape") {
                 SettingsView()
             }
@@ -36,6 +36,7 @@ struct ContentView: View {
         }
     }
 }
+
 struct TTSFloatingPlayerOverlay: View {
     @StateObject private var player = TTSFloatingPlayerState.shared
     @State private var offset = CGSize(width: 0, height: 0)

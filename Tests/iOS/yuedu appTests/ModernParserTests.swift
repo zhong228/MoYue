@@ -1915,7 +1915,103 @@ struct RuleAnalyzerSourceRuleIntegrationTests {
     }
 }
 
-// MARK: - 13. Edge Cases & Stress Tests
+// MARK: - 13. Explore / Discover Parsing
+
+@Suite("ModernParserBridge Explore", .serialized)
+struct ModernParserBridgeExploreTests {
+
+    @Test("plain text exploreUrl is parsed as Legado explore kinds without fetching")
+    func plainTextExploreKinds() async {
+        var source = BookSource()
+        source.bookSourceUrl = "https://example.com/source"
+        source.bookSourceName = "Plain Explore"
+        source.exploreUrl = """
+        分類一::https://example.com/cat/1?page={{page}}
+        分組標題
+        分類二::https://example.com/cat/2
+        """
+
+        let items = await ModernParserBridge(source: source).getExploreItems(page: 2)
+
+        #expect(items.map { $0.title ?? "" } == ["分類一", "分組標題", "分類二"])
+        #expect(items.map { $0.url } == [
+            "https://example.com/cat/1?page={{page}}",
+            nil,
+            "https://example.com/cat/2"
+        ])
+    }
+
+    @Test("JS exploreUrl returning plain text is parsed as Legado explore kinds")
+    func jsReturnedPlainTextExploreKinds() async {
+        var source = BookSource()
+        source.bookSourceUrl = "https://example.com/source"
+        source.bookSourceName = "JS Text Explore"
+        source.exploreUrl = """
+        <js>
+        '排行榜::https://example.com/rank\\n完本::https://example.com/done'
+        </js>
+        """
+
+        let items = await ModernParserBridge(source: source).getExploreItems()
+
+        #expect(items.map { $0.title ?? "" } == ["排行榜", "完本"])
+        #expect(items.map { $0.url ?? "" } == [
+            "https://example.com/rank",
+            "https://example.com/done"
+        ])
+    }
+
+    @Test("inline JSON exploreUrl is parsed without fetching")
+    func inlineJSONExploreKinds() async {
+        var source = BookSource()
+        source.bookSourceUrl = "https://example.com/source"
+        source.bookSourceName = "JSON Explore"
+        source.exploreUrl = #"[{"title":"推薦","url":"https://example.com/recommend","style":{"layout_flexBasisPercent":0.45}}]"#
+
+        let items = await ModernParserBridge(source: source).getExploreItems()
+
+        #expect(items.count == 1)
+        #expect(items.first?.title == "推薦")
+        #expect(items.first?.url == "https://example.com/recommend")
+        #expect(items.first?.style?["layout_flexBasisPercent"] == "0.45")
+    }
+}
+
+@Suite("Discover Filters", .serialized)
+struct DiscoverFilterTests {
+
+    @MainActor
+    @Test("general Legado sources do not show aggregator filters")
+    func generalSourcesDoNotShowFilters() {
+        var source = BookSource()
+        source.bookSourceUrl = "https://example.com/source"
+        source.bookSourceName = "Plain Explore"
+        source.exploreUrl = "分類一::https://example.com/cat/1"
+
+        let model = DiscoverViewModel()
+        model.exploreSources = [source]
+        model.selectedSourceId = source.id
+
+        #expect(model.showsFilters == false)
+    }
+
+    @MainActor
+    @Test("filter-aware aggregator sources keep filters")
+    func filterAwareSourcesShowFilters() {
+        var source = BookSource()
+        source.bookSourceUrl = "https://example.com/source"
+        source.bookSourceName = "Aggregator Explore"
+        source.exploreUrl = "<js>source.getVariable('频道'); []</js>"
+
+        let model = DiscoverViewModel()
+        model.exploreSources = [source]
+        model.selectedSourceId = source.id
+
+        #expect(model.showsFilters == true)
+    }
+}
+
+// MARK: - 14. Edge Cases & Stress Tests
 
 @Suite("Edge Cases", .serialized)
 struct EdgeCaseTests {
