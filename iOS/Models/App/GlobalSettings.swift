@@ -238,6 +238,18 @@ class GlobalSettings: ObservableObject {
     @Published var accountUserIdentifier: String {
         didSet { UserDefaults.standard.set(accountUserIdentifier, forKey: "yd_account_user_identifier") }
     }
+
+    /// Subtitle shown under the account name. Prefers a real email, otherwise falls
+    /// back to a provider description so we never display an opaque identifier.
+    var accountSubtitle: String {
+        guard isLoggedIn else { return localized("登入後可同步進度") }
+        if !accountEmail.isEmpty { return accountEmail }
+        switch accountProvider {
+        case "Apple": return localized("透過 Apple 登入")
+        case "Google": return localized("透過 Google 登入")
+        default: return localized("已登入")
+        }
+    }
     @Published var accountAvatarData: Data? {
         didSet {
             if let accountAvatarData {
@@ -501,6 +513,12 @@ class GlobalSettings: ObservableObject {
 
     func updateAccountAvatar(data: Data?) {
         accountAvatarData = data
+    }
+
+    func updateAccountDisplayName(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        accountDisplayName = trimmed
     }
 
     func signOut(

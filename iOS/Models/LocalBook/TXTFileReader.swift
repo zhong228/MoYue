@@ -76,11 +76,35 @@ enum TXTFileReader {
 
         let candidates: [String.Encoding] = [.utf8, gbkEncoding, big5Encoding, .utf16LittleEndian, .utf16BigEndian]
         for encoding in candidates {
-            if String(data: data, encoding: encoding) != nil {
+            if canDecode(data, as: encoding) {
                 return encoding
             }
         }
         return .utf8
+    }
+
+    /// Whether `data` decodes cleanly with `encoding`, tolerating an incomplete
+    /// multibyte sequence at the very end of the buffer.
+    ///
+    /// Detection runs on a fixed-size sample (e.g. the first 8KB), so the sample
+    /// boundary frequently lands in the middle of a multibyte character. Without
+    /// this tolerance a valid UTF-8 file is wrongly rejected and detection falls
+    /// through to GBK/Big5/UTF-16, producing garbled text.
+    private static func canDecode(_ data: Data, as encoding: String.Encoding) -> Bool {
+        if String(data: data, encoding: encoding) != nil {
+            return true
+        }
+        // A truncated trailing character is at most 3 bytes short of complete
+        // (UTF-8 sequences run up to 4 bytes). Retry while dropping those bytes.
+        let maxDrop = min(3, data.count - 1)
+        guard maxDrop >= 1 else { return false }
+        for drop in 1...maxDrop {
+            let trimmed = data.prefix(data.count - drop)
+            if String(data: trimmed, encoding: encoding) != nil {
+                return true
+            }
+        }
+        return false
     }
 
     private static func string(contentsOf url: URL, encoding: String.Encoding) throws -> String {

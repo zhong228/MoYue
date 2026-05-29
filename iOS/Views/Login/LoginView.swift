@@ -198,7 +198,10 @@ struct LoginView: View {
             let persistedName = previousAppleUser ? gs.accountDisplayName : ""
             let persistedEmail = previousAppleUser ? gs.accountEmail : ""
             let displayName = !name.isEmpty ? name : (!persistedName.isEmpty ? persistedName : localized("Apple 使用者"))
-            let email = credential.email ?? (!persistedEmail.isEmpty ? persistedEmail : credential.user)
+            // Apple only returns the email on the first authorization. Fall back to the
+            // previously stored email when available, but never expose the opaque user
+            // identifier (credential.user) as if it were an email address.
+            let email = credential.email ?? (!persistedEmail.isEmpty ? persistedEmail : "")
             gs.signIn(
                 displayName: displayName,
                 email: email,

@@ -12,6 +12,11 @@ struct UserDetailView: View {
     @State private var avatarErrorMessage: String?
     @State private var showSignOutConfirmation = false
     @State private var isSigningOut = false
+    @State private var showDeleteAccountConfirmation = false
+    @State private var isDeletingAccount = false
+    @State private var deleteAccountErrorMessage: String?
+    @State private var showRenameAlert = false
+    @State private var draftDisplayName = ""
 
     var body: some View {
         List {
@@ -77,6 +82,37 @@ struct UserDetailView: View {
             }
 
             if gs.isLoggedIn {
+                Section(header: Text(localized("帳號資訊"))) {
+                    Button {
+                        draftDisplayName = gs.accountDisplayName
+                        showRenameAlert = true
+                    } label: {
+                        HStack {
+                            Text(localized("顯示名稱"))
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text(gs.accountDisplayName.isEmpty ? localized("未設定") : gs.accountDisplayName)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.secondary.opacity(0.5))
+                        }
+                    }
+                    .disabled(isSigningOut || isDeletingAccount)
+
+                    if !gs.accountEmail.isEmpty {
+                        HStack {
+                            Text(localized("帳號"))
+                            Spacer()
+                            Text(gs.accountEmail)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                }
+
                 Section {
                     Button(role: .destructive) {
                         showSignOutConfirmation = true
@@ -104,6 +140,42 @@ struct UserDetailView: View {
                         Text(localized("登出後此裝置會停止使用目前帳號同步。"))
                     }
                 }
+
+                Section {
+                    Button(role: .destructive) {
+                        showDeleteAccountConfirmation = true
+                    } label: {
+                        HStack {
+                            Text(localized("刪除帳號"))
+                            Spacer()
+                            if isDeletingAccount {
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(isDeletingAccount || isSigningOut)
+                    .confirmationDialog(
+                        localized("刪除帳號"),
+                        isPresented: $showDeleteAccountConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button(localized("永久刪除帳號"), role: .destructive) {
+                            performAccountDeletion()
+                        }
+
+                        Button(localized("取消"), role: .cancel) {}
+                    } message: {
+                        Text(localized("刪除帳號將登出此裝置，並永久刪除已同步至 iCloud 的書庫、書源與替換規則資料。此操作無法復原。"))
+                    }
+
+                    if let deleteAccountErrorMessage {
+                        Text(deleteAccountErrorMessage)
+                            .font(.footnote)
+                            .foregroundColor(.red)
+                    }
+                } footer: {
+                    Text(localized("刪除帳號會移除您的登入資訊並清除已上傳至 iCloud 的同步資料，且無法復原。儲存在本機的書籍不會被刪除。"))
+                }
             }
         }
         .listStyle(.insetGrouped)
@@ -114,6 +186,15 @@ struct UserDetailView: View {
             LoginView {
                 showLogin = false
             }
+        }
+        .alert(localized("修改顯示名稱"), isPresented: $showRenameAlert) {
+            TextField(localized("顯示名稱"), text: $draftDisplayName)
+            Button(localized("儲存")) {
+                gs.updateAccountDisplayName(draftDisplayName)
+            }
+            Button(localized("取消"), role: .cancel) {}
+        } message: {
+            Text(localized("這個名稱只會顯示在此裝置上。"))
         }
         .onChange(of: selectedAvatarItem) { _, newItem in
             Task {
@@ -149,6 +230,31 @@ struct UserDetailView: View {
         gs.signOut(revokeGoogleAccess: revokeGoogleAccess) { _ in
             isSigningOut = false
             dismiss()
+        }
+    }
+
+    private func performAccountDeletion() {
+        isDeletingAccount = true
+        deleteAccountErrorMessage = nil
+        let revokeGoogleAccess = gs.accountProvider == "Google"
+
+        Task {
+            do {
+                try await iCloudSync.deleteRemoteData()
+            } catch {
+                await MainActor.run {
+                    isDeletingAccount = false
+                    deleteAccountErrorMessage = error.localizedDescription
+                }
+                return
+            }
+
+            await MainActor.run {
+                gs.signOut(revokeGoogleAccess: revokeGoogleAccess) { _ in
+                    isDeletingAccount = false
+                    dismiss()
+                }
+            }
         }
     }
 

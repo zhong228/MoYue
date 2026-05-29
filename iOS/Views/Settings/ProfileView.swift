@@ -208,8 +208,10 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(gs.isLoggedIn ? (gs.accountDisplayName.isEmpty ? localized("已登入") : gs.accountDisplayName) : localized("尚未登入"))
                     .font(.headline)
-                Text(gs.isLoggedIn ? gs.accountEmail : localized("登入後可同步進度"))
+                Text(gs.accountSubtitle)
                     .font(.caption).foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
             Spacer()

@@ -183,6 +183,27 @@ final class ICloudSyncManager: ObservableObject {
         try await performRestore(skipConflictCheck: false)
     }
 
+    /// Permanently removes the account's synced data (manifest + uploaded files)
+    /// from the user's private CloudKit database. Used by account deletion.
+    func deleteRemoteData() async throws {
+        let status = await refreshAccountStatus()
+        // Nothing to delete remotely when no iCloud account is signed in here.
+        guard status == .available else { return }
+
+        await setSync(true, message: localized("正在刪除 iCloud 同步資料…"))
+        defer { Task { @MainActor in self.isSyncing = false } }
+
+        for file in ICloudSyncPayload.defaultFiles() {
+            try await deleteRecordIfExists(fileRecordID(file.recordName))
+        }
+        try await deleteRecordIfExists(CKRecord.ID(recordName: Self.manifestRecordName))
+
+        await MainActor.run {
+            lastSyncDate = nil
+            statusMessage = localized("已刪除 iCloud 上的同步資料")
+        }
+    }
+
     func resolveConflict(keepRemote: Bool) async throws {
         await MainActor.run { pendingConflict = nil }
         if keepRemote {
@@ -384,6 +405,27 @@ final class ICloudSyncManager: ObservableObject {
                     continuation.resume(returning: record)
                 } else {
                     continuation.resume(throwing: CKError(.unknownItem))
+                }
+            }
+        }
+    }
+
+    private func deleteRecordIfExists(_ recordID: CKRecord.ID) async throws {
+        do {
+            try await deleteRecord(recordID)
+        } catch {
+            if isRecordNotFound(error) { return }
+            throw error
+        }
+    }
+
+    private func deleteRecord(_ recordID: CKRecord.ID) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            database.delete(withRecordID: recordID) { _, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
                 }
             }
         }
