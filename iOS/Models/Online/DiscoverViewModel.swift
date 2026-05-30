@@ -16,6 +16,44 @@ struct DiscoverCardItem: Identifiable {
     let isFetchable: Bool
 }
 
+// MARK: - Discover Showcase Section
+
+/// How a showcase section renders its books. `featured` = horizontal cover
+/// carousel (推薦/精選); `ranked` = numbered vertical list (榜單/排行).
+enum DiscoverSectionStyle {
+    case featured
+    case ranked
+}
+
+/// Per-section loading lifecycle for the three-state UI (loading / empty / error).
+enum DiscoverSectionPhase: Equatable {
+    case idle
+    case loading
+    case loaded
+    case failed
+}
+
+/// One ranked/featured block on the redesigned 發現 showcase. Each section maps
+/// directly to one of the *book source's own* explore categories — the source
+/// owns the feed; we only present it faithfully.
+struct DiscoverShowcaseSection: Identifiable {
+    let id: UUID
+    let item: DiscoverCardItem
+    let style: DiscoverSectionStyle
+    var books: [OnlineBook] = []
+    var phase: DiscoverSectionPhase = .idle
+    /// Short reason shown under the failed state, for on-device diagnosis.
+    var errorReason: String?
+
+    var title: String { item.title }
+
+    init(item: DiscoverCardItem) {
+        self.id = item.id
+        self.item = item
+        self.style = DiscoverViewModel.sectionStyle(for: item.title)
+    }
+}
+
 // MARK: - Discover View Model
 
 @MainActor
@@ -27,8 +65,17 @@ final class DiscoverViewModel: ObservableObject {
     @Published var books: [OnlineBook] = []
     @Published var booksSectionTitle: String = ""
 
+    /// Showcase sections for the redesigned 發現 page (one per source category).
+    @Published var sections: [DiscoverShowcaseSection] = []
+
     @Published var isLoadingItems = false
     @Published var isLoadingBooks = false
+
+    /// Max number of source categories rendered as showcase sections.
+    private let maxShowcaseSections = 12
+    /// Serial loading queue for showcase sections (see `loadSection`).
+    private var sectionQueue: [UUID] = []
+    private var isPumpingSections = false
 
     @Published var selectedType = "小说"
     @Published var selectedChannel = "男频"
@@ -125,9 +172,13 @@ final class DiscoverViewModel: ObservableObject {
             items = []
             books = []
             booksSectionTitle = ""
+            cancelSectionTasks()
+            sections = []
             return
         }
         loadItemsTask?.cancel()
+        cancelSectionTasks()
+        sections = []
         isLoadingItems = true
         loadItemsTask = Task { [weak self] in
             let raw = await BookSourceFetcher.shared.discoverItems(page: 1, in: source)
@@ -135,6 +186,7 @@ final class DiscoverViewModel: ObservableObject {
             let mapped = raw.compactMap(Self.mapItem)
             self.items = mapped
             self.isLoadingItems = false
+            self.buildSections(from: mapped)
             if let first = mapped.first(where: { $0.isFetchable }) {
                 self.loadBooks(for: first)
             } else {
@@ -143,6 +195,93 @@ final class DiscoverViewModel: ObservableObject {
                 self.booksSectionTitle = ""
             }
         }
+    }
+
+    // MARK: - Showcase sections
+
+    /// Turn the source's fetchable explore categories into showcase sections.
+    private func buildSections(from items: [DiscoverCardItem]) {
+        let fetchable = items.filter { $0.isFetchable }
+        sections = fetchable.prefix(maxShowcaseSections).map { DiscoverShowcaseSection(item: $0) }
+    }
+
+    /// Enqueue one section's books to load — driven by the section view's `.task`.
+    ///
+    /// Loads run **serially** (one section at a time): a book source's explore
+    /// fetch drives a JS runtime + shared login/cloud session, and firing several
+    /// at once (LazyVStack renders multiple sections on first paint) can clobber
+    /// that shared state. Sequential loading keeps each fetch deterministic.
+    func loadSection(_ id: UUID) {
+        guard let index = sections.firstIndex(where: { $0.id == id }) else { return }
+        if sections[index].phase == .loading || sections[index].phase == .loaded { return }
+        if sectionQueue.contains(id) { return }
+        sectionQueue.append(id)
+        pumpSectionQueue()
+    }
+
+    /// Retry a single failed section.
+    func retrySection(_ id: UUID) {
+        guard let index = sections.firstIndex(where: { $0.id == id }) else { return }
+        sections[index].phase = .idle
+        sections[index].errorReason = nil
+        loadSection(id)
+    }
+
+    private func pumpSectionQueue() {
+        guard !isPumpingSections, let id = sectionQueue.first else { return }
+        guard let source = selectedSource,
+              let index = sections.firstIndex(where: { $0.id == id }) else {
+            if !sectionQueue.isEmpty { sectionQueue.removeFirst() }
+            pumpSectionQueue()
+            return
+        }
+        isPumpingSections = true
+        sections[index].phase = .loading
+        let raw = sections[index].item.raw
+        Task { [weak self] in
+            var loaded: [OnlineBook] = []
+            var reason: String?
+            var ok = false
+            do {
+                loaded = try await BookSourceFetcher.shared.discoverBooks(from: raw, page: 1, in: source)
+                ok = true
+            } catch {
+                reason = (error as NSError).localizedDescription
+            }
+            guard let self else { return }
+            // A reload may have cleared/rebuilt the queue mid-flight; only the
+            // active pump (its id still at the front) advances shared state.
+            guard self.sectionQueue.first == id else { return }
+            self.sectionQueue.removeFirst()
+            if let idx = self.sections.firstIndex(where: { $0.id == id }) {
+                if ok {
+                    self.sections[idx].books = loaded
+                    self.sections[idx].phase = .loaded
+                } else {
+                    self.sections[idx].phase = .failed
+                    self.sections[idx].errorReason = reason
+                }
+            }
+            self.isPumpingSections = false
+            self.pumpSectionQueue()
+        }
+    }
+
+    private func cancelSectionTasks() {
+        sectionQueue = []
+        isPumpingSections = false
+    }
+
+    /// Section render style derived from the source's category title. The book
+    /// source owns the categories; this only chooses a faithful presentation.
+    nonisolated static func sectionStyle(for title: String) -> DiscoverSectionStyle {
+        let featured = ["推荐", "推薦", "精选", "精選", "今日", "必读", "必讀",
+                        "新书", "新書", "新作", "编辑", "編輯", "为你", "為你", "猜你"]
+        if featured.contains(where: title.contains) { return .featured }
+        let ranked = ["榜", "排行", "畅销", "暢銷", "热销", "熱銷", "热门", "熱門",
+                      "完本", "完结", "完結", "top", "TOP", "Top"]
+        if ranked.contains(where: title.contains) { return .ranked }
+        return .featured
     }
 
     func handleTap(_ item: DiscoverCardItem, onNavigate: (String) -> Void) {

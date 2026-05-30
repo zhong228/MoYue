@@ -684,6 +684,8 @@
 "發現" = "Discover";
 "換一批" = "Refresh";
 "暫無發現內容" = "No discover content";
+"此書源未回傳發現內容，可下拉重新整理或切換書源" = "This source returned no discover content. Pull to refresh or switch source.";
+"載入失敗，點按重試" = "Failed to load. Tap to retry.";
 "今日必讀" = "Today's Picks";
 "選擇上方分類以載入書籍" = "Select a category above to load books";
 "常用搜尋" = "Search Engines";

@@ -25,9 +25,11 @@
 	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<!-- Book sources are user-configured third-party servers, many HTTP-only.
+		     NSAllowsLocalNetworking is intentionally omitted: on iOS 10+ any granular
+		     ATS key makes the system ignore NSAllowsArbitraryLoads, which would re-block
+		     public HTTP. Arbitrary loads already covers local networking too. -->
 		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 	<key>UIBackgroundModes</key>
