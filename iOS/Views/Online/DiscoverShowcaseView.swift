@@ -196,7 +196,7 @@ private struct DiscoverFeaturedCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DSSpacing.sm) {
-            DiscoverCoverImage(book: book)
+            BookCoverImage(onlineBook: book)
                 .frame(width: 104, height: 138)
                 .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg))
             Text(book.name)
@@ -228,7 +228,7 @@ private struct DiscoverRankedRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: DSSpacing.md) {
             rankBadge
-            DiscoverCoverImage(book: book)
+            BookCoverImage(onlineBook: book)
                 .frame(width: 52, height: 70)
                 .clipShape(RoundedRectangle(cornerRadius: DSRadius.sm))
 
@@ -279,38 +279,6 @@ private struct DiscoverRankedRow: View {
         case 3: return Color.orange.opacity(0.7)
         default: return Color(.systemGray5)
         }
-    }
-}
-
-// MARK: - Cover image (shared)
-
-/// Async book cover with a graceful gradient/initial placeholder.
-struct DiscoverCoverImage: View {
-    let book: OnlineBook
-
-    var body: some View {
-        AsyncImage(url: URL(string: book.coverUrl)) { phase in
-            if let image = phase.image {
-                image.resizable().scaledToFill()
-            } else {
-                placeholder
-            }
-        }
-    }
-
-    private var placeholder: some View {
-        let palette = DSColor.coverGradients
-        let gradient = palette[abs(book.name.hashValue) % palette.count]
-        return LinearGradient(
-            colors: gradient,
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .overlay(
-            Text(String(book.name.prefix(1)))
-                .font(DSFont.headline)
-                .foregroundColor(.white.opacity(0.9))
-        )
     }
 }
 

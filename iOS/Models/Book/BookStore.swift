@@ -674,6 +674,7 @@ class BookStore: ObservableObject, BookProvider {
     func addOnlineBook(
         name: String, author: String,
         sourceId: UUID, bookInfoURL: String, tocURL: String? = nil,
+        coverUrl: String = "",
         runtimeVariables: [String: String]? = nil,
         chapters: [OnlineChapterRef]
     ) -> ReadingBook {
@@ -692,7 +693,37 @@ class BookStore: ObservableObject, BookProvider {
         }
         books.insert(book, at: 0)
         saveMeta()
+        downloadCoverIfNeeded(bookId: book.id, coverUrl: coverUrl, sourceId: sourceId)
         return book
+    }
+
+    /// Download a remote cover (with source headers) and store it on the book.
+    /// No-op when the URL is empty or the book already has a cover.
+    func downloadCoverIfNeeded(bookId: UUID, coverUrl: String, sourceId: UUID?) {
+        let trimmed = coverUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let book = books.first(where: { $0.id == bookId }),
+              book.coverImagePath == nil else { return }
+
+        let source = sourceId.flatMap { id in BookSourceStore.shared.sources.first { $0.id == id } }
+        let headers = BookCoverLoader.headers(
+            sourceBaseURL: source?.bookSourceUrl,
+            sourceHeaders: source?.parsedHeaders ?? [:]
+        )
+        let filename = "\(bookId.uuidString)_cover.jpg"
+        Task { [weak self] in
+            guard let saved = await BookCoverLoader.downloadAndSave(
+                urlString: trimmed, headers: headers, filename: filename
+            ) else { return }
+            await MainActor.run { self?.setCoverImagePath(bookId: bookId, filename: saved) }
+        }
+    }
+
+    /// Assign a downloaded cover filename to a book and persist.
+    func setCoverImagePath(bookId: UUID, filename: String) {
+        guard let idx = books.firstIndex(where: { $0.id == bookId }) else { return }
+        books[idx].coverImagePath = filename
+        saveMeta()
     }
 
     // MARK: Add Browser-Imported Book (no book source; lazy-loads by URL)

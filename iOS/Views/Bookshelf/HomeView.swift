@@ -550,9 +550,9 @@ struct BookRow: View {
                         VStack {
                             Spacer(minLength: 0)
                             HStack(spacing: 18) {
-                                Image(systemName: "cloud")
-                                    .font(.system(size: 16))
-                                    .foregroundColor(DSColor.textSecondary)
+                                if book.offlineDownloadState == .downloading {
+                                    BookSyncIndicator(progress: offlineDownloadProgress)
+                                }
 
                                 Menu {
                                     Button { onEdit() } label: {
@@ -580,6 +580,13 @@ struct BookRow: View {
                 .fill(Color(uiColor: .separator))
                 .frame(height: 0.5)
         }
+    }
+
+    /// Offline-download progress (downloaded chapters / total), or nil when the
+    /// chapter count isn't known yet (indeterminate).
+    private var offlineDownloadProgress: Double? {
+        guard let total = book.onlineChapters?.count, total > 0 else { return nil }
+        return min(1, Double(book.downloadedChapterCount) / Double(total))
     }
 
     @ViewBuilder
@@ -635,6 +642,38 @@ struct BookRow: View {
         return UIImage(data: data)
     }
 
+}
+
+// MARK: - Book Sync Indicator
+
+/// Cloud-in-a-ring shown on a bookshelf row only while the book is downloading
+/// for offline reading. Determinate when the chapter count is known; otherwise a
+/// small spinner. Hidden entirely when no sync is in progress.
+private struct BookSyncIndicator: View {
+    /// Download progress 0...1, or nil for indeterminate.
+    let progress: Double?
+
+    var body: some View {
+        ZStack {
+            if let progress {
+                Circle()
+                    .stroke(DSColor.accent.opacity(0.18), lineWidth: 2)
+                Circle()
+                    .trim(from: 0, to: max(0.02, progress))
+                    .stroke(DSColor.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(DSAnimation.standard, value: progress)
+                Image(systemName: "cloud")
+                    .font(.system(size: 10))
+                    .foregroundColor(DSColor.accent)
+            } else {
+                ProgressView()
+                    .scaleEffect(0.7)
+            }
+        }
+        .frame(width: 26, height: 26)
+        .accessibilityLabel(localized("下載中"))
+    }
 }
 
 // MARK: - Book Grid Cell

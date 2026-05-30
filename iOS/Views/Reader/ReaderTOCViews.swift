@@ -42,9 +42,10 @@ private struct TOCBookHeader: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                     .shadow(color: .black.opacity(0.16), radius: 6, x: 0, y: 3)
             } else {
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(Color.secondary.opacity(0.15))
+                TitleCardPlaceholder(title: bookTitle)
                     .frame(width: coverSize.width, height: coverSize.height)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .shadow(color: .black.opacity(0.16), radius: 6, x: 0, y: 3)
             }
 
             VStack(alignment: .leading, spacing: 5) {

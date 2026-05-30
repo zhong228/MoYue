@@ -132,18 +132,15 @@ struct OnlineBookView: View {
     private var bookHeader: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 16) {
-                AsyncImage(url: URL(string: displayCoverUrl)) { phase in
-                    switch phase {
-                    case .success(let img):
-                        img.resizable().scaledToFill()
-                            .frame(width: 90, height: 120)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .shadow(radius: 4)
-                    default:
-                        placeholderCover(size: CGSize(width: 90, height: 120))
-                    }
-                }
+                BookCoverImage(
+                    coverURL: displayCoverUrl,
+                    title: displayName,
+                    sourceBaseURL: source?.bookSourceUrl,
+                    sourceHeaders: source?.parsedHeaders ?? [:]
+                )
                 .frame(width: 90, height: 120)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .shadow(radius: 4)
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text(displayName)
@@ -365,6 +362,7 @@ struct OnlineBookView: View {
             sourceId: source.id,
             bookInfoURL: book.bookUrl,
             tocURL: resolvedTOCURL,
+            coverUrl: displayCoverUrl,
             runtimeVariables: detailInfo?.runtimeVariables ?? book.runtimeVariables,
             chapters: chapters
         )
@@ -392,6 +390,7 @@ struct OnlineBookView: View {
                 sourceId: source.id,
                 bookInfoURL: book.bookUrl,
                 tocURL: resolvedTOCURL,
+                coverUrl: displayCoverUrl,
                 runtimeVariables: detailInfo?.runtimeVariables ?? book.runtimeVariables,
                 chapters: chapters
             )
@@ -403,13 +402,4 @@ struct OnlineBookView: View {
         showReader = true
     }
 
-    // MARK: Cover Placeholder
-    private func placeholderCover(size: CGSize) -> some View {
-        Text(displayName)
-            .font(.system(size: 13, weight: .medium))
-            .foregroundColor(DSColor.textSecondary)
-            .multilineTextAlignment(.leading)
-            .lineLimit(6)
-            .frame(width: size.width, height: size.height, alignment: .topLeading)
-    }
 }
