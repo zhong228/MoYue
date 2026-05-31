@@ -1,0 +1,172 @@
+import Combine
+import SwiftUI
+
+// MARK: - Manga reader (SwiftUI entry)
+//
+// Hosts the UIKit `MangaReaderViewController` full-screen and overlays SwiftUI
+// controls. Shared state flows through `MangaReaderState`.
+
+@MainActor
+final class MangaReaderState: ObservableObject {
+    @Published var chapterTitle: String = ""
+    @Published var currentPage: Int = 0
+    @Published var totalPages: Int = 0
+    @Published var mode: MangaReadingMode = .rtl
+    @Published var isLoading: Bool = false
+    @Published var errorMessage: String?
+    @Published var showControls: Bool = true
+
+    // Actions wired by the controller.
+    var onJumpToPage: ((Int) -> Void)?
+    var onSetMode: ((MangaReadingMode) -> Void)?
+    var onNextChapter: (() -> Void)?
+    var onPrevChapter: (() -> Void)?
+    var onReload: (() -> Void)?
+}
+
+struct MangaReaderView: View {
+    let bookId: UUID
+    @EnvironmentObject var store: BookStore
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var state = MangaReaderState()
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            if let book = store.books.first(where: { $0.id == bookId }) {
+                MangaReaderRepresentable(book: book, store: store, state: state)
+                    .ignoresSafeArea()
+
+                if state.isLoading {
+                    ProgressView().tint(.white).controlSize(.large)
+                }
+
+                if let message = state.errorMessage {
+                    errorView(message)
+                }
+
+                if state.showControls {
+                    MangaControlsOverlay(state: state, onClose: { dismiss() })
+                        .transition(.opacity)
+                }
+            }
+        }
+        .animation(DSAnimation.fast, value: state.showControls)
+        .statusBarHidden(!state.showControls)
+    }
+
+    private func errorView(_ message: String) -> some View {
+        VStack(spacing: DSSpacing.md) {
+            Text(message)
+                .foregroundColor(.white)
+                .font(DSFont.body)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+            Button(localized("重試")) { state.onReload?() }
+                .foregroundColor(DSColor.accent)
+                .font(DSFont.bodyBold)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - UIKit bridge
+
+private struct MangaReaderRepresentable: UIViewControllerRepresentable {
+    let book: ReadingBook
+    let store: BookStore
+    let state: MangaReaderState
+
+    func makeUIViewController(context: Context) -> MangaReaderViewController {
+        MangaReaderViewController(book: book, store: store, state: state)
+    }
+
+    func updateUIViewController(_ uiViewController: MangaReaderViewController, context: Context) {}
+}
+
+// MARK: - Controls overlay
+
+struct MangaControlsOverlay: View {
+    @ObservedObject var state: MangaReaderState
+    var onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            topBar
+            Spacer()
+            bottomBar
+        }
+        .ignoresSafeArea(edges: .top)
+    }
+
+    private var topBar: some View {
+        HStack(spacing: DSSpacing.sm) {
+            Button(action: onClose) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundColor(.white)
+                    .frame(width: 36, height: 36)
+            }
+            Text(state.chapterTitle)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            modeMenu
+        }
+        .padding(.horizontal, DSSpacing.md)
+        .padding(.vertical, DSSpacing.sm)
+        .padding(.top, 44)
+        .background(.ultraThinMaterial)
+    }
+
+    private var modeMenu: some View {
+        Menu {
+            ForEach(MangaReadingMode.allCases, id: \.rawValue) { mode in
+                Button {
+                    state.onSetMode?(mode)
+                } label: {
+                    Label(mode.localizedName, systemImage: state.mode == mode ? "checkmark" : mode.iconName)
+                }
+            }
+        } label: {
+            Image(systemName: "rectangle.portrait.on.rectangle.portrait")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundColor(.white)
+                .frame(width: 36, height: 36)
+        }
+    }
+
+    private var bottomBar: some View {
+        VStack(spacing: DSSpacing.xs) {
+            if state.totalPages > 1 {
+                HStack(spacing: DSSpacing.md) {
+                    Button { state.onPrevChapter?() } label: {
+                        Image(systemName: "backward.end").foregroundColor(.white)
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { Double(state.currentPage) },
+                            set: { state.onJumpToPage?(Int($0.rounded())) }
+                        ),
+                        in: 0...Double(max(1, state.totalPages - 1)),
+                        step: 1
+                    )
+                    .tint(.white)
+                    Button { state.onNextChapter?() } label: {
+                        Image(systemName: "forward.end").foregroundColor(.white)
+                    }
+                }
+                .padding(.horizontal, DSSpacing.md)
+            }
+            Text(String(format: localized("第 %d / %d 頁"), state.currentPage + 1, max(state.totalPages, state.currentPage + 1)))
+                .font(DSFont.caption)
+                .foregroundColor(.white)
+        }
+        .padding(.top, DSSpacing.sm)
+        .padding(.bottom, 30)
+        .frame(maxWidth: .infinity)
+        .background(.ultraThinMaterial)
+    }
+}

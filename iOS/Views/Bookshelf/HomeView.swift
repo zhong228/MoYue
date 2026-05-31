@@ -250,7 +250,7 @@ struct HomeView: View {
             )
         ) {
             if let bookId = readerBookId {
-                ReaderView(bookId: bookId)
+                BookReaderView(bookId: bookId)
                     .environmentObject(store)
             }
         }

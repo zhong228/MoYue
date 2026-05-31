@@ -746,3 +746,11 @@
 "此格式暫不支援匯入" = "This format can't be imported yet";
 "載入更多" = "Load More";
 "此目錄不支援搜尋" = "This catalog doesn't support search";
+
+"從右到左" = "Right to Left";
+"從左到右" = "Left to Right";
+"直向翻頁" = "Vertical";
+"條漫" = "Webtoon";
+"載入失敗，點擊重試" = "Failed to load, tap to retry";
+"未找到圖片" = "No images found";
+"第 %d / %d 頁" = "Page %d / %d";

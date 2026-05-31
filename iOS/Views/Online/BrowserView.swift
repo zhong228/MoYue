@@ -726,7 +726,7 @@ struct BrowserView: View {
             if !addressFocused { addressText = url }
         }
         .fullScreenCover(item: $readerPresentation) { presentation in
-            ReaderView(bookId: presentation.id)
+            BookReaderView(bookId: presentation.id)
                 .environmentObject(store)
         }
         .sheet(isPresented: $showTOCSheet, onDismiss: {

@@ -673,15 +673,29 @@ actor BookDownloadManager {
             ]
         )
 
+        // Manga books additionally pull the page images to disk for true offline reading.
+        let isManga = book.contentPipelineKind == .manga
+        let mangaHeaders: [String: String] = isManga
+            ? await MainActor.run {
+                let src = book.bookSourceId.flatMap { id in BookSourceStore.shared.sources.first { $0.id == id } }
+                return BookCoverLoader.headers(
+                    sourceBaseURL: src?.bookSourceUrl, sourceHeaders: src?.parsedHeaders ?? [:])
+            }
+            : [:]
+
         var completed = 0
         for idx in refs.indices {
             do {
-                _ = try await chapterFetchManager.fetchChapter(
+                let package = try await chapterFetchManager.fetchChapter(
                     book: book,
                     chapterIndex: idx,
                     priority: .download,
                     store: store
                 )
+                if isManga {
+                    await Self.downloadMangaImages(
+                        bookId: book.id, chapterIndex: idx, content: package.content, headers: mangaHeaders)
+                }
                 completed += 1
                 let completedNow = completed
                 await MainActor.run {
@@ -727,6 +741,37 @@ actor BookDownloadManager {
                 "result": "success",
             ]
         )
+    }
+
+    /// Download a manga chapter's page images into the offline directory so the
+    /// chapter can be read without network. Idempotent: skips indices already saved.
+    nonisolated static func downloadMangaImages(
+        bookId: UUID, chapterIndex: Int, content: String, headers: [String: String]
+    ) async {
+        let urls = MangaChapterParser.imageURLs(from: content)
+        guard !urls.isEmpty else { return }
+        let dir = MangaChapterParser.chapterDirectory(bookId: bookId, chapterIndex: chapterIndex)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        var existing = Set<Int>()
+        if let files = try? FileManager.default.contentsOfDirectory(atPath: dir.path) {
+            for name in files where Int((name as NSString).deletingPathExtension) != nil {
+                existing.insert(Int((name as NSString).deletingPathExtension)!)
+            }
+        }
+
+        for (index, raw) in urls.enumerated() where !existing.contains(index) {
+            let normalized = raw.hasPrefix("//") ? "https:" + raw : raw
+            guard let url = URL(string: normalized) else { continue }
+            var request = URLRequest(url: url, timeoutInterval: 60)
+            for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  !data.isEmpty else { continue }
+            let ext = url.pathExtension.isEmpty ? "jpg" : url.pathExtension
+            let dest = dir.appendingPathComponent(String(format: "%03d", index)).appendingPathExtension(ext)
+            try? data.write(to: dest)
+        }
     }
 }
 

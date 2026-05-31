@@ -168,6 +168,10 @@ struct ReadingBook: Identifiable, Codable {
     var offlineDownloadState: BookOfflineDownloadState
     var downloadedChapterCount: Int
 
+    // Manga reading position: chapter index + page index within that chapter
+    var mangaChapterIndex: Int = 0
+    var mangaPage: Int = 0
+
     init(
         title: String, author: String = "未知作者",
         source: String = "local", contentFilename: String
@@ -235,6 +239,8 @@ struct ReadingBook: Identifiable, Codable {
             ?? .none
         downloadedChapterCount = (try? c.decode(Int.self, forKey: .downloadedChapterCount)) ?? 0
         group = (try? c.decode(String.self, forKey: .group)) ?? ""
+        mangaChapterIndex = (try? c.decode(Int.self, forKey: .mangaChapterIndex)) ?? 0
+        mangaPage = (try? c.decode(Int.self, forKey: .mangaPage)) ?? 0
     }
 
     enum CodingKeys: String, CodingKey {
@@ -242,6 +248,7 @@ struct ReadingBook: Identifiable, Codable {
         case isOnline, bookSourceId, bookInfoURL, tocURL, runtimeVariables, onlineChapters, bookmarks
         case coverImagePath, rendererPreference, compatibilityState
         case offlineDownloadState, downloadedChapterCount, group, lastOpenedDate
+        case mangaChapterIndex, mangaPage
     }
 
     private static func inferPipelineKind(
@@ -267,6 +274,7 @@ struct ReadingBook: Identifiable, Codable {
 
 extension ReadingBook {
     var resolvedPipelineKind: BookPipelineKind {
+        if contentPipelineKind == .manga { return .manga }
         if isOnline { return .html }
         if source == "local_epub" || contentFilename.hasSuffix("_epub.json") {
             return .epub
@@ -275,6 +283,7 @@ extension ReadingBook {
     }
 
     var allowsUserSelectedReaderFont: Bool {
+        if resolvedPipelineKind == .manga { return false }
         if isOnline { return true }
         return resolvedPipelineKind.allowsUserSelectedReaderFont
     }
@@ -288,12 +297,13 @@ enum BookPipelineKind: String, Codable {
     case epub
     case txt
     case html
+    case manga
 
     var allowsUserSelectedReaderFont: Bool {
         switch self {
         case .txt:
             return true
-        case .epub, .html:
+        case .epub, .html, .manga:
             return false
         }
     }
@@ -649,6 +659,8 @@ final class ReaderFeatureFlags {
             key = txtWebKey
         case .html:
             key = htmlWebKey
+        case .manga:
+            return false
         }
         return defaults.object(forKey: key) as? Bool ?? true
     }

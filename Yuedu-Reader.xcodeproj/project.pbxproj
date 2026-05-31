@@ -17,6 +17,7 @@
 		54FF42D1FA99075B5C91D59B /* ReadiumShared in Frameworks */ = {isa = PBXBuildFile; productRef = 54FF42D2FA99075B5C91D59B /* ReadiumShared */; };
 		54FF42D3FA99075B5C91D59B /* ReadiumStreamer in Frameworks */ = {isa = PBXBuildFile; productRef = 54FF42D4FA99075B5C91D59B /* ReadiumStreamer */; };
 		8A11B0E32F9A1C7300A1B001 /* ReadiumFuzi in Frameworks */ = {isa = PBXBuildFile; productRef = 8A11B0E22F9A1C7300A1B001 /* ReadiumFuzi */; };
+		AAAA1111AAAA1111AAAA0001 /* Nuke in Frameworks */ = {isa = PBXBuildFile; productRef = AAAA1111AAAA1111AAAA0002 /* Nuke */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -137,6 +138,7 @@
 				54FF42D3FA99075B5C91D59B /* ReadiumStreamer in Frameworks */,
 				54FF42D0FA99075B5C91D59B /* ReadiumZIPFoundation in Frameworks */,
 				3021769152B9F41FC1F2CBA5 /* SwiftSoup in Frameworks */,
+				AAAA1111AAAA1111AAAA0001 /* Nuke in Frameworks */,
 				463C854D2FA4F48E008F9AD7 /* GoogleSignIn in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -172,6 +174,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		4602AABB2F51C45CAB3FACE2 /* xcconfig */ = {
+			isa = PBXGroup;
+			children = (
+				4602AABB2F51C45CAB3FACE1 /* Yuedu-reader_version.xcconfig */,
+			);
+			path = xcconfig;
+			sourceTree = "<group>";
+		};
 		460D36502F51C5B8006E774C = {
 			isa = PBXGroup;
 			children = (
@@ -184,14 +194,6 @@
 				463C854B2FA4F48E008F9AD7 /* Frameworks */,
 				460D365A2F51C5B8006E774C /* Products */,
 			);
-			sourceTree = "<group>";
-		};
-		4602AABB2F51C45CAB3FACE2 /* xcconfig */ = {
-			isa = PBXGroup;
-			children = (
-				4602AABB2F51C45CAB3FACE1 /* Yuedu-reader_version.xcconfig */,
-			);
-			path = xcconfig;
 			sourceTree = "<group>";
 		};
 		460D365A2F51C5B8006E774C /* Products */ = {
@@ -259,6 +261,7 @@
 				8A11B0E22F9A1C7300A1B001 /* ReadiumFuzi */,
 				7F41A49C749809CDAB632913 /* ReadiumZIPFoundation */,
 				489E6E08B47AA3AC9F140CAD /* SwiftSoup */,
+				AAAA1111AAAA1111AAAA0002 /* Nuke */,
 				460274842F710D7500486947 /* ReadiumAdapterLCPSQLite */,
 				54FF42D2FA99075B5C91D59B /* ReadiumShared */,
 				54FF42D4FA99075B5C91D59B /* ReadiumStreamer */,
@@ -376,6 +379,7 @@
 			packageReferences = (
 				46935AA62F52E48600662F9D /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
 				46935AA72F52E49B00662F9D /* XCRemoteSwiftPackageReference "SwiftSoup" */,
+				AAAA1111AAAA1111AAAA0003 /* XCRemoteSwiftPackageReference "Nuke" */,
 				8A11B0E12F9A1C7300A1B001 /* XCRemoteSwiftPackageReference "Fuzi" */,
 				460274812F710D7500486947 /* XCRemoteSwiftPackageReference "swift-toolkit" */,
 				463C854A2FA4F38E008F9AD7 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
@@ -1031,6 +1035,14 @@
 				minimumVersion = 4.0.0;
 			};
 		};
+		AAAA1111AAAA1111AAAA0003 /* XCRemoteSwiftPackageReference "Nuke" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kean/Nuke";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1073,6 +1085,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 8A11B0E12F9A1C7300A1B001 /* XCRemoteSwiftPackageReference "Fuzi" */;
 			productName = ReadiumFuzi;
+		};
+		AAAA1111AAAA1111AAAA0002 /* Nuke */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AAAA1111AAAA1111AAAA0003 /* XCRemoteSwiftPackageReference "Nuke" */;
+			productName = Nuke;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -116,7 +116,7 @@ struct OnlineBookView: View {
                 }
             }) {
                 if let bid = addedBookId {
-                    ReaderView(bookId: bid)
+                    BookReaderView(bookId: bid)
                         .environmentObject(bookStore)
                 }
             }

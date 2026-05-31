@@ -58,6 +58,8 @@ class BookStore: ObservableObject, BookProvider {
             throw ReaderError.unsupportedFormat("HTML 渲染尚待 CoreText 遷移完成，目前不支援")
         case .txt:
             throw ReaderError.unsupportedFormat("TXT 渲染尚待 CoreText 遷移完成，目前不支援")
+        case .manga:
+            throw ReaderError.unsupportedFormat("漫畫使用獨立的圖片閱讀器，無 CoreText 套件")
         }
     }
 
@@ -402,6 +404,18 @@ class BookStore: ObservableObject, BookProvider {
         }
     }
 
+    /// Persist manga reading position (chapter index + page) plus an overall
+    /// progress fraction so the bookshelf progress bar stays meaningful.
+    func updateMangaPosition(bookId: UUID, chapter: Int, page: Int, totalChapters: Int) {
+        guard let idx = books.firstIndex(where: { $0.id == bookId }) else { return }
+        books[idx].mangaChapterIndex = chapter
+        books[idx].mangaPage = page
+        if totalChapters > 0 {
+            books[idx].currentPosition = min(1.0, Double(chapter) / Double(totalChapters))
+        }
+        saveMeta()
+    }
+
     func updateLastOpened(bookId: UUID) {
         guard let idx = books.firstIndex(where: { $0.id == bookId }) else { return }
         books[idx].lastOpenedDate = Date()
@@ -681,7 +695,8 @@ class BookStore: ObservableObject, BookProvider {
         var book = ReadingBook(
             title: name, author: author, source: bookInfoURL, contentFilename: "")
         book.isOnline = true
-        book.contentPipelineKind = .html
+        let sourceType = BookSourceStore.shared.sources.first { $0.id == sourceId }?.bookSourceType ?? 0
+        book.contentPipelineKind = (sourceType == 2) ? .manga : .html
         book.bookSourceId = sourceId
         book.bookInfoURL = bookInfoURL
         book.tocURL = tocURL
