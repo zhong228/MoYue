@@ -716,3 +716,33 @@
 "未配置網路語音源，將使用系統離線語音朗讀" = "No network voice source configured; using the system offline voice";
 
 "段評" = "Reviews";
+
+"從本地匯入" = "Import from Local";
+"從 WebDAV 匯入" = "Import from WebDAV";
+"從 OPDS 匯入" = "Import from OPDS";
+"瀏覽檔案" = "Browse Files";
+"WebDAV 匯入會沿用「WebDAV 同步」的伺服器設定。" = "WebDAV import reuses the server settings from WebDAV Sync.";
+"此資料夾沒有可匯入的書籍" = "No importable books in this folder";
+"OPDS 匯入" = "OPDS Import";
+"OPDS 書目匯入即將推出，敬請期待。" = "OPDS catalog import is coming soon.";
+
+"目錄網址格式無效" = "Invalid catalog URL";
+"僅支援 http / https 網址" = "Only http / https URLs are supported";
+"認證失敗，請確認帳號和密碼" = "Authentication failed. Check your username and password.";
+"連線失敗（HTTP %d）" = "Connection failed (HTTP %d)";
+"伺服器未返回資料" = "The server returned no data";
+"範例目錄" = "Example Catalogs";
+"尚未加入 OPDS 目錄" = "No OPDS Catalogs Yet";
+"加入 OPDS 目錄即可瀏覽並下載書籍。" = "Add an OPDS catalog to browse and download books.";
+"新增 OPDS 目錄" = "Add OPDS Catalog";
+"加入範例：" = "Add example: ";
+"目錄資訊" = "Catalog Info";
+"目錄名稱（選填）" = "Catalog name (optional)";
+"OPDS 目錄網址" = "OPDS catalog URL";
+"認證（選填）" = "Authentication (optional)";
+"加入目錄" = "Add Catalog";
+"此目錄沒有內容" = "This catalog is empty";
+"搜尋此目錄" = "Search this catalog";
+"此格式暫不支援匯入" = "This format can't be imported yet";
+"載入更多" = "Load More";
+"此目錄不支援搜尋" = "This catalog doesn't support search";

@@ -6,6 +6,8 @@ struct HomeView: View {
     @EnvironmentObject var store: BookStore
 
     @State private var showAddSheet = false
+    @State private var showWebDAVImport = false
+    @State private var showOPDSImport = false
     @State private var addSheetSessionID = UUID()
     @State private var editingBook: ReadingBook? = nil
     @State private var bookToDelete: ReadingBook? = nil
@@ -106,13 +108,29 @@ struct HomeView: View {
                                 .font(DSFont.toolbarIcon)
                         }
                     } else {
-                        Button {
-                            addSheetSessionID = UUID()
-                            showAddSheet = true
+                        Menu {
+                            Button {
+                                addSheetSessionID = UUID()
+                                showAddSheet = true
+                            } label: {
+                                Label(localized("從本地匯入"), systemImage: "folder")
+                            }
+                            Button {
+                                showWebDAVImport = true
+                            } label: {
+                                Label(localized("從 WebDAV 匯入"),
+                                      systemImage: "externaldrive.connected.to.line.below")
+                            }
+                            Button {
+                                showOPDSImport = true
+                            } label: {
+                                Label(localized("從 OPDS 匯入"), systemImage: "books.vertical")
+                            }
                         } label: {
                             Image(systemName: "plus")
                                 .font(DSFont.toolbarIcon)
                         }
+                        .id("\(Locale.autoupdatingCurrent.identifier)_add_menu")
                         Menu {
                             Button {
                                 withAnimation { editMode = .active }
@@ -158,6 +176,16 @@ struct HomeView: View {
             .onChange(of: showAddSheet) { _, isPresented in
                 if isPresented {
                     addSheetSessionID = UUID()
+                }
+            }
+            .sheet(isPresented: $showWebDAVImport) {
+                AdaptiveSheetContainer(maxWidth: 760) {
+                    WebDAVImportView().environmentObject(store)
+                }
+            }
+            .sheet(isPresented: $showOPDSImport) {
+                AdaptiveSheetContainer(maxWidth: 760) {
+                    OPDSImportView().environmentObject(store)
                 }
             }
             .sheet(isPresented: $showSearch) {
