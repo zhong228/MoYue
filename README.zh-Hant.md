@@ -16,8 +16,11 @@
 </p>
 
 <p align="center">
+  <a href="https://apps.apple.com/app/id6772972358">
+    <img src="https://img.shields.io/badge/App%20Store-下載-0D96F6?logo=apple&logoColor=white" alt="從 App Store 下載">
+  </a>
   <a href="https://testflight.apple.com/join/7hvbzYC1">
-    <img src="https://img.shields.io/badge/TestFlight-加入測試-0D96F6?logo=apple&logoColor=white" alt="加入 TestFlight 測試">
+    <img src="https://img.shields.io/badge/TestFlight-測試版（最新）-0D96F6?logo=apple&logoColor=white" alt="加入 TestFlight 測試">
   </a>
   <a href="https://t.me/+ZWmmgMwwJ3JiN2Rl">
     <img src="https://img.shields.io/badge/Telegram-加入群組-26A5E4?logo=telegram&logoColor=white" alt="加入 Telegram 群組">

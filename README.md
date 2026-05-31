@@ -16,8 +16,11 @@
 </p>
 
 <p align="center">
+  <a href="https://apps.apple.com/app/id6772972358">
+    <img src="https://img.shields.io/badge/App%20Store-Download-0D96F6?logo=apple&logoColor=white" alt="Download on the App Store">
+  </a>
   <a href="https://testflight.apple.com/join/7hvbzYC1">
-    <img src="https://img.shields.io/badge/TestFlight-Join%20Beta-0D96F6?logo=apple&logoColor=white" alt="Join the TestFlight beta">
+    <img src="https://img.shields.io/badge/TestFlight-Beta%20(latest)-0D96F6?logo=apple&logoColor=white" alt="Join the TestFlight beta">
   </a>
   <a href="https://t.me/+ZWmmgMwwJ3JiN2Rl">
     <img src="https://img.shields.io/badge/Telegram-Join%20Group-26A5E4?logo=telegram&logoColor=white" alt="Join the Telegram group">
@@ -122,7 +125,6 @@ Yuedu Reader is not only a local EPUB reader. It also includes RSS reading and w
 
 ### Later
 
-- App Store release
 - TestFlight feedback loop
 - More accessibility work
 - More automated rendering regression tests
