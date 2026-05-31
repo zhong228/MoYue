@@ -737,6 +737,12 @@ final class HTMLAttributedStringBuilder {
                 attributes: baseTextAttributes(style: inheritedStyle, config: config)
             )
         case .element(let element):
+            if element.tag == "a",
+               let href = element.attributes["href"],
+               let marker = ReaderHTMLUtilities.decodeReviewHref(href) {
+                return makeReviewBadgePlaceholder(marker: marker, href: href, style: element.resolvedStyle, config: config)
+            }
+
             if element.tag == "img" || element.tag == "image" {
                 let src = imageSource(from: element)
                 let image = src.isEmpty ? nil : await imageLoader?(src)
@@ -2019,6 +2025,42 @@ final class HTMLAttributedStringBuilder {
             displayMode: displayMode,
             opacity: style.opacity
         )
+    }
+
+    /// Renders a Legado paragraph-review (段評) marker as an inline, tappable count bubble.
+    /// The placeholder carries `internalLinkAttribute = href` (a `ydreview://` action) so the
+    /// reader's existing link / attachment tap paths can open the review web page.
+    private func makeReviewBadgePlaceholder(
+        marker: ReaderHTMLUtilities.ReviewMarker,
+        href: String,
+        style: ResolvedStyle,
+        config: Config
+    ) -> NSAttributedString {
+        let pointSize = makeFont(from: style, config: config).pointSize
+        let color = config.textColor.withAlphaComponent(0.55)
+        let image = ReviewBadgeRenderer.bubble(count: marker.count, pointSize: pointSize, color: color)
+        var badgeStyle = style
+        badgeStyle.width = image.size.width
+        badgeStyle.height = image.size.height
+        badgeStyle.rawWidthPercent = nil
+        badgeStyle.rawHeightPercent = nil
+        let placeholder = NSMutableAttributedString(
+            attributedString: makeImagePlaceholder(
+                image: image,
+                config: config,
+                style: badgeStyle,
+                imageSource: "",
+                imageAlt: marker.title,
+                displayMode: .inline
+            )
+        )
+        guard placeholder.length > 0 else { return placeholder }
+        placeholder.addAttribute(
+            Self.internalLinkAttribute,
+            value: href,
+            range: NSRange(location: 0, length: placeholder.length)
+        )
+        return placeholder
     }
 
     private func makeInlineAnnotationPlaceholder(

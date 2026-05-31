@@ -107,6 +107,7 @@ struct ReaderView: View {
 
     // Source change
     @State private var showChangeSourceSheet = false
+    @State private var reviewTarget: ReaderHTMLUtilities.ReviewTarget?
     @State private var coreTextExternalTargetVersion: UInt = 0
     @State private var bookDocument: (any BookDocument)? = nil
     @State private var contentProvider: (any BookContentProvider)? = nil
@@ -996,6 +997,16 @@ struct ReaderView: View {
                 changeSourceSheetContent
             }
         }
+        .sheet(item: $reviewTarget) { target in
+            JsBridgeBrowserView(
+                urlString: target.url,
+                title: target.title.isEmpty ? localized("段評") : target.title
+            ) { _ in
+                reviewTarget = nil
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         .onChanged(of: showChangeSourceSheet) { show in
             if show { loadOtherOrigins() }
         }
@@ -1319,6 +1330,10 @@ struct ReaderView: View {
                     store.updatePosition(bookId: bookId, position: pct)
                 },
                 onInternalLinkTap: { href in
+                    if let target = ReaderHTMLUtilities.reviewTarget(fromHref: href) {
+                        reviewTarget = target
+                        return
+                    }
                     Task {
                         guard let targetPage = await epubRenderer.resolveInternalLink(href, fromSpineIndex: currentChapterIndex),
                               let pagedEngine = epubRenderer.engine else { return }

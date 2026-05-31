@@ -1,4 +1,5 @@
 import CoreText
+import SwiftUI
 import UIKit
 
 /// Single-page CoreText rendering view.
@@ -1561,7 +1562,12 @@ final class CoreTextPageViewController: UIViewController {
 
     private func installImageTapHandler() {
         pageView.onImageAttachmentTap = { [weak self] attachment in
-            self?.presentImagePreview(for: attachment)
+            if let href = attachment.linkHref,
+               let target = ReaderHTMLUtilities.reviewTarget(fromHref: href) {
+                self?.presentReviewSheet(target: target)
+            } else {
+                self?.presentImagePreview(for: attachment)
+            }
         }
     }
 
@@ -1569,6 +1575,22 @@ final class CoreTextPageViewController: UIViewController {
         let controller = CoreTextImagePreviewController(attachment: attachment)
         controller.modalPresentationStyle = .fullScreen
         present(controller, animated: true)
+    }
+
+    /// Presents the book source's paragraph-review (段評) web page in a bottom sheet.
+    private func presentReviewSheet(target: ReaderHTMLUtilities.ReviewTarget) {
+        let sheetTitle = target.title.isEmpty ? localized("段評") : target.title
+        weak var weakHost: UIViewController?
+        let view = JsBridgeBrowserView(urlString: target.url, title: sheetTitle) { _ in
+            weakHost?.dismiss(animated: true)
+        }
+        let host = UIHostingController(rootView: view)
+        weakHost = host
+        if let sheet = host.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+        }
+        present(host, animated: true)
     }
 }
 

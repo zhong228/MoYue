@@ -56,7 +56,11 @@ private extension HTMLAttributedStringBuilder.ElementNode {
 
         case "a":
             let href = attributes["href"] ?? ""
-            node = .anchor(href: href, children: mappedChildren)
+            if let marker = ReaderHTMLUtilities.decodeReviewHref(href) {
+                node = .commentBadge(count: marker.count, reviewURL: href, title: marker.title)
+            } else {
+                node = .anchor(href: href, children: mappedChildren)
+            }
 
         case "ruby":
             node = .ruby(

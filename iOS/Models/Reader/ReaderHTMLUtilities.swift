@@ -106,6 +106,144 @@ enum ReaderHTMLUtilities {
         return sentenceBreaks >= 6
     }
 
+    // MARK: - Paragraph review (段評) markers
+
+    /// A tappable paragraph-review target, used to present the source's review web page.
+    struct ReviewTarget: Identifiable, Hashable {
+        let url: String
+        let title: String
+        var id: String { url }
+    }
+
+    /// Decoded payload of a `ydreview://` review anchor: comment count + review URL + title.
+    struct ReviewMarker: Equatable {
+        let count: String
+        let url: String
+        let title: String
+    }
+
+    /// Custom URL scheme used internally to carry a paragraph-review action through the
+    /// existing link/attachment pipeline. Never reaches a real network request.
+    static let reviewURLScheme = "ydreview"
+
+    /// Rewrites Legado iOS paragraph-review markers into plain anchors the renderer can carry.
+    ///
+    /// The `paraForiOS` jsLib emits, per paragraph:
+    ///   `<comment count="12" onPress="java.showReadingBrowser('<absolute-url>','番茄段评')">`
+    /// Relying on an obscure `<comment>` tag (and non-allowlisted `count`/`onPress` attributes)
+    /// surviving SwiftSoup round-trips is fragile, so we convert each marker into:
+    ///   `<a href="ydreview://r?d=<base64url(JSON{c,u,t})>" class="yd-review">12</a>`
+    /// Anchors and their `href` are always preserved and `href` is in the builder allowlist.
+    /// Idempotent: a string with no `<comment …>` markers is returned unchanged.
+    static func rewriteReviewComments(_ html: String) -> String {
+        guard html.range(of: "<comment", options: .caseInsensitive) != nil else { return html }
+        guard let tagRegex = try? NSRegularExpression(
+            pattern: #"<comment\b[^>]*>"#,
+            options: [.caseInsensitive]
+        ) else { return html }
+
+        let ns = html as NSString
+        let matches = tagRegex.matches(in: html, range: NSRange(location: 0, length: ns.length))
+        guard !matches.isEmpty else { return html }
+
+        var result = ""
+        var cursor = 0
+        for match in matches {
+            let range = match.range
+            result += ns.substring(with: NSRange(location: cursor, length: range.location - cursor))
+            let tag = ns.substring(with: range)
+            if let anchor = anchorMarkup(forCommentTag: tag) {
+                result += anchor
+            } else {
+                result += tag
+            }
+            cursor = range.location + range.length
+        }
+        result += ns.substring(from: cursor)
+        return result
+    }
+
+    private static func anchorMarkup(forCommentTag tag: String) -> String? {
+        guard let count = firstCapture(in: tag, pattern: #"count\s*=\s*"([^"]*)""#),
+              let args = showReadingBrowserArgs(in: tag)
+        else { return nil }
+        let url = unescapeHTMLEntities(args.url)
+        let title = unescapeHTMLEntities(args.title)
+        guard !url.isEmpty else { return nil }
+        let payload: [String: String] = ["c": count, "u": url, "t": title]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let encoded = base64URLEncode(data)
+        else { return nil }
+        return "<a href=\"\(reviewURLScheme)://r?d=\(encoded)\" class=\"yd-review\">\(escapeHTML(count))</a>"
+    }
+
+    /// Decodes a `ydreview://` href back into its comment count, review URL, and title.
+    static func decodeReviewHref(_ href: String) -> ReviewMarker? {
+        guard href.hasPrefix("\(reviewURLScheme)://") else { return nil }
+        guard let dRange = href.range(of: "d=") else { return nil }
+        let encoded = String(href[dRange.upperBound...])
+        guard let data = base64URLDecode(encoded),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+              let url = obj["u"], !url.isEmpty
+        else { return nil }
+        return ReviewMarker(count: obj["c"] ?? "", url: url, title: obj["t"] ?? "")
+    }
+
+    /// Convenience wrapper producing a `ReviewTarget` for sheet presentation.
+    static func reviewTarget(fromHref href: String) -> ReviewTarget? {
+        guard let marker = decodeReviewHref(href) else { return nil }
+        return ReviewTarget(url: marker.url, title: marker.title)
+    }
+
+    private static func showReadingBrowserArgs(in tag: String) -> (url: String, title: String)? {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"showReadingBrowser\(\s*'([^']*)'\s*,\s*'([^']*)'\s*\)"#,
+            options: [.caseInsensitive]
+        ) else { return nil }
+        let ns = tag as NSString
+        guard let m = regex.firstMatch(in: tag, range: NSRange(location: 0, length: ns.length)),
+              m.numberOfRanges >= 3
+        else { return nil }
+        return (ns.substring(with: m.range(at: 1)), ns.substring(with: m.range(at: 2)))
+    }
+
+    private static func firstCapture(in text: String, pattern: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
+        let ns = text as NSString
+        guard let m = regex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)),
+              m.numberOfRanges >= 2
+        else { return nil }
+        return ns.substring(with: m.range(at: 1))
+    }
+
+    private static func unescapeHTMLEntities(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "&amp;", with: "&", options: .caseInsensitive)
+            .replacingOccurrences(of: "&lt;", with: "<", options: .caseInsensitive)
+            .replacingOccurrences(of: "&gt;", with: ">", options: .caseInsensitive)
+            .replacingOccurrences(of: "&quot;", with: "\"", options: .caseInsensitive)
+            .replacingOccurrences(of: "&#39;", with: "'", options: .caseInsensitive)
+            .replacingOccurrences(of: "&apos;", with: "'", options: .caseInsensitive)
+    }
+
+    private static func base64URLEncode(_ data: Data) -> String? {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private static func base64URLDecode(_ string: String) -> Data? {
+        var s = string
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = s.count % 4
+        if remainder > 0 {
+            s += String(repeating: "=", count: 4 - remainder)
+        }
+        return Data(base64Encoded: s)
+    }
+
     static func normalizedChapterHTML(
         title: String,
         paragraphs: [String],

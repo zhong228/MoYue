@@ -714,3 +714,5 @@
 "語音" = "Voice";
 "自動" = "Automatic";
 "未配置網路語音源，將使用系統離線語音朗讀" = "No network voice source configured; using the system offline voice";
+
+"段評" = "Reviews";

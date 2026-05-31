@@ -63,6 +63,10 @@ public indirect enum RenderableNode: Sendable {
     /// svgContent carries inline SVG XML for rasterization instead of src loading.
     case image(src: String, alt: String, style: RenderStyle = .none, svgContent: String? = nil)
 
+    /// Paragraph-review badge (段評). Renders as a tappable inline count bubble; `reviewURL`
+    /// carries the `ydreview://` action that opens the source's review web page.
+    case commentBadge(count: String, reviewURL: String, title: String)
+
     // MARK: Special
 
     /// EPUB forced page break (page-break-before / page-break-after).

@@ -77,6 +77,11 @@ Yuedu Reader is not only a local EPUB reader. It also includes RSS reading and w
 
 - **RSS Reader**: RSS / Atom feeds, article extraction, and reading inside the native reader.
 - **Web Article Normalization**: convert web pages into clean long-form reading content.
+- **Book Source Reading**: Legado-compatible book sources for online web novels — search, browse chapters, and read in the native CoreText reader.
+
+<p align="center">
+  <img src="docs/demo/book-source-reading.gif" width="320" alt="Online book-source web-novel reading demo">
+</p>
 
 ## Features
 

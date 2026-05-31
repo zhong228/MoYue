@@ -53,7 +53,10 @@ final class OnlineProviderAttributedStringBuilder: @preconcurrency AttributedStr
         let payload = try await provider.contentForChapter(index: index)
 
         // HTML pipeline
-        if let html = payload.renderHTML, !html.isEmpty {
+        if let rawHTML = payload.renderHTML, !rawHTML.isEmpty {
+            // Rewrite Legado iOS paragraph-review markers (<comment …>) into anchors the
+            // renderer can carry. Idempotent + covers chapters cached before this feature.
+            let html = ReaderHTMLUtilities.rewriteReviewComments(rawHTML)
             let cfg = HTMLAttributedStringBuilder.Config(
                 fontSize: settings.fontSize,
                 lineHeightMultiple: settings.lineHeightMultiple,

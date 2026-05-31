@@ -77,6 +77,11 @@
 
 - **RSS 閱讀器**：RSS / Atom feed、文章擷取，並在原生閱讀器內閱讀。
 - **網頁文章轉碼**：將網頁轉成乾淨的長文本閱讀內容。
+- **書源閱讀**：相容 Legado 書源的線上網文閱讀——搜尋、瀏覽目錄，並在原生 CoreText 閱讀器內閱讀。
+
+<p align="center">
+  <img src="docs/demo/book-source-reading.gif" width="320" alt="線上書源網文閱讀演示">
+</p>
 
 ## 功能
 

@@ -179,6 +179,9 @@ struct NodeAttributedStringRenderer {
             childCtx.linkHref = href
             return await renderInlineChildren(children, ctx: childCtx)
 
+        case .commentBadge(let count, let reviewURL, let title):
+            return await renderCommentBadge(count: count, reviewURL: reviewURL, title: title, ctx: ctx)
+
         case .ruby(let base, let text, let style):
             let childCtx = applyInlineStyle(style, to: ctx)
             let rendered = NSMutableAttributedString(attributedString: await renderInlineChildren(base, ctx: childCtx))
@@ -511,6 +514,39 @@ struct NodeAttributedStringRenderer {
         let totalWidth: CGFloat
         let ascent: CGFloat
         let descent: CGFloat
+    }
+
+    /// Renders a paragraph-review (段評) count bubble as an inline image attachment.
+    /// The placeholder carries `internalLinkAttribute = reviewURL` so both the paged
+    /// (attachment hit-test) and scroll (link hit-test) tap paths can recognize it.
+    private func renderCommentBadge(
+        count: String,
+        reviewURL: String,
+        title: String,
+        ctx: RenderContext
+    ) async -> NSAttributedString {
+        let badgeColor = ctx.textColor.withAlphaComponent(0.55)
+        let image = ReviewBadgeRenderer.bubble(count: count, pointSize: ctx.font.pointSize, color: badgeColor)
+        var style = RenderStyle.none
+        style.width = image.size.width
+        style.height = image.size.height
+        let placeholder = NSMutableAttributedString(
+            attributedString: await makeImagePlaceholder(
+                image: image,
+                style: style,
+                ctx: ctx,
+                imageSource: "",
+                imageAlt: title,
+                displayMode: .inline
+            )
+        )
+        guard placeholder.length > 0 else { return placeholder }
+        placeholder.addAttribute(
+            HTMLAttributedStringBuilder.internalLinkAttribute,
+            value: reviewURL,
+            range: NSRange(location: 0, length: placeholder.length)
+        )
+        return placeholder
     }
 
     private func renderInlineImage(

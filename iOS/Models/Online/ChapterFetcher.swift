@@ -47,12 +47,16 @@ struct ChapterFetcher {
         rawHTMLContent: String?
     ) async -> String {
         guard
-            let rawHTMLContent,
-            !rawHTMLContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            Self.containsLikelyHTMLTags(rawHTMLContent)
+            let originalRawHTML = rawHTMLContent,
+            !originalRawHTML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            Self.containsLikelyHTMLTags(originalRawHTML)
         else {
             return buildNormalizedHTML(title: title, content: plainTextContent)
         }
+
+        // Rewrite Legado iOS paragraph-review markers into anchors before parsing, so the
+        // markers survive the SwiftSoup round-trip regardless of how <comment> is handled.
+        let rawHTMLContent = ReaderHTMLUtilities.rewriteReviewComments(originalRawHTML)
 
         // SwiftSoup.parse is CPU-intensive synchronous work.
         // Run in a detached task to avoid blocking the cooperative thread pool.
