@@ -740,9 +740,6 @@ final class HTMLAttributedStringBuilder {
             if element.tag == "a",
                let href = element.attributes["href"],
                let marker = ReaderHTMLUtilities.decodeReviewHref(href) {
-                #if DEBUG
-                print("[段評Debug] HTMLBuilder.reviewBadge count=\(marker.count) title=\(marker.title) hrefHead=\(href.prefix(80))")
-                #endif
                 return makeReviewBadgePlaceholder(marker: marker, href: href, style: element.resolvedStyle, config: config)
             }
 

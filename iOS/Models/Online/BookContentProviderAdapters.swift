@@ -138,9 +138,6 @@ struct OnlineHTMLContentProviderAdapter: BookContentProvider {
                 package: cached,
                 hasBookSource: book.bookSourceId != nil
             ) {
-                #if DEBUG
-                print("[段評Debug] provider.refetchStrippedRenderArtifacts index=\(index) raw=false normalized=true")
-                #endif
                 BookSourceFetcher.shared.clearChapterCache(bookId: book.id, chapterIndex: index)
             } else {
                 return ChapterContentPayload(

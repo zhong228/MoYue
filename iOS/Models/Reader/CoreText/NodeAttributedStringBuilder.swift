@@ -238,9 +238,6 @@ struct OnlineNodeAttributedStringBuilder: AttributedStringBuilding {
             package: package,
             hasBookSource: true
         ) {
-            #if DEBUG
-            print("[段評Debug] onlineNode.refetchStrippedRenderArtifacts index=\(index) raw=false normalized=true")
-            #endif
             fetcher.clearChapterCache(bookId: bookId, chapterIndex: index)
             throw AttributedStringBuildingError.contentNotCached(index)
         }
@@ -331,11 +328,6 @@ struct OnlineNodeAttributedStringBuilder: AttributedStringBuilding {
         guard rewritten.range(of: "ydreview://", options: .caseInsensitive) != nil else {
             return nil
         }
-
-        #if DEBUG
-        let remainingComment = rewritten.range(of: "<comment", options: .caseInsensitive) != nil
-        print("[段評Debug] onlineNode.reviewHTML index=\(ref.index) ydreview=true remainingComment=\(remainingComment) len=\(rewritten.count)")
-        #endif
         return rewritten
     }
 

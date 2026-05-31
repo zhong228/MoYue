@@ -137,13 +137,6 @@ enum ReaderHTMLUtilities {
     /// Anchors and their `href` are always preserved and `href` is in the builder allowlist.
     /// Idempotent: a string with no `<comment …>` markers is returned unchanged.
     static func rewriteReviewComments(_ html: String) -> String {
-        #if DEBUG
-        // TEMP 段評 diagnostic — remove once review rendering is confirmed.
-        let hasComment = html.range(of: "<comment", options: .caseInsensitive) != nil
-        let hasRsNative = html.range(of: "rs-native", options: .caseInsensitive) != nil
-        let hasYdReview = html.range(of: "yd-review", options: .caseInsensitive) != nil
-        print("[段評Debug] rewriteReviewComments len=\(html.count) <comment>=\(hasComment) rs-native=\(hasRsNative) yd-review=\(hasYdReview) head=\(html.prefix(160))")
-        #endif
         guard html.range(of: "<comment", options: .caseInsensitive) != nil else { return html }
         guard let tagRegex = try? NSRegularExpression(
             pattern: #"<comment\b[^>]*>"#,
@@ -168,15 +161,6 @@ enum ReaderHTMLUtilities {
             cursor = range.location + range.length
         }
         result += ns.substring(from: cursor)
-        #if DEBUG
-        let convertedCount = matches.reduce(into: 0) { count, match in
-            let tag = ns.substring(with: match.range)
-            if anchorMarkup(forCommentTag: tag) != nil { count += 1 }
-        }
-        let outputHasReview = result.range(of: "ydreview://", options: .caseInsensitive) != nil
-        let outputHasComment = result.range(of: "<comment", options: .caseInsensitive) != nil
-        print("[段評Debug] rewriteReviewComments.out matches=\(matches.count) converted=\(convertedCount) ydreview=\(outputHasReview) remainingComment=\(outputHasComment) head=\(result.prefix(220))")
-        #endif
         return result
     }
 

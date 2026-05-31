@@ -126,9 +126,6 @@ actor ChapterFetchManager {
             package: package,
             hasBookSource: book.bookSourceId != nil
         ) {
-            #if DEBUG
-            print("[段評Debug] cache.strippedRenderArtifacts index=\(package.chapterIndex) raw=false normalized=true")
-            #endif
             return false
         }
         return true
@@ -431,9 +428,6 @@ actor ChapterFetchManager {
                     // BookSourceFetcher already persisted raw/normalized render artifacts.
                     // Re-saving from plain text here would strip HTML-only inline markers
                     // such as paragraph-review badges.
-                    #if DEBUG
-                    print("[段評Debug] onlinePipeline.preserveRenderArtifacts index=\(chapterIndex) raw=\(package.rawHTMLFilename != nil) normalized=\(package.normalizedHTMLFilename != nil)")
-                    #endif
                     filename = OnlineChapterCacheWritePolicy.contentFilename(chapterIndex: chapterIndex)
                 } else {
                     filename = bookSourceFetcher.saveToCache(
