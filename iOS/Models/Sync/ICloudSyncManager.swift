@@ -1,5 +1,6 @@
 import CloudKit
 import Combine
+import CryptoKit
 import Foundation
 import UIKit
 
@@ -101,6 +102,8 @@ final class ICloudSyncManager: ObservableObject {
     private static let manifestRecordName = "sync_manifest"
     private static let manifestRecordType = "YueduSyncManifest"
     private static let fileRecordType = "YueduSyncFile"
+    private static let bookFileRecordType = "YueduBookFile"
+    private static let uploadedBookFilesKey = "icloud_uploaded_book_files"
 
     private enum Field {
         static let asset = "asset"
@@ -169,6 +172,8 @@ final class ICloudSyncManager: ObservableObject {
             try await uploadFileIfExists(file)
         }
 
+        try await uploadBookFiles()
+
         let date = Date()
         let manifest = await makeManifest(date: date)
         try await saveManifest(manifest)
@@ -196,7 +201,11 @@ final class ICloudSyncManager: ObservableObject {
         for file in ICloudSyncPayload.defaultFiles() {
             try await deleteRecordIfExists(fileRecordID(file.recordName))
         }
+        for file in dynamicBookFilePayloads() {
+            try await deleteRecordIfExists(CKRecord.ID(recordName: file.recordName))
+        }
         try await deleteRecordIfExists(CKRecord.ID(recordName: Self.manifestRecordName))
+        UserDefaults.standard.removeObject(forKey: Self.uploadedBookFilesKey)
 
         await MainActor.run {
             lastSyncDate = nil
@@ -278,6 +287,8 @@ final class ICloudSyncManager: ObservableObject {
             try await downloadFileIfExists(file)
         }
 
+        try await downloadMissingBookFiles()
+
         await MainActor.run {
             lastSyncDate = Date()
             statusMessage = localized("iCloud 還原成功，書庫和替換規則需重啟 App 後完全生效")
@@ -353,6 +364,94 @@ final class ICloudSyncManager: ObservableObject {
         if file.recordName == "books_meta" {
             UserDefaults.standard.removeObject(forKey: "yd_books_meta")
         }
+    }
+
+    // MARK: - Book content files (EPUB/TXT + covers)
+
+    /// Local content + cover files referenced by the current books_meta.json.
+    /// Online books carry no local content file, so they are skipped.
+    private func dynamicBookFilePayloads() -> [ICloudSyncPayloadFile] {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        guard let data = try? Data(contentsOf: docs.appendingPathComponent("books_meta.json")),
+              let books = try? JSONDecoder().decode([ReadingBook].self, from: data) else {
+            return []
+        }
+        var payloads: [ICloudSyncPayloadFile] = []
+        var seen = Set<String>()
+        for book in books where !book.isOnline {
+            for name in [book.contentFilename, book.coverImagePath].compactMap({ $0 }) where !name.isEmpty {
+                guard seen.insert(name).inserted else { continue }
+                payloads.append(
+                    ICloudSyncPayloadFile(
+                        recordName: "bookfile_" + Self.shortHash(name),
+                        localURL: docs.appendingPathComponent(name)
+                    )
+                )
+            }
+        }
+        return payloads
+    }
+
+    private func uploadBookFiles() async throws {
+        let payloads = dynamicBookFilePayloads()
+        guard !payloads.isEmpty else { return }
+        await setSync(true, message: localized("正在同步書籍檔案…"))
+        for file in payloads {
+            try await uploadBookFileIfNeeded(file)
+        }
+    }
+
+    private func uploadBookFileIfNeeded(_ file: ICloudSyncPayloadFile) async throws {
+        guard FileManager.default.fileExists(atPath: file.localURL.path) else { return }
+        // Content files are immutable once imported, so skip anything we already
+        // uploaded at the same size.
+        let size = ((try? FileManager.default.attributesOfItem(atPath: file.localURL.path))?[.size] as? NSNumber)?.intValue ?? 0
+        let marker = "\(file.recordName):\(size)"
+        if uploadedBookFileMarkers.contains(marker) { return }
+
+        let recordID = CKRecord.ID(recordName: file.recordName)
+        let record = (try? await fetchRecord(recordID)) ?? CKRecord(
+            recordType: Self.bookFileRecordType,
+            recordID: recordID
+        )
+        record[Field.filename] = file.localURL.lastPathComponent as NSString
+        record[Field.updatedAt] = Date() as NSDate
+        record[Field.asset] = CKAsset(fileURL: file.localURL)
+        try await saveRecord(record)
+        rememberUploadedBookFileMarker(marker)
+    }
+
+    private func downloadMissingBookFiles() async throws {
+        for file in dynamicBookFilePayloads() where !FileManager.default.fileExists(atPath: file.localURL.path) {
+            do {
+                let record = try await fetchRecord(CKRecord.ID(recordName: file.recordName))
+                guard let asset = record[Field.asset] as? CKAsset, let assetURL = asset.fileURL else { continue }
+                let data = try Data(contentsOf: assetURL)
+                try FileManager.default.createDirectory(
+                    at: file.localURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: file.localURL, options: .atomic)
+                rememberUploadedBookFileMarker("\(file.recordName):\(data.count)")
+            } catch {
+                if isRecordNotFound(error) { continue }
+                throw error
+            }
+        }
+    }
+
+    private var uploadedBookFileMarkers: Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: Self.uploadedBookFilesKey) ?? [])
+    }
+
+    private func rememberUploadedBookFileMarker(_ marker: String) {
+        var markers = uploadedBookFileMarkers
+        markers.insert(marker)
+        UserDefaults.standard.set(Array(markers), forKey: Self.uploadedBookFilesKey)
+    }
+
+    private static func shortHash(_ string: String) -> String {
+        SHA256.hash(data: Data(string.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     private func saveManifest(_ manifest: ICloudSyncManifest) async throws {

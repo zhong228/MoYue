@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 
 enum AppleSignInNonce {
-    private static let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+    private static let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-._")
 
     static func random(length: Int = 32) -> String {
         precondition(length > 0)

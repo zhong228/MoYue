@@ -1,6 +1,5 @@
 import SwiftUI
 import AuthenticationServices
-import GoogleSignInSwift
 
 struct LoginView: View {
     @State private var email = ""
@@ -42,12 +41,6 @@ struct LoginView: View {
                 }
 
                 VStack(spacing: 20) {
-                    Picker(localized("帳號模式"), selection: $emailMode) {
-                        Text(localized("登入")).tag(EmailAuthMode.signIn)
-                        Text(localized("註冊")).tag(EmailAuthMode.signUp)
-                    }
-                    .pickerStyle(.segmented)
-
                     VStack(alignment: .leading, spacing: 8) {
                         Text(localized("電子郵件"))
                             .font(.caption.bold())
@@ -146,6 +139,17 @@ struct LoginView: View {
                 }
 
                 Spacer()
+
+                Button {
+                    withAnimation { emailMode.toggle() }
+                    errorMessage = nil
+                } label: {
+                    Text(localized(emailMode.togglePrompt))
+                        .font(.footnote.bold())
+                        .foregroundColor(.blue)
+                }
+                .disabled(isLoading)
+                .padding(.bottom, 8)
             }
             .padding(.horizontal, 24)
         }
@@ -180,7 +184,7 @@ struct LoginView: View {
                 }
                 completeSignIn()
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = AuthErrorReporter.describe(error)
             }
             isLoading = false
         }
@@ -200,7 +204,7 @@ struct LoginView: View {
                 _ = try await FirebaseAuthManager.shared.signInWithGoogle(presenting: rootViewController)
                 completeSignIn()
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = AuthErrorReporter.describe(error)
             }
             isLoading = false
         }
@@ -221,7 +225,7 @@ struct LoginView: View {
                     _ = try await FirebaseAuthManager.shared.signInWithApple(credential: credential)
                     completeSignIn()
                 } catch {
-                    errorMessage = error.localizedDescription
+                    errorMessage = AuthErrorReporter.describe(error)
                 }
                 isLoading = false
             }
@@ -232,10 +236,8 @@ struct LoginView: View {
     }
 
     private func completeSignIn() {
+        // The auth-state listener triggers the Firestore sync once the session is live.
         onSignedIn()
-        Task {
-            await FirestoreSyncManager.shared.syncAfterSignIn()
-        }
         dismiss()
     }
 
@@ -270,6 +272,18 @@ private enum EmailAuthMode: String {
         case .signIn: return "登入"
         case .signUp: return "註冊"
         }
+    }
+
+    /// Small blue link at the bottom that flips the form to the other mode.
+    var togglePrompt: String {
+        switch self {
+        case .signIn: return "還沒有帳號？立即註冊"
+        case .signUp: return "已經有帳號了？前往登入"
+        }
+    }
+
+    mutating func toggle() {
+        self = self == .signIn ? .signUp : .signIn
     }
 }
 

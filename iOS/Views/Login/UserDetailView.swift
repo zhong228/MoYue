@@ -17,6 +17,14 @@ struct UserDetailView: View {
     @State private var deleteAccountErrorMessage: String?
     @State private var showRenameAlert = false
     @State private var draftDisplayName = ""
+    @State private var showDeletePasswordAlert = false
+    @State private var deletePassword = ""
+    @ObservedObject private var auth = FirebaseAuthManager.shared
+    @State private var isLinking = false
+    @State private var linkErrorMessage: String?
+    @State private var showLinkEmailAlert = false
+    @State private var linkEmail = ""
+    @State private var linkPassword = ""
 
     var body: some View {
         List {
@@ -50,7 +58,7 @@ struct UserDetailView: View {
                         }
 
                         if !gs.isLoggedIn {
-                            Text(localized("登入後可透過 Firestore 跨設備同步書籍與進度"))
+                            Text(localized("登入後可跨設備同步書籍與進度"))
                                 .font(.system(size: 10))
                                 .foregroundColor(.secondary)
 
@@ -88,7 +96,7 @@ struct UserDetailView: View {
                         showRenameAlert = true
                     } label: {
                         HStack {
-                            Text(localized("顯示名稱"))
+                            Text(localized("用戶名"))
                                 .foregroundColor(.primary)
                             Spacer()
                             Text(gs.accountDisplayName.isEmpty ? localized("未設定") : gs.accountDisplayName)
@@ -111,6 +119,22 @@ struct UserDetailView: View {
                                 .truncationMode(.middle)
                         }
                     }
+                }
+
+                Section {
+                    linkRow(title: "Google", providerID: "google.com")
+                    linkRow(title: "Apple", providerID: "apple.com")
+                    linkRow(title: localized("電子郵件"), providerID: "password")
+
+                    if let linkErrorMessage {
+                        Text(linkErrorMessage)
+                            .font(.footnote)
+                            .foregroundColor(.red)
+                    }
+                } header: {
+                    Text(localized("連結登入方式"))
+                } footer: {
+                    Text(localized("連結後可用任一方式登入同一個帳號"))
                 }
 
                 Section {
@@ -165,7 +189,7 @@ struct UserDetailView: View {
 
                         Button(localized("取消"), role: .cancel) {}
                     } message: {
-                        Text(localized("刪除帳號將登出此裝置，並永久刪除已同步至 Firestore 的書庫、書源、替換規則、RSS 與頭像資料。此操作無法復原。"))
+                        Text(localized("刪除帳號將登出此裝置，並永久刪除已同步的書庫、書源、替換規則、RSS 與頭像資料。此操作無法復原。"))
                     }
 
                     if let deleteAccountErrorMessage {
@@ -174,7 +198,7 @@ struct UserDetailView: View {
                             .foregroundColor(.red)
                     }
                 } footer: {
-                    Text(localized("刪除帳號會移除您的登入資訊並清除已上傳至 Firebase 的同步資料，且無法復原。儲存在本機的內容檔不會被刪除。"))
+                    Text(localized("刪除帳號會移除您的登入資訊並清除已上傳的同步資料，且無法復原。儲存在本機的內容檔不會被刪除。"))
                 }
             }
         }
@@ -187,8 +211,8 @@ struct UserDetailView: View {
                 showLogin = false
             }
         }
-        .alert(localized("修改顯示名稱"), isPresented: $showRenameAlert) {
-            TextField(localized("顯示名稱"), text: $draftDisplayName)
+        .alert(localized("修改用戶名"), isPresented: $showRenameAlert) {
+            TextField(localized("用戶名"), text: $draftDisplayName)
             Button(localized("儲存")) {
                 gs.updateAccountDisplayName(draftDisplayName)
                 Task {
@@ -204,10 +228,83 @@ struct UserDetailView: View {
                 await updateAvatar(from: newItem)
             }
         }
-        .task {
-            if gs.isLoggedIn {
-                await firestoreSync.syncAfterSignIn()
+        .alert(localized("確認刪除帳號"), isPresented: $showDeletePasswordAlert) {
+            SecureField(localized("請輸入密碼"), text: $deletePassword)
+                .textInputAutocapitalization(.never)
+            Button(localized("永久刪除帳號"), role: .destructive) {
+                let password = deletePassword
+                deletePassword = ""
+                runAccountDeletion(emailPassword: password)
             }
+            Button(localized("取消"), role: .cancel) { deletePassword = "" }
+        } message: {
+            Text(localized("請輸入密碼以確認刪除帳號"))
+        }
+        .alert(localized("連結電子郵件"), isPresented: $showLinkEmailAlert) {
+            TextField(localized("請輸入您的 Email"), text: $linkEmail)
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+            SecureField(localized("請輸入密碼"), text: $linkPassword)
+                .textInputAutocapitalization(.never)
+            Button(localized("連結")) {
+                let email = linkEmail
+                let password = linkPassword
+                linkEmail = ""
+                linkPassword = ""
+                performLink { try await auth.linkEmail(email: email, password: password) }
+            }
+            Button(localized("取消"), role: .cancel) {
+                linkEmail = ""
+                linkPassword = ""
+            }
+        } message: {
+            Text(localized("連結後可用任一方式登入同一個帳號"))
+        }
+    }
+
+    @ViewBuilder
+    private func linkRow(title: String, providerID: String) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            if auth.linkedProviderIDs.contains(providerID) {
+                Label(localized("已連結"), systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.green)
+            } else if isLinking {
+                ProgressView()
+            } else {
+                Button(localized("連結")) { startLink(providerID) }
+                    .font(.system(size: 15, weight: .semibold))
+            }
+        }
+    }
+
+    private func startLink(_ providerID: String) {
+        if providerID == "password" {
+            linkErrorMessage = nil
+            showLinkEmailAlert = true
+            return
+        }
+        performLink {
+            if providerID == "google.com" {
+                try await auth.linkGoogle()
+            } else {
+                try await auth.linkApple()
+            }
+        }
+    }
+
+    private func performLink(_ operation: @escaping () async throws -> Void) {
+        isLinking = true
+        linkErrorMessage = nil
+        Task {
+            do {
+                try await operation()
+            } catch {
+                linkErrorMessage = AuthErrorReporter.describe(error)
+            }
+            isLinking = false
         }
     }
 
@@ -245,12 +342,22 @@ struct UserDetailView: View {
     }
 
     private func performAccountDeletion() {
+        // Email accounts need the password to re-authenticate before deletion;
+        // Google/Apple re-authenticate interactively inside deleteAccount().
+        if FirebaseAuthManager.shared.deletionRequiresPassword {
+            showDeletePasswordAlert = true
+        } else {
+            runAccountDeletion(emailPassword: nil)
+        }
+    }
+
+    private func runAccountDeletion(emailPassword: String?) {
         isDeletingAccount = true
         deleteAccountErrorMessage = nil
 
         Task {
             do {
-                try await FirebaseAuthManager.shared.deleteAccount()
+                try await FirebaseAuthManager.shared.deleteAccount(emailPassword: emailPassword)
                 dismiss()
             } catch {
                 deleteAccountErrorMessage = error.localizedDescription

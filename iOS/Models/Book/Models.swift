@@ -135,6 +135,18 @@ extension Array where Element == Bookmark {
     }
 }
 
+extension ReadingBook {
+    /// A copy suitable for storing in a single Firestore document. The online
+    /// chapter list can be thousands of entries (web novels) and would risk the
+    /// 1 MB document limit, so it is dropped — it stays local and is re-fetchable
+    /// from the source's table of contents.
+    func strippedForSync() -> ReadingBook {
+        var copy = self
+        copy.onlineChapters = nil
+        return copy
+    }
+}
+
 // MARK: - Book Model
 
 struct ReadingBook: Identifiable, Codable {

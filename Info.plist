@@ -15,12 +15,12 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.303059321609-aapbvd37l5kgtv3lpu9d0pr33bin0vm8</string>
+				<string>com.googleusercontent.apps.540650701012-8q81u29qbeodaa4gmr0sui7rg1gnivhb</string>
 			</array>
 		</dict>
 	</array>
 	<key>GIDClientID</key>
-	<string>303059321609-aapbvd37l5kgtv3lpu9d0pr33bin0vm8.apps.googleusercontent.com</string>
+	<string>540650701012-8q81u29qbeodaa4gmr0sui7rg1gnivhb.apps.googleusercontent.com</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSAppTransportSecurity</key>
