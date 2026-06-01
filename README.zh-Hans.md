@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>一个由 CoreText 驱动的 iOS 原生阅读器。</strong><br>
-  EPUB / TXT / RSS / 漫画 / WebDAV / TTS / CJK 竖排阅读。
+  EPUB / TXT / Markdown / RSS / 漫画 / OPDS / WebDAV / TTS / CJK 直排阅读。
 </p>
 
 <p align="center">
@@ -31,123 +31,137 @@
 </p>
 
 <p align="center">
-  <a href="https://chang-jui-lin.github.io/Yuedu-reader/support.html">支持</a> ·
-  <a href="https://chang-jui-lin.github.io/Yuedu-reader/privacy.html">隐私政策</a>
+  <a href="#功能">功能</a> ·
+  <a href="#截图">截图</a> ·
+  <a href="#下载">下载</a> ·
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#故障排查">故障排查</a> ·
+  <a href="#贡献">贡献</a> ·
+  <a href="#授权">授权</a>
 </p>
 
 <p align="center">
-  <img src="docs/demo/cjk-vertical-toc.gif" width="320" alt="阅读 CJK 竖排演示">
+  <img src="docs/demo/cjk-vertical-toc.gif" width="320" alt="阅读 CJK 直排演示">
 </p>
 
-阅读是一个使用 SwiftUI 和 CoreText 构建的 iOS 原生阅读器，专注于长文本阅读、CJK 排版、本地 EPUB/TXT 书库、漫画、网页内容转码、RSS、TTS、OPDS 与 WebDAV 导入／同步，以及不依赖 WebView 的原生阅读界面。
+阅读是一个 iOS-first 的长文本阅读 app，专注于原生排版、CJK 直排阅读、本地书库、漫画、RSS、网页文章转码、TTS、OPDS 与 WebDAV 导入/同步，以及用户自行提供的书源阅读工作流。
 
-> 📝 获 [iOS Dev Weekly #751](https://iosdevweekly.com/issues/751) 收录 —— [*From WebView to CoreText: Building a Native EPUB Reader for iOS*](https://chang-jui-lin.github.io/Yuedu-reader/2026/05/20/from-webview-to-coretext/)。
+> 获 [iOS Dev Weekly #751](https://iosdevweekly.com/issues/751) 收录 —— [*From WebView to CoreText: Building a Native EPUB Reader for iOS*](https://chang-jui-lin.github.io/Yuedu-reader/2026/05/20/from-webview-to-coretext/)。
 
-## CJK 竖排阅读
+## 为什么选择阅读
 
-阅读不是只做基本 EPUB 显示，而是针对严肃 CJK 阅读场景设计。
+- 使用 SwiftUI 和 CoreText 构建的 iOS 原生阅读界面，不以 WebView 作为主要阅读层。
+- CoreText 分页让阅读位置、高亮和 TTS 进度更稳定。
+- 支持 CJK 直排、由右至左阅读流与直排目录。
+- Local-first 书库，支持 EPUB、TXT、Markdown 和本地漫画压缩包。
+- 支持用户自行提供的 RSS、OPDS、WebDAV、网页与兼容书源规则。
+- 项目边界清楚：阅读不内置、不推荐、也不分发受版权保护的内容来源。
 
-它支持竖排、由右至左阅读流、CJK 标点、行内批注、竖排目录，以及 CoreText 分页。
+## 功能
+
+| 领域 | 能力 | 状态 |
+| --- | --- | --- |
+| 本地书籍 | EPUB reflowable 阅读，含章节导航、图片、链接、书签、高亮、标注和 TTS | Available |
+| 本地书籍 | TXT 和 Markdown 阅读 | Available |
+| 漫画 | 本地 `.cbz` / `.zip` 漫画压缩包与兼容书源漫画阅读 | Available |
+| 阅读模式 | 分页与滚动阅读模式 | Available |
+| CJK 排版 | 直排、由右至左阅读流、CJK 标点处理与直排目录 | Available |
+| 书库导入 | OPDS 目录导入 | Available |
+| 同步/导入 | WebDAV 导入与同步 | Available |
+| 在线阅读 | RSS / Atom feed 与原生文章阅读 | Beta |
+| 在线阅读 | 网页文章转码成干净的长文本阅读内容 | Beta |
+| 书源 | 用户自行提供的 Legado 兼容书源规则 | Beta |
+| 渲染质量 | EPUB regression samples 与兼容性 checklist | Available |
+| EPUB 版面 | Fixed-layout EPUB prototype | Experimental |
+| 无障碍 | 更完整的 VoiceOver、Dynamic Type 与触控目标改善 | Planned |
+
+## 支持格式
+
+| 类别 | 支持 | 说明 |
+| --- | --- | --- |
+| 本地书籍 | EPUB、TXT、Markdown | EPUB 支持聚焦 reflowable 书籍与 CoreText 原生渲染。 |
+| 漫画压缩包 | CBZ、ZIP | 使用专属图片阅读器打开。 |
+| 在线订阅 | RSS、Atom | 文章会提取后在原生阅读器内阅读。 |
+| 目录与同步 | OPDS、WebDAV | 从目录与 WebDAV 服务器导入书籍，并通过 WebDAV 同步。 |
+| 书源规则 | Legado 兼容规则 | 只代表格式兼容；不内置第三方书源规则。 |
+| 目前非主轴 | PDF、MOBI、AZW3、FB2、DOCX | 阅读刻意聚焦 iOS 原生与 CoreText，而不是跨平台全格式套件。 |
+
+## 截图
+
+### 书库与阅读器
+
+阅读展示 local-first 书库、原生阅读器控制、CJK 直排、高亮标注、TTS、漫画、RSS 与导入工作流。
 
 <p align="center">
-  <img src="docs/screenshots/cjk-vertical.png" width="280" alt="CJK 竖排阅读">
+  <img src="docs/demo/library.png" width="220" alt="阅读书库">
+  <img src="docs/demo/reader-menu.png" width="220" alt="阅读器控制栏">
+  <img src="docs/demo/dark-mode.png" width="220" alt="阅读深色模式">
 </p>
 
-亮点：
+### 阅读体验
 
-- CJK 竖排文字渲染
-- 竖排书籍的右至左目录
-- CJK 标点处理
-- 行内批注与高密度注释 EPUB 测试
-- 基于 CoreText 分页，不以 WebView 作为主要阅读界面
-
-## 英文 EPUB 也正常
-
-阅读不只支持中文书。标准英文 EPUB 也可以渲染，包括出版商 CSS、章节导航、图片、链接和分页。
+CJK 直排、高亮、标注与 TTS 都属于原生阅读界面的一部分。
 
 <p align="center">
-  <img src="docs/screenshots/english-epub.png" width="260" alt="英文 EPUB 渲染">
-  <img src="docs/screenshots/toc.png" width="260" alt="英文 EPUB 目录">
+  <img src="docs/screenshots/cjk-vertical.png" width="220" alt="CJK 直排阅读">
+  <img src="docs/demo/highlights-annotations.png" width="220" alt="阅读高亮与标注">
+  <img src="docs/demo/tts.png" width="220" alt="阅读 TTS 播放">
 </p>
 
-支持的 EPUB 能力包括：
+### 工作流
 
-- Reflowable EPUB
-- 出版商 CSS cascade
-- Drop caps 和段落样式
-- 图片与 SVG rasterization
-- `toc.ncx` 和 `nav.xhtml` 导航
-- 高亮、书签和 TTS
+阅读也支持漫画阅读、RSS 阅读、OPDS/WebDAV 导入，以及兼容的用户自备书源工作流。
 
-## 阅读工作流
-
-阅读不只是本地 EPUB 阅读器，也包含 RSS 阅读和网页文章转码，支持在线阅读工作流。
-
-- **RSS 阅读器**：RSS / Atom feed、文章提取，并在原生阅读器内阅读。
-- **网页文章转码**：将网页转成干净的长文本阅读内容。
-- **书源阅读**：兼容 Legado 书源的在线网文阅读——搜索、浏览目录，并在原生 CoreText 阅读器内阅读。
-- **漫画阅读**：通过兼容书源阅读漫画，或导入本地漫画（`.cbz` / `.zip`），以专属图片阅读器浏览。
-- **书库导入**：在书架的添加书籍菜单中，直接从 OPDS 目录与 WebDAV 服务器添加书籍。
+<p align="center">
+  <img src="docs/demo/manga-reader.png" width="220" alt="阅读漫画阅读器">
+  <img src="docs/demo/rss-reader.png" width="220" alt="阅读 RSS 阅读器">
+  <img src="docs/demo/opds-webdav-import.png" width="220" alt="阅读 OPDS 与 WebDAV 导入">
+</p>
 
 <p align="center">
   <img src="docs/demo/book-source-reading.gif" width="320" alt="在线书源网文阅读演示">
 </p>
 
-## 功能
+## 下载
 
-- SwiftUI + CoreText 原生 iOS 阅读器
-- EPUB / TXT / Markdown 本地阅读
-- CJK 竖排与右至左阅读 UI
-- 分页与滚动阅读模式
-- 高亮、书签、标注
-- TTS 与自动阅读
-- 漫画阅读，专属图片阅读器（书源 + 本地 `.cbz` / `.zip` 导入）
-- OPDS 目录导入
-- WebDAV 导入与同步
-- RSS / 网页文章阅读
-- Legado 兼容书源规则
-- EPUB regression samples 用于渲染兼容性检查
+- [从 App Store 下载](https://apps.apple.com/app/id6772972358)
+- [加入最新 TestFlight 测试](https://testflight.apple.com/join/7hvbzYC1)
+- [支持](https://chang-jui-lin.github.io/Yuedu-reader/support.html)
+- [隐私政策](https://chang-jui-lin.github.io/Yuedu-reader/privacy.html)
+- [Telegram 群组](https://t.me/+ZWmmgMwwJ3JiN2Rl)
 
-## 为什么使用 CoreText？
+阅读目前目标系统为 iOS 18.0+。
 
-多数 EPUB 阅读器使用 WebView。阅读使用 CoreText 作为主要阅读渲染层，所以可以更精确控制分页、文字范围、高亮、TTS 同步和 CJK 竖排。
+## 路线图
 
-这让以下能力变得可控：
+### 现在
 
-- 基于 `(spineIndex, charOffset)` 的稳定阅读位置
-- 精确页面渲染
-- 原生文字选择与高亮
-- TTS 进度同步
-- 自定义 CJK 竖排布局行为
+- 改善 EPUB 渲染兼容性。
+- 打磨 CJK 直排阅读与目录行为。
+- 增加 EPUB 渲染 bug template 与 regression samples。
+- 改善 RSS 加载错误处理。
 
-## 渲染管线
+### 接下来
 
-阅读有两条 EPUB 渲染路径，它们共用同一套 CSS resolution 和 CoreText 绘制层：
+- 更好的网页文章转码。
+- 更完整的漫画书源与阅读器手势。
+- Fixed-layout EPUB prototype。
 
-- Legacy HTML attributed-string builder
-- RenderableNode IR pipeline
+### 之后
 
-多数贡献者在处理 UI、文档、本地化、EPUB 测试、WebDAV 或书源规则功能前，不需要先理解完整引擎。
+- TestFlight 反馈循环。
+- 更多无障碍工作。
+- 更多自动化渲染 regression tests。
 
-详细内容见：
+如果想贡献，可以查看标有 `help wanted` 或 `good first issue` 的 issue。
 
-- [CoreText contributor notes](docs/coretext/README.md)
-- [Architecture notes](Technotes/Architecture.md)
+## 快速开始
 
-## EPUB 兼容性
-
-阅读包含小型 EPUB regression corpus 和兼容性 checklist，用来测试渲染行为。
-
-- [EPUB compatibility checklist](docs/epub-compatibility-checklist.md)
-- [EPUB regression samples](docs/epub-regression/README.md)
-
-## 环境要求
+开发环境需求：
 
 - iOS 18.0+
 - Xcode 16+
 - Xcode 项目目前使用 Swift 5 language mode
-
-## 快速开始
 
 ```bash
 git clone https://github.com/CHANG-JUI-LIN/Yuedu-reader.git
@@ -155,11 +169,18 @@ cd Yuedu-reader
 open Yuedu-Reader.xcodeproj
 ```
 
-选择 `Yuedu-Reader` scheme，构建至模拟器或实机。或直接运行：
+选择 `Yuedu-Reader` scheme，构建到模拟器或真机。或直接执行：
 
 ```bash
 ./scripts/build.sh
 ```
+
+## 故障排查
+
+- **App Store 与 TestFlight**：App Store 是稳定版。TestFlight 会先收到较新的 build，可能包含尚未完成的行为。
+- **EPUB 渲染问题**：请使用 [EPUB rendering bug template](.github/ISSUE_TEMPLATE/epub_rendering_bug.yml)。请附上阅读截图、可行的话附 Apple Books 截图、EPUB 类型/版本、章节/页面位置、预期行为与实际行为。
+- **WebDAV、OPDS、RSS 或书源规则问题**：请提供 URL 或服务器类型、可见错误消息、失败操作，以及内容来源合法且由用户自行提供的确认。
+- **受版权保护内容**：请勿公开上传受版权保护的书籍。建议提供最小化合成 EPUB 或已去标识的样例。
 
 ## 项目边界
 
@@ -171,11 +192,35 @@ open Yuedu-Reader.xcodeproj
 
 Legado 兼容性只代表书源规则格式兼容；阅读不内置第三方书源规则，也不是 [Legado](https://github.com/gedoor/legado) 项目的官方关联产品。
 
-## AI 协同开发声明
+## 架构说明
 
-本仓库重度使用 AI 协同开发，包括代码生成、重构、文档撰写和审查辅助。项目仍会保留人工审阅与维护责任。
+多数 EPUB 阅读器使用 WebView。阅读使用 CoreText 作为主要阅读渲染层，所以可以更精准控制分页、文字范围、高亮、TTS 同步和 CJK 直排。
 
-如果你偏好完全由人手撰写的代码，或对 AI 辅助开发有疑虑或排斥，请在使用或贡献前自行评估，并请见谅。
+阅读目前有两条 EPUB 渲染路径，它们共用同一套 CSS resolution 和 CoreText 绘制层：
+
+- Legacy HTML attributed-string builder
+- RenderableNode IR pipeline
+
+多数贡献者在处理 UI、文档、本地化、EPUB 测试、WebDAV、RSS 或书源规则功能前，不需要先理解完整引擎。
+
+详细内容见：
+
+- [CoreText contributor notes](docs/coretext/README.md)
+- [Architecture notes](Technotes/Architecture.md)
+- [EPUB compatibility checklist](docs/epub-compatibility-checklist.md)
+- [EPUB regression samples](docs/epub-regression/README.md)
+
+## 贡献
+
+阅读欢迎文档、截图、EPUB 测试、本地化、无障碍、WebDAV/OPDS 测试、阅读器 UI 打磨与渲染兼容性等聚焦贡献。
+
+从这里开始：
+
+- [Contributing guide](CONTRIBUTING.md)
+- [EPUB rendering bug template](.github/ISSUE_TEMPLATE/epub_rendering_bug.yml)
+- [CoreText contributor notes](docs/coretext/README.md)
+- [EPUB regression samples](docs/epub-regression/README.md)
+- [演示素材流程](docs/demo/README.md)
 
 ## 目录结构
 
@@ -184,7 +229,7 @@ iOS/
 ├── Models/
 │   ├── App/              # 全局设置、DesignTokens、AppDependencies
 │   ├── Book/             # ReadingBook、Bookmark、BookStore
-│   ├── BookSource/       # 书源定义与获取管线
+│   ├── BookSource/       # 书源定义与抓取管线
 │   ├── LocalBook/        # EPUB/TXT/Markdown 解析器
 │   ├── Online/           # 在线阅读与网页正规化
 │   ├── RSS/              # RSS 模型、订阅解析
@@ -192,13 +237,13 @@ iOS/
 │   ├── RuleEngine/       # CSS/XPath/Regex/JSON 规则提取
 │   ├── Sync/             # WebDAV 同步管理
 │   └── TTS/              # 语音播放协调
-├── Views/                # SwiftUI 界面
+├── Views/                # SwiftUI 画面
 ├── ViewModels/           # ObservableObject ViewModel
-├── Assets/               # 资产目录与规则引擎资源
+├── Assets/               # 资源目录与规则引擎资源
 └── *.lproj/              # 本地化：zh-Hant、zh-Hans、en
 ```
 
-## 开发
+## 开发注意事项
 
 - 用户字符串使用 `localized()`，更新三个 `.lproj` 文件。
 - 阅读位置以内容坐标为准，不用页码。
@@ -208,19 +253,12 @@ iOS/
 - 嵌套区块 CSS 边距通过 `inheritedBlockMarginLeft` 累加。
 - 书源和规则引擎相关工作必须限定在合法、用户自行提供内容的流程。
 
-请见 [CONTRIBUTING.md](CONTRIBUTING.md)。演示素材流程见 [docs/demo/README.md](docs/demo/README.md)。
+## AI 协同开发声明
 
-## 交流群
+本仓库重度使用 AI 协同开发，包括代码生成、重构、文档撰写和审查辅助。项目仍会保留人工审阅与维护责任。
 
-欢迎加入交流群，反馈问题、获取测试版与书源资讯：
+如果你偏好完全由人手撰写的代码，或对 AI 辅助开发有疑虑，请在使用或贡献前自行评估。
 
-- Telegram：<https://t.me/+ZWmmgMwwJ3JiN2Rl>
-- QQ 群「阅读测试群」：群号 **1107613783** · [点击加入群聊](https://qun.qq.com/universal-share/share?ac=1&authKey=mNrlfOidh408YjJvObbFYjZOx1tV8n0yfS69xbwAS3xpBkaHEo1kP5O1ztPDmtjg&busi_data=eyJncm91cENvZGUiOiIxMTA3NjEzNzgzIiwidG9rZW4iOiJvYmtOSG1FdmErRGIzT05JOG94TEQ1cTdYZS9LbnFvdHNjZTlsQjNucjJNQ0pjT3BqeTRBOHM3L3N5TlUyejNkIiwidWluIjoiMjA4MTg1ODQzMCJ9&data=OvRT_XrwFaKXJRHD2QBjh3KYkAkZrb3WeB4ai3uHUnHMUpakpn54ykC1B7qplCLZ4ZCq3mUBoCabT_xlbXR6sA&svctype=4&tempid=h5_group_info)
+## 授权
 
-<p align="center">
-  <img src="docs/qq-group-qr.jpg" width="220" alt="QQ 群二维码（阅读测试群 1107613783）">
-</p>
-
-## 许可证
-
-[MIT](https://opensource.org/license/mit)。详见 [LICENSE](LICENSE)。本项目链接 [Readium](https://github.com/readium) 组件，Readium 使用 BSD 许可证。
+[MIT](https://opensource.org/license/mit)。详见 [LICENSE](LICENSE)。本项目链接 [Readium](https://github.com/readium) 组件，Readium 使用 BSD 授权。

@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>A native iOS reader powered by CoreText.</strong><br>
-  EPUB / TXT / RSS / Manga / WebDAV / TTS / CJK vertical writing.
+  EPUB / TXT / Markdown / RSS / Manga / OPDS / WebDAV / TTS / CJK vertical writing.
 </p>
 
 <p align="center">
@@ -31,146 +31,137 @@
 </p>
 
 <p align="center">
-  <a href="https://chang-jui-lin.github.io/Yuedu-reader/support.html">Support</a> ·
-  <a href="https://chang-jui-lin.github.io/Yuedu-reader/privacy.html">Privacy Policy</a>
+  <a href="#features">Features</a> ·
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#downloads">Downloads</a> ·
+  <a href="#getting-started">Getting Started</a> ·
+  <a href="#troubleshooting">Troubleshooting</a> ·
+  <a href="#contributing">Contributing</a> ·
+  <a href="#license">License</a>
 </p>
 
 <p align="center">
   <img src="docs/demo/cjk-vertical-toc.gif" width="320" alt="Yuedu Reader CJK vertical reading demo">
 </p>
 
-Yuedu Reader is a native iOS reading app for serious long-form reading, focused on CJK typography, local EPUB/TXT libraries, manga, RSS, web article normalization, TTS, OPDS and WebDAV import/sync, and a reader UI that stays native instead of WebView-based.
+Yuedu Reader is an iOS-first reading app for serious long-form reading. It focuses on native typography, CJK vertical writing, local libraries, manga, RSS, web article normalization, TTS, OPDS and WebDAV import/sync, and user-provided book-source workflows.
 
-> 📝 Featured in [iOS Dev Weekly #751](https://iosdevweekly.com/issues/751) — [*From WebView to CoreText: Building a Native EPUB Reader for iOS*](https://chang-jui-lin.github.io/Yuedu-reader/2026/05/20/from-webview-to-coretext/).
+> Featured in [iOS Dev Weekly #751](https://iosdevweekly.com/issues/751) — [*From WebView to CoreText: Building a Native EPUB Reader for iOS*](https://chang-jui-lin.github.io/Yuedu-reader/2026/05/20/from-webview-to-coretext/).
 
-## CJK Vertical Reading
+## Why Yuedu
 
-Yuedu Reader is built for serious CJK reading, not just basic EPUB display.
+- Native iOS reader UI built with SwiftUI and CoreText, not a WebView-first reading surface.
+- CoreText pagination for stable reading positions, highlights, and TTS progress.
+- CJK vertical writing with right-to-left reading flow and vertical table of contents.
+- Local-first library for EPUB, TXT, Markdown, and local manga archives.
+- Online reading workflows through user-provided RSS, OPDS, WebDAV, web pages, and compatible source rules.
+- Clear project boundary: Yuedu does not bundle, recommend, or distribute copyrighted content sources.
 
-It supports vertical writing, right-to-left reading flow, CJK punctuation, inline commentary, vertical table of contents, and CoreText-based pagination.
+## Features
+
+| Area | Capability | Status |
+| --- | --- | --- |
+| Local books | EPUB reflowable reading with chapter navigation, images, links, bookmarks, highlights, annotations, and TTS | Available |
+| Local books | TXT and Markdown reading | Available |
+| Manga | Local `.cbz` / `.zip` manga archives and compatible source-based manga reading | Available |
+| Reader modes | Paged and scroll reading modes | Available |
+| CJK typography | Vertical writing, right-to-left flow, CJK punctuation handling, and vertical table of contents | Available |
+| Library import | OPDS catalog import | Available |
+| Sync/import | WebDAV import and sync | Available |
+| Online reading | RSS / Atom feeds and native article reading | Beta |
+| Online reading | Web article normalization into clean long-form reading content | Beta |
+| Book sources | Legado-compatible source rules for user-provided online reading workflows | Beta |
+| Rendering quality | EPUB regression samples and compatibility checklist | Available |
+| EPUB layout | Fixed-layout EPUB prototype | Experimental |
+| Accessibility | Broader VoiceOver, Dynamic Type, and touch target work | Planned |
+
+## Supported Formats
+
+| Category | Supported | Notes |
+| --- | --- | --- |
+| Local books | EPUB, TXT, Markdown | EPUB support focuses on reflowable books and native CoreText rendering. |
+| Manga archives | CBZ, ZIP | Opened in a dedicated image reader. |
+| Online feeds | RSS, Atom | Articles are extracted and read inside the native reader. |
+| Catalogs and sync | OPDS, WebDAV | Import books from catalogs and WebDAV servers; sync through WebDAV. |
+| Source rules | Legado-compatible rules | Format compatibility only; no third-party source rules are bundled. |
+| Not the current focus | PDF, MOBI, AZW3, FB2, DOCX | Yuedu is intentionally iOS-native and CoreText-focused rather than a broad cross-platform format suite. |
+
+## Screenshots
+
+### Library and Reader
+
+Yuedu presents a local-first bookshelf, native reader controls, CJK vertical reading, annotations, TTS, manga, RSS, and import workflows.
 
 <p align="center">
-  <img src="docs/screenshots/cjk-vertical.png" width="280" alt="CJK vertical writing">
+  <img src="docs/demo/library.png" width="220" alt="Yuedu library bookshelf">
+  <img src="docs/demo/reader-menu.png" width="220" alt="Yuedu reader controls">
+  <img src="docs/demo/dark-mode.png" width="220" alt="Yuedu dark mode reader">
 </p>
 
-Highlights:
+### Reading Experience
 
-- Vertical CJK text rendering
-- Right-to-left table of contents for vertical books
-- CJK punctuation handling
-- Inline commentary and annotation-heavy EPUB testing
-- CoreText pagination instead of WebView-based display
-
-## English EPUB Works Too
-
-Yuedu is not limited to CJK books. Standard English EPUB rendering is also supported, including publisher CSS, chapter navigation, images, links, and pagination.
+CJK vertical writing, highlights, annotations, and TTS are part of the native reading surface.
 
 <p align="center">
-  <img src="docs/screenshots/english-epub.png" width="260" alt="English EPUB rendering">
-  <img src="docs/screenshots/toc.png" width="260" alt="English EPUB table of contents">
+  <img src="docs/screenshots/cjk-vertical.png" width="220" alt="CJK vertical writing">
+  <img src="docs/demo/highlights-annotations.png" width="220" alt="Yuedu highlights and annotations">
+  <img src="docs/demo/tts.png" width="220" alt="Yuedu TTS playback">
 </p>
 
-Supported EPUB features include:
+### Workflows
 
-- Reflowable EPUB
-- Publisher CSS cascade
-- Drop caps and paragraph styling
-- Images and SVG rasterization
-- `toc.ncx` and `nav.xhtml` navigation
-- Highlights, bookmarks, and TTS
+Yuedu also covers manga reading, RSS reading, OPDS/WebDAV import, and compatible user-provided book-source workflows.
 
-## Reading Workflows
-
-Yuedu Reader is not only a local EPUB reader. It also includes RSS reading and web article normalization for online reading workflows.
-
-- **RSS Reader**: RSS / Atom feeds, article extraction, and reading inside the native reader.
-- **Web Article Normalization**: convert web pages into clean long-form reading content.
-- **Book Source Reading**: Legado-compatible book sources for online web novels — search, browse chapters, and read in the native CoreText reader.
-- **Manga Reading**: read manga from compatible book sources or import local manga (`.cbz` / `.zip`), viewed in a dedicated image reader.
-- **Library Import**: add books straight from OPDS catalogs and WebDAV servers via the bookshelf add-book menu.
+<p align="center">
+  <img src="docs/demo/manga-reader.png" width="220" alt="Yuedu manga reader">
+  <img src="docs/demo/rss-reader.png" width="220" alt="Yuedu RSS reader">
+  <img src="docs/demo/opds-webdav-import.png" width="220" alt="Yuedu OPDS and WebDAV import">
+</p>
 
 <p align="center">
   <img src="docs/demo/book-source-reading.gif" width="320" alt="Online book-source web-novel reading demo">
 </p>
 
-## Features
+## Downloads
 
-- SwiftUI + CoreText native iOS reader
-- EPUB / TXT / Markdown local reading
-- CJK vertical writing and right-to-left reading UI
-- Paged and scroll reading modes
-- Highlights, bookmarks, annotations
-- TTS and auto-reading
-- Manga reading via a dedicated image reader (book sources + local `.cbz` / `.zip` import)
-- OPDS catalog import
-- WebDAV import and sync
-- RSS / web article reading
-- Legado-compatible source rules
-- EPUB regression samples for rendering compatibility
+- [Download from the App Store](https://apps.apple.com/app/id6772972358)
+- [Join the latest TestFlight beta](https://testflight.apple.com/join/7hvbzYC1)
+- [Support](https://chang-jui-lin.github.io/Yuedu-reader/support.html)
+- [Privacy Policy](https://chang-jui-lin.github.io/Yuedu-reader/privacy.html)
+- [Telegram group](https://t.me/+ZWmmgMwwJ3JiN2Rl)
+
+Yuedu Reader currently targets iOS 18.0+.
 
 ## Roadmap
 
 ### Now
 
-- Improve EPUB rendering compatibility
-- Polish CJK vertical reading and TOC behavior
-- Add EPUB rendering bug templates and regression samples
-- Improve RSS loading error handling
+- Improve EPUB rendering compatibility.
+- Polish CJK vertical reading and TOC behavior.
+- Add EPUB rendering bug templates and regression samples.
+- Improve RSS loading error handling.
 
 ### Next
 
-- Better web article normalization
-- Richer manga sources and reader gestures
-- Fixed-layout EPUB prototype
+- Better web article normalization.
+- Richer manga sources and reader gestures.
+- Fixed-layout EPUB prototype.
 
 ### Later
 
-- TestFlight feedback loop
-- More accessibility work
-- More automated rendering regression tests
+- TestFlight feedback loop.
+- More accessibility work.
+- More automated rendering regression tests.
 
 See open issues labeled `help wanted` or `good first issue` if you want to contribute.
 
-## Why CoreText?
+## Getting Started
 
-Most EPUB readers use WebView. Yuedu uses CoreText for the main reader so it can control pagination, text ranges, highlights, TTS synchronization, and CJK vertical rendering more precisely.
-
-This makes it possible to build:
-
-- stable reading positions based on `(spineIndex, charOffset)`
-- precise page rendering
-- native text selection and highlighting
-- TTS progress synchronization
-- custom CJK vertical layout behavior
-
-## Rendering Pipeline
-
-Yuedu has two EPUB rendering paths that share the same CSS resolution and CoreText drawing layer:
-
-- Legacy HTML attributed-string builder
-- RenderableNode IR pipeline
-
-Most contributors do not need to understand the full engine before working on UI, docs, localization, EPUB testing, WebDAV, or source-rule features.
-
-For details, see:
-
-- [CoreText contributor notes](docs/coretext/README.md)
-- [Architecture notes](Technotes/Architecture.md)
-
-## EPUB Compatibility
-
-Yuedu includes a small EPUB regression corpus and compatibility checklist for testing rendering behavior.
-
-- [EPUB compatibility checklist](docs/epub-compatibility-checklist.md)
-- [EPUB regression samples](docs/epub-regression/README.md)
-
-## Requirements
+Requirements for development:
 
 - iOS 18.0+
 - Xcode 16+
 - Swift 5 language mode in the Xcode project
-
-## Getting Started
 
 ```bash
 git clone https://github.com/CHANG-JUI-LIN/Yuedu-reader.git
@@ -184,6 +175,13 @@ Select the `Yuedu-Reader` scheme and build for a simulator or device. Or run:
 ./scripts/build.sh
 ```
 
+## Troubleshooting
+
+- **App Store vs TestFlight**: App Store is the stable release. TestFlight receives newer builds first and may include unfinished behavior.
+- **EPUB rendering bugs**: Please use the [EPUB rendering bug template](.github/ISSUE_TEMPLATE/epub_rendering_bug.yml). Include screenshots from Yuedu, screenshots from Apple Books if possible, EPUB type/version, chapter/page location, expected behavior, and actual behavior.
+- **WebDAV, OPDS, RSS, or source-rule issues**: Include the URL or server type, the visible error message, the action that failed, and confirmation that the content source is legal and user-provided.
+- **Copyrighted content**: Do not upload copyrighted books publicly. A minimal synthetic EPUB or redacted sample is preferred.
+
 ## Project Boundary
 
 Yuedu Reader is a reader engine and app shell. It does not include, host, recommend, or distribute copyrighted content sources.
@@ -194,11 +192,35 @@ The project will not accept contributions for built-in piracy sources, DRM circu
 
 Legado compatibility is a source-rule format compatibility target only. Yuedu Reader does not bundle third-party source rules and is not affiliated with the [Legado](https://github.com/gedoor/legado) project.
 
-## AI-Assisted Development
+## Architecture Notes
 
-This repository is developed with heavy AI-assisted collaboration, including code generation, refactoring, documentation, and review support. Human review and project ownership remain part of the workflow.
+Most EPUB readers use WebView. Yuedu uses CoreText for the main reader so it can control pagination, text ranges, highlights, TTS synchronization, and CJK vertical rendering more precisely.
 
-If you strongly prefer strictly human-authored code or are uncomfortable with AI-assisted development, please review the project with that expectation in mind. Your understanding is appreciated.
+Yuedu currently has two EPUB rendering paths that share the same CSS resolution and CoreText drawing layer:
+
+- Legacy HTML attributed-string builder
+- RenderableNode IR pipeline
+
+Most contributors do not need to understand the full engine before working on UI, docs, localization, EPUB testing, WebDAV, RSS, or source-rule features.
+
+For details, see:
+
+- [CoreText contributor notes](docs/coretext/README.md)
+- [Architecture notes](Technotes/Architecture.md)
+- [EPUB compatibility checklist](docs/epub-compatibility-checklist.md)
+- [EPUB regression samples](docs/epub-regression/README.md)
+
+## Contributing
+
+Yuedu welcomes focused contributions in documentation, screenshots, EPUB testing, localization, accessibility, WebDAV/OPDS testing, reader UI polish, and rendering compatibility.
+
+Start here:
+
+- [Contributing guide](CONTRIBUTING.md)
+- [EPUB rendering bug template](.github/ISSUE_TEMPLATE/epub_rendering_bug.yml)
+- [CoreText contributor notes](docs/coretext/README.md)
+- [EPUB regression samples](docs/epub-regression/README.md)
+- [Demo media workflow](docs/demo/README.md)
 
 ## Repository Layout
 
@@ -221,7 +243,7 @@ iOS/
 └── *.lproj/              # Localization: zh-Hant, zh-Hans, en
 ```
 
-## Development
+## Development Notes
 
 - Use `localized()` for user-facing strings; update all three `.lproj` files.
 - Keep reading position based on content coordinates, not page indexes.
@@ -231,7 +253,11 @@ iOS/
 - Nested block CSS margins accumulate through `inheritedBlockMarginLeft`.
 - Keep source/rule-engine work limited to legal, user-provided content workflows.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Demo media workflow: [docs/demo/README.md](docs/demo/README.md).
+## AI-Assisted Development
+
+This repository is developed with heavy AI-assisted collaboration, including code generation, refactoring, documentation, and review support. Human review and project ownership remain part of the workflow.
+
+If you strongly prefer strictly human-authored code or are uncomfortable with AI-assisted development, please review the project with that expectation in mind.
 
 ## License
 
