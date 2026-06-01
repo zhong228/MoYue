@@ -179,21 +179,38 @@ struct ReaderView: View {
         return allPages.count
     }
 
-    /// The single TOC entry to highlight as "current": the last one whose start page is at or
-    /// before the current page. Keyed by `chapter.id` so sub-sections sharing one spine file
-    /// don't all light up together (the previous `chapter.index == currentIndex` test did).
+    /// The single TOC entry to highlight as "current". EPUB uses spine index + in-spine
+    /// character offset because the TOC/nav list is not guaranteed to be 1:1 with the spine.
     private var currentTOCChapterID: UUID? {
-        let offsets = tocPageOffsets
-        let fallback = chapters.first(where: { $0.index == currentChapterIndex })?.id
-        guard !offsets.isEmpty else { return fallback }
-        var best: (id: UUID, page: Int)?
-        for chapter in chapters {
-            guard let page = offsets[chapter.id], page <= currentPage else { continue }
-            if best == nil || page >= best!.page {
-                best = (chapter.id, page)
-            }
+        currentTOCChapter?.id
+    }
+
+    private var currentTOCChapter: BookChapter? {
+        if let engine = epubRenderer.engine, usesCoreTextEPUB {
+            let position = engine.charOffset(forPage: currentPage)
+            return tocChapter(
+                forSpineIndex: position.spineIndex,
+                charOffset: position.charOffset
+            )
         }
-        return best?.id ?? fallback
+
+        return chapters.first(where: { $0.index == currentChapterIndex })
+            ?? (chapters.indices.contains(currentChapterIndex) ? chapters[currentChapterIndex] : nil)
+    }
+
+    private func tocChapter(forSpineIndex spineIndex: Int, charOffset: Int) -> BookChapter? {
+        ReaderTOCSelection.currentChapter(
+            in: chapters,
+            currentSpineIndex: spineIndex,
+            currentCharOffset: charOffset
+        ) { chapter in
+            guard let fragment = chapter.fragment, !fragment.isEmpty,
+                  let engine = epubRenderer.engine
+            else {
+                return 0
+            }
+            return engine.charOffset(forSpine: chapter.index, fragment: fragment)
+        }
     }
 
     private var tocPageOffsets: [UUID: Int] {
@@ -496,8 +513,8 @@ struct ReaderView: View {
 
     var currentChapterTitle: String {
         if usesCoreTextEPUB {
-            if chapters.indices.contains(currentChapterIndex) {
-                return chapters[currentChapterIndex].title
+            if let chapter = currentTOCChapter {
+                return chapter.title
             }
             return book?.title ?? ""
         }
@@ -532,6 +549,10 @@ struct ReaderView: View {
     }
 
     private func bookmarkChapterTitle(for chapterIndex: Int) -> String {
+        if usesCoreTextEPUB,
+           let chapter = tocChapter(forSpineIndex: chapterIndex, charOffset: 0) {
+            return chapter.title
+        }
         if chapters.indices.contains(chapterIndex) {
             return chapters[chapterIndex].title
         }
@@ -1760,8 +1781,8 @@ struct ReaderView: View {
         }
         if let engine = epubRenderer.engine, usesCoreTextEPUB {
             let pos = engine.position(forProgress: value)
-            if chapters.indices.contains(pos.spineIndex) {
-                return chapters[pos.spineIndex].title
+            if let chapter = tocChapter(forSpineIndex: pos.spineIndex, charOffset: pos.charOffset) {
+                return chapter.title
             }
         }
         guard allPages.count > 1 else { return chapters.first?.title ?? "" }

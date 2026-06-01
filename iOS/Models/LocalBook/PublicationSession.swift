@@ -1017,7 +1017,7 @@ final class PublicationSession {
 
     private static func flattenTableOfContents(_ links: [Link], level: Int = 0) -> [EPUBTocEntry] {
         links.flatMap { link in
-            let href = normalizedHREF(link.href)
+            let href = normalizedTOCHREF(link.href)
             let ownEntry: [EPUBTocEntry]
             if !href.isEmpty {
                 ownEntry = [
@@ -1032,6 +1032,25 @@ final class PublicationSession {
             }
             return ownEntry + flattenTableOfContents(link.children, level: level + 1)
         }
+    }
+
+    static func normalizedTOCHREF(_ href: String) -> String {
+        let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+        let pathPart = parts.first.map(String.init) ?? ""
+        let fragmentPart = parts.count > 1 ? String(parts[1]) : nil
+
+        let normalizedPath: String
+        if let url = URL(string: pathPart), url.scheme != nil {
+            normalizedPath = url.path.hasPrefix("/") ? String(url.path.dropFirst()) : url.path
+        } else {
+            normalizedPath = pathPart.hasPrefix("/") ? String(pathPart.dropFirst()) : pathPart
+        }
+
+        if let fragmentPart {
+            return "\(normalizedPath)#\(fragmentPart)"
+        }
+        return normalizedPath
     }
 
     private static func normalizedHREF(_ href: String) -> String {

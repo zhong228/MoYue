@@ -123,6 +123,55 @@ struct ReaderPresentationContractTests {
         #expect(location.progression == nil)
     }
 
+    @Test("EPUB TOC selection uses spine index instead of TOC array position")
+    func epubTOCSelectionUsesSpineIndexInsteadOfArrayPosition() {
+        let chapters = [
+            BookChapter(index: 0, title: "Cover", content: ""),
+            BookChapter(index: 4, title: "第一回", content: ""),
+            BookChapter(index: 8, title: "第二回", content: "")
+        ]
+
+        let selected = ReaderTOCSelection.currentChapter(
+            in: chapters,
+            currentSpineIndex: 8,
+            currentCharOffset: 0,
+            anchorOffset: { _ in nil }
+        )
+
+        #expect(selected?.title == "第二回")
+    }
+
+    @Test("EPUB TOC selection advances by in-spine anchors")
+    func epubTOCSelectionAdvancesByInSpineAnchors() {
+        let chapters = [
+            BookChapter(index: 2, title: "第二回", content: "", href: "text/ch2.xhtml"),
+            BookChapter(index: 2, title: "第二回 下", content: "", href: "text/ch2.xhtml", fragment: "part-b"),
+            BookChapter(index: 2, title: "第二回 末", content: "", href: "text/ch2.xhtml", fragment: "part-c")
+        ]
+
+        let selected = ReaderTOCSelection.currentChapter(
+            in: chapters,
+            currentSpineIndex: 2,
+            currentCharOffset: 80,
+            anchorOffset: { chapter in
+                switch chapter.fragment {
+                case "part-b": return 50
+                case "part-c": return 120
+                default: return nil
+                }
+            }
+        )
+
+        #expect(selected?.title == "第二回 下")
+    }
+
+    @Test("EPUB TOC href normalization preserves fragments")
+    func epubTOCHREFNormalizationPreservesFragments() {
+        #expect(PublicationSession.normalizedTOCHREF("text/ch01.xhtml#sec-2") == "text/ch01.xhtml#sec-2")
+        #expect(PublicationSession.normalizedTOCHREF("/OPS/text/ch01.xhtml#sec-2") == "OPS/text/ch01.xhtml#sec-2")
+        #expect(PublicationSession.normalizedTOCHREF("https://example.com/OPS/text/ch01.xhtml#sec-2") == "OPS/text/ch01.xhtml#sec-2")
+    }
+
     @Test("navigator owns live location and persists only through its store")
     func navigatorOwnsLiveLocation() async {
         let positionStore = InMemoryReadingPositionStore()
