@@ -305,7 +305,7 @@ final class TTSCoordinator: ObservableObject {
         currentEngine.seekToSegment(segment)
         isPlaying = currentEngine.isPlaying
         playbackState = isPlaying ? .playing : .paused
-        resetNowPlayingClockForCurrentAudio()
+        syncNowPlayingElapsed(toSegment: segment, total: totalSegments, restartClock: isPlaying)
         updateNowPlaying()
         publishFloatingPlayerState()
     }
@@ -668,11 +668,17 @@ final class TTSCoordinator: ObservableObject {
     }
 
     private func syncNowPlayingElapsedToCurrentSegment(restartClock: Bool) {
-        if totalSegments > 0 {
-            let clampedIndex = min(max(currentSegmentIndex, 0), max(totalSegments - 1, 0))
-            let progress = Double(clampedIndex) / Double(max(totalSegments, 1))
-            nowPlayingElapsed = min(max(nowPlayingDuration * progress, 0), max(nowPlayingDuration, 1))
+        syncNowPlayingElapsed(toSegment: currentSegmentIndex, total: totalSegments, restartClock: restartClock)
+    }
+
+    private func syncNowPlayingElapsed(toSegment index: Int, total: Int, restartClock: Bool) {
+        guard total > 0 else {
+            nowPlayingStartedAt = restartClock ? Date() : nil
+            return
         }
+        let clampedIndex = min(max(index, 0), max(total - 1, 0))
+        let progress = Double(clampedIndex) / Double(max(total, 1))
+        nowPlayingElapsed = min(max(nowPlayingDuration * progress, 0), max(nowPlayingDuration, 1))
         nowPlayingStartedAt = restartClock ? Date() : nil
     }
 

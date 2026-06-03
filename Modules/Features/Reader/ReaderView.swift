@@ -1,5 +1,6 @@
 import Combine
 import SwiftUI
+import UIKit
 
 private let uiFeedbackDuration: Double = 0.25
 
@@ -740,6 +741,61 @@ struct ReaderView: View {
         let index = ttsChapterIndex ?? currentChapterIndex
         guard chapters.indices.contains(index) else { return currentChapterTitle }
         return chapters[index].title
+    }
+
+    private var ttsNowPlayingBookTitle: String {
+        let title = book?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return title.isEmpty ? activeTTSChapterTitle : title
+    }
+
+    private var ttsNowPlayingAuthor: String {
+        book?.author.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func ttsNowPlayingArtwork() -> UIImage? {
+        if let coverPath = book?.coverImagePath,
+           let image = loadTOCStyleCoverImage(filename: coverPath) {
+            return image
+        }
+        return makeTOCStyleTitleCardArtwork(title: ttsNowPlayingBookTitle)
+    }
+
+    private func loadTOCStyleCoverImage(filename: String) -> UIImage? {
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(filename)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return UIImage(data: data)
+    }
+
+    private func makeTOCStyleTitleCardArtwork(title: String) -> UIImage? {
+        let size = CGSize(width: 512, height: 768)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = UIScreen.main.scale
+
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let displayTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return renderer.image { context in
+            UIColor.secondarySystemBackground.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .left
+            paragraph.lineBreakMode = .byTruncatingTail
+
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 44, weight: .medium),
+                .foregroundColor: UIColor.secondaryLabel,
+                .paragraphStyle: paragraph
+            ]
+            let rect = CGRect(x: 56, y: 64, width: size.width - 112, height: size.height - 128)
+            let titleString = displayTitle.isEmpty ? "閱讀" : displayTitle
+            (titleString as NSString).draw(
+                with: rect,
+                options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                attributes: attributes,
+                context: nil
+            )
+        }
     }
 
     // ── Body ──
@@ -2003,7 +2059,13 @@ struct ReaderView: View {
         if syncReader {
             jumpToChapter(chapterIndex)
         }
-        ttsCoordinator.speak(text: text, title: chapters[chapterIndex].title)
+        ttsCoordinator.speak(
+            text: text,
+            title: chapters[chapterIndex].title,
+            bookTitle: ttsNowPlayingBookTitle,
+            author: ttsNowPlayingAuthor,
+            artwork: ttsNowPlayingArtwork()
+        )
         return true
     }
 
@@ -2030,7 +2092,7 @@ struct ReaderView: View {
         ttsChapterIndex = target
         showTTSJumpPrompt = false
         ttsJumpPromptChapterIndex = nil
-        ttsCoordinator.updateNowPlayingTitle(chapters[target].title)
+        ttsCoordinator.updateNowPlayingChapter(title: chapters[target].title, text: text)
         jumpToChapter(target)
         return text
     }
@@ -2074,7 +2136,13 @@ struct ReaderView: View {
         showTTSJumpPrompt = false
         ttsJumpPromptChapterIndex = nil
         ensureChapterReady(chapterIndex: target, priority: .jump)
-        ttsCoordinator.speak(text: text, title: chapters[target].title)
+        ttsCoordinator.speak(
+            text: text,
+            title: chapters[target].title,
+            bookTitle: ttsNowPlayingBookTitle,
+            author: ttsNowPlayingAuthor,
+            artwork: ttsNowPlayingArtwork()
+        )
     }
 
     private func textForTTSChapter(_ chapterIndex: Int) -> String {
