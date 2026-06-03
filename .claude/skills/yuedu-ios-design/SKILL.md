@@ -17,7 +17,7 @@ description: iOS native UI/UX design rules for the Yuedu (閱讀) reader app. Us
    .toolbarTitleDisplayMode(.inlineLarge)
    ```
 2. **在地化**：所有對使用者文字 `localized("…")`，三個 lproj（zh-Hant/zh-Hans/en）同步。禁止寫死字串。
-3. **設計 token**：顏色/字體/間距/圓角/動畫一律用 `DSColor`/`DSFont`/`DSSpacing`/`DSRadius`/`DSAnimation`（`iOS/Models/App/DesignTokens.swift`）。禁止寫死 hex / `.system(size:)` / 硬 duration。缺 token 先補進 `DesignTokens.swift`。
+3. **設計 token**：顏色/字體/間距/圓角/動畫一律用 `DSColor`/`DSFont`/`DSSpacing`/`DSRadius`/`DSAnimation`（`Modules/SharedUI/DesignSystem/DesignTokens.swift`）。禁止寫死 hex / `.system(size:)` / 硬 duration。缺 token 先補進 `DesignTokens.swift`。
 4. **原生元件優先**：`NavigationStack`/`TabView`/`List`/`Sheet`/`Menu`/`Picker`/`Toolbar`/`contextMenu`/`swipeActions`/`searchable`。設定頁用 iOS Settings 風格（`Form`/insetGrouped `List`），不做網頁表單。
 5. **SF Symbols 優先**；icon-only 按鈕必須 `accessibilityLabel`（用 `localized`）。
 6. **無障礙**：Dynamic Type（用語義字級）、VoiceOver、點擊區 ≥ 44×44pt、深色模式對比足夠、顏色非唯一狀態提示。

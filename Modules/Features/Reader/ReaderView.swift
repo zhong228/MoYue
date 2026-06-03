@@ -84,6 +84,7 @@ struct ReaderView: View {
     @StateObject private var epubRenderer = EPUBPageRenderer()
 
     @State private var showTTSPanel = false
+    @State private var showDownloadOptions = false
     @State private var showAutoReadPanel = false
     @State private var ttsChapterIndex: Int? = nil
     @State private var showTTSJumpPrompt = false
@@ -944,6 +945,10 @@ struct ReaderView: View {
                 .transition(.opacity.animation(.easeOut(duration: 0.2)))
             }
             if showBars { topBar }
+            if showBars, let b = book, shouldShowDownloadProgress(for: b) {
+                downloadProgressOverlay(for: b)
+                    .zIndex(60)
+            }
             if showBars { bottomBar }
             if showTTSJumpPrompt {
                 VStack {
@@ -957,7 +962,7 @@ struct ReaderView: View {
             }
             if showBars {
                 TTSFloatingPlayerOverlay()
-                    .zIndex(40)
+                    .zIndex(50)
             }
         }
         .background(
@@ -1154,6 +1159,27 @@ struct ReaderView: View {
                     allowsUserSelectedReaderFont: book?.allowsUserSelectedReaderFont == true,
                     isVerticalWritingMode: effectiveWritingMode.isVertical
                 )
+            }
+        }
+        .sheet(isPresented: $showDownloadOptions) {
+            if let b = book {
+                AdaptiveSheetContainer(maxWidth: DSLayout.readableListWidth) {
+                    ReaderDownloadOptionsView(
+                        bookTitle: b.title,
+                        currentChapterIndex: currentChapterIndex,
+                        totalChapters: b.onlineChapters?.count ?? chapters.count,
+                        onStart: { startChapterIndex, chapterCount in
+                            showDownloadOptions = false
+                            startOfflineDownload(
+                                startChapterIndex: startChapterIndex,
+                                chapterCount: chapterCount
+                            )
+                        },
+                        onCancel: {
+                            showDownloadOptions = false
+                        }
+                    )
+                }
             }
         }
         .sheet(isPresented: $showTOC) {
@@ -1788,6 +1814,44 @@ struct ReaderView: View {
             onOpenTTS: { showTTSPanel = true },
             onOpenTOC: { showTOC = true },
             onOpenSettings: { showSettings = true }
+        )
+    }
+
+    private func shouldShowDownloadProgress(for book: ReadingBook) -> Bool {
+        guard book.isOnline, book.offlineDownloadTask != nil else { return false }
+        switch book.offlineDownloadState {
+        case .downloading, .failed:
+            return true
+        case .none, .available:
+            return false
+        }
+    }
+
+    private func downloadProgressOverlay(for book: ReadingBook) -> some View {
+        GeometryReader { proxy in
+            ReaderDownloadProgressPanel(
+                book: book,
+                readerTheme: readerTheme,
+                onResume: { resumeOfflineDownload(for: book) }
+            )
+            .frame(width: downloadProgressPanelWidth(in: proxy.size), height: 64)
+            .position(downloadProgressPanelPosition(in: proxy.size))
+        }
+        .allowsHitTesting(true)
+        .ignoresSafeArea(.keyboard)
+        .transition(.scale(scale: 0.92).combined(with: .opacity))
+    }
+
+    private func downloadProgressPanelWidth(in size: CGSize) -> CGFloat {
+        min(max(size.width - 52, 148), 340)
+    }
+
+    private func downloadProgressPanelPosition(in size: CGSize) -> CGPoint {
+        let width = downloadProgressPanelWidth(in: size)
+        let height: CGFloat = 64
+        return CGPoint(
+            x: width / 2 + 26,
+            y: size.height - 136 - height / 2
         )
     }
 
@@ -2476,7 +2540,33 @@ struct ReaderView: View {
             store.clearOnlineDownload(bookId: b.id)
             return
         }
-        readerViewModel.handleDownloadAction(book: b, store: store)
+        if b.offlineDownloadState == .downloading {
+            return
+        }
+        showDownloadOptions = true
+    }
+
+    private func startOfflineDownload(startChapterIndex: Int, chapterCount: Int) {
+        guard let b = book, b.isOnline else { return }
+        readerViewModel.handleDownloadAction(
+            book: b,
+            store: store,
+            startChapterIndex: startChapterIndex,
+            chapterCount: chapterCount
+        )
+    }
+
+    private func resumeOfflineDownload(for book: ReadingBook) {
+        guard let task = book.offlineDownloadTask?.clamped(to: book.onlineChapters?.count ?? 0) else {
+            showDownloadOptions = true
+            return
+        }
+        readerViewModel.handleDownloadAction(
+            book: book,
+            store: store,
+            startChapterIndex: task.startChapterIndex,
+            chapterCount: task.totalChapterCount
+        )
     }
 
     /// Source change search has been moved to ReaderViewModel.loadOtherOrigins. This method only triggers it and passes required data.
@@ -3033,6 +3123,318 @@ struct ReaderView: View {
         engine.applyThemeChange(
             textColor: readerTheme.uiTextColor,
             backgroundColor: readerTheme.uiBackgroundColor
+        )
+    }
+}
+
+private enum ReaderDownloadStartOption: String, CaseIterable, Identifiable {
+    case currentChapter
+    case firstChapter
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .currentChapter:
+            return localized("從當前章開始")
+        case .firstChapter:
+            return localized("從第一章開始")
+        }
+    }
+}
+
+private struct ReaderDownloadOptionsView: View {
+    let bookTitle: String
+    let currentChapterIndex: Int
+    let totalChapters: Int
+    let onStart: (Int, Int) -> Void
+    let onCancel: () -> Void
+
+    @State private var startOption: ReaderDownloadStartOption = .currentChapter
+    @State private var chapterCount: Double
+    @State private var chapterCountText: String
+
+    init(
+        bookTitle: String,
+        currentChapterIndex: Int,
+        totalChapters: Int,
+        onStart: @escaping (Int, Int) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.bookTitle = bookTitle
+        self.currentChapterIndex = max(0, currentChapterIndex)
+        self.totalChapters = max(0, totalChapters)
+        self.onStart = onStart
+        self.onCancel = onCancel
+
+        let safeTotal = max(1, totalChapters)
+        let safeCurrent = min(max(0, currentChapterIndex), safeTotal - 1)
+        let defaultCount = min(50, max(1, safeTotal - safeCurrent))
+        _chapterCount = State(initialValue: Double(defaultCount))
+        _chapterCountText = State(initialValue: "\(defaultCount)")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    VStack(alignment: .leading, spacing: DSSpacing.xs) {
+                        Text(bookTitle)
+                            .font(DSFont.headline)
+                            .lineLimit(2)
+                        Text(summaryText)
+                            .font(DSFont.caption)
+                            .foregroundColor(DSColor.textSecondary)
+                    }
+                    .padding(.vertical, DSSpacing.xs)
+                }
+
+                Section(header: Text(localized("下載範圍"))) {
+                    Picker(localized("開始位置"), selection: $startOption) {
+                        ForEach(ReaderDownloadStartOption.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: startOption) { _, _ in
+                        clampChapterCountToCurrentMaximum()
+                    }
+
+                    HStack {
+                        Text(localized("開始章節"))
+                        Spacer()
+                        Text(String(format: localized("第 %d 章"), selectedStartIndex + 1))
+                            .foregroundColor(DSColor.textSecondary)
+                    }
+                }
+
+                Section(header: Text(localized("章數"))) {
+                    Slider(
+                        value: Binding(
+                            get: { chapterCount },
+                            set: { updateChapterCount(Int($0.rounded())) }
+                        ),
+                        in: 1...Double(maxSelectableCount),
+                        step: 1
+                    )
+
+                    HStack {
+                        Text(localized("手動輸入"))
+                        Spacer()
+                        TextField(localized("章數"), text: $chapterCountText)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 96)
+                            .onChange(of: chapterCountText) { _, newValue in
+                                updateChapterCountText(newValue)
+                            }
+                    }
+
+                    Text(String(format: localized("最多可下載 %d 章"), maxSelectableCount))
+                        .font(DSFont.caption)
+                        .foregroundColor(DSColor.textSecondary)
+                }
+
+                if totalChapters <= 0 {
+                    Section {
+                        Label(localized("沒有可下載章節"), systemImage: "exclamationmark.triangle")
+                            .foregroundColor(DSColor.textSecondary)
+                    }
+                }
+            }
+            .navigationTitle(localized("下載章節"))
+            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(localized("取消")) { onCancel() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(localized("開始下載")) {
+                        onStart(selectedStartIndex, Int(chapterCount.rounded()))
+                    }
+                    .disabled(totalChapters <= 0)
+                }
+            }
+        }
+    }
+
+    private var selectedStartIndex: Int {
+        guard totalChapters > 0 else { return 0 }
+        switch startOption {
+        case .currentChapter:
+            return min(max(currentChapterIndex, 0), totalChapters - 1)
+        case .firstChapter:
+            return 0
+        }
+    }
+
+    private var maxSelectableCount: Int {
+        max(1, totalChapters - selectedStartIndex)
+    }
+
+    private var selectedEndIndex: Int {
+        min(totalChapters - 1, selectedStartIndex + Int(chapterCount.rounded()) - 1)
+    }
+
+    private var summaryText: String {
+        guard totalChapters > 0 else { return localized("沒有可下載章節") }
+        return String(
+            format: localized("第 %d 到 %d 章，共 %d 章"),
+            selectedStartIndex + 1,
+            selectedEndIndex + 1,
+            Int(chapterCount.rounded())
+        )
+    }
+
+    private func updateChapterCount(_ value: Int) {
+        let clamped = min(max(value, 1), maxSelectableCount)
+        chapterCount = Double(clamped)
+        chapterCountText = "\(clamped)"
+    }
+
+    private func updateChapterCountText(_ text: String) {
+        let filtered = text.filter(\.isNumber)
+        if filtered != text {
+            chapterCountText = filtered
+            return
+        }
+        guard let value = Int(filtered) else { return }
+        let clamped = min(max(value, 1), maxSelectableCount)
+        chapterCount = Double(clamped)
+        if value != clamped {
+            chapterCountText = "\(clamped)"
+        }
+    }
+
+    private func clampChapterCountToCurrentMaximum() {
+        updateChapterCount(Int(chapterCount.rounded()))
+    }
+}
+
+private struct ReaderDownloadProgressPanel: View {
+    let book: ReadingBook
+    let readerTheme: ReaderTheme
+    let onResume: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: statusIcon)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 56, height: 56)
+                .background(statusTint, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(statusTitle)
+                        .font(DSFont.subheadline.weight(.semibold))
+                        .foregroundColor(readerTheme.textColor)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(progressText)
+                        .font(DSFont.caption.monospacedDigit())
+                        .foregroundColor(readerTheme.textColor.opacity(0.72))
+                        .lineLimit(1)
+                }
+
+                ProgressView(value: progress)
+                    .tint(statusTint)
+
+                Text(rangeText)
+                    .font(DSFont.caption)
+                    .foregroundColor(readerTheme.textColor.opacity(0.64))
+                    .lineLimit(1)
+            }
+
+            if book.offlineDownloadState == .failed {
+                Button {
+                    onResume()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(statusTint)
+                        .frame(width: 40, height: 48)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(localized("繼續下載"))
+            }
+        }
+        .buttonStyle(.borderless)
+        .padding(.leading, 4)
+        .padding(.trailing, 10)
+        .padding(.vertical, 4)
+        .background(.regularMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
+        .contentShape(Capsule())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(statusTitle)，\(progressText)，\(rangeText)")
+    }
+
+    private var task: BookOfflineDownloadTask? {
+        book.offlineDownloadTask?.clamped(to: book.onlineChapters?.count ?? 0)
+    }
+
+    private var completed: Int {
+        task?.clampedCompletedChapterCount ?? book.downloadedChapterCount
+    }
+
+    private var total: Int {
+        max(task?.totalChapterCount ?? book.onlineChapters?.count ?? 1, 1)
+    }
+
+    private var progress: Double {
+        min(max(Double(completed) / Double(total), 0), 1)
+    }
+
+    private var statusTitle: String {
+        switch book.offlineDownloadState {
+        case .downloading:
+            return localized("下載中")
+        case .available:
+            return localized("下載完成")
+        case .failed:
+            return localized("下載失敗")
+        case .none:
+            return localized("未下載")
+        }
+    }
+
+    private var statusIcon: String {
+        switch book.offlineDownloadState {
+        case .downloading:
+            return "arrow.down.circle.fill"
+        case .available:
+            return "checkmark.circle.fill"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        case .none:
+            return "icloud.and.arrow.down"
+        }
+    }
+
+    private var statusTint: Color {
+        switch book.offlineDownloadState {
+        case .downloading:
+            return readerTheme.accentColor
+        case .available:
+            return DSColor.success
+        case .failed:
+            return DSColor.warning
+        case .none:
+            return DSColor.textSecondary
+        }
+    }
+
+    private var progressText: String {
+        String(format: localized("%d/%d 章"), completed, total)
+    }
+
+    private var rangeText: String {
+        guard let task else { return book.title }
+        return String(
+            format: localized("第 %d 到 %d 章"),
+            task.startChapterIndex + 1,
+            task.endChapterIndex + 1
         )
     }
 }

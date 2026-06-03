@@ -26,6 +26,7 @@ struct ReaderPresentationContractTests {
         #expect(cover.transitionStyle == .scroll)
         #expect(cover.disablesBuiltInSwipe)
         #expect(cover.usesCoverOverlay)
+        #expect(cover.spineLocation(isRTL: true) == .max)
 
         let none = PageViewControllerPagingAdapterDescriptor(pageTurnStyle: .none)
         #expect(none.style == .none)

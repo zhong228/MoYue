@@ -690,73 +690,122 @@ actor BookDownloadManager {
     static let shared = BookDownloadManager()
 
     private let chapterFetchManager: ChapterFetchManager
+    private var activeBookIds: Set<UUID> = []
 
     init(chapterFetchManager: ChapterFetchManager = .shared) {
         self.chapterFetchManager = chapterFetchManager
     }
 
-    func downloadBook(book: ReadingBook, store: BookStore?) async {
-        guard let refs = book.onlineChapters, !refs.isEmpty else { return }
+    func isDownloadActive(bookId: UUID) -> Bool {
+        activeBookIds.contains(bookId)
+    }
+
+    func downloadBook(
+        book: ReadingBook,
+        store: BookStore?,
+        startChapterIndex: Int = 0,
+        chapterCount: Int? = nil
+    ) async {
+        let libraryBook = await MainActor.run {
+            store?.ensureOnlineBookForDownload(book) ?? book
+        }
+        guard let refs = libraryBook.onlineChapters, !refs.isEmpty else { return }
+        guard !activeBookIds.contains(libraryBook.id) else { return }
+
+        let startIndex = min(max(startChapterIndex, 0), refs.count - 1)
+        let requestedCount = chapterCount.map { max(1, $0) }
+        let endIndex = min(
+            refs.count - 1,
+            startIndex + (requestedCount ?? refs.count) - 1
+        )
+        let indices = Array(startIndex...endIndex)
+        var task = BookOfflineDownloadTask(
+            startChapterIndex: startIndex,
+            endChapterIndex: endIndex
+        )
+
+        activeBookIds.insert(libraryBook.id)
+        defer { activeBookIds.remove(libraryBook.id) }
+
+        let initialTask = task
         await MainActor.run {
             store?.setOfflineDownloadState(
-                bookId: book.id, state: .downloading, downloadedChapterCount: 0)
+                bookId: libraryBook.id,
+                state: .downloading,
+                downloadedChapterCount: 0,
+                offlineDownloadTask: initialTask
+            )
         }
         ReaderTelemetry.shared.log(
             "book_download_start",
             attributes: [
-                "bookId": book.id.uuidString,
-                "chapterCount": "\(refs.count)",
+                "bookId": libraryBook.id.uuidString,
+                "chapterCount": "\(indices.count)",
+                "startChapterIndex": "\(startIndex)",
+                "endChapterIndex": "\(endIndex)",
                 "pipelineKind": "online",
             ]
         )
 
         // Manga books additionally pull the page images to disk for true offline reading.
-        let isManga = book.contentPipelineKind == .manga
+        let isManga = libraryBook.contentPipelineKind == .manga
         let mangaHeaders: [String: String] = isManga
             ? await MainActor.run {
-                let src = book.bookSourceId.flatMap { id in BookSourceStore.shared.sources.first { $0.id == id } }
+                let src = libraryBook.bookSourceId.flatMap { id in BookSourceStore.shared.sources.first { $0.id == id } }
                 return BookCoverLoader.headers(
                     sourceBaseURL: src?.bookSourceUrl, sourceHeaders: src?.parsedHeaders ?? [:])
             }
             : [:]
 
         var completed = 0
-        for idx in refs.indices {
+        for idx in indices {
             do {
                 let package = try await chapterFetchManager.fetchChapter(
-                    book: book,
+                    book: libraryBook,
                     chapterIndex: idx,
                     priority: .download,
                     store: store
                 )
                 if isManga {
                     await Self.downloadMangaImages(
-                        bookId: book.id, chapterIndex: idx, content: package.content, headers: mangaHeaders)
+                        bookId: libraryBook.id, chapterIndex: idx, content: package.content, headers: mangaHeaders)
                 }
                 completed += 1
                 let completedNow = completed
+                task = task.updatingProgress(completedNow)
+                let progressTask = task
                 await MainActor.run {
                     store?.setOfflineDownloadState(
-                        bookId: book.id, state: .downloading, downloadedChapterCount: completedNow)
+                        bookId: libraryBook.id,
+                        state: .downloading,
+                        downloadedChapterCount: completedNow,
+                        offlineDownloadTask: progressTask
+                    )
                 }
                 ReaderTelemetry.shared.log(
                     "book_download_progress",
                     attributes: [
-                        "bookId": book.id.uuidString,
+                        "bookId": libraryBook.id.uuidString,
                         "chapterIndex": "\(idx)",
                         "completed": "\(completedNow)",
                     ]
                 )
             } catch {
                 let completedNow = completed
+                task = task.updatingProgress(completedNow)
+                let failedTask = task
                 await MainActor.run {
                     store?.setOfflineDownloadState(
-                        bookId: book.id, state: .failed, downloadedChapterCount: completedNow)
+                        bookId: libraryBook.id,
+                        state: .failed,
+                        downloadedChapterCount: completedNow,
+                        offlineDownloadTask: failedTask
+                    )
                 }
                 ReaderTelemetry.shared.log(
                     "book_download_end",
                     attributes: [
-                        "bookId": book.id.uuidString,
+                        "bookId": libraryBook.id.uuidString,
                         "completed": "\(completedNow)",
                         "result": "failed",
                     ]
@@ -766,15 +815,23 @@ actor BookDownloadManager {
         }
 
         let completedNow = completed
+        task = task.updatingProgress(completedNow)
+        let completedTask = task
         await MainActor.run {
             store?.setOfflineDownloadState(
-                bookId: book.id, state: .available, downloadedChapterCount: completedNow)
+                bookId: libraryBook.id,
+                state: .available,
+                downloadedChapterCount: completedNow,
+                offlineDownloadTask: completedTask
+            )
         }
         ReaderTelemetry.shared.log(
             "book_download_end",
             attributes: [
-                "bookId": book.id.uuidString,
+                "bookId": libraryBook.id.uuidString,
                 "completed": "\(completedNow)",
+                "startChapterIndex": "\(startIndex)",
+                "endChapterIndex": "\(endIndex)",
                 "result": "success",
             ]
         )
@@ -1099,8 +1156,22 @@ final class OnlineBookCoordinator {
     }
 
     func downloadBook(_ book: ReadingBook, store: BookStore?) {
+        downloadBook(book, store: store, startChapterIndex: 0, chapterCount: nil)
+    }
+
+    func downloadBook(
+        _ book: ReadingBook,
+        store: BookStore?,
+        startChapterIndex: Int,
+        chapterCount: Int?
+    ) {
         Task {
-            await BookDownloadManager.shared.downloadBook(book: book, store: store)
+            await BookDownloadManager.shared.downloadBook(
+                book: book,
+                store: store,
+                startChapterIndex: startChapterIndex,
+                chapterCount: chapterCount
+            )
         }
     }
 

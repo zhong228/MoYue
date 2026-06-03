@@ -4,7 +4,7 @@
 require "json"
 require "open3"
 
-root = ARGV[0] || "iOS"
+root = ARGV[0] || (Dir.exist?("Resources") ? "Resources" : "iOS")
 files = Dir.glob(File.join(root, "*.lproj", "Localizable.strings")).sort
 
 if files.empty?

@@ -514,14 +514,37 @@ class BookStore: ObservableObject, BookProvider {
     func setOfflineDownloadState(
         bookId: UUID,
         state: BookOfflineDownloadState,
-        downloadedChapterCount: Int? = nil
+        downloadedChapterCount: Int? = nil,
+        offlineDownloadTask: BookOfflineDownloadTask? = nil
     ) {
         guard let idx = books.firstIndex(where: { $0.id == bookId }) else { return }
         books[idx].offlineDownloadState = state
         if let downloadedChapterCount {
             books[idx].downloadedChapterCount = downloadedChapterCount
         }
+        if let offlineDownloadTask {
+            books[idx].offlineDownloadTask = offlineDownloadTask
+        }
         saveMeta()
+    }
+
+    func clearOfflineDownloadTask(bookId: UUID) {
+        guard let idx = books.firstIndex(where: { $0.id == bookId }) else { return }
+        books[idx].offlineDownloadTask = nil
+        saveMeta()
+    }
+
+    @discardableResult
+    func ensureOnlineBookForDownload(_ book: ReadingBook) -> ReadingBook {
+        guard book.isOnline else { return book }
+        if let idx = books.firstIndex(where: { $0.id == book.id }) {
+            return books[idx]
+        }
+        var libraryBook = book
+        libraryBook.addedDate = Date()
+        books.insert(libraryBook, at: 0)
+        saveMeta()
+        return libraryBook
     }
 
     // MARK: Bookmark Management
@@ -833,7 +856,8 @@ class BookStore: ObservableObject, BookProvider {
             guard let saved = await BookCoverLoader.downloadAndSave(
                 urlString: trimmed, headers: headers, filename: filename
             ) else { return }
-            await MainActor.run { self?.setCoverImagePath(bookId: bookId, filename: saved) }
+            guard let self else { return }
+            await MainActor.run { self.setCoverImagePath(bookId: bookId, filename: saved) }
         }
     }
 
@@ -923,6 +947,7 @@ class BookStore: ObservableObject, BookProvider {
         }
         books[idx].offlineDownloadState = .none
         books[idx].downloadedChapterCount = 0
+        books[idx].offlineDownloadTask = nil
         saveMeta()
     }
 

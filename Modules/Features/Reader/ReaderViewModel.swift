@@ -134,10 +134,20 @@ final class ReaderViewModel: ObservableObject {
     // MARK: - Download Actions
 
     /// Starts or cancels offline download for a book, replacing direct OnlineBookCoordinator.shared calls from the view.
-    func handleDownloadAction(book: ReadingBook, store: BookStore) {
+    func handleDownloadAction(
+        book: ReadingBook,
+        store: BookStore,
+        startChapterIndex: Int = 0,
+        chapterCount: Int? = nil
+    ) {
         switch book.offlineDownloadState {
         case .none, .failed:
-            bookCoordinator.downloadBook(book, store: store)
+            bookCoordinator.downloadBook(
+                book,
+                store: store,
+                startChapterIndex: startChapterIndex,
+                chapterCount: chapterCount
+            )
         case .downloading, .available:
             break  // .available is handled by the view layer via store.clearOnlineDownload
         }

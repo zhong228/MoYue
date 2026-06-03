@@ -10,8 +10,18 @@ Use this skill to orient before touching the yuedu app. The app is an iOS EPUB/T
 Project root:
 
 ```bash
-/Users/zhangruilin/Desktop/Yuedu-reader/iOS
+/Users/zhangruilin/Desktop/Yuedu-reader
 ```
+
+Current top-level source layout:
+
+- `Modules/Core/`: shared parsing, reader engine, CoreText, TTS, book source, replacement, comic, TXT/EPUB/Markdown logic.
+- `Modules/Services/`: persistence, online fetching, networking, RSS, sync, account, OPDS/WebDAV/LAN services.
+- `Modules/Features/`: SwiftUI/UIKit feature screens for bookshelf, reader, settings, search, RSS, manga, browser, explore, book source, stats.
+- `Modules/SharedUI/`: design tokens and shared SwiftUI components.
+- `Targets/Yuedu/`: app entry, dependency injection, shared shell, iPhone/iPad target-specific UI.
+- `Resources/`: assets and `*.lproj/Localizable.strings`.
+- `Tests/`: iOS unit/UI tests.
 
 ## Start Here
 
@@ -33,37 +43,38 @@ When changing either copy, apply the same content change to the other copy befor
 
 | Task area | Main folders |
 | --- | --- |
-| Reading rendering, layout, fonts, margins, paging | `Models/Reader/CoreText/`, `Views/Reader/` |
-| Bookshelf, book CRUD, grouping, drag sorting | `Models/Book/`, `Views/Bookshelf/` |
-| Book sources, online books, rule engine | `Models/BookSource/`, `Models/Online/`, `Models/RuleEngine/` |
-| Global settings, themes, DI | `Models/App/` |
-| Account, sign-in, Google Sign-In, Apple Sign-In | `Views/Login/`, `Views/Settings/ProfileView.swift`, `Models/App/GlobalSettings.swift` |
-| TTS | `Models/TTS/`, `Views/TTS/` |
-| Search | `Views/Search/` |
-| Sync and offline download | `Models/Sync/`, `Models/Network/` |
-| RSS, comics, replacement rules | `Models/RSS/`, `Models/Comic/`, `Models/Replace/` |
+| Reading rendering, layout, fonts, margins, paging | `Modules/Core/ReaderCore/`, `Modules/Core/ReaderCore/CoreText/`, `Modules/Features/Reader/` |
+| Bookshelf, book CRUD, grouping, drag sorting | `Modules/Services/LibraryStore/`, `Modules/Features/Bookshelf/` |
+| Book sources, online books, rule engine | `Modules/Core/BookSource/`, `Modules/Services/Online/`, `Modules/Core/RuleEngine/`, `Modules/Features/BookSource/`, `Modules/Features/Explore/` |
+| Global settings, themes, DI | `Targets/Yuedu/SharedApp/`, `Modules/SharedUI/DesignSystem/` |
+| Account, sign-in, Google Sign-In, Apple Sign-In | `Modules/Services/Account/`, `Modules/Features/Settings/ProfileView.swift`, `Modules/Features/Settings/UserDetailView.swift`, `Modules/Features/Settings/LoginView.swift`, `Targets/Yuedu/SharedApp/GlobalSettings.swift` |
+| TTS | `Modules/Core/TTS/`, `Modules/Features/Reader/TTS/`, `Modules/Features/Settings/TTSSettingsView.swift` |
+| Search | `Modules/Features/Search/`, `Modules/Services/Online/SearchAggregator.swift` |
+| Sync and offline download | `Modules/Services/iCloud/`, `Modules/Services/WebDAV/`, `Modules/Services/Network/`, `Modules/Services/Online/OnlineReadingPipeline.swift`, `Modules/Features/Settings/DownloadManagementView.swift` |
+| RSS, comics, replacement rules | `Modules/Services/RSS/`, `Modules/Features/RSS/`, `Modules/Core/Comic/`, `Modules/Features/Manga/`, `Modules/Core/Replace/`, `Modules/Features/Settings/ReplaceRuleListView.swift` |
 
 ## Entry Points
 
 | Need | Read first |
 | --- | --- |
-| App launch and environment injection | `yuedu_appApp.swift` |
+| App launch and environment injection | `Targets/Yuedu/SharedApp/yuedu_appApp.swift`, `Targets/Yuedu/SharedApp/AppDependencies.swift` |
 | Main tabs | `Targets/Yuedu/SharedApp/ContentView.swift` |
-| Bookshelf | `Views/Bookshelf/HomeView.swift` |
-| Book model and store | `Models/Book/Models.swift` (`ReadingBook`, `Bookmark`), `Models/Book/BookStore.swift` (`BookStore`) |
-| Reader screen | `Views/Reader/ReaderView.swift`, `ReaderViewFactory.swift` |
-| Reader state | `ViewModels/ReaderViewModel.swift` |
-| Paged CoreText layout | `Models/Reader/CoreText/CoreTextPaginator.swift` |
+| Bookshelf | `Modules/Features/Bookshelf/HomeView.swift` |
+| Book model and store | `Modules/Services/LibraryStore/Models.swift` (`ReadingBook`, `Bookmark`), `Modules/Services/LibraryStore/BookStore.swift` (`BookStore`) |
+| Reader screen | `Modules/Features/Reader/ReaderView.swift`, `Modules/Features/Reader/ReaderViewFactory.swift` |
+| Reader state | `Modules/Features/Reader/ReaderViewModel.swift` |
+| Paged CoreText layout | `Modules/Core/ReaderCore/CoreText/CoreTextPaginator.swift` |
 | CoreText contributor docs | `docs/coretext/README.md` |
-| Vertical infinite scrolling | `Models/Reader/CoreText/CoreTextScrollEngine.swift`, `CoreTextChunkSlicer.swift`, `Views/Reader/CoreTextScrollViewController.swift` |
-| Single-page CoreText rendering | `Models/Reader/CoreText/CoreTextPageView.swift` |
-| Scroll chunk rendering | `Views/Reader/CoreTextChunkCell.swift` |
-| EPUB CSS parsing | `Models/Reader/CoreText/EPUBStyleResolver.swift` |
-| HTML/Markdown/TXT attributed strings | `Models/Reader/CoreText/*AttributedStringBuilder.swift` |
-| Vertical text normalization & config | `Models/Reader/CoreText/CoreTextCommon/String+VerticalNormalization.swift`, `VerticalLayoutConfig.swift` |
-| Settings | `Models/App/GlobalSettings.swift` (`GlobalSettings.shared`) |
-| Account row and sign-in | `Views/Settings/ProfileView.swift`, `Views/Login/UserDetailView.swift`, `Views/Login/LoginView.swift` |
-| RSS list and feed parsing | `Views/RSS/RSSListView.swift`, `Views/RSS/RSSFeedView.swift`, `Models/RSS/RSSFetcher.swift` |
+| Vertical infinite scrolling | `Modules/Core/ReaderCore/CoreText/CoreTextScrollEngine.swift`, `Modules/Core/ReaderCore/CoreText/CoreTextChunkSlicer.swift`, `Modules/Features/Reader/CoreTextCollectionScrollViewController.swift` |
+| Single-page CoreText rendering | `Modules/Core/ReaderCore/CoreText/CoreTextPageView.swift` |
+| Scroll chunk rendering | `Modules/Features/Reader/CoreTextChunkCell.swift` |
+| EPUB CSS parsing | `Modules/Core/ReaderCore/CoreText/EPUBStyleResolver.swift` |
+| HTML/Markdown/TXT attributed strings | `Modules/Core/ReaderCore/CoreText/*AttributedStringBuilder.swift` |
+| Vertical text normalization & config | `Modules/Core/ReaderCore/CoreText/CoreTextCommon/String+VerticalNormalization.swift`, `Modules/Core/ReaderCore/CoreText/CoreTextCommon/VerticalLayoutConfig.swift` |
+| Settings | `Targets/Yuedu/SharedApp/GlobalSettings.swift` (`GlobalSettings.shared`), `Modules/Features/Settings/` |
+| Account row and sign-in | `Modules/Features/Settings/ProfileView.swift`, `Modules/Features/Settings/UserDetailView.swift`, `Modules/Features/Settings/LoginView.swift` |
+| Online reading and download | `Modules/Services/Online/OnlineReadingPipeline.swift`, `Modules/Services/Online/ChapterFetcher.swift`, `Modules/Features/Settings/DownloadManagementView.swift` |
+| RSS list and feed parsing | `Modules/Features/RSS/RSSListView.swift`, `Modules/Features/RSS/RSSFeedView.swift`, `Modules/Services/RSS/RSSFetcher.swift` |
 | Design tokens | `Modules/SharedUI/DesignSystem/DesignTokens.swift` (`DSColor`, `DSFont`, `DSSpacing`, `DSLayout`) |
 
 ## Search Patterns
@@ -71,15 +82,15 @@ When changing either copy, apply the same content change to the other copy befor
 Use `rg` from the project root:
 
 ```bash
-ROOT="/Users/zhangruilin/Desktop/Yuedu-reader/iOS"
+ROOT="/Users/zhangruilin/Desktop/Yuedu-reader"
 
-rg -n "struct YourViewName" "$ROOT" -g '*.swift'
-rg -n "store\\.yourMethod|\\.yourProperty" "$ROOT" -g '*.swift'
-rg -n '"Button text"' "$ROOT" -g '*.swift'
-rg -n '"Button text"' "$ROOT"/zh-Hant.lproj/Localizable.strings
-rg -n "Notification\\.Name|NotificationCenter" "$ROOT" -g '*.swift'
-rg -n "@Published" "$ROOT/Models" -g '*.swift'
-rg -n "^protocol " "$ROOT" -g '*.swift'
+rg -n "struct YourViewName" "$ROOT"/Modules "$ROOT"/Targets -g '*.swift'
+rg -n "store\\.yourMethod|\\.yourProperty" "$ROOT"/Modules "$ROOT"/Targets -g '*.swift'
+rg -n '"Button text"' "$ROOT"/Modules "$ROOT"/Targets -g '*.swift'
+rg -n '"Button text"' "$ROOT"/Resources/zh-Hant.lproj/Localizable.strings
+rg -n "Notification\\.Name|NotificationCenter" "$ROOT"/Modules "$ROOT"/Targets -g '*.swift'
+rg -n "@Published" "$ROOT"/Modules "$ROOT"/Targets -g '*.swift'
+rg -n "^protocol " "$ROOT"/Modules "$ROOT"/Targets -g '*.swift'
 ```
 
 ## CoreText Pitfalls
@@ -342,7 +353,7 @@ Rules:
 ## Account Sign-In
 
 - Account state is currently stored in `GlobalSettings.shared`: `isLoggedIn`, `accountDisplayName`, `accountEmail`, `accountProvider`, and `accountAvatarData`, all persisted through `UserDefaults`.
-- The settings entry point is `SettingsView` -> `UserDetailView`; `LoginView` lives under `Views/Login/`. Do not put sign-in UI back under `Views/TTS/`; that folder is for text-to-speech UI.
+- The settings entry point is `Modules/Features/Settings/ProfileView.swift` (`SettingsView`) -> `UserDetailView`; `LoginView` lives under `Modules/Features/Settings/LoginView.swift`. Do not put sign-in UI under `Modules/Features/Reader/TTS/`; that folder is for reader text-to-speech UI.
 - Sign-out must go through `GlobalSettings.signOut(...)`; do not mutate `isLoggedIn` directly from views. Google accounts need to clear `GIDSignIn.sharedInstance` first: normal sign-out uses `signOut()`, while revoke uses the `disconnect` path.
 - On successful sign-in, `LoginView` should call its success callback and `dismiss()` so the parent sheet binding and actual presentation state stay in sync.
 - Avatar changes use `PhotosPicker` -> resize/compress -> `GlobalSettings.updateAccountAvatar(data:)`. `ProfileView` and `UserDetailView` should share the same account avatar rendering instead of duplicating state.
@@ -375,25 +386,25 @@ Do not write raw UI strings directly inside `Text`, `Button`, `Label`, `TextFiel
 
 For each new UI key, update all three files:
 
-- `zh-Hant.lproj/Localizable.strings`
-- `zh-Hans.lproj/Localizable.strings`
-- `en.lproj/Localizable.strings`
+- `Resources/zh-Hant.lproj/Localizable.strings`
+- `Resources/zh-Hans.lproj/Localizable.strings`
+- `Resources/en.lproj/Localizable.strings`
 
 ## Extension Points
 
 | Add | Use |
 | --- | --- |
-| New file format | `BookParser` + `BookParserRegistry.parsers` in `Models/LocalBook/BookParsing.swift` |
-| New rendered content type | `ChapterContent` + `Views/Reader/ReaderViewFactory.swift` |
-| New chapter source | `BookContentProvider` |
-| New layout engine | `PageLayoutEngine` + `PageIndexProviding` + `PageViewControllerVending` |
-| New attributed-string source | `AttributedStringBuilding` |
-| New TTS engine | `TTSPlayable` |
-| New book-source fetch logic | `BookSource` + `BookSourceFetcher+*` extensions |
-| New CSS property | `HTMLCSSPropertyApplier` in `CSSPropertyApplier.swift` |
-| New global service | Define a protocol, add it to `AppDependencies`, inject via `EnvironmentValues` |
-| New page transition effect | `ProgrammaticPageTransitionControlling` |
-| Format-gated reader settings | `book.resolvedPipelineKind`, `FlagState.isEnabled(for:)`, or a `ReadingBook` field |
+| New file format | `BookParser` + `BookParserRegistry.parsers` in `Modules/Core/EPUB/BookParsing.swift` |
+| New rendered content type | `ChapterContent` in `Modules/Services/LibraryStore/UniversalBookInterfaces.swift` + `Modules/Features/Reader/ReaderViewFactory.swift` |
+| New chapter source | `BookContentProvider` in `Modules/Services/Online/BookContentProvider.swift` |
+| New layout engine | `PagedReaderEngine`/`ScrollReaderEngine`, `PageIndexProviding`, and `PageViewControllerVending` in `Modules/Core/ReaderCore/CoreText/PageRenderingProvider.swift` |
+| New attributed-string source | `AttributedStringBuilding` in `Modules/Core/ReaderCore/CoreText/AttributedStringBuilding.swift` |
+| New TTS engine | `TTSPlayable` in `Modules/Core/TTS/TTSPlayable.swift` |
+| New book-source fetch logic | `BookSource` + `Modules/Core/BookSource/BookSourceFetcher+*` extensions |
+| New CSS property | `HTMLCSSPropertyApplier` in `Modules/Core/ReaderCore/CoreText/CSSPropertyApplier.swift` |
+| New global service | Define a protocol, add it to `Targets/Yuedu/SharedApp/AppDependencies.swift`, inject via `EnvironmentValues` |
+| New page transition effect | `ProgrammaticPageTransitionControlling` in `Modules/Core/ReaderCore/ProgrammaticPageTransitionPerformer.swift` |
+| Format-gated reader settings | `book.resolvedPipelineKind`, `ReadingBook` capability fields, or a persisted `ReadingBook` field |
 
 Before adding behavior, search for existing protocols and registries.
 

@@ -65,7 +65,7 @@ struct PageViewControllerPagingAdapterDescriptor: Equatable {
     }
 
     func spineLocation(isRTL: Bool) -> UIPageViewController.SpineLocation {
-        isRTL && style == .curl ? .max : .min
+        isRTL && (style == .curl || style == .cover) ? .max : .min
     }
 }
 

@@ -43,7 +43,7 @@ final class OPDSCatalogStore: ObservableObject {
     func add(name: String, url: String, username: String?, password: String?) -> OPDSCatalog {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedUser = username?.trimmingCharacters(in: .whitespacesAndNewlines)
-        var catalog = OPDSCatalog(
+        let catalog = OPDSCatalog(
             name: trimmedName.isEmpty ? Self.defaultName(for: url) : trimmedName,
             url: url.trimmingCharacters(in: .whitespacesAndNewlines),
             username: (trimmedUser?.isEmpty ?? true) ? nil : trimmedUser,

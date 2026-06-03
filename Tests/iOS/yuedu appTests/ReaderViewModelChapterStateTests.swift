@@ -371,6 +371,12 @@ actor MockChapterFetcher: ChapterFetching {
 
 private final class StubOnlineBookCoordinator: OnlineBookCoordinating {
     func downloadBook(_ book: ReadingBook, store: BookStore?) {}
+    func downloadBook(
+        _ book: ReadingBook,
+        store: BookStore?,
+        startChapterIndex: Int,
+        chapterCount: Int?
+    ) {}
     func prefetchAround(book: ReadingBook, center: Int, store: BookStore?) async {}
 }
 

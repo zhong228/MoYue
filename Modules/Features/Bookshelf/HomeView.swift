@@ -611,7 +611,9 @@ struct BookRow: View {
     /// Offline-download progress (downloaded chapters / total), or nil when the
     /// chapter count isn't known yet (indeterminate).
     private var offlineDownloadProgress: Double? {
-        guard let total = book.onlineChapters?.count, total > 0 else { return nil }
+        let total = book.offlineDownloadTask?.clamped(to: book.onlineChapters?.count ?? 0)?.totalChapterCount
+            ?? book.onlineChapters?.count
+        guard let total, total > 0 else { return nil }
         return min(1, Double(book.downloadedChapterCount) / Double(total))
     }
 

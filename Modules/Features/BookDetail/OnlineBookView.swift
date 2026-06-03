@@ -201,12 +201,18 @@ struct OnlineBookView: View {
         }
         .fullScreenCover(isPresented: $showReader, onDismiss: {
             if let tempId = temporaryReaderBookId {
-                bookStore.delete(bookId: tempId)
-                temporaryReaderBookId = nil
-                if addedBookId == tempId {
-                    addedBookId = nil
+                if shouldKeepTemporaryReaderBook(tempId) {
+                    temporaryReaderBookId = nil
+                    addedBookId = tempId
+                    alreadyInShelf = true
+                } else {
+                    bookStore.delete(bookId: tempId)
+                    temporaryReaderBookId = nil
+                    if addedBookId == tempId {
+                        addedBookId = nil
+                    }
+                    checkAlreadyInShelf()
                 }
-                checkAlreadyInShelf()
             }
         }) {
             if let bid = addedBookId {
@@ -630,6 +636,11 @@ struct OnlineBookView: View {
         addedBookId = newBook.id
         addingToShelf = false
         alreadyInShelf = true
+    }
+
+    private func shouldKeepTemporaryReaderBook(_ bookId: UUID) -> Bool {
+        guard let book = bookStore.books.first(where: { $0.id == bookId }) else { return false }
+        return book.offlineDownloadState != .none || book.offlineDownloadTask != nil
     }
 
     /// Ensure the book is on the shelf before opening, so the reader has a valid bookId.

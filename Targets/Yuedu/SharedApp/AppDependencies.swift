@@ -72,6 +72,12 @@ extension BookSourceFetching {
 /// decoupling the reader from the concrete OnlineBookCoordinator implementation.
 protocol OnlineBookCoordinating: AnyObject {
     func downloadBook(_ book: ReadingBook, store: BookStore?)
+    func downloadBook(
+        _ book: ReadingBook,
+        store: BookStore?,
+        startChapterIndex: Int,
+        chapterCount: Int?
+    )
     func prefetchAround(book: ReadingBook, center: Int, store: BookStore?) async
 }
 

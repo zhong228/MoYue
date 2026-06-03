@@ -10,7 +10,10 @@ struct DownloadManagementView: View {
     }
 
     private var activeDownloads: [ReadingBook] {
-        onlineBooks.filter { $0.offlineDownloadState == .downloading }
+        onlineBooks.filter { book in
+            book.offlineDownloadState == .downloading
+                || (book.offlineDownloadState == .failed && book.offlineDownloadTask != nil)
+        }
     }
 
     private var downloadedBooks: [ReadingBook] {
@@ -36,6 +39,9 @@ struct DownloadManagementView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(localized("關閉")) { presentationMode.wrappedValue.dismiss() }
                 }
+            }
+            .task {
+                resumeInterruptedDownloads()
             }
         }
     }
@@ -83,8 +89,8 @@ struct DownloadManagementView: View {
                                 .font(DSFont.caption)
                                 .foregroundColor(DSColor.textSecondary)
                             Spacer()
-                            Button(localized("重新下載")) {
-                                OnlineBookCoordinator.shared.downloadBook(book, store: store)
+                            Button(localized("繼續下載")) {
+                                resumeDownload(for: book)
                             }
                             .font(DSFont.caption)
                         }
@@ -106,7 +112,7 @@ struct DownloadManagementView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(book.title)
                             Text(
-                                "\(book.downloadedChapterCount)/\(chapterTotal(for: book)) \(localized("章"))  ·  \(String(format: "%.1f", cacheSizeMB(for: book))) MB"
+                                "\(progressLabel(for: book)) \(localized("章"))  ·  \(rangeLabel(for: book))  ·  \(String(format: "%.1f", cacheSizeMB(for: book))) MB"
                             )
                             .font(DSFont.caption)
                             .foregroundColor(DSColor.textSecondary)
@@ -138,12 +144,52 @@ struct DownloadManagementView: View {
     }
 
     private func downloadProgress(for book: ReadingBook) -> Double {
-        let total = max(chapterTotal(for: book), 1)
-        return min(max(Double(book.downloadedChapterCount) / Double(total), 0), 1)
+        let total = max(downloadTotal(for: book), 1)
+        return min(max(Double(downloadCompleted(for: book)) / Double(total), 0), 1)
     }
 
     private func progressLabel(for book: ReadingBook) -> String {
-        "\(book.downloadedChapterCount)/\(max(chapterTotal(for: book), 0))"
+        "\(downloadCompleted(for: book))/\(downloadTotal(for: book))"
+    }
+
+    private func downloadCompleted(for book: ReadingBook) -> Int {
+        book.offlineDownloadTask?.clamped(to: chapterTotal(for: book))?.clampedCompletedChapterCount
+            ?? book.downloadedChapterCount
+    }
+
+    private func downloadTotal(for book: ReadingBook) -> Int {
+        book.offlineDownloadTask?.clamped(to: chapterTotal(for: book))?.totalChapterCount
+            ?? max(chapterTotal(for: book), 0)
+    }
+
+    private func rangeLabel(for book: ReadingBook) -> String {
+        guard let task = book.offlineDownloadTask?.clamped(to: chapterTotal(for: book)) else {
+            return localized("全本")
+        }
+        return String(
+            format: localized("第 %d 到 %d 章"),
+            task.startChapterIndex + 1,
+            task.endChapterIndex + 1
+        )
+    }
+
+    private func resumeInterruptedDownloads() {
+        for book in activeDownloads where book.offlineDownloadState == .downloading {
+            resumeDownload(for: book)
+        }
+    }
+
+    private func resumeDownload(for book: ReadingBook) {
+        if let task = book.offlineDownloadTask?.clamped(to: chapterTotal(for: book)) {
+            OnlineBookCoordinator.shared.downloadBook(
+                book,
+                store: store,
+                startChapterIndex: task.startChapterIndex,
+                chapterCount: task.totalChapterCount
+            )
+        } else {
+            OnlineBookCoordinator.shared.downloadBook(book, store: store)
+        }
     }
 
     private func cacheSizeMB(for book: ReadingBook) -> Double {
