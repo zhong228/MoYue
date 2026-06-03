@@ -47,6 +47,7 @@ struct ContentView: View {
             }
         }
         .iPadAdaptiveRootTabStyle()
+        .rootTabBarMinimizeStyle()
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: importDrainer.lastOutcome)
     }
 }
