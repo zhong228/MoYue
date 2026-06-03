@@ -67,6 +67,12 @@ final class ReplaceRuleStore: ObservableObject {
         save()
     }
 
+    /// Re-reads the on-disk store into memory. Used after an iCloud restore
+    /// overwrites `replace_rules.json` so the live UI reflects it without a relaunch.
+    func reloadFromDisk() {
+        load()
+    }
+
     // MARK: - Persistence
 
     private func load() {

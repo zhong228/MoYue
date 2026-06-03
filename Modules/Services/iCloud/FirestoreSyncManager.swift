@@ -4,6 +4,9 @@ import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
 import Foundation
+import os
+
+private let firestoreSyncLog = Logger(subsystem: "com.yuedu.app", category: "iCloudSync")
 
 @MainActor
 final class FirestoreSyncManager: ObservableObject {
@@ -31,6 +34,14 @@ final class FirestoreSyncManager: ObservableObject {
     private static let shadowCollections = [
         "books", "bookSources", "replaceRules", "rssSources", "rssFolders", "rssArticleStatuses"
     ]
+
+    /// Master switch for Firestore *data* sync (books / sources / replace rules /
+    /// RSS / reading positions). It is OFF: data sync is handled by iCloud
+    /// (CloudKit) manual backup/restore, which — unlike Firestore — also syncs the
+    /// binary book files (EPUB/TXT content + cover images) via CKAsset. Firestore
+    /// stays wired for auth + profile only. Flip this to `true` only if data sync is
+    /// reworked onto Firestore + Firebase Storage (e.g. for an Android client).
+    static let dataSyncEnabled = false
 
     private init() {
         observeSharedStores()
@@ -79,6 +90,33 @@ final class FirestoreSyncManager: ObservableObject {
             markSynced()
         } catch {
             state = .failed(error.localizedDescription)
+        }
+    }
+
+    /// Called right after an iCloud (CloudKit) restore overwrites the local files.
+    /// Reloads the bound stores from disk so the bookshelf/sources update without a
+    /// relaunch. When Firestore data sync is enabled (future Android), it also makes
+    /// the restored data authoritative by clearing the shadow and force-pushing, so
+    /// remote tombstones can't re-delete it. With data sync off (current default),
+    /// it just refreshes the live UI — iCloud stays the single source of truth.
+    func adoptRestoredLocalData() async {
+        bookStore?.reloadFromDisk()
+        BookSourceStore.shared.reloadFromDisk()
+        ReplaceRuleStore.shared.reloadFromDisk()
+        firestoreSyncLog.notice("adopt: reloaded local stores from restored files")
+
+        guard Self.dataSyncEnabled, FirebaseAuthManager.shared.isAuthenticated, !isSyncing else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+        resetLocalSyncState()
+        do {
+            state = .syncing
+            try await pushAll()
+            markSynced()
+            firestoreSyncLog.notice("adopt: force-pushed restored data to Firestore as authoritative")
+        } catch {
+            state = .failed(error.localizedDescription)
+            firestoreSyncLog.error("adopt: force-push failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -228,6 +266,8 @@ final class FirestoreSyncManager: ObservableObject {
 
     private func schedulePush(_ key: String, operation: @escaping @MainActor () async throws -> Void) {
         guard FirebaseAuthManager.shared.isAuthenticated, !isApplyingRemote else { return }
+        // Data sync is off (data lives in iCloud); only the account profile syncs.
+        guard Self.dataSyncEnabled || key == "profile" else { return }
         pushWorkItems[key]?.cancel()
         pushWorkItems[key] = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -253,6 +293,12 @@ final class FirestoreSyncManager: ObservableObject {
         if let profile = try? await userRef.getDocument().data(as: UserProfile.self) {
             GlobalSettings.shared.applyFirebaseProfile(profile)
             UserDefaults.standard.set(profile.createdAt, forKey: "yd_firestore_profile_created_at")
+        }
+
+        // Data lives in iCloud; Firestore keeps only the account profile (above).
+        guard Self.dataSyncEnabled else {
+            firestoreSyncLog.notice("pull: data sync disabled — profile only, leaving local data (iCloud is source of truth)")
+            return
         }
 
         if let store = bookStore {
@@ -357,6 +403,8 @@ final class FirestoreSyncManager: ObservableObject {
 
     private func pushAll() async throws {
         try await upsertCurrentProfile()
+        // Data lives in iCloud; don't push books/sources/rules/RSS to Firestore.
+        guard Self.dataSyncEnabled else { return }
         try await pushBooks()
         try await pushBookSources()
         try await pushReplaceRules()

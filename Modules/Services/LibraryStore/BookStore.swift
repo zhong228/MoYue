@@ -1218,6 +1218,12 @@ class BookStore: ObservableObject, BookProvider {
         }
     }
 
+    /// Re-reads `books_meta.json` into memory. Used after an iCloud restore
+    /// overwrites the file so the bookshelf reflects it without a relaunch.
+    func reloadFromDisk() {
+        loadMeta()
+    }
+
     private func loadMeta() {
         // Prefer the file-based store.
         if let data = try? Data(contentsOf: BookStore.booksMetaFileURL),

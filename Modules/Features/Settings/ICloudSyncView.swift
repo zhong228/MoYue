@@ -9,20 +9,27 @@ struct ICloudSyncView: View {
     @State private var showAlert = false
     @State private var alertTitle = ""
     @State private var alertMessage = ""
-    @State private var showConflictAlert = false
+
+    private var iCloudReady: Bool { manager.accountStatus == .available }
 
     var body: some View {
         NavigationStack {
             Form {
                 accountSection
+                autoSyncSection
                 actionsSection
                 statusSection
             }
             .navigationTitle(localized("iCloud 同步"))
             .toolbarTitleDisplayMode(.inlineLarge)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(localized("關閉")) { dismiss() }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel(localized("關閉"))
                 }
             }
             .disabled(manager.isSyncing)
@@ -36,21 +43,6 @@ struct ICloudSyncView: View {
             } message: {
                 Text(alertMessage)
             }
-            .onChange(of: manager.pendingConflict != nil) { _, hasConflict in
-                if hasConflict { showConflictAlert = true }
-            }
-            .alert(localized("偵測到備份衝突"), isPresented: $showConflictAlert) {
-                Button(localized("使用 iCloud 備份"), role: .destructive) {
-                    Task { try? await manager.resolveConflict(keepRemote: true) }
-                }
-                Button(localized("保留本地資料"), role: .cancel) {
-                    Task { try? await manager.resolveConflict(keepRemote: false) }
-                }
-            } message: {
-                if let conflict = manager.pendingConflict {
-                    Text(conflictMessage(conflict))
-                }
-            }
             .task {
                 _ = await manager.refreshAccountStatus()
             }
@@ -60,23 +52,16 @@ struct ICloudSyncView: View {
     private var accountSection: some View {
         Section(header: Text(localized("帳號狀態"))) {
             HStack {
-                Label(
-                    manager.statusTitle(isAppSignedIn: gs.isLoggedIn),
-                    systemImage: statusIcon
-                )
-                .foregroundColor(statusColor)
+                Label(manager.statusTitle(isAppSignedIn: true), systemImage: statusIcon)
+                    .foregroundColor(statusColor)
                 Spacer()
-                if manager.accountStatus == .available {
+                if iCloudReady {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
                 }
             }
 
-            if !gs.isLoggedIn {
-                Text(localized("請先登入帳號後再使用 iCloud 同步"))
-                    .font(.footnote)
-                    .foregroundColor(DSColor.textSecondary)
-            } else if manager.accountStatus != .available {
+            if !iCloudReady {
                 Text(localized("請確認系統設定中已登入 iCloud，且 iCloud Drive/CloudKit 可用"))
                     .font(.footnote)
                     .foregroundColor(DSColor.textSecondary)
@@ -84,30 +69,34 @@ struct ICloudSyncView: View {
         }
     }
 
+    private var autoSyncSection: some View {
+        Section {
+            Toggle(localized("自動同步"), isOn: $gs.iCloudAutoSync)
+                .tint(DSColor.accent)
+                .onChange(of: gs.iCloudAutoSync) { _, on in
+                    if on, iCloudReady { Task { try? await manager.sync(reason: "toggle-on") } }
+                }
+        } footer: {
+            Text(localized("開啟後，App 啟動與切到背景時會自動與 iCloud 合併同步（書庫、書源、替換規則與書檔）。多台裝置會智慧合併，不會互相覆蓋。"))
+        }
+    }
+
     private var actionsSection: some View {
         Section(header: Text(localized("操作"))) {
+            Button {
+                Task { await runSync() }
+            } label: {
+                Label(localized("立即同步"), systemImage: "arrow.triangle.2.circlepath.icloud")
+                    .foregroundColor(DSColor.accent)
+            }
+            .disabled(!iCloudReady)
+
             Button {
                 Task { await refreshStatus() }
             } label: {
                 Label(localized("檢查 iCloud 狀態"), systemImage: "checkmark.icloud")
                     .foregroundColor(DSColor.accent)
             }
-
-            Button {
-                Task { await runBackup() }
-            } label: {
-                Label(localized("備份到 iCloud"), systemImage: "icloud.and.arrow.up")
-                    .foregroundColor(DSColor.accent)
-            }
-            .disabled(!gs.isLoggedIn || manager.accountStatus != .available)
-
-            Button {
-                Task { await runRestore() }
-            } label: {
-                Label(localized("從 iCloud 還原"), systemImage: "icloud.and.arrow.down")
-                    .foregroundColor(DSColor.accent)
-            }
-            .disabled(!gs.isLoggedIn || manager.accountStatus != .available)
         }
     }
 
@@ -132,12 +121,10 @@ struct ICloudSyncView: View {
     }
 
     private var statusIcon: String {
-        guard gs.isLoggedIn else { return "icloud.slash" }
-        return manager.accountStatus == .available ? "icloud.fill" : "exclamationmark.icloud"
+        iCloudReady ? "icloud.fill" : "exclamationmark.icloud"
     }
 
     private var statusColor: Color {
-        guard gs.isLoggedIn else { return .secondary }
         switch manager.accountStatus {
         case .available:
             return .blue
@@ -166,48 +153,21 @@ struct ICloudSyncView: View {
         }
     }
 
-    private func conflictMessage(_ conflict: ICloudSyncConflict) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        let remoteDate = formatter.string(from: conflict.remote.backupDate)
-        let localDate = conflict.localLastSync.map { formatter.string(from: $0) } ?? localized("從未同步")
-        return String(
-            format: localized("iCloud 備份來自裝置「%@」（%@）。本裝置上次同步：%@。請選擇要使用哪個版本。"),
-            conflict.remote.deviceName,
-            remoteDate,
-            localDate
-        )
-    }
-
     private func refreshStatus() async {
         let status = await manager.refreshAccountStatus()
         await MainActor.run {
             alertTitle = status == .available ? localized("iCloud 可用") : localized("iCloud 無法使用")
-            alertMessage = manager.statusTitle(isAppSignedIn: gs.isLoggedIn)
+            alertMessage = manager.statusTitle(isAppSignedIn: true)
             showAlert = true
         }
     }
 
-    private func runBackup() async {
+    private func runSync() async {
         do {
-            try await manager.backup()
+            try await manager.sync(reason: "manual")
             await MainActor.run {
-                alertTitle = localized("備份成功")
-                alertMessage = localized("資料已成功備份至 iCloud")
-                showAlert = true
-            }
-        } catch {
-            presentError(error)
-        }
-    }
-
-    private func runRestore() async {
-        do {
-            try await manager.restore()
-            await MainActor.run {
-                alertTitle = localized("還原成功")
-                alertMessage = localized("書源已立即更新，書庫和替換規則將在重啟 App 後完全生效")
+                alertTitle = localized("同步成功")
+                alertMessage = localized("書庫、書源與替換規則已更新")
                 showAlert = true
             }
         } catch {

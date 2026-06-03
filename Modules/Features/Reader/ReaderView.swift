@@ -1784,7 +1784,60 @@ struct ReaderView: View {
     private var changeSourceSheetContent: AnyView {
         AnyView(NavigationStack {
             Group {
-                if changeSourceLoading {
+                // Results stream in one source at a time, so show them as soon as the
+                // first match arrives instead of blocking on the full fan-out (459
+                // sources can take minutes). A footer keeps the "still searching" cue.
+                if !changeSourceOrigins.isEmpty {
+                    AnyView(
+                        List {
+                            ForEach(changeSourceOrigins) { origin in
+                                Button {
+                                    Task {
+                                        do {
+                                            try await store.updateOnlineBookSource(
+                                                bookId: bookId, origin: origin)
+                                            await MainActor.run {
+                                                showChangeSourceSheet = false
+                                                loadContent()
+                                            }
+                                        } catch {
+                                            await MainActor.run {
+                                                readerViewModel.reportChangeSourceError(error.localizedDescription)
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(origin.sourceName)
+                                                .foregroundColor(.primary)
+                                            // Aggregation sources share one sourceName across
+                                            // channels; lastChapter distinguishes them.
+                                            if !origin.lastChapter.isEmpty {
+                                                Text(origin.lastChapter)
+                                                    .font(.caption)
+                                                    .foregroundColor(.secondary)
+                                                    .lineLimit(1)
+                                            }
+                                        }
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                            }
+                            if changeSourceLoading {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                    Text(localized("正在搜尋更多書源…"))
+                                        .font(.footnote)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                    )
+                } else if changeSourceLoading {
                     AnyView(
                         VStack(spacing: 12) {
                             ProgressView()
@@ -1808,52 +1861,12 @@ struct ReaderView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     )
-                } else if changeSourceOrigins.isEmpty {
+                } else {
                     AnyView(
                         Text(localized("暫無其他書源"))
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    )
-                } else {
-                    AnyView(
-                        List(changeSourceOrigins) { origin in
-                            Button {
-                                Task {
-                                    do {
-                                        try await store.updateOnlineBookSource(
-                                            bookId: bookId, origin: origin)
-                                        await MainActor.run {
-                                            showChangeSourceSheet = false
-                                            loadContent()
-                                        }
-                                    } catch {
-                                        await MainActor.run {
-                                            readerViewModel.reportChangeSourceError(error.localizedDescription)
-                                        }
-                                    }
-                                }
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(origin.sourceName)
-                                            .foregroundColor(.primary)
-                                        // Aggregation sources share one sourceName across
-                                        // channels; lastChapter distinguishes them.
-                                        if !origin.lastChapter.isEmpty {
-                                            Text(origin.lastChapter)
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                                .lineLimit(1)
-                                        }
-                                    }
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
                     )
                 }
             }

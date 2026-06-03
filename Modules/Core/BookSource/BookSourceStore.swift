@@ -267,6 +267,12 @@ class BookSourceStore: ObservableObject {
         save()
     }
 
+    /// Re-reads the on-disk store into memory. Used after an iCloud restore
+    /// overwrites `book_sources.json` so the live UI reflects it without a relaunch.
+    func reloadFromDisk() {
+        load()
+    }
+
     // MARK: Persistence
 
     private func save() {

@@ -17,6 +17,7 @@ struct yuedu_appApp: App {
                     // Bind the book store before the auth listener fires, so the
                     // first post-launch sync (triggered by the listener) sees it.
                     FirestoreSyncManager.shared.bind(bookStore: bookStore)
+                    ICloudSyncManager.shared.bind(bookStore: bookStore)
                     _ = FirebaseAuthManager.shared
                     Task {
                         await WebFetcher.shared.setCloudflareChallengeHandler { url in
@@ -27,11 +28,19 @@ struct yuedu_appApp: App {
                     // Finish any book-source imports the Share Extension queued
                     // (it can only stash the payload; the merge must happen here).
                     Task { await SharedImportQueueDrainer.shared.drain() }
+                    // Seamless iCloud: merge with the cloud on launch.
+                    if GlobalSettings.shared.iCloudAutoSync {
+                        Task { try? await ICloudSyncManager.shared.sync(reason: "launch") }
+                    }
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     // Pick up sources shared while the app was backgrounded.
                     if newPhase == .active {
                         Task { await SharedImportQueueDrainer.shared.drain() }
+                    }
+                    // Seamless iCloud: push/merge when leaving the app.
+                    if newPhase == .background, GlobalSettings.shared.iCloudAutoSync {
+                        Task { try? await ICloudSyncManager.shared.sync(reason: "background") }
                     }
                 }
         }

@@ -2,11 +2,27 @@ import CloudKit
 import Combine
 import CryptoKit
 import Foundation
+import os
 import UIKit
+
+/// Diagnostic log for backup/restore. Watch on device via Console.app
+/// (filter subsystem `com.yuedu.app`, category `iCloudSync`).
+private let iCloudSyncLog = Logger(subsystem: "com.yuedu.app", category: "iCloudSync")
 
 struct ICloudSyncPayloadFile: Equatable {
     let recordName: String
     let localURL: URL
+}
+
+/// One item inside an iCloud data blob. Unlike the old plain `[T]` blob, this
+/// carries per-item sync metadata (`updatedAt`, `deleted`) so two devices can
+/// last-write-wins merge and propagate deletions (tombstones) instead of one
+/// device's whole file overwriting the other. `value` is nil for a tombstone.
+private struct CloudSyncRecord<T: Codable>: Codable {
+    let id: String
+    let value: T?
+    let updatedAt: Date
+    let deleted: Bool
 }
 
 enum ICloudSyncPayload {
@@ -105,6 +121,15 @@ final class ICloudSyncManager: ObservableObject {
     private static let bookFileRecordType = "YueduBookFile"
     private static let uploadedBookFilesKey = "icloud_uploaded_book_files"
 
+    // Local merge shadows (per-id updatedAt/hash/deleted) for the auto-merge sync.
+    private static let shadowBooks = "icloud_books"
+    private static let shadowBookSources = "icloud_bookSources"
+    private static let shadowReplaceRules = "icloud_replaceRules"
+
+    /// Bound at launch so the merge sync can read/write the live bookshelf.
+    /// `BookStore` is not a singleton (created in the app entry point).
+    private weak var boundBookStore: BookStore?
+
     private enum Field {
         static let asset = "asset"
         static let appVersion = "appVersion"
@@ -162,6 +187,200 @@ final class ICloudSyncManager: ObservableObject {
         }
     }
 
+    /// Bind the live bookshelf so `sync()` can merge it. Call once at app launch.
+    func bind(bookStore: BookStore) {
+        boundBookStore = bookStore
+    }
+
+    // MARK: - Auto + smart-merge sync
+
+    /// Seamless, mergeable iCloud sync. Pulls the cloud copy, merges it with this
+    /// device (last-write-wins per item + tombstones, reusing `FirestoreSyncMerge`),
+    /// writes the result back locally and to the cloud, then syncs the book files
+    /// (EPUB/cover). Safe to call automatically (launch/background) and manually;
+    /// concurrent calls are coalesced. Unlike the old backup/restore it never
+    /// blindly overwrites either side, so no conflict prompt is needed.
+    func sync(reason: String = "manual") async throws {
+        try await ensureAccountAvailable()
+        let alreadyRunning = await MainActor.run { () -> Bool in
+            if isSyncing { return true }
+            isSyncing = true
+            statusMessage = localized("iCloud 同步中…")
+            return false
+        }
+        if alreadyRunning { return }
+        defer { Task { @MainActor in self.isSyncing = false } }
+
+        iCloudSyncLog.notice("sync(\(reason, privacy: .public)): start")
+        do {
+            // 1. Book sources (singleton store).
+            let localSources = await MainActor.run { BookSourceStore.shared.sources }
+            let mergedSources = try await mergeType(
+                recordName: "book_sources",
+                shadowKey: Self.shadowBookSources,
+                local: localSources,
+                id: { $0.id.uuidString },
+                hash: { Self.stableHash($0) },
+                fallbackUpdatedAt: { Date(timeIntervalSince1970: TimeInterval(max($0.lastUpdateTime, 0)) / 1000) }
+            )
+            await MainActor.run { BookSourceStore.shared.replaceSourcesFromSync(mergedSources) }
+
+            // 2. Replace rules (singleton store).
+            let localRules = await MainActor.run { ReplaceRuleStore.shared.rules }
+            let mergedRules = try await mergeType(
+                recordName: "replace_rules",
+                shadowKey: Self.shadowReplaceRules,
+                local: localRules,
+                id: { $0.id },
+                hash: { Self.stableHash($0) },
+                fallbackUpdatedAt: { _ in Date.distantPast }
+            )
+            await MainActor.run { ReplaceRuleStore.shared.replaceRulesFromSync(mergedRules) }
+
+            // 3. Bookshelf (bound store). Progress lives in each book's
+            //    lastOpenedDate, so newest-wins handles reading-progress merges too.
+            if let store = boundBookStore {
+                let localBooks = await MainActor.run { store.books }
+                let mergedBooks = try await mergeType(
+                    recordName: "books_meta",
+                    shadowKey: Self.shadowBooks,
+                    local: localBooks,
+                    id: { $0.id.uuidString },
+                    hash: { Self.stableHash($0.strippedForSync()) },
+                    fallbackUpdatedAt: { $0.lastOpenedDate ?? $0.addedDate }
+                )
+                await MainActor.run { store.replaceBooksFromSync(mergedBooks) }
+            }
+
+            // 4. Binary book files (EPUB/TXT content + cover images).
+            try await uploadBookFiles()
+            try await downloadMissingBookFiles()
+
+            // 5. Manifest + timestamp.
+            let date = Date()
+            try await saveManifest(await makeManifest(date: date))
+            await MainActor.run {
+                lastSyncDate = date
+                statusMessage = localized("iCloud 同步成功")
+            }
+            iCloudSyncLog.notice("sync(\(reason, privacy: .public)): done — \(mergedSources.count) sources, \(mergedRules.count) rules")
+        } catch {
+            await MainActor.run { statusMessage = error.localizedDescription }
+            iCloudSyncLog.error("sync(\(reason, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            throw error
+        }
+    }
+
+    /// Downloads one cloud data blob, merges it with `local`, persists the new
+    /// shadow, uploads the merged blob back, and returns the merged values.
+    private func mergeType<T: Codable>(
+        recordName: String,
+        shadowKey: String,
+        local: [T],
+        id: @escaping (T) -> String,
+        hash: @escaping (T) -> String,
+        fallbackUpdatedAt: @escaping (T) -> Date
+    ) async throws -> [T] {
+        let remote = try await downloadRecords(recordName, as: T.self, id: id, fallbackUpdatedAt: fallbackUpdatedAt)
+        var shadow = SyncShadowStore.load(shadowKey)
+        let localIDs = Set(local.map(id))
+        let now = Date()
+        // Local deletions: an id we synced before but no longer have locally was
+        // deleted on this device → tombstone it (newer than the remote copy) so the
+        // deletion propagates and the item isn't resurrected from the cloud.
+        for (key, entry) in shadow where !entry.deleted && !localIDs.contains(key) {
+            shadow[key] = SyncShadowEntry(updatedAt: now, hash: "", deleted: true)
+        }
+        // Local edits since last sync (hash changed) must advance the item's merge
+        // timestamp to its own modified time (e.g. a book's lastOpenedDate), or
+        // newest-wins would keep treating it as the stale, last-synced version and
+        // let an older remote copy overwrite the fresh local one.
+        for value in local {
+            let key = id(value)
+            guard let entry = shadow[key], !entry.deleted else { continue }
+            let currentHash = hash(value)
+            if entry.hash != currentHash {
+                shadow[key] = SyncShadowEntry(
+                    updatedAt: fallbackUpdatedAt(value), hash: currentHash, deleted: false
+                )
+            }
+        }
+        let result = FirestoreSyncMerge.merge(
+            local: local, remote: remote, shadow: shadow,
+            id: id, hash: hash, fallbackUpdatedAt: fallbackUpdatedAt
+        )
+        SyncShadowStore.save(shadowKey, result.shadow)
+        try await uploadRecords(recordName, values: result.values, shadow: result.shadow, id: id)
+        iCloudSyncLog.notice("merge \(recordName, privacy: .public): local=\(local.count) remote=\(remote.count) → \(result.values.count)")
+        return result.values
+    }
+
+    /// Reads a cloud blob into sync records. Understands the current envelope
+    /// format and migrates a legacy plain `[T]` backup on the fly.
+    private func downloadRecords<T: Codable>(
+        _ recordName: String, as type: T.Type,
+        id: (T) -> String, fallbackUpdatedAt: (T) -> Date
+    ) async throws -> [FirestoreSyncRecord<T>] {
+        guard let record = try? await fetchRecord(fileRecordID(recordName)),
+              let asset = record[Field.asset] as? CKAsset,
+              let url = asset.fileURL,
+              let data = try? Data(contentsOf: url) else { return [] }
+
+        if let records = try? JSONDecoder().decode([CloudSyncRecord<T>].self, from: data) {
+            return records.map {
+                FirestoreSyncRecord(id: $0.id, value: $0.value, updatedAt: $0.updatedAt, deleted: $0.deleted)
+            }
+        }
+        // Legacy plain-array backup: treat every item as a live record.
+        if let plain = try? JSONDecoder().decode([T].self, from: data) {
+            return plain.map {
+                FirestoreSyncRecord(id: id($0), value: $0, updatedAt: fallbackUpdatedAt($0), deleted: false)
+            }
+        }
+        return []
+    }
+
+    /// Writes the merged values + tombstones back to the cloud blob.
+    private func uploadRecords<T: Codable>(
+        _ recordName: String, values: [T], shadow: [String: SyncShadowEntry], id: (T) -> String
+    ) async throws {
+        let valuesByID = Dictionary(values.map { (id($0), $0) }, uniquingKeysWith: { first, _ in first })
+        let records: [CloudSyncRecord<T>] = shadow.map { sid, entry in
+            CloudSyncRecord(
+                id: sid,
+                value: entry.deleted ? nil : valuesByID[sid],
+                updatedAt: entry.updatedAt,
+                deleted: entry.deleted
+            )
+        }
+        let data = try JSONEncoder().encode(records)
+        try await uploadData(data, recordName: recordName)
+    }
+
+    /// Uploads in-memory data as the CKAsset for a file record.
+    private func uploadData(_ data: Data, recordName: String) async throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("yuedu-icloud-\(recordName)-\(UUID().uuidString)")
+            .appendingPathExtension("json")
+        try data.write(to: tempURL, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let recordID = fileRecordID(recordName)
+        let record = (try? await fetchRecord(recordID)) ?? CKRecord(
+            recordType: Self.fileRecordType,
+            recordID: recordID
+        )
+        record[Field.name] = recordName as NSString
+        record[Field.updatedAt] = Date() as NSDate
+        record[Field.asset] = CKAsset(fileURL: tempURL)
+        try await saveRecord(record)
+    }
+
+    private static func stableHash<T: Encodable>(_ value: T) -> String {
+        guard let data = try? JSONEncoder().encode(value) else { return UUID().uuidString }
+        return SHA256.hash(data: Data(data)).map { String(format: "%02x", $0) }.joined()
+    }
+
     func backup() async throws {
         try await ensureAccountAvailable()
         await setSync(true, message: localized("iCloud 備份中…"))
@@ -169,9 +388,14 @@ final class ICloudSyncManager: ObservableObject {
 
         let files = ICloudSyncPayload.defaultFiles()
         for file in files {
+            let attrs = try? FileManager.default.attributesOfItem(atPath: file.localURL.path)
+            let size = (attrs?[.size] as? NSNumber)?.intValue ?? -1
+            iCloudSyncLog.notice("backup: \(file.recordName, privacy: .public) localSize=\(size)")
             try await uploadFileIfExists(file)
         }
 
+        let bookFiles = dynamicBookFilePayloads()
+        iCloudSyncLog.notice("backup: \(bookFiles.count) book file(s) to consider (content+covers)")
         try await uploadBookFiles()
 
         let date = Date()
@@ -276,6 +500,7 @@ final class ICloudSyncManager: ObservableObject {
            hasLocalSyncableData(files: ICloudSyncPayload.defaultFiles())
         {
             let localSync = await MainActor.run { lastSyncDate }
+            iCloudSyncLog.notice("restore: conflict — remote device differs and local data exists; deferring to user choice (nothing downloaded yet)")
             await MainActor.run {
                 pendingConflict = ICloudSyncConflict(remote: remoteManifest, localLastSync: localSync)
                 statusMessage = localized("偵測到衝突，請選擇要使用哪個版本")
@@ -283,15 +508,21 @@ final class ICloudSyncManager: ObservableObject {
             return
         }
 
+        iCloudSyncLog.notice("restore: downloading default files (book_sources/books_meta/replace_rules)")
         for file in ICloudSyncPayload.defaultFiles() {
             try await downloadFileIfExists(file)
         }
 
         try await downloadMissingBookFiles()
 
+        // Reload the in-memory stores from the just-restored files so the bookshelf
+        // and sources update live. This also keeps Firestore (account sync) from
+        // re-deleting the restored data via stale tombstones on the next launch.
+        await FirestoreSyncManager.shared.adoptRestoredLocalData()
+
         await MainActor.run {
             lastSyncDate = Date()
-            statusMessage = localized("iCloud 還原成功，書庫和替換規則需重啟 App 後完全生效")
+            statusMessage = localized("iCloud 還原成功")
         }
     }
 
@@ -353,11 +584,16 @@ final class ICloudSyncManager: ObservableObject {
         )
         try data.write(to: file.localURL, options: .atomic)
 
-        if file.recordName == "book_sources",
-           let decoded = try? JSONDecoder().decode([BookSource].self, from: data)
-        {
-            await MainActor.run {
-                BookSourceStore.shared.sources = decoded
+        iCloudSyncLog.notice("restore: downloaded \(file.recordName, privacy: .public) bytes=\(data.count)")
+
+        if file.recordName == "book_sources" {
+            if let decoded = try? JSONDecoder().decode([BookSource].self, from: data) {
+                iCloudSyncLog.notice("restore: decoded \(decoded.count) book source(s)")
+                await MainActor.run {
+                    BookSourceStore.shared.sources = decoded
+                }
+            } else {
+                iCloudSyncLog.error("restore: book_sources downloaded but FAILED to decode [BookSource]")
             }
         }
 
@@ -369,7 +605,10 @@ final class ICloudSyncManager: ObservableObject {
     // MARK: - Book content files (EPUB/TXT + covers)
 
     /// Local content + cover files referenced by the current books_meta.json.
-    /// Online books carry no local content file, so they are skipped.
+    /// Online books carry no local content file, but they DO have a locally
+    /// downloaded cover (`<id>_cover.jpg`); sync that too, otherwise restored
+    /// online books show a blank cover and never re-download it (the cover path
+    /// is non-nil, so `downloadCoverIfNeeded` is skipped on the other device).
     private func dynamicBookFilePayloads() -> [ICloudSyncPayloadFile] {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         guard let data = try? Data(contentsOf: docs.appendingPathComponent("books_meta.json")),
@@ -378,8 +617,11 @@ final class ICloudSyncManager: ObservableObject {
         }
         var payloads: [ICloudSyncPayloadFile] = []
         var seen = Set<String>()
-        for book in books where !book.isOnline {
-            for name in [book.contentFilename, book.coverImagePath].compactMap({ $0 }) where !name.isEmpty {
+        for book in books {
+            // Content file only for local books (online books have an empty one);
+            // cover for every book.
+            let names = [book.isOnline ? nil : book.contentFilename, book.coverImagePath]
+            for name in names.compactMap({ $0 }) where !name.isEmpty {
                 guard seen.insert(name).inserted else { continue }
                 payloads.append(
                     ICloudSyncPayloadFile(
@@ -422,7 +664,10 @@ final class ICloudSyncManager: ObservableObject {
     }
 
     private func downloadMissingBookFiles() async throws {
-        for file in dynamicBookFilePayloads() where !FileManager.default.fileExists(atPath: file.localURL.path) {
+        let missing = dynamicBookFilePayloads().filter { !FileManager.default.fileExists(atPath: $0.localURL.path) }
+        iCloudSyncLog.notice("restore: \(missing.count) book file(s) missing locally; fetching (content+covers)")
+        var fetched = 0
+        for file in missing {
             do {
                 let record = try await fetchRecord(CKRecord.ID(recordName: file.recordName))
                 guard let asset = record[Field.asset] as? CKAsset, let assetURL = asset.fileURL else { continue }
@@ -433,11 +678,13 @@ final class ICloudSyncManager: ObservableObject {
                 )
                 try data.write(to: file.localURL, options: .atomic)
                 rememberUploadedBookFileMarker("\(file.recordName):\(data.count)")
+                fetched += 1
             } catch {
                 if isRecordNotFound(error) { continue }
                 throw error
             }
         }
+        iCloudSyncLog.notice("restore: fetched \(fetched) book file(s)")
     }
 
     private var uploadedBookFileMarkers: Set<String> {

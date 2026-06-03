@@ -359,6 +359,11 @@ class GlobalSettings: ObservableObject {
         didSet { UserDefaults.standard.set(searchCacheDays, forKey: "yd_search_cache_days") }
     }
 
+    /// Auto iCloud sync: merge with iCloud on launch and when backgrounding.
+    @Published var iCloudAutoSync: Bool {
+        didSet { UserDefaults.standard.set(iCloudAutoSync, forKey: "yd_icloud_auto_sync") }
+    }
+
     // MARK: - TTS Settings
 
     @Published var httpTtsUrlTemplate: String {
@@ -457,6 +462,8 @@ class GlobalSettings: ObservableObject {
             (UserDefaults.standard.object(forKey: "yd_search_auto_pause_count") as? Int) ?? 0
         searchCacheDays =
             (UserDefaults.standard.object(forKey: "yd_search_cache_days") as? Int) ?? 5
+        iCloudAutoSync =
+            (UserDefaults.standard.object(forKey: "yd_icloud_auto_sync") as? Bool) ?? true
         useRenderableNodePipeline =
             UserDefaults.standard.bool(forKey: "yd_use_renderable_node_pipeline")
         httpTtsUrlTemplate = UserDefaults.standard.string(forKey: "yd_http_tts_url_template") ?? ""
