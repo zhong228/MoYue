@@ -31,10 +31,6 @@ struct TTSSettingsView: View {
         NavigationStack {
             AdaptiveSheetContainer(maxWidth: DSLayout.readableWideWidth) {
                 VStack(spacing: 0) {
-                    searchBar
-
-                    Divider()
-
                     systemVoiceSection
 
                     Divider()
@@ -51,7 +47,11 @@ struct TTSSettingsView: View {
                 }
             }
             .navigationTitle(localized("語音朗讀設定"))
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .searchable(
+                text: $searchText,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: localized("搜索語音源")
+            )
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(localized("關閉")) { dismissSettings() }
@@ -104,10 +104,6 @@ struct TTSSettingsView: View {
     }
 
     // MARK: - Private
-
-    private var searchBar: some View {
-        DSSearchBar(placeholder: localized("搜索語音源"), text: $searchText)
-    }
 
     // MARK: - System (offline) voice
 
@@ -471,7 +467,7 @@ struct TTSSettingsView: View {
                 Spacer()
             }
             .navigationTitle(localized("網路導入"))
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(localized("取消")) {

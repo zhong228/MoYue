@@ -1055,7 +1055,7 @@ struct WebTOCSheet: View {
                 .background(Color(UIColor.systemBackground))
             }
             .navigationTitle(localized("偵測到章節目錄"))
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(localized("取消")) { isPresented = false }

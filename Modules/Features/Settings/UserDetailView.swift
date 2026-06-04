@@ -221,7 +221,7 @@ struct UserDetailView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle(localized("個人資料"))
-        .toolbarTitleDisplayMode(.inlineLarge)
+        .toolbarTitleDisplayMode(.large)
         .toolbar(.hidden, for: .tabBar)
         .sheet(isPresented: $showReadingStats) {
             AdaptiveSheetContainer(maxWidth: DSLayout.readableListWidth) {

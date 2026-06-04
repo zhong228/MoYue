@@ -5,6 +5,8 @@ import UIKit
 /// Single-page CoreText rendering view.
 /// Draws line-by-line using draw(_ rect:) (supporting CJK justified alignment), without snapshot caching or layer caching.
 final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInteractionDelegate {
+    private static let emphasisEditMenuIdentifier = NSString(string: "CoreTextPageView.emphasis")
+
     private struct InteractionContext {
         let frame: CTFrame
         let lines: [CTLine]
@@ -25,6 +27,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     private var textAnnotations: [CoreTextTextAnnotation] = []
     private var annotationOverlays: [LayerKey: InteractionOverlayView] = [:]
     private var lastOverlayBounds: CGRect = .zero
+    private var latestEditMenuSourcePoint: CGPoint?
 
     private func annotationOverlay(for layer: CoreTextAnnotationRenderer.Layer) -> InteractionOverlayView {
         let key = LayerKey(style: layer.style, color: layer.color)
@@ -128,68 +131,107 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         suggestedActions: [UIMenuElement]
     ) -> UIMenu? {
         guard interactor.selectedTextForCopy?.isEmpty == false else { return nil }
-        var actions = suggestedActions
+        let existingAnnotation = interactor.tappedAnnotation
+        let colorActions = AnnotationColor.allCases.map { color in
+            UIAction(
+                title: emphasisColorName(for: color),
+                image: emphasisColorImage(for: color),
+                state: existingAnnotation?.style == .highlight && existingAnnotation?.color == color ? .on : .off,
+                handler: { [weak self] _ in
+                    guard let self else { return }
+                    if self.interactor.tappedAnnotation != nil {
+                        self.updateTappedAnnotation(style: .highlight, color: color)
+                    } else {
+                        self.toggleUnderlineSelection(removesExistingUnderline: false, style: .highlight, color: color)
+                    }
+                    self.clearSelection()
+                }
+            )
+        }
 
-        if let existingAnnotation = interactor.tappedAnnotation {
-            // Menu for existing annotation: change color, delete, add note
-            let deleteAction = UIAction(
+        let removesExistingUnderline = existingAnnotation == nil && selectedRangeHasExactUnderline()
+        let underlineAction = UIAction(
+            title: localized(removesExistingUnderline ? "解除下劃線" : "下劃線"),
+            image: UIImage(systemName: "underline"),
+            state: existingAnnotation?.style == .underline || removesExistingUnderline ? .on : .off,
+            handler: { [weak self] _ in
+                guard let self else { return }
+                if let existing = self.interactor.tappedAnnotation {
+                    self.updateTappedAnnotation(style: .underline, color: existing.color)
+                } else {
+                    self.toggleUnderlineSelection(removesExistingUnderline: self.selectedRangeHasExactUnderline())
+                }
+                self.clearSelection()
+            }
+        )
+
+        if configuration.identifier as? NSString == Self.emphasisEditMenuIdentifier {
+            return UIMenu(children: colorActions + [underlineAction])
+        }
+
+        var actions = suggestedActions
+        if interactor.tappedAnnotation != nil {
+            actions.append(UIAction(
                 title: localized("刪除標註"),
-                image: nil,
+                image: UIImage(systemName: "trash"),
                 attributes: .destructive,
                 handler: { [weak self] _ in
                     self?.deleteTappedAnnotation()
                 }
-            )
-            actions.append(deleteAction)
-
-            // Color submenu
-            var colorActions: [UIAction] = []
-            for color in AnnotationColor.allCases {
-                let isCurrent = color == existingAnnotation.color
-                colorActions.append(UIAction(
-                    title: isCurrent ? "\(localized(colorName(for: color))) ✓" : localized(colorName(for: color)),
-                    image: nil,
-                    handler: { [weak self] _ in
-                        self?.changeAnnotationColor(to: color)
-                    }
-                ))
-            }
-            let colorMenu = UIMenu(title: localized("顏色"), children: colorActions)
-            actions.append(colorMenu)
-
-            // Style toggle
-            let currentStyle = existingAnnotation.style
-            let otherStyle: AnnotationStyle = currentStyle == .underline ? .highlight : .underline
-            actions.append(UIAction(
-                title: localized(currentStyle == .underline ? "切換為螢光筆" : "切換為下劃線"),
-                image: nil,
-                handler: { [weak self] _ in
-                    self?.changeAnnotationStyle(to: otherStyle)
-                }
             ))
-        } else {
-            let removesExistingUnderline = selectedRangeHasExactUnderline()
-            // Underline action
-            actions.append(UIAction(
-                title: localized(removesExistingUnderline ? "解除下劃線" : "下劃線"),
-                image: nil,
-                handler: { [weak self] _ in
-                    self?.toggleUnderlineSelection(removesExistingUnderline: removesExistingUnderline)
-                }
-            ))
-            // Highlight action (if not removing)
-            if !removesExistingUnderline {
-                actions.append(UIAction(
-                    title: localized("螢光筆"),
-                    image: nil,
-                    handler: { [weak self] _ in
-                        self?.toggleUnderlineSelection(removesExistingUnderline: false, style: .highlight, color: .yellow)
-                    }
-                ))
-            }
         }
+        actions.append(UIAction(
+            title: localized("重點"),
+            image: UIImage(systemName: "highlighter"),
+            handler: { [weak self] _ in
+                self?.presentEmphasisEditMenu()
+            }
+        ))
 
         return UIMenu(children: actions)
+    }
+
+    private func presentSelectionEditMenu(at sourcePoint: CGPoint) {
+        latestEditMenuSourcePoint = sourcePoint
+        editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
+            identifier: nil,
+            sourcePoint: sourcePoint
+        ))
+    }
+
+    private func presentEmphasisEditMenu() {
+        let sourcePoint = latestEditMenuSourcePoint ?? CGPoint(x: bounds.midX, y: bounds.midY)
+        editMenuInteraction.dismissMenu()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self else { return }
+            self.editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
+                identifier: Self.emphasisEditMenuIdentifier,
+                sourcePoint: sourcePoint
+            ))
+        }
+    }
+
+    private func emphasisColorName(for color: AnnotationColor) -> String {
+        switch color {
+        case .yellow: return localized("黃色")
+        case .green: return localized("綠色")
+        case .blue: return localized("藍色")
+        case .pink: return localized("粉色")
+        case .orange: return localized("橙色")
+        }
+    }
+
+    private func emphasisColorImage(for color: AnnotationColor) -> UIImage? {
+        let size = CGSize(width: 22, height: 22)
+        let swatchRect = CGRect(x: 3, y: 3, width: 16, height: 16)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            let path = UIBezierPath(roundedRect: swatchRect, cornerRadius: 3)
+            color.uiColor.setFill()
+            path.fill()
+            UIColor.separator.withAlphaComponent(0.6).setStroke()
+            path.lineWidth = 1
+            path.stroke()
+        }.withRenderingMode(.alwaysOriginal)
     }
 
     override func didMoveToSuperview() {
@@ -773,9 +815,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
                     tolerance: 3
                 )
                 becomeFirstResponder()
-                editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
-                    identifier: nil,
-                    sourcePoint: point))
+                presentSelectionEditMenu(at: point)
                 return
             }
             clearSelection()
@@ -805,9 +845,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             updateSelectionOverlay(with: context)
             interactor.selectedTextForCopy = interactor.selectionManager.selectedText(in: layout.attributedString)
             becomeFirstResponder()
-            editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
-                identifier: nil,
-                sourcePoint: point))
+            presentSelectionEditMenu(at: point)
             return
         }
 
@@ -878,9 +916,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             }
             becomeFirstResponder()
             let point = gesture.location(in: self)
-            editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
-                identifier: nil,
-                sourcePoint: point))
+            presentSelectionEditMenu(at: point)
         case .cancelled, .failed:
             clearSelection()
         default:
@@ -936,9 +972,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
                 )
             }
             becomeFirstResponder()
-            editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
-                identifier: nil,
-                sourcePoint: point))
+            presentSelectionEditMenu(at: point)
             activeDragHandle = nil
         case .cancelled, .failed:
             activeDragHandle = nil
@@ -1363,29 +1397,16 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         clearSelection()
     }
 
-    private func changeAnnotationColor(to color: AnnotationColor) {
-        guard var annotation = interactor.tappedAnnotation,
-              layout != nil,
-              let context = makeInteractionContext()
-        else { return }
-        annotation.color = color
-        // 先移除舊標註（舊顏色），再合併新顏色，否則新舊兩層會並存導致顏色看似沒變。
-        let withoutOld = AnnotationStore.remove(annotationID: annotation.id, from: textAnnotations)
-        let (merged, _) = AnnotationStore.merge(annotation, into: withoutOld)
-        textAnnotations = merged
-        interactor.tappedAnnotation = textAnnotations.first { $0.spineIndex == annotation.spineIndex && $0.range == annotation.range }
-        updateAnnotationOverlay()
-        updateSelectionOverlay(with: context)
-        notifyAnnotationChange()
-    }
-
-    private func changeAnnotationStyle(to style: AnnotationStyle) {
+    /// Recolours / restyles the tapped annotation in one pass. The old layer is
+    /// removed before merging the new one, otherwise both layers coexist and the
+    /// change looks like it had no effect.
+    private func updateTappedAnnotation(style: AnnotationStyle, color: AnnotationColor) {
         guard var annotation = interactor.tappedAnnotation,
               layout != nil,
               let context = makeInteractionContext()
         else { return }
         annotation.style = style
-        // 先移除舊標註（舊樣式），再合併新樣式，否則新舊兩層會並存。
+        annotation.color = color
         let withoutOld = AnnotationStore.remove(annotationID: annotation.id, from: textAnnotations)
         let (merged, _) = AnnotationStore.merge(annotation, into: withoutOld)
         textAnnotations = merged
@@ -1414,16 +1435,6 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
                 )
             ]
         )
-    }
-
-    private func colorName(for color: AnnotationColor) -> String {
-        switch color {
-        case .yellow: return "黃色"
-        case .green: return "綠色"
-        case .blue: return "藍色"
-        case .pink: return "粉色"
-        case .orange: return "橙色"
-        }
     }
 
     private func updatePlaybackHighlightOverlay() {

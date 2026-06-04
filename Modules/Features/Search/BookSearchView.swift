@@ -380,7 +380,7 @@ struct SourcePickerSheet: View {
                 .listStyle(.plain)
             }
             .navigationTitle(localized("選擇來源") + "（\(searchBook.origins.count) " + localized("個") + "）")
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(localized("關閉")) { dismiss.wrappedValue.dismiss() }

@@ -606,6 +606,12 @@
 "正在更新…" = "Updating…";
 "下劃線" = "Underline";
 "解除下劃線" = "Remove Underline";
+"已選取 %1$d 個%2$@" = "%1$d %2$@ Selected";
+"黃色" = "Yellow";
+"綠色" = "Green";
+"藍色" = "Blue";
+"粉色" = "Pink";
+"橙色" = "Orange";
 "今天" = "Today";
 "所有未讀" = "All Unread";
 "已加星號" = "Starred";

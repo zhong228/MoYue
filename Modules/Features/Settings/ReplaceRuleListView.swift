@@ -42,7 +42,7 @@ struct ReplaceRuleListView: View {
                 }
             }
             .navigationTitle(localized("替換規則"))
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(localized("關閉")) { dismiss() }
@@ -167,7 +167,7 @@ struct ReplaceRuleEditView: View {
                 }
             }
             .navigationTitle(rule.name.isEmpty ? localized("新增規則") : rule.name)
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(localized("取消")) { dismiss() }

@@ -34,7 +34,6 @@ struct DownloadManagementView: View {
                 downloadedBooksSection
             }
             .navigationTitle(localized("下載管理"))
-            .toolbarTitleDisplayMode(.inlineLarge)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(localized("關閉")) { presentationMode.wrappedValue.dismiss() }

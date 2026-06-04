@@ -2101,7 +2101,7 @@ struct ReaderView: View {
                 }
             }
             .navigationTitle(localized("換源"))
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {

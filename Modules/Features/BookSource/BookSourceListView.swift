@@ -37,10 +37,6 @@ struct BookSourceListView: View {
         NavigationStack {
             AdaptiveSheetContainer(maxWidth: DSLayout.readableWideWidth) {
                 VStack(spacing: 0) {
-                    searchBar
-
-                    Divider()
-
                     if store.sources.isEmpty {
                         emptyView
                     } else {
@@ -53,7 +49,12 @@ struct BookSourceListView: View {
                 }
             }
             .navigationTitle(localized("書源管理"))
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbarTitleDisplayMode(.large)
+            .searchable(
+                text: $searchText,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: localized("搜索書源")
+            )
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(localized("關閉")) { dismiss.wrappedValue.dismiss() }
@@ -170,11 +171,6 @@ struct BookSourceListView: View {
                 }
             }
         }
-    }
-
-    // MARK: - Search Bar
-    private var searchBar: some View {
-        DSSearchBar(placeholder: localized("搜索書源"), text: $searchText)
     }
 
     // MARK: - Source List

@@ -5,6 +5,7 @@ import UIKit
 /// UICollectionView-backed CoreText continuous reader.
 /// Horizontal books scroll vertically; vertical-rl books scroll horizontally right-to-left.
 final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenuInteractionDelegate, UIGestureRecognizerDelegate {
+    private static let emphasisEditMenuIdentifier = NSString(string: "CoreTextCollectionScrollViewController.emphasis")
 
     static let chapterGap: CGFloat = 24
     static let verticalRTLChapterGap: CGFloat = 72
@@ -30,6 +31,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
 
     private var selectionChapter: Int?
     private var selectedText: String?
+    private var latestEditMenuSourcePoint: CGPoint?
     private let interactor = TextSelectionInteractor()
     private var playbackHighlightText: String?
     private var textAnnotations: [CoreTextTextAnnotation] = []
@@ -138,22 +140,79 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         suggestedActions: [UIMenuElement]
     ) -> UIMenu? {
         guard selectedText?.isEmpty == false else { return nil }
-        var actions = suggestedActions
-        actions.append(UIAction(
+        let colorActions = AnnotationColor.allCases.map { color in
+            UIAction(
+                title: emphasisColorName(for: color),
+                image: emphasisColorImage(for: color),
+                handler: { [weak self] _ in
+                    self?.requestUnderline(style: .highlight, color: color)
+                }
+            )
+        }
+        let underlineAction = UIAction(
             title: localized("下劃線"),
-            image: nil,
+            image: UIImage(systemName: "underline"),
             handler: { [weak self] _ in
                 self?.requestUnderline(style: .underline, color: .yellow)
             }
-        ))
+        )
+
+        if configuration.identifier as? NSString == Self.emphasisEditMenuIdentifier {
+            return UIMenu(children: colorActions + [underlineAction])
+        }
+
+        var actions = suggestedActions
         actions.append(UIAction(
-            title: localized("螢光筆"),
-            image: nil,
+            title: localized("重點"),
+            image: UIImage(systemName: "highlighter"),
             handler: { [weak self] _ in
-                self?.requestUnderline(style: .highlight, color: .yellow)
+                self?.presentEmphasisEditMenu()
             }
         ))
         return UIMenu(children: actions)
+    }
+
+    private func presentSelectionEditMenu(at sourcePoint: CGPoint) {
+        latestEditMenuSourcePoint = sourcePoint
+        editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
+            identifier: nil,
+            sourcePoint: sourcePoint
+        ))
+    }
+
+    private func presentEmphasisEditMenu() {
+        let sourcePoint = latestEditMenuSourcePoint ?? CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+        editMenuInteraction.dismissMenu()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self else { return }
+            self.editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(
+                identifier: Self.emphasisEditMenuIdentifier,
+                sourcePoint: sourcePoint
+            ))
+        }
+    }
+
+    private func emphasisColorName(for color: AnnotationColor) -> String {
+        switch color {
+        case .yellow: return localized("黃色")
+        case .green: return localized("綠色")
+        case .blue: return localized("藍色")
+        case .pink: return localized("粉色")
+        case .orange: return localized("橙色")
+        }
+    }
+
+    private func emphasisColorImage(for color: AnnotationColor) -> UIImage? {
+        let size = CGSize(width: 22, height: 22)
+        let swatchRect = CGRect(x: 3, y: 3, width: 16, height: 16)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            let path = UIBezierPath(roundedRect: swatchRect, cornerRadius: 3)
+            color.uiColor.setFill()
+            path.fill()
+            UIColor.separator.withAlphaComponent(0.6).setStroke()
+            path.lineWidth = 1
+            path.stroke()
+        }.withRenderingMode(.alwaysOriginal)
     }
 
     @objc private func underlineSelection(_ sender: Any?) {
@@ -547,7 +606,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
             guard let text = selectedText, !text.isEmpty else { clearSelection(); return }
             becomeFirstResponder()
             let viewPoint = collectionView.convert(point, to: view)
-            editMenuInteraction.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: viewPoint))
+            presentSelectionEditMenu(at: viewPoint)
             _ = text
         case .cancelled, .failed:
             clearSelection()

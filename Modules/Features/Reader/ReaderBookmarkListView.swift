@@ -2,7 +2,10 @@ import SwiftUI
 
 /// 閱讀器「書籤／重點」清單（Apple Books 風格）。
 /// 由底部工具列的書籤按鈕開啟，列出書籤與標註（底線/螢光筆）。
-/// 復用自早期被移除的書籤分頁（commit e58dac2），改為雙分頁排版。
+///
+/// 清單本體改用 UIKit `UITableView`（見 `BookmarkSelectionList`），以支援原生的
+/// 兩指拖曳多選；本檔只負責 sheet 外框：分頁、工具列（checklist→xmark 編輯切換、
+/// 關閉）、底部「已選取 N 個」與浮動垃圾桶。不使用 SwiftUI 的 `EditMode`。
 struct ReaderBookmarkListView: View {
     enum Segment: Hashable {
         case bookmark
@@ -20,9 +23,7 @@ struct ReaderBookmarkListView: View {
 
     @State private var segment: Segment = .bookmark
     @State private var selection = Set<UUID>()
-    @State private var editMode: EditMode = .inactive
-
-    private var isEditing: Bool { editMode.isEditing }
+    @State private var isEditing = false
 
     private var bookmarkItems: [Bookmark] {
         bookmarks.filter { $0.kind == .bookmark }
@@ -45,47 +46,46 @@ struct ReaderBookmarkListView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.horizontal, DSSpacing.lg)
+                .padding(.vertical, DSSpacing.sm)
 
                 content
             }
             .navigationTitle(bookTitle)
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    if !currentItems.isEmpty {
-                        EditButton()
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        isPresented = false
-                    } label: {
-                        Image(systemName: "checkmark")
-                    }
-                    .accessibilityLabel(localized("完成"))
-                }
-                ToolbarItemGroup(placement: .bottomBar) {
-                    if isEditing {
-                        Button(role: .destructive) {
-                            deleteSelected()
-                        } label: {
-                            Text(localized("刪除"))
-                        }
-                        .disabled(selection.isEmpty)
-                        Spacer()
-                        Button(localized("全選")) {
-                            selection = Set(currentItems.map(\.id))
-                        }
-                    }
-                }
+                ToolbarItem(placement: .topBarLeading) { editToggleButton }
+                ToolbarItem(placement: .topBarTrailing) { closeButton }
             }
+            .safeAreaInset(edge: .bottom) { editingBottomBar }
             .onChange(of: segment) { selection.removeAll() }
-            .onChange(of: editMode) { if !editMode.isEditing { selection.removeAll() } }
         }
-        .environment(\.editMode, $editMode)
     }
+
+    // MARK: - Toolbar
+
+    private var editToggleButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isEditing.toggle()
+                if !isEditing { selection.removeAll() }
+            }
+        } label: {
+            Image(systemName: isEditing ? "xmark" : "checklist")
+        }
+        .accessibilityLabel(localized(isEditing ? "完成" : "編輯"))
+    }
+
+    private var closeButton: some View {
+        Button {
+            isPresented = false
+        } label: {
+            Image(systemName: "checkmark")
+        }
+        .accessibilityLabel(localized("完成"))
+    }
+
+    // MARK: - Content
 
     @ViewBuilder
     private var content: some View {
@@ -98,7 +98,7 @@ struct ReaderBookmarkListView: View {
                     Text(localized("點一下你要加入書籤的頁面，點一下選單圖像，然後點一下書籤按鈕。"))
                 }
             } else {
-                list(items: bookmarkItems) { bookmarkRow($0) }
+                table(items: bookmarkItems)
             }
         case .highlight:
             if highlightItems.isEmpty {
@@ -108,75 +108,67 @@ struct ReaderBookmarkListView: View {
                     Text(localized("在閱讀時選取文字，加入底線或螢光筆即可在此查看。"))
                 }
             } else {
-                list(items: highlightItems) { highlightRow($0) }
+                table(items: highlightItems)
             }
         }
     }
 
-    private func list<Row: View>(
-        items: [Bookmark],
-        @ViewBuilder row: @escaping (Bookmark) -> Row
-    ) -> some View {
-        List(selection: $selection) {
-            ForEach(items) { bm in
-                row(bm)
-                    .tag(bm.id)
-                    .contentShape(Rectangle())
-                    .onTapWhenNotEditing(isEditing) { onSelect(bm) }
-            }
-            .onDelete { offsets in
-                offsets.map { items[$0] }.forEach(onDelete)
-            }
-        }
-        .listStyle(.plain)
+    private func table(items: [Bookmark]) -> some View {
+        BookmarkSelectionList(
+            items: items,
+            isEditing: $isEditing,
+            selection: $selection,
+            primaryText: { bm in
+                segment == .bookmark
+                    ? bm.chapterTitle
+                    : (bm.excerpt.isEmpty ? bm.chapterTitle : bm.excerpt)
+            },
+            primaryLines: segment == .bookmark ? 1 : 2,
+            dateText: { Self.relativeDate($0.date) },
+            pageText: { pageNumber($0).map { String($0) } },
+            onSelect: onSelect,
+            onDelete: onDelete
+        )
     }
 
-    private func bookmarkRow(_ bm: Bookmark) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(bm.chapterTitle)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                if let page = pageNumber(bm) {
-                    Text("\(page)")
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-            }
-            if !bm.excerpt.isEmpty {
-                Text(bm.excerpt)
-                    .font(.footnote)
+    // MARK: - Editing bottom bar (centered count + floating trash)
+
+    @ViewBuilder
+    private var editingBottomBar: some View {
+        if isEditing {
+            ZStack {
+                Text(selectedCountText)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .frame(maxWidth: .infinity)
+
+                HStack {
+                    Spacer()
+                    Button {
+                        deleteSelected()
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.title3)
+                            .foregroundStyle(selection.isEmpty ? Color(.tertiaryLabel) : Color(.label))
+                            .frame(width: 52, height: 52)
+                            .background(
+                                Circle()
+                                    .fill(Color(.systemBackground))
+                                    .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+                            )
+                    }
+                    .disabled(selection.isEmpty)
+                    .accessibilityLabel(localized("刪除"))
+                }
+                .padding(.trailing, DSSpacing.lg)
             }
-            Text(Self.relativeDate(bm.date))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            .padding(.vertical, DSSpacing.md)
         }
-        .padding(.vertical, 4)
     }
 
-    private func highlightRow(_ bm: Bookmark) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top) {
-                Text(bm.excerpt.isEmpty ? bm.chapterTitle : bm.excerpt)
-                    .font(.body)
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                Spacer(minLength: 8)
-                if let page = pageNumber(bm) {
-                    Text("\(page)")
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Text(Self.relativeDate(bm.date))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 4)
+    private var selectedCountText: String {
+        let noun = segment == .bookmark ? localized("書籤") : localized("重點")
+        return String(format: localized("已選取 %1$d 個%2$@"), selection.count, noun)
     }
 
     private func deleteSelected() {
@@ -195,18 +187,6 @@ struct ReaderBookmarkListView: View {
 
     private static func relativeDate(_ date: Date) -> String {
         relativeFormatter.localizedString(for: date, relativeTo: Date())
-    }
-}
-
-private extension View {
-    /// 非編輯模式時才加上點擊手勢，讓編輯模式下的多選不被攔截。
-    @ViewBuilder
-    func onTapWhenNotEditing(_ isEditing: Bool, perform: @escaping () -> Void) -> some View {
-        if isEditing {
-            self
-        } else {
-            self.onTapGesture(perform: perform)
-        }
     }
 }
 

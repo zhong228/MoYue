@@ -61,7 +61,7 @@ struct ReadingStatsView: View {
             }
             .background(DSColor.groupedBackground.ignoresSafeArea())
             .navigationTitle(localized("閱讀統計"))
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {

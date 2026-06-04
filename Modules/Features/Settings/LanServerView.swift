@@ -8,68 +8,75 @@ struct LanServerView: View {
     @EnvironmentObject private var store: BookStore
 
     var body: some View {
-        List {
-            // MARK: Status section
-            Section {
-                HStack(spacing: 12) {
-                    Circle()
-                        .fill(server.isRunning ? Color.green : Color.gray)
-                        .frame(width: 10, height: 10)
-                    Text(server.isRunning ? localized("運行中") : localized("已停止"))
-                        .foregroundColor(server.isRunning ? .green : DSColor.textSecondary)
-                    Spacer()
-                }
-                .padding(.vertical, 2)
-
-                if server.isRunning && !server.localIPAddress.isEmpty {
-                    HStack {
-                        Text(localized("地址"))
-                            .foregroundColor(DSColor.textSecondary)
-                        Spacer()
-                        Text("http://\(server.localIPAddress):\(server.port)")
-                            .font(DSFont.monospaced())
-                            .foregroundColor(DSColor.accent)
-                            .textSelection(.enabled)
-                    }
-                }
-            } header: {
-                Text(localized("服務狀態"))
-            }
-
-            // MARK: Toggle button
-            Section {
-                Button {
-                    if server.isRunning {
-                        server.stop()
-                    } else {
-                        server.bookProvider = store
-                        server.start()
-                    }
-                } label: {
-                    HStack {
-                        Spacer()
-                        Text(server.isRunning ? localized("停止服務") : localized("啟動服務"))
-                            .fontWeight(.semibold)
-                            .foregroundColor(server.isRunning ? .red : DSColor.accent)
+        NavigationStack {
+            List {
+                // MARK: Status section
+                Section {
+                    HStack(spacing: 12) {
+                        Circle()
+                            .fill(server.isRunning ? Color.green : Color.gray)
+                            .frame(width: 10, height: 10)
+                        Text(server.isRunning ? localized("運行中") : localized("已停止"))
+                            .foregroundColor(server.isRunning ? .green : DSColor.textSecondary)
                         Spacer()
                     }
+                    .padding(.vertical, 2)
+
+                    if server.isRunning && !server.localIPAddress.isEmpty {
+                        HStack {
+                            Text(localized("地址"))
+                                .foregroundColor(DSColor.textSecondary)
+                            Spacer()
+                            Text("http://\(server.localIPAddress):\(server.port)")
+                                .font(DSFont.monospaced())
+                                .foregroundColor(DSColor.accent)
+                                .textSelection(.enabled)
+                        }
+                    }
+                } header: {
+                    Text(localized("服務狀態"))
+                }
+
+                // MARK: Toggle button
+                Section {
+                    Button {
+                        if server.isRunning {
+                            server.stop()
+                        } else {
+                            server.bookProvider = store
+                            server.start()
+                        }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text(server.isRunning ? localized("停止服務") : localized("啟動服務"))
+                                .fontWeight(.semibold)
+                                .foregroundColor(server.isRunning ? .red : DSColor.accent)
+                            Spacer()
+                        }
+                    }
+                }
+
+                // MARK: API endpoints
+                Section {
+                    endpointRow(method: "GET", path: "/", description: localized("書架列表"))
+                    endpointRow(method: "GET", path: "/book/:id", description: localized("書籍詳情"))
+                    endpointRow(method: "GET", path: "/api/sources", description: localized("書源列表"))
+                    endpointRow(method: "GET", path: "/health", description: localized("健康檢查"))
+                } header: {
+                    Text(localized("可用接口"))
                 }
             }
-
-            // MARK: API endpoints
-            Section {
-                endpointRow(method: "GET", path: "/", description: localized("書架列表"))
-                endpointRow(method: "GET", path: "/book/:id", description: localized("書籍詳情"))
-                endpointRow(method: "GET", path: "/api/sources", description: localized("書源列表"))
-                endpointRow(method: "GET", path: "/health", description: localized("健康檢查"))
-            } header: {
-                Text(localized("可用接口"))
+            .navigationTitle(localized("局域網服務"))
+            .toolbarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(localized("關閉")) { dismiss() }
+                }
             }
+            .onAppear {
+                server.bookProvider = store
             }
-        .navigationTitle(localized("局域網服務"))
-        .toolbarTitleDisplayMode(.inlineLarge)
-        .onAppear {
-            server.bookProvider = store
         }
     }
 

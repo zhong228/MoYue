@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var showLanServer = false
     @State private var showLegadoMigration = false
     @State private var showTTSSettings = false
+    @State private var showNetworkSettings = false
     private let feedbackEmail = "r3212239269@gmail.com"
 
     private var feedbackMailURL: URL? {
@@ -72,11 +73,11 @@ struct SettingsView: View {
                         )
 
 
-                        NavigationLink(destination: NetworkSettingsView()) {
-                            Label(localized("網路設定"), systemImage: "network")
-                                .foregroundColor(DSColor.textPrimary)
-                                .labelStyle(IconConsistentLabelStyle())
-                        }
+                        DSSettingsRow(
+                            icon: "network",
+                            title: localized("網路設定"),
+                            action: { showNetworkSettings = true }
+                        )
                     }
 
                     // ── Reading Tools ──
@@ -158,6 +159,9 @@ struct SettingsView: View {
             .sheet(isPresented: $showDownloadManager) {
                 DownloadManagementView()
                     .environmentObject(store)
+            }
+            .sheet(isPresented: $showNetworkSettings) {
+                NetworkSettingsView()
             }
             .sheet(isPresented: $showReplaceRules) {
                 ReplaceRuleListView()

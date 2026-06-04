@@ -22,7 +22,7 @@ struct WebDAVSyncView: View {
                 statusSection
             }
             .navigationTitle(localized("WebDAV 同步"))
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(localized("關閉")) { dismiss() }

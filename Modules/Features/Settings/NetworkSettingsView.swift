@@ -2,32 +2,40 @@ import SwiftUI
 
 struct NetworkSettingsView: View {
     @ObservedObject private var settings = GlobalSettings.shared
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        Form {
-            Section {
-                stepperRow(
-                    title: localized("並發數"),
-                    description: localized("搜索/缓存/下载等网络请求并发数，建议8个"),
-                    value: $settings.searchConcurrency,
-                    range: 1...30
-                )
-                stepperRow(
-                    title: localized("自動暫停"),
-                    description: localized("每搜索到N个精確結果(或5N個模糊結果)後自動暫停(0不暫停)，防止設備發燙和流量消耗過多"),
-                    value: $settings.searchAutoPauseCount,
-                    range: 0...50
-                )
-                stepperRow(
-                    title: localized("搜索結果快取天數"),
-                    description: localized("搜索時啟用快取，避免重複搜索，預設快取 5 日"),
-                    value: $settings.searchCacheDays,
-                    range: 0...30
-                )
+        NavigationStack {
+            Form {
+                Section {
+                    stepperRow(
+                        title: localized("並發數"),
+                        description: localized("搜索/缓存/下载等网络请求并发数，建议8个"),
+                        value: $settings.searchConcurrency,
+                        range: 1...30
+                    )
+                    stepperRow(
+                        title: localized("自動暫停"),
+                        description: localized("每搜索到N个精確結果(或5N個模糊結果)後自動暫停(0不暫停)，防止設備發燙和流量消耗過多"),
+                        value: $settings.searchAutoPauseCount,
+                        range: 0...50
+                    )
+                    stepperRow(
+                        title: localized("搜索結果快取天數"),
+                        description: localized("搜索時啟用快取，避免重複搜索，預設快取 5 日"),
+                        value: $settings.searchCacheDays,
+                        range: 0...30
+                    )
+                }
+            }
+            .navigationTitle(localized("網路設定"))
+            .toolbarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(localized("關閉")) { dismiss() }
+                }
             }
         }
-        .navigationTitle(localized("網路設定"))
-        .toolbarTitleDisplayMode(.inlineLarge)
     }
 
     /// A settings row with a title, the current value, a native stepper, and a
@@ -64,7 +72,5 @@ struct NetworkSettingsView: View {
 }
 
 #Preview {
-    NavigationStack {
-        NetworkSettingsView()
-    }
+    NetworkSettingsView()
 }
