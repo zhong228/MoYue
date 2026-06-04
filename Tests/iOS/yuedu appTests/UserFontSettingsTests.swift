@@ -55,6 +55,7 @@ struct UserFontSettingsTests {
     @Test("EPUB pipeline does not expose user-selected font")
     func epubPipelineDoesNotExposeUserSelectedFont() {
         #expect(BookPipelineKind.epub.allowsUserSelectedReaderFont == false)
+        #expect(BookPipelineKind.fixedPage.allowsUserSelectedReaderFont == false)
         #expect(BookPipelineKind.txt.allowsUserSelectedReaderFont == true)
     }
 

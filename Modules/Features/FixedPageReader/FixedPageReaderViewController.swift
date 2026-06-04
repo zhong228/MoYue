@@ -1,27 +1,27 @@
 import UIKit
 
-// MARK: - Manga reader container
+// MARK: - Fixed page reader container
 //
 // Owns the active mode reader (paged or webtoon), drives chapter fetching through
 // the normal `ChapterFetchManager` pipeline, persists position, and bridges
-// state/actions to the SwiftUI overlay via `MangaReaderState`.
+// state/actions to the SwiftUI overlay via `FixedPageReaderState`.
 
-final class MangaReaderViewController: UIViewController, MangaReaderContainer {
+final class FixedPageReaderViewController: UIViewController, FixedPageReaderContainer {
 
     private let book: ReadingBook
     private let source: BookSource?
     private weak var store: BookStore?
-    private let state: MangaReaderState
+    private let state: FixedPageReaderState
     private let headers: [String: String]
     private let chapters: [OnlineChapterRef]
 
     private var chapterIndex: Int
-    private var mode: MangaReadingMode
-    private var reader: (any MangaModeReader)?
+    private var fixedPageReaderConfiguration: FixedPageReaderConfiguration
+    private var reader: (any FixedPageModeReader)?
     private var loadToken = UUID()
     private var saveTask: Task<Void, Never>?
 
-    init(book: ReadingBook, store: BookStore, state: MangaReaderState) {
+    init(book: ReadingBook, store: BookStore, state: FixedPageReaderState) {
         self.book = book
         self.store = store
         self.state = state
@@ -33,13 +33,15 @@ final class MangaReaderViewController: UIViewController, MangaReaderContainer {
             sourceBaseURL: resolvedSource?.bookSourceUrl,
             sourceHeaders: resolvedSource?.parsedHeaders ?? [:]
         )
-        if !book.isOnline, book.resolvedPipelineKind == .manga, (book.onlineChapters ?? []).isEmpty {
+        if !book.isOnline,
+           (book.resolvedPipelineKind == .manga || book.resolvedPipelineKind == .fixedPage),
+           (book.onlineChapters ?? []).isEmpty {
             self.chapters = [OnlineChapterRef(index: 0, title: book.title, url: book.contentFilename)]
         } else {
             self.chapters = book.onlineChapters ?? []
         }
         self.chapterIndex = min(max(0, book.mangaChapterIndex), max(0, self.chapters.count - 1))
-        self.mode = MangaReadingMode.saved(for: book.id)
+        self.fixedPageReaderConfiguration = FixedPageReadingMode.savedConfiguration(for: book.id)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -49,12 +51,12 @@ final class MangaReaderViewController: UIViewController, MangaReaderContainer {
         super.viewDidLoad()
         view.backgroundColor = .black
 
-        state.mode = mode
-        state.chapterListItems = MangaChapterListItem.items(from: chapters)
+        state.fixedPageReaderConfiguration = fixedPageReaderConfiguration
+        state.chapterListItems = FixedPageChapterListItem.items(from: chapters)
         state.currentChapterIndex = chapterIndex
         state.onJumpToPage = { [weak self] page in self?.reader?.goToPage(page, animated: false) }
         state.onSelectChapter = { [weak self] index in self?.selectChapter(at: index) }
-        state.onSetMode = { [weak self] mode in self?.changeMode(mode) }
+        state.onSetConfiguration = { [weak self] configuration in self?.changeConfiguration(configuration) }
         state.onNextChapter = { [weak self] in self?.loadNextChapter() }
         state.onPrevChapter = { [weak self] in self?.loadPreviousChapter() }
         state.onReload = { [weak self] in
@@ -86,9 +88,15 @@ final class MangaReaderViewController: UIViewController, MangaReaderContainer {
         reader?.removeFromParent()
 
         let width = view.bounds.width > 0 ? view.bounds.width : UIScreen.main.bounds.width
-        let newReader: any MangaModeReader = mode.isPaged
-            ? MangaPagedViewController(mode: mode, targetWidth: width)
-            : MangaWebtoonViewController(targetWidth: width)
+        let newReader: any FixedPageModeReader = fixedPageReaderConfiguration.layout == .paged
+            ? FixedPagePagedViewController(
+                fixedPageReaderConfiguration: fixedPageReaderConfiguration,
+                targetWidth: width
+            )
+            : FixedPageWebtoonViewController(
+                fixedPageReaderConfiguration: fixedPageReaderConfiguration,
+                targetWidth: width
+            )
         newReader.container = self
         addChild(newReader)
         newReader.view.frame = view.bounds
@@ -110,7 +118,7 @@ final class MangaReaderViewController: UIViewController, MangaReaderContainer {
 
         let token = UUID()
         loadToken = token
-        if isLocalMangaBook {
+        if isLocalFixedPageBook {
             loadLocalChapter(at: index, startPage: startPage, token: token)
             return
         }
@@ -137,27 +145,54 @@ final class MangaReaderViewController: UIViewController, MangaReaderContainer {
         }
     }
 
-    private var isLocalMangaBook: Bool {
-        !book.isOnline && book.resolvedPipelineKind == .manga
+    private var isLocalFixedPageBook: Bool {
+        !book.isOnline
+            && (book.resolvedPipelineKind == .manga || book.resolvedPipelineKind == .fixedPage)
+    }
+
+    private var isLocalFixedLayoutEPUBBook: Bool {
+        isLocalFixedPageBook
+            && book.source == "local_epub"
+            && book.contentFilename.lowercased().hasSuffix(".epub")
     }
 
     private func loadLocalChapter(at index: Int, startPage: Int, token: UUID) {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let archiveFilename = self.chapters[index].url.isEmpty
-                    ? self.book.contentFilename
-                    : self.chapters[index].url
+                let archiveFilename: String
+                if self.isLocalFixedLayoutEPUBBook || self.chapters[index].url.isEmpty {
+                    archiveFilename = self.book.contentFilename
+                } else {
+                    archiveFilename = self.chapters[index].url
+                }
                 let archiveURL = LocalMangaArchive.archiveURL(for: archiveFilename)
-                var pages = LocalMangaArchive.pagesForExtractedChapter(
-                    bookId: self.book.id,
-                    chapterIndex: index
-                )
-                if pages.isEmpty {
-                    pages = try await LocalMangaArchive.extractPages(
-                        from: archiveURL,
-                        to: LocalMangaArchive.chapterDirectory(bookId: self.book.id, chapterIndex: index)
+                let pages: [FixedPage]
+                if self.isLocalFixedLayoutEPUBBook {
+                    pages = [
+                        FixedPage(
+                            id: 0,
+                            imageURL: archiveURL.absoluteString,
+                            headers: [:],
+                            localURL: nil,
+                            renderSource: .fixedLayoutEPUB(
+                                sourceFilename: self.book.contentFilename,
+                                chapterIndex: index
+                            )
+                        )
+                    ]
+                } else {
+                    var imagePages = LocalMangaArchive.pagesForExtractedChapter(
+                        bookId: self.book.id,
+                        chapterIndex: index
                     )
+                    if imagePages.isEmpty {
+                        imagePages = try await LocalMangaArchive.extractPages(
+                            from: archiveURL,
+                            to: LocalMangaArchive.chapterDirectory(bookId: self.book.id, chapterIndex: index)
+                        )
+                    }
+                    pages = imagePages
                 }
                 guard self.loadToken == token else { return }
                 self.state.isLoading = false
@@ -189,17 +224,17 @@ final class MangaReaderViewController: UIViewController, MangaReaderContainer {
         loadChapter(at: chapterIndex - 1, startPage: 0)
     }
 
-    private func changeMode(_ newMode: MangaReadingMode) {
-        guard newMode != mode else { return }
+    private func changeConfiguration(_ newConfiguration: FixedPageReaderConfiguration) {
+        guard newConfiguration != fixedPageReaderConfiguration else { return }
         let page = reader?.currentPageIndex() ?? 0
-        mode = newMode
-        MangaReadingMode.save(newMode, for: book.id)
-        state.mode = newMode
+        fixedPageReaderConfiguration = newConfiguration
+        FixedPageReadingMode.save(newConfiguration.mode, for: book.id)
+        state.fixedPageReaderConfiguration = newConfiguration
         installReader()
         loadChapter(at: chapterIndex, startPage: page)
     }
 
-    // MARK: MangaReaderContainer
+    // MARK: FixedPageReaderContainer
 
     func reader(didMoveToPage page: Int, total: Int) {
         state.currentPage = page

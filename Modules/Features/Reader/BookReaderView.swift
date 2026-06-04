@@ -2,8 +2,8 @@ import SwiftUI
 
 // MARK: - Book Reader Router
 //
-// Single branch point that picks the reader for a book: the image-based manga
-// reader for `.manga` books, otherwise the existing text/EPUB `ReaderView`.
+// Single branch point that picks the reader for a book: the shared fixed-page
+// reader for image archives / FXL EPUB, otherwise the existing text/EPUB `ReaderView`.
 // All shelf/online presentation sites go through this so `ReaderView` stays
 // untouched.
 
@@ -13,8 +13,8 @@ struct BookReaderView: View {
 
     var body: some View {
         Group {
-            if store.books.first(where: { $0.id == bookId })?.resolvedPipelineKind == .manga {
-                MangaReaderView(bookId: bookId)
+            if shouldUseFixedPageReader {
+                FixedPageReaderView(bookId: bookId)
             } else {
                 ReaderView(bookId: bookId)
             }
@@ -24,5 +24,12 @@ struct BookReaderView: View {
                 store.updateLastOpened(bookId: bookId)
             }
         }
+    }
+
+    private var shouldUseFixedPageReader: Bool {
+        guard let kind = store.books.first(where: { $0.id == bookId })?.resolvedPipelineKind else {
+            return false
+        }
+        return kind == .manga || kind == .fixedPage
     }
 }

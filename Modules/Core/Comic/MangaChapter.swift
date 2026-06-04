@@ -1,17 +1,21 @@
 import Foundation
 
-// MARK: - Manga page model
+// MARK: - Fixed page model
 //
-// A manga chapter's content (fetched through the normal `ChapterFetchManager`
-// pipeline) is a list of image URLs. `MangaChapterParser` turns that string into
-// `MangaPage`s, attaching the per-source request headers and, when the chapter has
-// been downloaded for offline reading, the local file URL.
+// A fixed-page chapter can come from image URLs, extracted archive files, or a
+// renderer-backed source such as fixed-layout EPUB.
 
-struct MangaPage: Identifiable, Equatable {
+enum FixedPageRenderSource: Equatable {
+    case image
+    case fixedLayoutEPUB(sourceFilename: String, chapterIndex: Int)
+}
+
+struct FixedPage: Identifiable, Equatable {
     let id: Int               // page index within the chapter
     let imageURL: String      // remote URL
     let headers: [String: String]
     var localURL: URL?        // non-nil when downloaded for offline reading
+    var renderSource: FixedPageRenderSource = .image
 }
 
 enum MangaChapterParser {
@@ -217,7 +221,7 @@ enum MangaChapterParser {
 
     /// Build pages, attaching request headers (per-image headers override the source defaults)
     /// and any downloaded local files in `localDir`.
-    static func pages(from content: String, headers: [String: String], localDir: URL? = nil) -> [MangaPage] {
+    static func pages(from content: String, headers: [String: String], localDir: URL? = nil) -> [FixedPage] {
         let images = parsedImages(from: content)
 
         var localByIndex: [Int: URL] = [:]
@@ -233,7 +237,7 @@ enum MangaChapterParser {
 
         return images.enumerated().map { index, image in
             let merged = headers.merging(image.headers) { _, perImage in perImage }
-            return MangaPage(id: index, imageURL: image.url, headers: merged, localURL: localByIndex[index])
+            return FixedPage(id: index, imageURL: image.url, headers: merged, localURL: localByIndex[index])
         }
     }
 

@@ -1,19 +1,19 @@
 import Combine
 import SwiftUI
 
-// MARK: - Manga reader (SwiftUI entry)
+// MARK: - Fixed page reader (SwiftUI entry)
 //
-// Hosts the UIKit `MangaReaderViewController` full-screen and overlays SwiftUI
-// controls. Shared state flows through `MangaReaderState`.
+// Hosts the UIKit `FixedPageReaderViewController` full-screen and overlays SwiftUI
+// controls. Shared state flows through `FixedPageReaderState`.
 
 @MainActor
-final class MangaReaderState: ObservableObject {
+final class FixedPageReaderState: ObservableObject {
     @Published var chapterTitle: String = ""
-    @Published var chapterListItems: [MangaChapterListItem] = []
+    @Published var chapterListItems: [FixedPageChapterListItem] = []
     @Published var currentChapterIndex: Int = 0
     @Published var currentPage: Int = 0
     @Published var totalPages: Int = 0
-    @Published var mode: MangaReadingMode = .rtl
+    @Published var fixedPageReaderConfiguration: FixedPageReaderConfiguration = .recommendedDefault(for: .rtl)
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
     @Published var showControls: Bool = true
@@ -22,21 +22,21 @@ final class MangaReaderState: ObservableObject {
     // Actions wired by the controller.
     var onJumpToPage: ((Int) -> Void)?
     var onSelectChapter: ((Int) -> Void)?
-    var onSetMode: ((MangaReadingMode) -> Void)?
+    var onSetConfiguration: ((FixedPageReaderConfiguration) -> Void)?
     var onNextChapter: (() -> Void)?
     var onPrevChapter: (() -> Void)?
     var onReload: (() -> Void)?
 }
 
-struct MangaChapterListItem: Identifiable, Equatable {
+struct FixedPageChapterListItem: Identifiable, Equatable {
     let id: UUID
     let index: Int
     let title: String
 
-    static func items(from refs: [OnlineChapterRef]) -> [MangaChapterListItem] {
+    static func items(from refs: [OnlineChapterRef]) -> [FixedPageChapterListItem] {
         refs.enumerated().map { offset, ref in
             let trimmedTitle = ref.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            return MangaChapterListItem(
+            return FixedPageChapterListItem(
                 id: ref.id,
                 index: offset,
                 title: trimmedTitle.isEmpty
@@ -47,12 +47,12 @@ struct MangaChapterListItem: Identifiable, Equatable {
     }
 }
 
-struct MangaReaderView: View {
+struct FixedPageReaderView: View {
     let bookId: UUID
     @EnvironmentObject var store: BookStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var state = MangaReaderState()
+    @StateObject private var state = FixedPageReaderState()
     @State private var readingStatsTracker: ReadingStatsSessionTracker?
 
     var body: some View {
@@ -60,7 +60,7 @@ struct MangaReaderView: View {
             Color.black.ignoresSafeArea()
 
             if let book = store.books.first(where: { $0.id == bookId }) {
-                MangaReaderRepresentable(book: book, store: store, state: state)
+                FixedPageReaderRepresentable(book: book, store: store, state: state)
                     .ignoresSafeArea()
 
                 if state.isLoading {
@@ -72,7 +72,7 @@ struct MangaReaderView: View {
                 }
 
                 if state.showControls {
-                    MangaControlsOverlay(state: state, onClose: { dismiss() })
+                    FixedPageReaderControlsOverlay(state: state, onClose: { dismiss() })
                         .transition(.opacity)
                 }
             }
@@ -93,7 +93,7 @@ struct MangaReaderView: View {
             }
         }
         .sheet(isPresented: $state.showChapterList) {
-            MangaChapterListView(state: state)
+            FixedPageChapterListView(state: state)
         }
     }
 
@@ -134,22 +134,22 @@ struct MangaReaderView: View {
 
 // MARK: - UIKit bridge
 
-private struct MangaReaderRepresentable: UIViewControllerRepresentable {
+private struct FixedPageReaderRepresentable: UIViewControllerRepresentable {
     let book: ReadingBook
     let store: BookStore
-    let state: MangaReaderState
+    let state: FixedPageReaderState
 
-    func makeUIViewController(context: Context) -> MangaReaderViewController {
-        MangaReaderViewController(book: book, store: store, state: state)
+    func makeUIViewController(context: Context) -> FixedPageReaderViewController {
+        FixedPageReaderViewController(book: book, store: store, state: state)
     }
 
-    func updateUIViewController(_ uiViewController: MangaReaderViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: FixedPageReaderViewController, context: Context) {}
 }
 
 // MARK: - Controls overlay
 
-struct MangaControlsOverlay: View {
-    @ObservedObject var state: MangaReaderState
+struct FixedPageReaderControlsOverlay: View {
+    @ObservedObject var state: FixedPageReaderState
     var onClose: () -> Void
 
     var body: some View {
@@ -185,29 +185,15 @@ struct MangaControlsOverlay: View {
                 .foregroundColor(.white)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            modeMenu
+            FixedPageReaderSettingsView(
+                fixedPageReaderConfiguration: state.fixedPageReaderConfiguration,
+                onSelectConfiguration: { state.onSetConfiguration?($0) }
+            )
         }
         .padding(.horizontal, DSSpacing.md)
         .padding(.vertical, DSSpacing.sm)
         .padding(.top, 44)
         .background(.ultraThinMaterial)
-    }
-
-    private var modeMenu: some View {
-        Menu {
-            ForEach(MangaReadingMode.allCases, id: \.rawValue) { mode in
-                Button {
-                    state.onSetMode?(mode)
-                } label: {
-                    Label(mode.localizedName, systemImage: state.mode == mode ? "checkmark" : mode.iconName)
-                }
-            }
-        } label: {
-            Image(systemName: "rectangle.portrait.on.rectangle.portrait")
-                .font(.system(size: 17, weight: .medium))
-                .foregroundColor(.white)
-                .frame(width: 36, height: 36)
-        }
     }
 
     private var bottomBar: some View {
@@ -243,8 +229,33 @@ struct MangaControlsOverlay: View {
     }
 }
 
-struct MangaChapterListView: View {
-    @ObservedObject var state: MangaReaderState
+struct FixedPageReaderSettingsView: View {
+    let fixedPageReaderConfiguration: FixedPageReaderConfiguration
+    var onSelectConfiguration: (FixedPageReaderConfiguration) -> Void
+
+    var body: some View {
+        Menu {
+            ForEach(FixedPageReadingMode.allCases, id: \.rawValue) { mode in
+                Button {
+                    onSelectConfiguration(.recommendedDefault(for: mode))
+                } label: {
+                    Label(
+                        mode.localizedName,
+                        systemImage: fixedPageReaderConfiguration.mode == mode ? "checkmark" : mode.iconName
+                    )
+                }
+            }
+        } label: {
+            Image(systemName: "rectangle.portrait.on.rectangle.portrait")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundColor(.white)
+                .frame(width: 36, height: 36)
+        }
+    }
+}
+
+struct FixedPageChapterListView: View {
+    @ObservedObject var state: FixedPageReaderState
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {

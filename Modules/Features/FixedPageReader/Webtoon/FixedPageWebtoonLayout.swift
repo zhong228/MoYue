@@ -9,18 +9,18 @@ import UIKit
 // item indices are stable, so resizing a not-yet-shown page (always below the
 // viewport) never shifts what's on screen.
 
-final class MangaWebtoonLayout: UICollectionViewFlowLayout {
+final class FixedPageWebtoonLayout: UICollectionViewFlowLayout {
 
     private let defaultRatio: CGFloat = 1.435
     private var ratios: [Int: CGFloat] = [:]
     private var currentAttributes: [IndexPath: UICollectionViewLayoutAttributes] = [:]
     private var computedContentSize: CGSize = .zero
 
-    override init() {
+    init(fixedPageReaderConfiguration: FixedPageReaderConfiguration) {
         super.init()
         scrollDirection = .vertical
         minimumInteritemSpacing = 0
-        minimumLineSpacing = 0
+        minimumLineSpacing = fixedPageReaderConfiguration.pageSpacing
         sectionInset = .zero
     }
 

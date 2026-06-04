@@ -6,21 +6,28 @@ import UIKit
 // ReaderPageViewController, slimmed). Loads via Nuke with source headers; shows a
 // spinner while loading and a retry button on failure.
 
-final class MangaPageViewController: UIViewController {
+final class FixedPagePageViewController: UIViewController {
 
     let pageIndex: Int
-    private let page: MangaPage
+    private let page: FixedPage
+    private let fixedPageReaderConfiguration: FixedPageReaderConfiguration
     private let targetWidth: CGFloat
 
-    private let scrollView = MangaZoomableScrollView()
+    private let scrollView = FixedPageZoomableScrollView()
     private let imageView = UIImageView()
     private let spinner = UIActivityIndicatorView(style: .medium)
     private let retryButton = UIButton(type: .system)
     private var loadTask: Task<Void, Never>?
 
-    init(page: MangaPage, index: Int, targetWidth: CGFloat) {
+    init(
+        page: FixedPage,
+        index: Int,
+        fixedPageReaderConfiguration: FixedPageReaderConfiguration,
+        targetWidth: CGFloat
+    ) {
         self.page = page
         self.pageIndex = index
+        self.fixedPageReaderConfiguration = fixedPageReaderConfiguration
         self.targetWidth = targetWidth
         super.init(nibName: nil, bundle: nil)
     }
@@ -36,6 +43,7 @@ final class MangaPageViewController: UIViewController {
         view.addSubview(scrollView)
 
         imageView.contentMode = .scaleAspectFit
+        scrollView.zoomEnabled = fixedPageReaderConfiguration.isZoomEnabled
         scrollView.zoomView = imageView
 
         spinner.color = .white
@@ -82,7 +90,7 @@ final class MangaPageViewController: UIViewController {
         loadTask?.cancel()
         loadTask = Task { [weak self] in
             guard let self else { return }
-            let image = await MangaImageLoader.loadImage(for: page, targetWidth: targetWidth)
+            let image = await FixedPageImageLoader.loadImage(for: page, targetWidth: targetWidth)
             if Task.isCancelled { return }
             self.spinner.stopAnimating()
             if let image {

@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import yuedu_app
 
-@Suite("Manga chapter list items")
-struct MangaChapterListItemTests {
+@Suite("Fixed page chapter list items")
+struct FixedPageChapterListItemTests {
 
     @Test("chapter refs map to selection indices and display titles")
     func refsMapToSelectionIndicesAndTitles() {
@@ -12,7 +12,7 @@ struct MangaChapterListItemTests {
             OnlineChapterRef(index: 99, title: "番外篇", url: "https://example.com/99")
         ]
 
-        let items = MangaChapterListItem.items(from: refs)
+        let items = FixedPageChapterListItem.items(from: refs)
 
         #expect(items.count == 2)
         #expect(items[0].index == 0)
@@ -27,7 +27,7 @@ struct MangaChapterListItemTests {
             OnlineChapterRef(index: 7, title: "   ", url: "https://example.com/7")
         ]
 
-        let items = MangaChapterListItem.items(from: refs)
+        let items = FixedPageChapterListItem.items(from: refs)
 
         #expect(items.map(\.title) == [String(format: localized("第 %d 章"), 1)])
     }

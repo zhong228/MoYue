@@ -6,7 +6,7 @@ import UIKit
 // PhotoScroller sample). Centers a single `zoomView`, supports pinch + double-tap
 // zoom. Used by the paged manga reader (one per page).
 
-final class MangaZoomableScrollView: UIScrollView, UIScrollViewDelegate {
+final class FixedPageZoomableScrollView: UIScrollView, UIScrollViewDelegate {
 
     var zoomView: UIView? {
         didSet { configureZoomView(replacing: oldValue) }

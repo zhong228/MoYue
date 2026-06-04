@@ -3,13 +3,13 @@ import Testing
 import UIKit
 @testable import yuedu_app
 
-@Suite("Manga zoomable scroll view")
+@Suite("Fixed page zoomable scroll view")
 @MainActor
-struct MangaZoomableScrollViewTests {
+struct FixedPageZoomableScrollViewTests {
 
     @Test("setting zoomView inserts it into the scroll view")
     func settingZoomViewInsertsSubview() {
-        let scrollView = MangaZoomableScrollView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
+        let scrollView = FixedPageZoomableScrollView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
         let imageView = UIImageView()
 
         scrollView.zoomView = imageView
@@ -20,7 +20,7 @@ struct MangaZoomableScrollViewTests {
 
     @Test("replacing zoomView removes the previous view")
     func replacingZoomViewRemovesPreviousView() {
-        let scrollView = MangaZoomableScrollView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
+        let scrollView = FixedPageZoomableScrollView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
         let firstView = UIImageView()
         let secondView = UIImageView()
 

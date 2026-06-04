@@ -60,6 +60,8 @@ class BookStore: ObservableObject, BookProvider {
             throw ReaderError.unsupportedFormat("TXT 渲染尚待 CoreText 遷移完成，目前不支援")
         case .manga:
             throw ReaderError.unsupportedFormat("漫畫使用獨立的圖片閱讀器，無 CoreText 套件")
+        case .fixedPage:
+            throw ReaderError.unsupportedFormat("固定頁面文件使用獨立的固定頁面閱讀器，無 CoreText 套件")
         }
     }
 
@@ -362,10 +364,10 @@ class BookStore: ObservableObject, BookProvider {
         func cleanupImportedFiles() {
             if FileManager.default.fileExists(atPath: destURL.path) {
                 do {
-                try FileManager.default.removeItem(at: destURL)
-            } catch {
-                Logger(subsystem: "com.yuedu.app", category: "BookStore").error("Failed to remove item at \(destURL): \(error)")
-            }
+                    try FileManager.default.removeItem(at: destURL)
+                } catch {
+                    Logger(subsystem: "com.yuedu.app", category: "BookStore").error("Failed to remove item at \(destURL): \(error)")
+                }
             }
             if let coverFilename {
                 let coverURL = documentsURL(for: coverFilename)
@@ -432,7 +434,15 @@ class BookStore: ObservableObject, BookProvider {
                 source: "local_epub",
                 contentFilename: filename
             )
-            book.contentPipelineKind = .epub
+            if let session, session.layoutMode == .prePaginated {
+                book.contentPipelineKind = .fixedPage
+                book.onlineChapters = await FixedLayoutEPUBPageProvider.chapterRefs(from: session)
+                importTrace(
+                    "stage=fixedLayoutDetected pipeline=fixedPage pages=\(session.chapters.count)"
+                )
+            } else {
+                book.contentPipelineKind = .epub
+            }
             book.coverImagePath = coverFilename
             let finalBook = book
 
@@ -771,7 +781,7 @@ class BookStore: ObservableObject, BookProvider {
                 } catch {
                     Logger(subsystem: "com.yuedu.app", category: "BookStore").error("Failed to remove document file \(book.contentFilename): \(error)")
                 }
-                if book.resolvedPipelineKind == .manga {
+                if book.resolvedPipelineKind == .manga || book.resolvedPipelineKind == .fixedPage {
                     do {
                         try FileManager.default.removeItem(at: LocalMangaArchive.bookDirectory(bookId: book.id))
                     } catch {

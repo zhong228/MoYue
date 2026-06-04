@@ -6,21 +6,24 @@ import UIKit
 // bottom asks for the next chapter; past the top asks for the previous one. Tap
 // zones page up/down or toggle the controls.
 
-final class MangaWebtoonViewController: UIViewController, MangaModeReader,
+final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReader,
     UICollectionViewDataSource, UICollectionViewDelegate {
 
-    weak var container: MangaReaderContainer?
+    weak var container: FixedPageReaderContainer?
 
+    private let fixedPageReaderConfiguration: FixedPageReaderConfiguration
     private let targetWidth: CGFloat
-    private var pages: [MangaPage] = []
-    private let layout = MangaWebtoonLayout()
+    private var pages: [FixedPage] = []
+    private let layout: FixedPageWebtoonLayout
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
     private var currentIndex = 0
     private var didRequestNext = false
     private var didRequestPrev = false
 
-    init(targetWidth: CGFloat) {
+    init(fixedPageReaderConfiguration: FixedPageReaderConfiguration, targetWidth: CGFloat) {
+        self.fixedPageReaderConfiguration = fixedPageReaderConfiguration
         self.targetWidth = targetWidth
+        self.layout = FixedPageWebtoonLayout(fixedPageReaderConfiguration: fixedPageReaderConfiguration)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -33,20 +36,20 @@ final class MangaWebtoonViewController: UIViewController, MangaModeReader,
         collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         collectionView.backgroundColor = .clear
         collectionView.showsVerticalScrollIndicator = false
-        collectionView.alwaysBounceVertical = true
+        collectionView.alwaysBounceVertical = fixedPageReaderConfiguration.layout == .continuousVerticalScroll
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.dataSource = self
         collectionView.delegate = self
-        collectionView.register(MangaWebtoonCell.self, forCellWithReuseIdentifier: MangaWebtoonCell.reuseID)
+        collectionView.register(FixedPageWebtoonCell.self, forCellWithReuseIdentifier: FixedPageWebtoonCell.reuseID)
         view.addSubview(collectionView)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         collectionView.addGestureRecognizer(tap)
     }
 
-    // MARK: MangaModeReader
+    // MARK: FixedPageModeReader
 
-    func setPages(_ pages: [MangaPage], startPage: Int) {
+    func setPages(_ pages: [FixedPage], startPage: Int) {
         self.pages = pages
         didRequestNext = false
         didRequestPrev = false
@@ -75,7 +78,7 @@ final class MangaWebtoonViewController: UIViewController, MangaModeReader,
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(
-            withReuseIdentifier: MangaWebtoonCell.reuseID, for: indexPath) as! MangaWebtoonCell
+            withReuseIdentifier: FixedPageWebtoonCell.reuseID, for: indexPath) as! FixedPageWebtoonCell
         cell.configure(page: pages[indexPath.item], index: indexPath.item, targetWidth: targetWidth) { [weak self] index, ratio in
             guard let self else { return }
             self.layout.setRatio(ratio, forItem: index)
@@ -85,11 +88,11 @@ final class MangaWebtoonViewController: UIViewController, MangaModeReader,
     }
 
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        (cell as? MangaWebtoonCell)?.load()
+        (cell as? FixedPageWebtoonCell)?.load()
     }
 
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        (cell as? MangaWebtoonCell)?.unload()
+        (cell as? FixedPageWebtoonCell)?.unload()
     }
 
     // MARK: Scroll → current page + chapter change on over-scroll

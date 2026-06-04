@@ -294,7 +294,9 @@ struct ReadingBook: Identifiable, Codable {
 
 extension ReadingBook {
     var resolvedPipelineKind: BookPipelineKind {
-        if contentPipelineKind == .manga { return .manga }
+        if contentPipelineKind == .manga || contentPipelineKind == .fixedPage {
+            return contentPipelineKind
+        }
         if isOnline { return .html }
         if source == "local_epub" || contentFilename.hasSuffix("_epub.json") {
             return .epub
@@ -318,12 +320,13 @@ enum BookPipelineKind: String, Codable {
     case txt
     case html
     case manga
+    case fixedPage
 
     var allowsUserSelectedReaderFont: Bool {
         switch self {
         case .txt:
             return true
-        case .epub, .html, .manga:
+        case .epub, .html, .manga, .fixedPage:
             return false
         }
     }
@@ -727,7 +730,7 @@ final class ReaderFeatureFlags {
             key = txtWebKey
         case .html:
             key = htmlWebKey
-        case .manga:
+        case .manga, .fixedPage:
             return false
         }
         return defaults.object(forKey: key) as? Bool ?? true

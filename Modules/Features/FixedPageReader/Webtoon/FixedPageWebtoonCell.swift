@@ -6,15 +6,15 @@ import UIKit
 // reuse/exit (memory), and reports its real aspect ratio to the layout once the
 // image arrives.
 
-final class MangaWebtoonCell: UICollectionViewCell {
+final class FixedPageWebtoonCell: UICollectionViewCell {
 
-    static let reuseID = "MangaWebtoonCell"
+    static let reuseID = "FixedPageWebtoonCell"
 
     private let imageView = UIImageView()
     private let spinner = UIActivityIndicatorView(style: .medium)
     private var loadTask: Task<Void, Never>?
 
-    private var page: MangaPage?
+    private var page: FixedPage?
     private var index = 0
     private var targetWidth: CGFloat = 0
     private var onRatio: ((Int, CGFloat) -> Void)?
@@ -40,7 +40,7 @@ final class MangaWebtoonCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func configure(page: MangaPage, index: Int, targetWidth: CGFloat, onRatio: @escaping (Int, CGFloat) -> Void) {
+    func configure(page: FixedPage, index: Int, targetWidth: CGFloat, onRatio: @escaping (Int, CGFloat) -> Void) {
         self.page = page
         self.index = index
         self.targetWidth = targetWidth
@@ -53,7 +53,7 @@ final class MangaWebtoonCell: UICollectionViewCell {
         loadTask?.cancel()
         loadTask = Task { [weak self] in
             guard let self else { return }
-            let image = await MangaImageLoader.loadImage(for: page, targetWidth: targetWidth)
+            let image = await FixedPageImageLoader.loadImage(for: page, targetWidth: targetWidth)
             if Task.isCancelled { return }
             self.spinner.stopAnimating()
             guard let image, image.size.width > 0 else { return }

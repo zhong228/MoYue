@@ -229,6 +229,107 @@ struct EPUBRenderingTests {
         #expect(session.chapters[1].orientationOverride == .landscape)
     }
 
+    @Test func publicationSessionServesFixedLayoutRelativeResources() async throws {
+        let epubURL = try await makeEPUBArchive(entries: [
+            "mimetype": Data("application/epub+zip".utf8),
+            "META-INF/container.xml": Data("""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+              <rootfiles>
+                <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+              </rootfiles>
+            </container>
+            """.utf8),
+            "OEBPS/content.opf": Data("""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <package version="3.0"
+                     unique-identifier="bookid"
+                     xmlns="http://www.idpf.org/2007/opf"
+                     prefix="rendition: http://www.idpf.org/vocab/rendition/#">
+              <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                <dc:identifier id="bookid">urn:uuid:fixed-resources</dc:identifier>
+                <dc:title>Fixed Layout Resources</dc:title>
+                <meta property="rendition:layout">pre-paginated</meta>
+                <meta property="rendition:orientation">portrait</meta>
+                <meta property="rendition:spread">none</meta>
+              </metadata>
+              <manifest>
+                <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+                <item id="fixed-css" href="styles/fixed.css" media-type="text/css"/>
+                <item id="panel-svg" href="images/panel.svg" media-type="image/svg+xml"/>
+                <item id="page1" href="page1.xhtml" media-type="application/xhtml+xml" properties="svg"/>
+                <item id="page2" href="page2.xhtml" media-type="application/xhtml+xml"/>
+              </manifest>
+              <spine>
+                <itemref idref="page1" properties="page-spread-center"/>
+                <itemref idref="page2" properties="page-spread-center"/>
+              </spine>
+            </package>
+            """.utf8),
+            "OEBPS/nav.xhtml": Data(epubXHTML(title: "Nav", body: """
+            <nav epub:type="toc"><ol><li><a href="page1.xhtml">Page 1</a></li><li><a href="page2.xhtml">Page 2</a></li></ol></nav>
+            """).utf8),
+            "OEBPS/styles/fixed.css": Data("""
+            html, body { margin: 0; width: 600px; height: 800px; overflow: hidden; }
+            .page { position: relative; width: 600px; height: 800px; background: #f8f5ef; }
+            .caption { position: absolute; left: 40px; top: 40px; }
+            """.utf8),
+            "OEBPS/images/panel.svg": Data("""
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#ffcc33"/></svg>
+            """.utf8),
+            "OEBPS/page1.xhtml": Data("""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+              <head>
+                <title>Page 1</title>
+                <meta name="viewport" content="width=600, height=800"/>
+                <link rel="stylesheet" href="styles/fixed.css" type="text/css"/>
+              </head>
+              <body>
+                <div class="page">
+                  <p class="caption">Fixed layout page</p>
+                  <img src="images/panel.svg" alt="Panel"/>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">
+                    <polygon points="80,5 155,155 5,155" fill="#34c759"/>
+                  </svg>
+                </div>
+              </body>
+            </html>
+            """.utf8),
+            "OEBPS/page2.xhtml": Data("""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+              <head><title>Page 2</title><meta name="viewport" content="width=600, height=800"/></head>
+              <body><div class="page">Second page</div></body>
+            </html>
+            """.utf8)
+        ])
+
+        let session = try await PublicationSession.open(sourceURL: epubURL)
+
+        #expect(session.layoutMode == .prePaginated)
+        #expect(session.chapters.map(\.href) == ["OEBPS/page1.xhtml", "OEBPS/page2.xhtml"])
+        #expect(session.fixedLayoutViewport?.pageViewports[0] == CGSize(width: 600, height: 800))
+        let fixedPageRefs = await FixedLayoutEPUBPageProvider.chapterRefs(from: session)
+        #expect(fixedPageRefs.map(\.title) == ["Page 1", "Page 2"])
+        #expect(fixedPageRefs.map(\.url) == ["OEBPS/page1.xhtml", "OEBPS/page2.xhtml"])
+
+        let pageHTML = try await session.chapterHTML(at: 0)
+        #expect(pageHTML.contains("<svg"))
+        #expect(pageHTML.contains("images/panel.svg"))
+
+        let baseURL = session.resourceURL(for: session.chapters[0].href).deletingLastPathComponent()
+        let cssURL = try #require(URL(string: "styles/fixed.css", relativeTo: baseURL)?.absoluteURL)
+        let cssResponse = try await session.response(for: cssURL)
+        #expect(cssResponse.mimeType == "text/css")
+        #expect(String(data: cssResponse.data, encoding: .utf8)?.contains(".page") == true)
+
+        let imageURL = try #require(URL(string: "images/panel.svg", relativeTo: baseURL)?.absoluteURL)
+        let imageResponse = try await session.response(for: imageURL)
+        #expect(imageResponse.mimeType == "image/svg+xml")
+        #expect(String(data: imageResponse.data, encoding: .utf8)?.contains("<svg") == true)
+    }
+
     @Test func publicationSessionLinksMediaOverlayManifestItems() async throws {
         let epubURL = try await makeEPUBArchive(entries: [
             "mimetype": Data("application/epub+zip".utf8),

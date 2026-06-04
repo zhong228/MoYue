@@ -1,15 +1,12 @@
 import Foundation
 
-// MARK: - Manga reading mode (ported concept from Aidoku's ReadingMode)
+// MARK: - Fixed page reading mode (ported concept from Aidoku's ReadingMode)
 
-enum MangaReadingMode: Int, CaseIterable, Codable {
+enum FixedPageReadingMode: Int, CaseIterable, Codable {
     case rtl = 1       // paged, right-to-left (default for CJK/Japanese manga)
     case ltr = 2       // paged, left-to-right
     case vertical = 3  // paged, vertical swipe
     case webtoon = 4   // continuous vertical scroll (manhua/manhwa)
-
-    var isPaged: Bool { self != .webtoon }
-    var isReversed: Bool { self == .rtl }
 
     var localizedName: String {
         switch self {
@@ -31,14 +28,16 @@ enum MangaReadingMode: Int, CaseIterable, Codable {
 
     // MARK: Per-book persistence
 
-    static func saved(for bookId: UUID) -> MangaReadingMode {
-        let raw = UserDefaults.standard.object(forKey: key(bookId)) as? Int
-        return raw.flatMap { MangaReadingMode(rawValue: $0) } ?? .rtl
+    static func saved(for bookId: UUID, defaults: UserDefaults = .standard) -> FixedPageReadingMode {
+        let raw = defaults.object(forKey: key(bookId)) as? Int
+            ?? defaults.object(forKey: legacyKey(bookId)) as? Int
+        return raw.flatMap { FixedPageReadingMode(rawValue: $0) } ?? .rtl
     }
 
-    static func save(_ mode: MangaReadingMode, for bookId: UUID) {
-        UserDefaults.standard.set(mode.rawValue, forKey: key(bookId))
+    static func save(_ mode: FixedPageReadingMode, for bookId: UUID, defaults: UserDefaults = .standard) {
+        defaults.set(mode.rawValue, forKey: key(bookId))
     }
 
-    private static func key(_ bookId: UUID) -> String { "manga.readingMode.\(bookId.uuidString)" }
+    private static func key(_ bookId: UUID) -> String { "fixedPage.readingMode.\(bookId.uuidString)" }
+    private static func legacyKey(_ bookId: UUID) -> String { "manga.readingMode.\(bookId.uuidString)" }
 }

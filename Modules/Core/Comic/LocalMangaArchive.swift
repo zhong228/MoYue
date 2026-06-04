@@ -101,7 +101,7 @@ enum LocalMangaArchive {
         return paths
     }
 
-    static func extractPages(from archiveURL: URL, to directory: URL) async throws -> [MangaPage] {
+    static func extractPages(from archiveURL: URL, to directory: URL) async throws -> [FixedPage] {
         let paths = try await imageEntryPaths(in: archiveURL)
         let archive: Archive
         do {
@@ -119,7 +119,7 @@ enum LocalMangaArchive {
             throw LocalMangaArchiveError.extractionFailed
         }
 
-        var pages: [MangaPage] = []
+        var pages: [FixedPage] = []
         for (index, path) in paths.enumerated() {
             guard let entry = try? await archive.get(path) else {
                 throw LocalMangaArchiveError.extractionFailed
@@ -131,12 +131,12 @@ enum LocalMangaArchive {
             } catch {
                 throw LocalMangaArchiveError.extractionFailed
             }
-            pages.append(MangaPage(id: index, imageURL: outputURL.absoluteString, headers: [:], localURL: outputURL))
+            pages.append(FixedPage(id: index, imageURL: outputURL.absoluteString, headers: [:], localURL: outputURL))
         }
         return pages
     }
 
-    static func pagesForExtractedChapter(bookId: UUID, chapterIndex: Int) -> [MangaPage] {
+    static func pagesForExtractedChapter(bookId: UUID, chapterIndex: Int) -> [FixedPage] {
         let directory = chapterDirectory(bookId: bookId, chapterIndex: chapterIndex)
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: directory,
@@ -150,7 +150,7 @@ enum LocalMangaArchive {
             }
             .enumerated()
             .map { index, url in
-                MangaPage(id: index, imageURL: url.absoluteString, headers: [:], localURL: url)
+                FixedPage(id: index, imageURL: url.absoluteString, headers: [:], localURL: url)
             }
     }
 
