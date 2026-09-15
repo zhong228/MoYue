@@ -49,14 +49,16 @@ enum FixedPageImageLoader {
             baseImage = await FixedLayoutEPUBRenderer.shared.image(
                 sourceURL: LocalMangaArchive.archiveURL(for: sourceFilename),
                 pageIndex: chapterIndex,
-                targetWidth: targetWidth
+                targetWidth: targetWidth,
+                cropBorders: cropBorders
             )
         case .pdf(let sourceFilename, let pageIndex):
             baseImage = await PDFPageRasterizer.shared.image(
                 fileURL: LocalPDFArchive.archiveURL(for: sourceFilename),
                 pageIndex: pageIndex,
                 targetWidth: targetWidth,
-                scale: renderScale ?? defaultRenderScale
+                scale: renderScale ?? defaultRenderScale,
+                cropBorders: cropBorders
             )
         case .image:
             baseImage = try? await ImagePipeline.shared.image(for: request(for: page, targetWidth: targetWidth, cropBorders: cropBorders))
@@ -70,14 +72,17 @@ enum FixedPageImageLoader {
         return image
     }
 
+    /// Prefetch must ask for the same variant the page will display: the crop flag is
+    /// part of both Nuke's processor key and the rasterizer's cache key, so a prefetch
+    /// without it warms a render the reader never reads.
     @MainActor
-    static func prefetch(_ pages: [FixedPage], targetWidth: CGFloat, using prefetcher: ImagePrefetcher) {
+    static func prefetch(_ pages: [FixedPage], targetWidth: CGFloat, cropBorders: Bool, using prefetcher: ImagePrefetcher) {
         var imageRequests: [ImageRequest] = []
         var rasterizedPages: [FixedPage] = []
         for page in pages {
             switch page.renderSource {
             case .image:
-                imageRequests.append(request(for: page, targetWidth: targetWidth))
+                imageRequests.append(request(for: page, targetWidth: targetWidth, cropBorders: cropBorders))
             case .pdf, .fixedLayoutEPUB:
                 rasterizedPages.append(page)
             }
@@ -93,7 +98,7 @@ enum FixedPageImageLoader {
         // running ahead of the reader shouldn't compete with the visible page.
         Task(priority: .utility) {
             for page in rasterizedPages {
-                _ = await loadImage(for: page, targetWidth: targetWidth)
+                _ = await loadImage(for: page, targetWidth: targetWidth, cropBorders: cropBorders)
             }
         }
     }

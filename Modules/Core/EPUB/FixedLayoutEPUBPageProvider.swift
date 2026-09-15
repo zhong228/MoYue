@@ -82,6 +82,16 @@ final class FixedLayoutEPUBRenderer {
         return cache
     }()
 
+    /// Each page's content region in page proportions (top-left origin), detected once
+    /// and shared by every snapshot width, so a zoomed re-render crops exactly the region
+    /// the base render did. A stored `nil` is a page with no border worth cropping.
+    private var contentRects: [String: CGRect?] = [:]
+
+    /// Width of the throwaway snapshot that border detection scans. The crop processor
+    /// scans at 40% of the image's point size and snapshots come at screen scale, so a
+    /// wider probe only costs memory.
+    private static let contentDetectionWidth: CGFloat = 400
+
     private let rasterizer = FixedLayoutEPUBPageRasterizer()
     private var openDocument: OpenDocument?
     /// In-flight opens, so two page loads racing on a cold document open it once.
@@ -101,10 +111,11 @@ final class FixedLayoutEPUBRenderer {
 
     /// Rasterize one page, fitted to `targetWidth` points. The WebView still lays the
     /// page out at its declared viewport — that's what makes the layout correct — but
-    /// the snapshot is taken at display size instead of viewport size.
-    func image(sourceURL: URL, pageIndex: Int, targetWidth: CGFloat) async -> UIImage? {
+    /// the snapshot is taken at display size instead of viewport size. With
+    /// `cropBorders` only the page's content region is captured, widened to `targetWidth`.
+    func image(sourceURL: URL, pageIndex: Int, targetWidth: CGFloat, cropBorders: Bool = false) async -> UIImage? {
         guard targetWidth > 0 else { return nil }
-        let key = cacheKey(sourceURL: sourceURL, pageIndex: pageIndex, targetWidth: targetWidth)
+        let key = cacheKey(sourceURL: sourceURL, pageIndex: pageIndex, targetWidth: targetWidth, cropBorders: cropBorders)
         if let cached = cache.object(forKey: key) { return cached }
 
         do {
@@ -127,10 +138,14 @@ final class FixedLayoutEPUBRenderer {
                 chapterHref: chapter.href
             ).inlinedHTML(html)
 
+            let contentRect = cropBorders
+                ? try await self.contentRect(sourceURL: sourceURL, pageIndex: pageIndex, html: preparedHTML, pageSize: pageSize)
+                : nil
             guard let image = await rasterizer.render(
                 html: preparedHTML,
                 pageSize: pageSize,
-                snapshotWidth: targetWidth
+                snapshotWidth: targetWidth,
+                contentRect: contentRect
             ) else {
                 throw FixedLayoutEPUBPageProviderError.renderFailed(pageIndex)
             }
@@ -149,6 +164,7 @@ final class FixedLayoutEPUBRenderer {
     /// Release the open publication and its rendered pages (the reader closed).
     func purge() {
         cache.removeAllObjects()
+        contentRects.removeAll()
         openDocument = nil
         openTasks.removeAll()
     }
@@ -173,8 +189,29 @@ final class FixedLayoutEPUBRenderer {
         return document
     }
 
-    private func cacheKey(sourceURL: URL, pageIndex: Int, targetWidth: CGFloat) -> NSString {
-        "\(sourceURL.path)#\(pageIndex)@\(Int(targetWidth.rounded()))" as NSString
+    /// The page's content region, or nil when it has no border worth cropping. Throws
+    /// when the probe snapshot fails, so an uncropped page is never cached as cropped.
+    private func contentRect(sourceURL: URL, pageIndex: Int, html: String, pageSize: CGSize) async throws -> CGRect? {
+        let key = "\(sourceURL.path)#\(pageIndex)"
+        if let known = contentRects[key] { return known }
+        guard let probe = await rasterizer.render(
+            html: html,
+            pageSize: pageSize,
+            snapshotWidth: Self.contentDetectionWidth
+        ), let pixels = probe.cgImage else {
+            throw FixedLayoutEPUBPageProviderError.renderFailed(pageIndex)
+        }
+        let width = CGFloat(pixels.width)
+        let height = CGFloat(pixels.height)
+        let detected = FixedPageCropBordersProcessor().contentRect(in: probe).map {
+            CGRect(x: $0.minX / width, y: $0.minY / height, width: $0.width / width, height: $0.height / height)
+        }
+        contentRects[key] = detected
+        return detected
+    }
+
+    private func cacheKey(sourceURL: URL, pageIndex: Int, targetWidth: CGFloat, cropBorders: Bool) -> NSString {
+        "\(sourceURL.path)#\(pageIndex)@\(Int(targetWidth.rounded()))\(cropBorders ? "#crop" : "")" as NSString
     }
 
     private static func byteCost(of image: UIImage) -> Int {
@@ -198,6 +235,8 @@ private final class FixedLayoutEPUBPageRasterizer: NSObject, WKNavigationDelegat
         let html: String
         let pageSize: CGSize
         let snapshotWidth: CGFloat
+        /// Page proportions (top-left origin) to capture; nil captures the whole page.
+        let contentRect: CGRect?
         let continuation: CheckedContinuation<UIImage?, Never>
     }
 
@@ -225,7 +264,12 @@ private final class FixedLayoutEPUBPageRasterizer: NSObject, WKNavigationDelegat
         webView.navigationDelegate = self
     }
 
-    func render(html: String, pageSize: CGSize, snapshotWidth: CGFloat) async -> UIImage? {
+    func render(
+        html: String,
+        pageSize: CGSize,
+        snapshotWidth: CGFloat,
+        contentRect: CGRect? = nil
+    ) async -> UIImage? {
         await withCheckedContinuation { continuation in
             queue.append(
                 Request(
@@ -235,6 +279,7 @@ private final class FixedLayoutEPUBPageRasterizer: NSObject, WKNavigationDelegat
                         height: max(1, pageSize.height.rounded(.up))
                     ),
                     snapshotWidth: max(1, snapshotWidth.rounded()),
+                    contentRect: contentRect,
                     continuation: continuation
                 )
             )
@@ -279,7 +324,14 @@ private final class FixedLayoutEPUBPageRasterizer: NSObject, WKNavigationDelegat
         guard active?.id == request.id else { return }
 
         let configuration = WKSnapshotConfiguration()
-        configuration.rect = CGRect(origin: .zero, size: request.pageSize)
+        configuration.rect = request.contentRect.map { region in
+            CGRect(
+                x: region.minX * request.pageSize.width,
+                y: region.minY * request.pageSize.height,
+                width: region.width * request.pageSize.width,
+                height: region.height * request.pageSize.height
+            )
+        } ?? CGRect(origin: .zero, size: request.pageSize)
         // Lays out at viewport size, captures at display size: a 1200pt-wide page
         // snapshotted at 1200pt on a 3x screen is a 69 MB bitmap nobody can see.
         configuration.snapshotWidth = NSNumber(value: Double(request.snapshotWidth))

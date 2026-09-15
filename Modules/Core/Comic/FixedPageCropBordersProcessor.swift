@@ -19,17 +19,27 @@ struct FixedPageCropBordersProcessor: ImageProcessing {
     private let downscale: CGFloat = 0.4
 
     func process(_ image: PlatformImage) -> PlatformImage? {
-        guard let cgImage = image.cgImage else { return image }
+        guard let cgImage = image.cgImage,
+              let cropRect = contentRect(in: image),
+              let cropped = cgImage.cropping(to: cropRect) else { return image }
+        return PlatformImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
+    }
+
+    /// The part of `image` worth keeping, in its pixel coordinates (top-left origin), or nil
+    /// when there is no border worth cropping. `PDFPageRasterizer` converts it to page
+    /// proportions so every zoom level of a page crops the same region.
+    func contentRect(in image: PlatformImage) -> CGRect? {
+        guard let cgImage = image.cgImage else { return nil }
 
         return autoreleasepool {
             let origW = CGFloat(cgImage.width)
             let origH = CGFloat(cgImage.height)
-            guard origW > 10, origH > 10 else { return image }
+            guard origW > 10, origH > 10 else { return nil }
 
             let downsampledImage = downsample(image)
-            guard let downsampledCG = downsampledImage.cgImage else { return image }
+            guard let downsampledCG = downsampledImage.cgImage else { return nil }
             let cropRect = createCropRect(downsampledCG, origW: origW, origH: origH)
-            guard !cropRect.isEmpty else { return image }
+            guard !cropRect.isEmpty else { return nil }
 
             // Ensure the crop removes at least some border (e.g. > 1% change)
             // and does not aggressively discard more than 60% of the page.
@@ -38,13 +48,9 @@ struct FixedPageCropBordersProcessor: ImageProcessing {
             guard (widthDiff > origW * 0.01 || heightDiff > origH * 0.01),
                   cropRect.width > origW * 0.4,
                   cropRect.height > origH * 0.4 else {
-                return image
+                return nil
             }
-
-            if let cropped = cgImage.cropping(to: cropRect) {
-                return PlatformImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
-            }
-            return image
+            return cropRect
         }
     }
 

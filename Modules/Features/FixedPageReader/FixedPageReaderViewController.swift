@@ -524,7 +524,10 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
         let end = min(start + lookahead, pages.count)
         guard start < end else { return }
         FixedPageImageLoader.prefetch(
-            Array(pages[start..<end]), targetWidth: targetWidth, using: imagePrefetcher)
+            Array(pages[start..<end]),
+            targetWidth: targetWidth,
+            cropBorders: fixedPageReaderConfiguration.cropBorders,
+            using: imagePrefetcher)
     }
 
     private func prefetchNextChapterImages() {
@@ -555,6 +558,7 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
                 FixedPageImageLoader.prefetch(
                     Array(pages.prefix(prefetchCount)),
                     targetWidth: self.targetWidth,
+                    cropBorders: self.fixedPageReaderConfiguration.cropBorders,
                     using: self.imagePrefetcher)
             }
         }
