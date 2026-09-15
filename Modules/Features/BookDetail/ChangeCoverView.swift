@@ -114,7 +114,7 @@ struct ChangeCoverView: View {
         .navigationTitle(localized("換封面"))
         // Pushed page: the back button is the way out (this screen is entered
         // from 書籍資訊, sheet or push, through a NavigationLink).
-        .toolbarTitleDisplayMode(.inlineLarge)
+        .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .bookshelf)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

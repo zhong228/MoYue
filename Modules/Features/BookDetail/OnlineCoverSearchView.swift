@@ -67,7 +67,7 @@ struct OnlineCoverSearchView: View {
             }
         }
         .navigationTitle(localized("封面搜索"))
-        .toolbarTitleDisplayMode(.inlineLarge)
+        .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .bookshelf)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
