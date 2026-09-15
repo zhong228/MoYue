@@ -34,24 +34,6 @@ struct ChapterCacheRepository: Sendable {
         self.rootDirectory = rootDirectory ?? StorageLocations.onlineCache
     }
 
-    func loadCachedChapterSync(
-        bookId: UUID,
-        chapterIndex: Int,
-        expectedSourceURL: String? = nil,
-        expectedTOCTitle: String? = nil
-    ) -> String? {
-        guard isCachedChapterMetadataValid(
-            bookId: bookId,
-            chapterIndex: chapterIndex,
-            expectedSourceURL: expectedSourceURL,
-            expectedTOCTitle: expectedTOCTitle
-        ) else {
-            return nil
-        }
-        let url = cachePath(bookId: bookId, chapterIndex: chapterIndex)
-        return try? String(contentsOf: url, encoding: .utf8)
-    }
-
     func loadNormalizedChapterHTMLSync(
         bookId: UUID,
         chapterIndex: Int,

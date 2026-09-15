@@ -164,41 +164,6 @@ class BookStore: ObservableObject, BookProvider {
         }
     }
 
-    // MARK: Chapter Parsing
-
-    func chapters(for book: ReadingBook) -> [BookChapter] {
-        if book.isOnline, let refs = book.onlineChapters {
-            // Online book: convert from chapter refs; content read from cache (empty = not yet loaded)
-            return refs.map { ref in
-                let cached = BookSourceFetcher.shared.loadCachedChapterSync(
-                    bookId: book.id, chapterIndex: ref.index)
-                return BookChapter(index: ref.index, title: ref.title, content: cached ?? "")
-            }
-        }
-
-        // EPUB path: skip TXT parser. epub.js engine resolves TOC.
-        if book.resolvedPipelineKind == .epub {
-            // Legacy format: previously parsed as _epub.json
-            if book.isLegacyParsedEPUB {
-                let url = documentsURL(for: book.contentFilename)
-                if let data = try? Data(contentsOf: url),
-                    let decoded = try? JSONDecoder().decode([BookChapter].self, from: data)
-                {
-                    return decoded
-                }
-            }
-            // New format or legacy parse failure: return placeholder; epub.js onTOC updates after reader starts.
-            return [BookChapter(index: 0, title: book.title, content: "")]
-        }
-
-        if book.resolvedPipelineKind == .html {
-            return [BookChapter(index: 0, title: book.title, content: "")]
-        }
-
-        // Traditional TXT: return plain-text content; actual rendering uses CoreText TXT engine.
-        return [BookChapter(index: 0, title: book.title, content: content(for: book))]
-    }
-
     // MARK: Import TXT File
 
     @MainActor @discardableResult
@@ -940,49 +905,63 @@ class BookStore: ObservableObject, BookProvider {
         let safeLength = max(1, length)
         let targetRange = NSRange(location: position.charOffset, length: safeLength)
         let existingAnnotations = records[idx].bookmarks.compactMap(\.coreTextTextAnnotation)
-        // 改顏色／樣式時範圍不變，舊標註會被下面的 removeExact 拿掉；它身上的筆記要接續到
-        // 新標註，否則「換個顏色」會順手把使用者寫的筆記丟掉。
-        let inheritedNote = existingAnnotations.first {
+        // 改顏色／樣式時範圍不變，舊標註會被下面的 removeExact 拿掉。新標註要接手它的身分
+        // （id、筆記、建立時間、摘錄），否則「換個顏色」等於刪掉重畫一條新的。
+        let replaced = existingAnnotations.first {
             $0.spineIndex == position.spineIndex && NSEqualRanges($0.range, targetRange)
-        }?.note
+        }
         let newAnnotation = CoreTextTextAnnotation(
+            id: replaced?.id ?? UUID(),
             spineIndex: position.spineIndex,
             range: targetRange,
             style: style,
             color: color,
-            note: note ?? inheritedNote
+            note: note ?? replaced?.note
         )
         // 若同一範圍已有標註（改顏色/樣式時範圍不變），先移除舊的，避免新舊兩色並存。
         // 全新選取不會精確命中既有範圍，removeExact 為 no-op。
-        let (cleaned, _) = AnnotationStore.removeExact(
+        let (cleaned, replacedIDs) = AnnotationStore.removeExact(
             spineIndex: position.spineIndex,
             range: targetRange,
             from: existingAnnotations
         )
-        let (merged, _) = AnnotationStore.merge(newAnnotation, into: cleaned)
+        let annotation: CoreTextTextAnnotation
+        let absorbedIDs: [UUID]
+        switch AnnotationStore.merge(newAnnotation, into: cleaned).editResult {
+        case .created(let created):
+            annotation = created
+            absorbedIDs = []
+        case .updated(let updated):
+            annotation = updated
+            absorbedIDs = [updated.id]
+        case .merged(let merged, absorbedIDs: let ids):
+            annotation = merged
+            absorbedIDs = ids
+        }
 
-        // Remove all old annotation bookmarks, then re-insert merged results.
-        // Keep non-annotation bookmarks (kind == .bookmark) untouched.
-        records[idx].bookmarks.removeAll { bm in
-            bm.kind == .underline || bm.kind == .highlight
-        }
-        for ann in merged {
-            let annChapterTitle = ann.spineIndex == chapterIndex
-                ? chapterTitle
-                : chapters(for: records[idx]).first(where: { $0.index == ann.spineIndex })?.title ?? ""
-            let bm = Bookmark(
-                chapterIndex: ann.spineIndex,
-                chapterTitle: annChapterTitle,
-                position: CoreTextReadingPosition(spineIndex: ann.spineIndex, charOffset: ann.startOffset),
-                length: ann.range.length,
-                kind: ann.style == .highlight ? .highlight : .underline,
-                note: ann.note ?? "",
-                excerpt: ann.spineIndex == chapterIndex ? excerpt : "",
-                annotationStyle: ann.style,
-                annotationColor: ann.color
-            )
-            records[idx].bookmarks.append(bm)
-        }
+        // 只換掉這次被取代或併入的標註，其他劃線原封不動。以前是把全書劃線整批刪掉再從範圍重建，
+        // 別條的 id、建立時間、摘錄全被洗掉（見 BookStoreTextAnnotationTests）。
+        let consumedIDs = Set(replacedIDs).union(absorbedIDs)
+        let consumed = records[idx].bookmarks.filter { consumedIDs.contains($0.id) }
+        records[idx].bookmarks.removeAll { consumedIDs.contains($0.id) }
+
+        // 沒選到文字時呼叫端送的是頁面開頭（`currentPageExcerpt`），所以範圍沒變就沿用原本的摘錄；
+        // 原本是空的（例如被舊版清掉）才用這次送來的。範圍變大時舊摘錄只涵蓋其中一段，改用這次的。
+        let replacedExcerpt = replaced.flatMap { old in consumed.first { $0.id == old.id }?.excerpt } ?? ""
+        let keepsReplacedExcerpt = NSEqualRanges(annotation.range, targetRange) && !replacedExcerpt.isEmpty
+        records[idx].bookmarks.append(Bookmark(
+            chapterIndex: chapterIndex,
+            chapterTitle: chapterTitle,
+            position: CoreTextReadingPosition(spineIndex: annotation.spineIndex, charOffset: annotation.startOffset),
+            length: annotation.range.length,
+            kind: annotation.style == .highlight ? .highlight : .underline,
+            note: annotation.note ?? "",
+            excerpt: keepsReplacedExcerpt ? replacedExcerpt : excerpt,
+            id: annotation.id,
+            date: consumed.map(\.date).min() ?? Date(),
+            annotationStyle: annotation.style,
+            annotationColor: annotation.color
+        ))
         records[idx].bookmarks = records[idx].bookmarks.sortedByStablePosition()
         saveMeta()
     }
@@ -995,46 +974,19 @@ class BookStore: ObservableObject, BookProvider {
         color: AnnotationColor = .yellow
     ) {
         guard let idx = records.firstIndex(where: { $0.id == bookId }) else { return }
-        let spineIndex = position.spineIndex
-        let safeLength = max(1, length)
-
-        // Remove the exact annotation from the target spine using AnnotationStore
-        let existingAnnotations = records[idx].bookmarks.compactMap(\.coreTextTextAnnotation)
-        let (remaining, _) = AnnotationStore.removeExact(
-            spineIndex: spineIndex,
-            range: NSRange(location: position.charOffset, length: safeLength),
-            from: existingAnnotations
+        let range = NSRange(location: position.charOffset, length: max(1, length))
+        let (_, removedIDs) = AnnotationStore.removeExact(
+            spineIndex: position.spineIndex,
+            range: range,
+            from: records[idx].bookmarks.compactMap(\.coreTextTextAnnotation)
         )
-
-        // Only remove annotation bookmarks from the target spine; keep other spines untouched
-        let otherSpineAnnotations = records[idx].bookmarks.filter { bm in
-            (bm.kind == .underline || bm.kind == .highlight) && bm.position.spineIndex != spineIndex
+        guard !removedIDs.isEmpty else {
+            AppLogger.cache("劃線：要刪除的範圍沒有完全相同的標註 spine=\(position.spineIndex) range=\(range)")
+            return
         }
-        records[idx].bookmarks.removeAll { bm in
-            bm.kind == .underline || bm.kind == .highlight
-        }
-
-        // Re-add annotations from other spines (untouched)
-        for bm in otherSpineAnnotations {
-            records[idx].bookmarks.append(bm)
-        }
-
-        // Re-add remaining annotations from the target spine (after removal)
-        for ann in remaining where ann.spineIndex == spineIndex {
-            let chapterTitle = chapters(for: records[idx]).first(where: { $0.index == ann.spineIndex })?.title ?? ""
-            let bm = Bookmark(
-                chapterIndex: ann.spineIndex,
-                chapterTitle: chapterTitle,
-                position: CoreTextReadingPosition(spineIndex: ann.spineIndex, charOffset: ann.startOffset),
-                length: ann.range.length,
-                kind: ann.style == .highlight ? .highlight : .underline,
-                note: ann.note ?? "",
-                excerpt: "",
-                annotationStyle: ann.style,
-                annotationColor: ann.color
-            )
-            records[idx].bookmarks.append(bm)
-        }
+        // 只刪命中的那一條。以前會把同章其他劃線重建成空摘錄、新 id、新建立時間。
+        let removedIDSet = Set(removedIDs)
+        records[idx].bookmarks.removeAll { removedIDSet.contains($0.id) }
         records[idx].bookmarks = records[idx].bookmarks.sortedByStablePosition()
         saveMeta()
     }

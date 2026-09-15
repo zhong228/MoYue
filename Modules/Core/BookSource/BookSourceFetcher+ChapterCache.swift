@@ -4,20 +4,6 @@ import Foundation
 
 extension BookSourceFetcher {
 
-    nonisolated func loadCachedChapterSync(
-        bookId: UUID,
-        chapterIndex: Int,
-        expectedSourceURL: String? = nil,
-        expectedTOCTitle: String? = nil
-    ) -> String? {
-        Self.chapterCacheRepository.loadCachedChapterSync(
-            bookId: bookId,
-            chapterIndex: chapterIndex,
-            expectedSourceURL: expectedSourceURL,
-            expectedTOCTitle: expectedTOCTitle
-        )
-    }
-
     nonisolated func loadNormalizedChapterHTMLSync(
         bookId: UUID,
         chapterIndex: Int,
