@@ -151,11 +151,4 @@ extension FixedPageReadingMode {
             )
         }
     }
-
-    static func savedConfiguration(
-        for bookId: UUID,
-        defaults: UserDefaults = .standard
-    ) -> FixedPageReaderConfiguration {
-        saved(for: bookId, defaults: defaults).recommendedConfiguration
-    }
 }

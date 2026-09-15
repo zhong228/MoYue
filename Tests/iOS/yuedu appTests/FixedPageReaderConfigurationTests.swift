@@ -44,27 +44,4 @@ struct FixedPageReaderConfigurationTests {
         #expect(webtoon.autoScrollSpeed == 3)
         #expect(webtoon.isLiveTextEnabled)
     }
-
-    @Test("fixed page reader mode keeps legacy manga reading mode fallback")
-    func fixedPageReaderModeKeepsLegacyFallback() {
-        let suiteName = "test.fixed-page-reader-mode.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let bookId = UUID()
-        defaults.set(
-            FixedPageReadingMode.webtoon.rawValue,
-            forKey: "manga.readingMode.\(bookId.uuidString)"
-        )
-
-        #expect(FixedPageReadingMode.saved(for: bookId, defaults: defaults) == .webtoon)
-
-        FixedPageReadingMode.save(.ltr, for: bookId, defaults: defaults)
-
-        #expect(FixedPageReadingMode.saved(for: bookId, defaults: defaults) == .ltr)
-        #expect(
-            defaults.object(forKey: "fixedPage.readingMode.\(bookId.uuidString)") as? Int
-                == FixedPageReadingMode.ltr.rawValue
-        )
-    }
 }

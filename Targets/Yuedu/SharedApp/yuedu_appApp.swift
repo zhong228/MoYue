@@ -5,7 +5,9 @@ import GoogleSignIn
 @main
 struct yuedu_appApp: App {
     @UIApplicationDelegateAdaptor(RSSAppNotificationDelegate.self) private var rssNotificationDelegate
-    @StateObject private var bookStore = BookStore()
+    // The app's own store is the only one that takes over the reading modes older builds
+    // kept in UserDefaults.
+    @StateObject private var bookStore = BookStore(legacyReaderSettingsDefaults: .standard)
     @StateObject private var subscriptionStore = SubscriptionStore.shared
     @StateObject private var bookSourceDeepLinkHandler = BookSourceDeepLinkHandler()
     @Environment(\.scenePhase) private var scenePhase

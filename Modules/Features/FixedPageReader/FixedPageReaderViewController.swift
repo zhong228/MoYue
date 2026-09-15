@@ -56,7 +56,7 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
             self.chapters = book.onlineChapters ?? []
         }
         self.chapterIndex = min(max(0, book.mangaChapterIndex), max(0, self.chapters.count - 1))
-        self.fixedPageReaderConfiguration = FixedPageReadingMode.savedConfiguration(for: book.id)
+        self.fixedPageReaderConfiguration = store.readerSettings.fixedPageConfiguration(for: book.id)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -381,7 +381,7 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
         guard newConfiguration != fixedPageReaderConfiguration else { return }
         let page = reader?.currentPageIndex() ?? 0
         fixedPageReaderConfiguration = newConfiguration
-        FixedPageReadingMode.save(newConfiguration.mode, for: book.id)
+        store?.readerSettings.setFixedPageConfiguration(newConfiguration, for: book.id)
         state.fixedPageReaderConfiguration = newConfiguration
         installReader()
         loadChapter(at: chapterIndex, startPage: page)

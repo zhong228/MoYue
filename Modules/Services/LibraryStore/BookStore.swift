@@ -122,10 +122,32 @@ class BookStore: ObservableObject, BookProvider {
         StorageLocations.booksMetadataFile
     }
 
-    init(metadataFileURL: URL = BookStore.booksMetaFileURL) {
+    /// Per-book reader settings. Kept beside the shelf file, as the reading records are, so
+    /// a store opened on any other shelf (every test's temporary one) never reads or
+    /// rewrites the app's own.
+    let readerSettings: BookReaderSettingsStore
+
+    /// - Parameter legacyReaderSettingsDefaults: where builds before
+    ///   `BookReaderSettingsStore` kept the fixed-page reading mode. Only the app's own
+    ///   store passes one; a store opened on any other shelf must not claim those keys.
+    init(
+        metadataFileURL: URL = BookStore.booksMetaFileURL,
+        legacyReaderSettingsDefaults: UserDefaults? = nil
+    ) {
         self.metadataFileURL = metadataFileURL
-        loadMeta()
-        loadReadingRecords()
+        readerSettings = BookReaderSettingsStore(
+            fileURL: metadataFileURL.deletingPathExtension().appendingPathExtension("reader-settings.json")
+        )
+        let shelfLoaded = loadMeta()
+        let readingRecordsLoaded = loadReadingRecords()
+        if let legacyReaderSettingsDefaults {
+            readerSettings.migrateLegacyFixedPageReadingModes(
+                from: legacyReaderSettingsDefaults,
+                knownBookIDs: Set(records.map(\.id)),
+                // Only a shelf that really loaded can say a book no longer exists.
+                removesUnknownKeys: shelfLoaded && readingRecordsLoaded
+            )
+        }
     }
 
     // MARK: Read Book Content
@@ -1131,6 +1153,13 @@ class BookStore: ObservableObject, BookProvider {
                     }
                 }
             }
+            readerSettings.removeSettings(for: bookId)
+            // The 多角色朗讀 cast is keyed by book id and would otherwise outlive the book.
+            let globalSettings = GlobalSettings.shared
+            let remainingRoleVoices = TTSRoleVoiceCast.clearing(bookID: bookId, in: globalSettings.ttsRoleVoices)
+            if remainingRoleVoices.count != globalSettings.ttsRoleVoices.count {
+                globalSettings.ttsRoleVoices = remainingRoleVoices
+            }
             records.remove(at: idx)
             saveMeta()
         }
@@ -1977,6 +2006,8 @@ class BookStore: ObservableObject, BookProvider {
             (lhs.lastOpenedDate ?? lhs.addedDate) > (rhs.lastOpenedDate ?? rhs.addedDate)
         }
         saveMetaImmediately()
+        // A book the merged shelf no longer carries was deleted on another device.
+        readerSettings.removeSettings(notIn: Set(records.map(\.id)))
         return true
     }
 
@@ -2125,15 +2156,28 @@ class BookStore: ObservableObject, BookProvider {
         loadReadingRecords()
     }
 
-    private func loadMeta() {
+    /// Whether the shelf is known to be complete: the file decoded, or there is no shelf
+    /// file yet. A file that exists but does not decode leaves the shelf empty, and that
+    /// must not be taken to mean the user has no books.
+    @discardableResult
+    private func loadMeta() -> Bool {
+        let shelfFileExists = FileManager.default.fileExists(atPath: metadataFileURL.path)
         // Prefer the file-based store.
-        if let data = try? Data(contentsOf: metadataFileURL),
-           let decoded = try? JSONDecoder().decode([ReadingBook].self, from: data)
-        {
-            records = decoded
-            markMetadataPersisted(data)
-            sanitizePersistedChapterURLs()
-            return
+        if shelfFileExists {
+            do {
+                let data = try Data(contentsOf: metadataFileURL)
+                records = try JSONDecoder().decode([ReadingBook].self, from: data)
+                markMetadataPersisted(data)
+                sanitizePersistedChapterURLs()
+                return true
+            } catch {
+                // The shelf opens empty when this happens, and nothing on screen says why.
+                AppLogger.error(
+                    "Bookshelf metadata could not be loaded",
+                    error: error,
+                    context: ["file": metadataFileURL.lastPathComponent]
+                )
+            }
         }
 
         // One-time migration: pull legacy data out of UserDefaults, write to disk,
@@ -2148,18 +2192,26 @@ class BookStore: ObservableObject, BookProvider {
                 markMetadataPersisted(migrated)
             }
             UserDefaults.standard.removeObject(forKey: legacyMetaKey)
+            return true
         }
+        return !shelfFileExists
     }
 
-    private func loadReadingRecords() {
-        guard FileManager.default.fileExists(atPath: readingMetadataFileURL.path) else { return }
+    /// Whether every reading-only record is known: the file decoded, or there is none.
+    @discardableResult
+    private func loadReadingRecords() -> Bool {
+        guard FileManager.default.fileExists(atPath: readingMetadataFileURL.path) else { return true }
         do {
             let data = try Data(contentsOf: readingMetadataFileURL)
             let decoded = try JSONDecoder().decode([ReadingBook].self, from: data)
             let shelfIDs = Set(records.map(\.id))
             records.append(contentsOf: decoded.filter { !$0.isInBookshelf && !shelfIDs.contains($0.id) })
             lastPersistedReadingData = data
-        } catch { AppLogger.error("Remote reading records could not be loaded", error: error) }
+            return true
+        } catch {
+            AppLogger.error("Remote reading records could not be loaded", error: error)
+            return false
+        }
     }
 
     private func persistReadingRecords() {

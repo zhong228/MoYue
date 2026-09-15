@@ -113,7 +113,11 @@ struct FixedPageReaderView: View {
                                     .font(.system(size: 40))
                                     .foregroundColor(.white)
                                     .background(Circle().fill(Color.black.opacity(0.6)))
+                                    .accessibilityHidden(true)
                             }
+                            .accessibilityLabel(
+                                state.isAutoScrolling ? localized("暫停自動捲動") : localized("開始自動捲動")
+                            )
                             .padding(.trailing, DSSpacing.lg)
                             .padding(.bottom, state.showControls ? 85 : 36)
                         }
@@ -267,7 +271,9 @@ struct FixedPageReaderControlsOverlay: View {
                     Image(systemName: "list.bullet")
                         .font(DSFont.fixed(size: 17, weight: .medium))
                         .foregroundColor(.white)
-                        .frame(width: 36, height: 36)
+                        .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
+                        .contentShape(Rectangle())
+                        .accessibilityHidden(true)
                 }
                 .accessibilityLabel(localized("目錄"))
             }
@@ -292,6 +298,15 @@ struct FixedPageReaderControlsOverlay: View {
         state.fixedPageReaderConfiguration.progression == .rightToLeft
     }
 
+    /// Shown under the page slider and spoken as its value: one source for both.
+    private var pageIndicatorText: String {
+        String(
+            format: localized("第 %d / %d 頁"),
+            state.currentPage + 1,
+            max(state.totalPages, state.currentPage + 1)
+        )
+    }
+
     private var bottomBar: some View {
         VStack(spacing: DSSpacing.xs) {
             if state.totalPages > 1 {
@@ -299,8 +314,12 @@ struct FixedPageReaderControlsOverlay: View {
                     Button {
                         if isRTL { state.onNextChapter?() } else { state.onPrevChapter?() }
                     } label: {
-                        Image(systemName: isRTL ? "forward.end" : "backward.end").foregroundColor(.white)
+                        Image(systemName: isRTL ? "forward.end" : "backward.end")
+                            .foregroundColor(.white)
+                            .accessibilityHidden(true)
                     }
+                    // A right-to-left book puts its next chapter on the left.
+                    .accessibilityLabel(isRTL ? localized("下一章") : localized("上一章"))
                     Slider(
                         value: Binding(
                             get: {
@@ -319,17 +338,24 @@ struct FixedPageReaderControlsOverlay: View {
                         step: 1
                     )
                     .tint(.white)
+                    .accessibilityLabel(localized("閱讀進度"))
+                    .accessibilityValue(pageIndicatorText)
                     Button {
                         if isRTL { state.onPrevChapter?() } else { state.onNextChapter?() }
                     } label: {
-                        Image(systemName: isRTL ? "backward.end" : "forward.end").foregroundColor(.white)
+                        Image(systemName: isRTL ? "backward.end" : "forward.end")
+                            .foregroundColor(.white)
+                            .accessibilityHidden(true)
                     }
+                    .accessibilityLabel(isRTL ? localized("上一章") : localized("下一章"))
                 }
                 .padding(.horizontal, DSSpacing.md)
             }
-            Text(String(format: localized("第 %d / %d 頁"), state.currentPage + 1, max(state.totalPages, state.currentPage + 1)))
+            Text(pageIndicatorText)
                 .font(DSFont.caption)
                 .foregroundColor(.white)
+                // The slider already speaks this as its value; skip the repeat while it is shown.
+                .accessibilityHidden(state.totalPages > 1)
         }
         .padding(.top, DSSpacing.sm)
         .padding(.bottom, 30)
@@ -459,10 +485,13 @@ struct FixedPageReaderSettingsView: View {
                 }
             }
         } label: {
-            Image(systemName: "rectangle.portrait.on.rectangle.portrait")
+            // A Label, not a bare Image: VoiceOver reads its title instead of the symbol name.
+            Label(localized("閱讀設定"), systemImage: "rectangle.portrait.on.rectangle.portrait")
+                .labelStyle(.iconOnly)
                 .font(DSFont.fixed(size: 17, weight: .medium))
                 .foregroundColor(.white)
-                .frame(width: 36, height: 36)
+                .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
+                .contentShape(Rectangle())
         }
     }
 
@@ -536,4 +565,17 @@ struct FixedPageChapterListView: View {
 #Preview {
     FixedPageReaderView(bookId: UUID())
         .environmentObject(BookStore())
+}
+
+#Preview("Controls overlay") {
+    let state = FixedPageReaderState()
+    state.chapterTitle = "第 1 話"
+    state.chapterListItems = FixedPageChapterListItem.items(
+        from: [OnlineChapterRef(index: 0, title: "第 1 話", url: "")]
+    )
+    state.totalPages = 24
+    return ZStack {
+        Color.black.ignoresSafeArea()
+        FixedPageReaderControlsOverlay(state: state, onClose: {}, onOpenTouchZoneEditor: {})
+    }
 }

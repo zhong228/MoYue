@@ -311,7 +311,7 @@ struct HomeView: View {
         for book: ReadingBook
     ) async -> ReaderBookOpeningDirection {
         if book.resolvedPipelineKind == .manga || book.resolvedPipelineKind == .fixedPage {
-            let configuration = FixedPageReadingMode.savedConfiguration(for: book.id)
+            let configuration = store.readerSettings.fixedPageConfiguration(for: book.id)
             return ReaderBookOpeningDirection.resolve(
                 writingMode: .horizontal,
                 pageProgressionIsRTL: configuration.progression == .rightToLeft

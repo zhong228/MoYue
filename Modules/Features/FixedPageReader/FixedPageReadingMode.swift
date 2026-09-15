@@ -25,19 +25,4 @@ enum FixedPageReadingMode: Int, CaseIterable, Codable {
         case .webtoon:  return "arrow.down"
         }
     }
-
-    // MARK: Per-book persistence
-
-    static func saved(for bookId: UUID, defaults: UserDefaults = .standard) -> FixedPageReadingMode {
-        let raw = defaults.object(forKey: key(bookId)) as? Int
-            ?? defaults.object(forKey: legacyKey(bookId)) as? Int
-        return raw.flatMap { FixedPageReadingMode(rawValue: $0) } ?? .rtl
-    }
-
-    static func save(_ mode: FixedPageReadingMode, for bookId: UUID, defaults: UserDefaults = .standard) {
-        defaults.set(mode.rawValue, forKey: key(bookId))
-    }
-
-    private static func key(_ bookId: UUID) -> String { "fixedPage.readingMode.\(bookId.uuidString)" }
-    private static func legacyKey(_ bookId: UUID) -> String { "manga.readingMode.\(bookId.uuidString)" }
 }
