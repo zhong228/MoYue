@@ -65,6 +65,42 @@ struct AIPhase2ConversationTests {
         try await AIAgenticAssistant.answerQuestion(context: context, index: index(context.source), provider: provider)
     }
 
+    @Test func traditionalQuestionFindsSimplifiedProseWithoutChangingCitationCoordinates() async throws {
+        let source = source(["陈庆原本想拜师。张三介绍了闫良。"])
+        let provider = Provider([.answer()])
+        let result = try await run(context(source, "張三介紹了誰？"), provider)
+        #expect(result.hasEvidence)
+        #expect(result.citations.contains { $0.quote.contains("张三") })
+        #expect(AIBM25Index.tokenize("陳慶") == AIBM25Index.tokenize("陈庆"))
+    }
+
+    @Test(arguments: ["剛剛發生了什麼？", "刚刚发生了什么？", "What just happened? Answer in Traditional Chinese."])
+    func currentPassageAtChapterStartUsesPrecedingProseInsteadOfUnrelatedHits(question: String) async throws {
+        let text = String(repeating: "林青在渡口救下船夫。", count: 200)
+        let source = source(["剛剛有陌生人在遠方打鬥。", text, "UNREAD_FUTURE"], offset: 0, spine: 2)
+        let provider = Provider([.answer()])
+        let result = try await run(context(source, question), provider)
+        #expect(result.hasEvidence)
+        #expect(result.provenance?.sentEvidence.contains { $0.kind == .currentPosition && $0.chunk.start.spineIndex == 1 } == true)
+        let request = try #require(await provider.requests.first)
+        #expect(request.messages.last!.content.contains("<current-reading-context>"))
+        #expect(!request.messages.last!.content.contains("UNREAD_FUTURE"))
+    }
+
+    @Test func shortCitationAliasesRestoreExactFragmentCoordinatesAndRejectInventedIDs() throws {
+        let source = source(["柳青站在橋邊，沒有走進後文。"], offset: "柳青站在橋邊，".utf16.count)
+        let context = context(source, "剛剛發生什麼？")
+        let evidence = AIQuestionSourceReader.currentReadingEvidence(index: index(source), context: context)
+        let selection = try AIQuestionPrompt.assemble(system: "fixture", data: context.question, history: [], evidence: evidence, budget: .init(), requireHistory: false)
+        #expect(selection.request.messages.last!.content.contains("[S1]"))
+        let restored = selection.restoringCitationIDs(in: "柳青在橋邊。[S1][S999]")
+        let citations = AICitationParser.parse(in: restored, from: selection.evidence.map(\.chunk))
+        #expect(citations.count == 1)
+        #expect(citations.first?.chunkID == evidence.first?.chunk.id)
+        #expect(citations.first?.charOffset == evidence.first?.chunk.start.charOffset)
+        #expect(citations.first?.quote == "柳青站在橋邊，")
+    }
+
     @Test func clearQuestionUsesOneCallAndOnlyActualEvidence() async throws {
         let source = source(["柳青在橋邊找到銅鑰匙。"])
         let provider = Provider([.answer()])
@@ -105,15 +141,28 @@ struct AIPhase2ConversationTests {
         #expect(!result.hasEvidence)
         #expect(result.content == localized("目前無法確定你指的是哪位人物或哪件事，請補上人名或事件。"))
         #expect(await provider.requests.count == 1)
-        #expect(result.provenance?.sentEvidence.isEmpty == true)
+        #expect(result.provenance?.sentEvidence.allSatisfy { source.boundary().contains($0.chunk) } == true)
     }
 
-    @Test func noSafeHistoryDoesNotGuessAName() async throws {
-        let source = source(["柳青知道秘密。"])
-        let provider = Provider([])
+    @Test func firstQuestionResolvesFromCurrentProseWithoutUnsafeHistory() async throws {
+        let source = source(["柳青是守橋人。他知道秘密。後文不可傳送。"], offset: "柳青是守橋人。他知道秘密。".utf16.count)
+        let provider = Provider([.plan("柳青是誰？", ["柳青"], []), .answer()])
         let result = try await run(context(source, "那他是誰？", history: [AIChatMessage(role: .user, text: "secret guessed name")]), provider)
-        #expect(result.content == localized("目前無法確定你指的是哪位人物或哪件事，請補上人名或事件。"))
-        #expect(await provider.requests.isEmpty)
+        let requests = await provider.requests
+        #expect(requests.count == 2)
+        #expect(requests[0].messages.last!.content.contains("柳青是守橋人"))
+        #expect(!requests[0].messages.last!.content.contains("後文不可傳送"))
+        #expect(!requests[0].messages.contains { $0.content.contains("secret guessed name") })
+        #expect(result.hasEvidence)
+    }
+
+    @Test func repeatingAQuestionMakesFreshCallsAndKeepsDistinctRequestIDs() async throws {
+        let source = source(["柳青在橋邊找到銅鑰匙。"])
+        let provider = Provider([.answer(), .answer()])
+        let first = try await run(context(source, "柳青找到什麼？"), provider)
+        let second = try await run(context(source, "柳青找到什麼？"), provider)
+        #expect(await provider.requests.count == 2)
+        #expect(first.provenance?.requestID != second.provenance?.requestID)
     }
 
     @Test func scopeBookConversationLegacyVersionAndFailureFilter() {

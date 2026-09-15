@@ -18,13 +18,13 @@ enum AIConnectionTest {
         case failure(message: String)
     }
 
-    /// Deliberately tiny: this costs the user money on their own key.
+    /// A short reply, with room for reasoning models to reach their final content.
     private static let request = LLMGenerationRequest(
         messages: [
             LLMMessage(role: .system, content: "You are a connectivity probe. Reply with OK."),
             LLMMessage(role: .user, content: "OK?"),
         ],
-        maxTokens: 16,
+        maxTokens: 8192,
         temperature: 0
     )
 
@@ -52,6 +52,7 @@ enum AIConnectionTest {
         let provider = providerFactory(url, trimmedKey, trimmedModel)
         do {
             let response = try await provider.generate(request, model: trimmedModel)
+            try response.validateCompletion()
             let reply = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
             return .success(reply: String(reply.prefix(80)))
         } catch let error as LLMError {

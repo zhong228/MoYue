@@ -15,7 +15,7 @@ enum AIRAGPipeline {
     /// Recorded on every stored answer so a prompt change can be told apart from a model
     /// change when something regresses.
     static let promptVersion = "yuedu.rag.v2"
-    static let answerMaxTokens = 1024
+    static let answerMaxTokens = 16384
     static let temperature = 0.2
     static let topP = 1.0
 

@@ -8,7 +8,7 @@ struct AIQuestionBudget: Codable, Equatable, Sendable {
     var maximumInputBytes = 48_000
     var maximumHistoryBytes = 6_000
     var maximumHistoryMessages = 6
-    var maximumOutputTokens = 1_024
+    var maximumOutputTokens = 16_384
 }
 
 struct AIQuestionEvidence: Codable, Equatable, Sendable {

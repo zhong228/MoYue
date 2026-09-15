@@ -32,6 +32,56 @@ struct AIProviderTests {
         #expect(!LLMStreamDecoding.isDone(#"data: {"choices":[]}"#))
     }
 
+    @Test func tokenLimitSSEIsNotSuccessfulEvenWithDoneMarker() throws {
+        #expect(throws: LLMError.incompleteOutput) {
+            try LLMStreamDecoding.validateFinish(from: #"data: {"choices":[{"delta":{},"finish_reason":"length"}]}"#)
+        }
+        #expect(throws: LLMError.filteredOutput) {
+            try LLMStreamDecoding.validateFinish(from: #"data: {"choices":[{"delta":{},"finish_reason":"content_filter"}]}"#)
+        }
+        try LLMStreamDecoding.validateFinish(from: #"data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"#)
+    }
+
+    @Test func deepSeekThinkingUsesVisibleTotalBudgetAndOtherEndpointsStayCompatible() throws {
+        let request = LLMGenerationRequest(messages: [.init(role: .user, content: "fixture")], maxTokens: AIQuestionBudget().maximumOutputTokens)
+        for host in ["api.deepseek.com", "fixture.invalid"] {
+            let provider = OpenAICompatibleProvider(endpoint: URL(string: "https://\(host)/v1/chat/completions")!, apiKey: "fixture", defaultModel: "deepseek-flash")
+            let wire = try provider.makeURLRequest(for: request, model: "deepseek-flash", stream: false)
+            let body = try #require(try JSONSerialization.jsonObject(with: wire.httpBody!) as? [String: Any])
+            #expect(body["max_tokens"] as? Int == 16_384)
+            #expect((body["thinking"] != nil) == (host == "api.deepseek.com"))
+            #expect(body["reasoning_effort"] as? String == (host == "api.deepseek.com" ? "high" : nil))
+        }
+    }
+
+    @Test func structuredExtractionCanBoundThinkingWithoutDisablingIt() throws {
+        let provider = OpenAICompatibleProvider(endpoint: URL(string: "https://api.deepseek.com/v1/chat/completions")!, apiKey: "fixture", defaultModel: "deepseek-flash")
+        let request = LLMGenerationRequest(messages: [.init(role: .user, content: "fixture")], maxTokens: 16_384, reasoningEffort: .low)
+        let wire = try provider.makeURLRequest(for: request, model: "deepseek-flash", stream: false)
+        let body = try #require(try JSONSerialization.jsonObject(with: wire.httpBody!) as? [String: Any])
+        #expect(body["reasoning_effort"] as? String == "low")
+        #expect((body["thinking"] as? [String: String])?["type"] == "enabled")
+    }
+
+    @Test func reasoningUsageCanBeDiagnosedWithoutRetainingReasoningText() throws {
+        let wire = Data(#"{"prompt_tokens":20,"completion_tokens":100,"total_tokens":120,"completion_tokens_details":{"reasoning_tokens":80}}"#.utf8)
+        let usage = try JSONDecoder().decode(LLMUsage.self, from: wire)
+        #expect(usage.completionTokensDetails?.reasoningTokens == 80)
+        #expect(usage.completionTokens == 100)
+    }
+
+    @Test func deepSeekGenerationCollectsFinalTextAndUsageFromSSE() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [DeepSeekGenerationFixture.self]
+        let provider = OpenAICompatibleProvider(endpoint: URL(string: "https://api.deepseek.com/v1/chat/completions")!, apiKey: "fixture", defaultModel: "deepseek-flash", configuration: configuration)
+        let raw = try await provider.generate(.init(messages: [.init(role: .user, content: "fixture")]))
+        try raw.validateCompletion()
+        #expect(raw.content == "Complete answer")
+        #expect(raw.finishReason == "stop")
+        #expect(raw.usage?.completionTokensDetails?.reasoningTokens == 80)
+        #expect(!raw.content.contains("private reasoning"))
+    }
+
     // MARK: - Error sanitising
 
     /// A misconfigured proxy that echoes the request would otherwise print the user's own API
@@ -232,4 +282,22 @@ private extension Result where Success == any LLMProviding, Failure == AIProvide
         guard case let .failure(reason) = self else { return nil }
         return reason
     }
+}
+
+private final class DeepSeekGenerationFixture: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "api.deepseek.com" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/event-stream"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        let events = [
+            #"data: {"model":"deepseek-flash","choices":[{"delta":{"reasoning_content":"private reasoning"},"finish_reason":null}]}"#,
+            #"data: {"choices":[{"delta":{"content":"Complete "},"finish_reason":null}]}"#,
+            #"data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}],"usage":{"completion_tokens":100,"completion_tokens_details":{"reasoning_tokens":80}}}"#,
+            "data: [DONE]"
+        ]
+        for event in events { client?.urlProtocol(self, didLoad: Data((event + "\n\n").utf8)) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

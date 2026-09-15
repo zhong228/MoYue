@@ -134,7 +134,8 @@ struct AITracedProvider: LLMProviding {
         trace?.event("messages", ["roles": request.messages.map { $0.role.rawValue }.joined(separator: ","),
             "count": "\(request.messages.count)", "characterCounts": request.messages.map { String($0.content.count) }.joined(separator: ","),
             "history": "\(request.messages.contains { $0.content.hasPrefix("<conversation-data") })", "dataMessages": "\(request.messages.filter { $0.role == .user }.count)", "provider": identifier, "model": AIRequestTrace.redact(model ?? defaultModel),
-            "maxOutputTokens": request.maxTokens.map(String.init) ?? "providerDefault"])
+            "maxOutputTokens": request.maxTokens.map(String.init) ?? "providerDefault",
+            "reasoningEffort": request.reasoningEffort?.rawValue ?? "providerDefault"])
         trace?.content("messages", request.messages.map { "\($0.role.rawValue):\n\($0.content)" })
         do {
             let raw = try await base.generate(request, model: model)
@@ -142,7 +143,8 @@ struct AITracedProvider: LLMProviding {
                 "httpStatus": raw.httpStatus.map(String.init) ?? "unavailable", "finishReason": raw.finishReason ?? "unavailable",
                 "characters": "\(raw.content.count)", "elapsedMs": "\(Date().timeIntervalSince(start) * 1000)",
                 "promptTokens": raw.usage?.promptTokens.map(String.init) ?? "unavailable",
-                "completionTokens": raw.usage?.completionTokens.map(String.init) ?? "unavailable"])
+                "completionTokens": raw.usage?.completionTokens.map(String.init) ?? "unavailable",
+                "reasoningTokens": raw.usage?.completionTokensDetails?.reasoningTokens.map(String.init) ?? "unavailable"])
             trace?.content("response", [raw.content])
             try raw.validateCompletion()
             return raw

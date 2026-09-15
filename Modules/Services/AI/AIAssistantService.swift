@@ -170,6 +170,7 @@ final class AIAssistantService: ObservableObject {
         }
     }
 
+    /// Explicit requests always generate a fresh recap. Background consumers may opt into reuse.
     /// Recap of at most twelve recent eligible chunks.
     func recap(
         bookID: UUID,
@@ -177,11 +178,12 @@ final class AIAssistantService: ObservableObject {
         adapter: AIBookContentAdapter,
         progress: Double,
         stored: AIRecap?,
+        reuseStored: Bool = false,
         boundary: AIReadingBoundary? = nil
     ) async throws -> AIRecap? {
         let boundary = boundary ?? adapter.boundary()
         return try await traced("recap", adapter: adapter, boundary: boundary) {
-            if AIRecap.canReuse(stored, atProgress: progress, boundary: boundary) {
+            if reuseStored && AIRecap.canReuse(stored, atProgress: progress, boundary: boundary) {
                 AIDiagnostics.current?.event("recapCache", ["result": "safeHit"])
                 return stored
             }
@@ -244,28 +246,6 @@ final class AIAssistantService: ObservableObject {
             AIDiagnostics.current?.event("characterParsing", ["result": "valid", "retrieved": "\(result.retrievedChunks.count)", "cited": "\(profile.citationChunkIDs.count)"])
             cards.upsert(profile, forBook: bookID)
             return profile
-        }
-    }
-
-    /// Asks the model which of the heuristic's candidates are actually people.
-    ///
-    /// One call for the whole book. Without it the cast list fills with 試探, 一邊, 劉癩子苦 —
-    /// artefacts of stripping a speech verb off the end of a sentence, which no amount of
-    /// hand-written character rules fixes in Chinese.
-    func buildSpeakerRoster(
-        bookID: UUID,
-        adapter: AIBookContentAdapter,
-        candidates: [AISpeakerRoster.Candidate],
-        boundary: AIReadingBoundary
-    ) async throws -> [String: String] {
-        return try await traced("speakerRoster", adapter: adapter, boundary: boundary) {
-            let provider = try resolveProvider()
-            guard !candidates.isEmpty else { return [:] }
-            let roster = try await AISpeakerRoster.build(candidates: candidates, provider: provider)
-            try Task.checkCancellation()
-            guard latestSnapshots[bookID] == adapter.contentFingerprint else { throw CancellationError() }
-            AISpeakerRosterStore.shared.save(roster, forBook: bookID, boundary: boundary)
-            return roster
         }
     }
 

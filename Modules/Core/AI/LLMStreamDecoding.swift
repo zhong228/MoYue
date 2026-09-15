@@ -20,6 +20,7 @@ enum LLMStreamDecoding {
         struct Choice: Decodable {
             struct Delta: Decodable { let content: String? }
             let delta: Delta?
+            let finish_reason: String?
         }
         let choices: [Choice]?
     }
@@ -35,6 +36,15 @@ enum LLMStreamDecoding {
 
     static func isDone(_ line: String) -> Bool {
         payload(ofDataLine: line) == donePayload
+    }
+
+    /// [DONE] also follows a token-limit stop; it does not prove the answer is complete.
+    static func validateFinish(from dataLine: String) throws {
+        guard let payload = payload(ofDataLine: dataLine), payload != donePayload,
+              let data = payload.data(using: .utf8),
+              let chunk = try? JSONDecoder().decode(Chunk.self, from: data) else { return }
+        if chunk.choices?.first?.finish_reason == "length" { throw LLMError.incompleteOutput }
+        if chunk.choices?.first?.finish_reason == "content_filter" { throw LLMError.filteredOutput }
     }
 
     /// The content delta carried by one SSE line.

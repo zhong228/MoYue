@@ -38,7 +38,7 @@ struct AIProviderPreset: Identifiable, Equatable, Sendable {
             id: "deepseek",
             displayName: "DeepSeek",
             baseURL: "https://api.deepseek.com/v1",
-            suggestedModel: "deepseek-chat",
+            suggestedModel: "deepseek-flash",
             symbol: "water.waves"
         ),
         AIProviderPreset(

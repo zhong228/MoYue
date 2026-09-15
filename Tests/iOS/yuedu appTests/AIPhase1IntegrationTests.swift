@@ -105,25 +105,19 @@ struct AIPhase1IntegrationTests {
         }
     }
 
-    @Test @MainActor func scansRefreshAfterMoreLocalContent() async {
-        let scanGate = ScanGate()
-        let scanner = AISpeakerScanCoordinator { sections, aliases in
-            if sections.first?.text.hasPrefix("SLOW") == true { await scanGate.suspend() }
-            return AIBookSpeakerScan.scan(sections: sections, aliases: aliases)
-        }
-        let old = adapter(["張三說：「早安。」", nil])
-        let new = adapter(["張三說：「早安。」", "李四說：「你好。」"])
-        await scanner.scan(adapter: old, boundary: end(old, whole: true), aliases: [:])
-        #expect(!scanner.speakers.contains { $0.name == "李四" })
-        await scanner.scan(adapter: new, boundary: end(new, spine: 1), aliases: [:])
-        #expect(scanner.speakers.contains { $0.name == "李四" })
-        let long = adapter(["SLOW\n" + String(repeating: "張三說：「早安。」\n", count: 1000)])
-        let task = Task { await scanner.scan(adapter: long, boundary: end(long), aliases: [:]) }
-        await scanGate.waitForStart()
-        await scanner.scan(adapter: new, boundary: end(new, spine: 1), aliases: [:])
-        await scanGate.release()
-        await task.value
-        #expect(scanner.speakers.contains { $0.name == "李四" })
+    @Test @MainActor func explicitRecapRegeneratesDespiteReusableStoredAnswer() async throws {
+        let source = adapter([String(repeating: "柳青沿河走到橋邊。", count: 50)])
+        let boundary = end(source)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let provider = ScriptProvider(replies: [
+            .init(content: "first fresh answer", provider: "fixture", model: "fixture"),
+            .init(content: "second fresh answer", provider: "fixture", model: "fixture")])
+        let service = AIAssistantService(store: AIBookIndexStore(directory: directory), provider: provider, diagnosticOrigin: .testFixture)
+        let first = try #require(try await service.recap(bookID: bookID, bookTitle: "fixture", adapter: source, progress: 0.5, stored: nil, boundary: boundary))
+        #expect(AIRecap.canReuse(first, atProgress: 0.5, boundary: boundary))
+        let second = try #require(try await service.recap(bookID: bookID, bookTitle: "fixture", adapter: source, progress: 0.5, stored: first, boundary: boundary))
+        #expect(second.text == "second fresh answer")
     }
 
     @Test func diagnosticsOnlyExportSelectedOptedInContent() throws {
@@ -350,14 +344,6 @@ private final class Phase1HTTPFixture: URLProtocol {
     override func stopLoading() {}
 }
 
-extension AIPhase1IntegrationTests {
-    @Test func malformedRosterIsNotMarkedVerified() async {
-        let provider = ScriptProvider(replies: [.init(content: "{}", provider: "fixture", model: "fixture")])
-        await #expect(throws: LLMError.invalidSchema) {
-            try await AISpeakerRoster.build(candidates: [.init(name: "hero", lineCount: 1, sample: "fixture")], provider: provider)
-        }
-    }
-}
 
 extension AIPhase1IntegrationTests {
     actor PausedFinishProvider: LLMProviding {

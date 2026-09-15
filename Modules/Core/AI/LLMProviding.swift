@@ -24,22 +24,27 @@ struct LLMMessage: Codable, Hashable, Sendable {
 }
 
 /// A generation request. The caller places retrieved text in data messages; the provider stays a transport.
+enum LLMReasoningEffort: String, Sendable { case low, high, max }
+
 struct LLMGenerationRequest: Sendable {
     let messages: [LLMMessage]
     let maxTokens: Int?
     let temperature: Double?
     let topP: Double?
+    let reasoningEffort: LLMReasoningEffort?
 
     init(
         messages: [LLMMessage],
         maxTokens: Int? = nil,
         temperature: Double? = nil,
-        topP: Double? = nil
+        topP: Double? = nil,
+        reasoningEffort: LLMReasoningEffort? = nil
     ) {
         self.messages = messages
         self.maxTokens = maxTokens
         self.temperature = temperature
         self.topP = topP
+        self.reasoningEffort = reasoningEffort
     }
 }
 
@@ -64,11 +69,17 @@ struct LLMRawResponse: Sendable {
 }
 
 struct LLMUsage: Codable, Sendable {
+    struct CompletionDetails: Codable, Sendable {
+        let reasoningTokens: Int?
+        enum CodingKeys: String, CodingKey { case reasoningTokens = "reasoning_tokens" }
+    }
+    var completionTokensDetails: CompletionDetails? = nil
     let promptTokens: Int?
     let completionTokens: Int?
     let totalTokens: Int?
     enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens", completionTokens = "completion_tokens", totalTokens = "total_tokens"
+        case completionTokensDetails = "completion_tokens_details"
     }
 }
 
@@ -200,7 +211,8 @@ extension LLMProviding {
             let task = Task {
                 do {
                     let raw = try await self.generate(request, model: model)
-                    if !raw.content.isEmpty { continuation.yield(raw.content) }
+                    try raw.validateCompletion()
+                    continuation.yield(raw.content)
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)

@@ -19,7 +19,7 @@ struct AIProviderConfiguration: Codable, Sendable, Equatable {
 
     static let `default` = AIProviderConfiguration(
         endpoint: "https://api.deepseek.com/v1",
-        defaultModel: "deepseek-chat"
+        defaultModel: "deepseek-flash"
     )
 
     /// Where chat requests are POSTed.

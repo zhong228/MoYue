@@ -74,7 +74,7 @@ struct AIRecap: Sendable, Equatable, Codable {
                         body: chunks.map { "[\($0.id)]\n\($0.text)" }.joined(separator: "\n\n"))
                 ),
             ],
-            maxTokens: 700,
+            maxTokens: 8192,
             temperature: 0.3,
             topP: 1.0
         )

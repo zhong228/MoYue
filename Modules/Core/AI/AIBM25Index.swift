@@ -87,7 +87,13 @@ struct AIBM25Index: Sendable {
         )
     }
 
-    static func tokenize(_ text: String) -> [String] {
+    /// Retrieval-only normalization; evidence and UTF-16 coordinates retain the original text.
+    static func searchText(_ text: String) -> String {
+        text.applyingTransform(StringTransform("Traditional-Simplified"), reverse: false)?.lowercased() ?? text.lowercased()
+    }
+
+    static func tokenize(_ input: String) -> [String] {
+        let text = searchText(input)
         #if canImport(NaturalLanguage)
         var tokens: [String] = []
         let tokenizer = NLTokenizer(unit: .word)

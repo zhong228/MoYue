@@ -3063,3 +3063,8 @@
 "這會逐批傳送正文，不只是問答命中的少數片段。全書範圍可能包含後文；模型服務可能收費，沒有價格或 tokenizer 資料時不估價。" = "This sends text in batches, beyond the few passages retrieved for Q&A. Whole-book analysis may include unread text. The service may charge fees; costs are unknown without pricing and tokenizer data.";
 "關係記錄" = "Relationship record";
 "預算用盡，已暫停" = "Budget exhausted, paused";
+
+// AI character discovery from source prose
+"用 AI 建立人物表" = "Build characters with AI";
+"人物由 AI 直接閱讀正文辨識，包含沒有對白的角色。" = "AI identifies characters directly from the book, including characters without dialogue.";
+"指定人物整理卡片" = "Create a card for a named character";

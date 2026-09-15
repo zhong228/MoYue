@@ -22,12 +22,12 @@ final class OpenAICompatibleProvider: LLMProviding, @unchecked Sendable {
     /// wrong model name answering with non-SSE, a half-open connection — would otherwise leave
     /// `for try await line in bytes.lines` blocked forever and the UI spinning. Only silence
     /// after the response arrives trips it, so a long answer streaming token by token is fine.
-    static let firstByteTimeout: TimeInterval = 20
+    static let firstByteTimeout: TimeInterval = 60
 
     private static let defaultSession: URLSession = {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = firstByteTimeout
-        configuration.timeoutIntervalForResource = 120
+        configuration.timeoutIntervalForResource = 300
         configuration.waitsForConnectivity = false
         return URLSession(configuration: configuration)
     }()
@@ -74,9 +74,13 @@ final class OpenAICompatibleProvider: LLMProviding, @unchecked Sendable {
         let maxTokens: Int
         let topP: Double
         let stream: Bool?
+        struct Thinking: Encodable { let type: String }
+        let thinking: Thinking?
+        let reasoningEffort: String?
 
         enum CodingKeys: String, CodingKey {
-            case model, messages, temperature, stream
+            case model, messages, temperature, stream, thinking
+            case reasoningEffort = "reasoning_effort"
             case maxTokens = "max_tokens"
             case topP = "top_p"
         }
@@ -99,7 +103,7 @@ final class OpenAICompatibleProvider: LLMProviding, @unchecked Sendable {
         let message: String?
     }
 
-    private func makeURLRequest(
+    func makeURLRequest(
         for request: LLMGenerationRequest,
         model: String,
         stream: Bool
@@ -108,6 +112,10 @@ final class OpenAICompatibleProvider: LLMProviding, @unchecked Sendable {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // DeepSeek Flash defaults to reasoning. Make that intent explicit while keeping
+        // max_tokens as the caller-visible total budget (reasoning plus final content).
+        let deepSeekThinking = endpoint.host?.lowercased() == "api.deepseek.com" &&
+            ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro", "deepseek-reasoner"].contains(model)
         let body = ChatRequestBody(
             model: model,
             messages: request.messages.map {
@@ -116,7 +124,9 @@ final class OpenAICompatibleProvider: LLMProviding, @unchecked Sendable {
             temperature: request.temperature ?? 0.2,
             maxTokens: request.maxTokens ?? 1024,
             topP: request.topP ?? 1.0,
-            stream: stream ? true : nil
+            stream: stream ? true : nil,
+            thinking: deepSeekThinking ? .init(type: "enabled") : nil,
+            reasoningEffort: deepSeekThinking ? (request.reasoningEffort?.rawValue ?? "high") : nil
         )
         urlRequest.httpBody = try JSONEncoder().encode(body)
         return urlRequest
@@ -126,6 +136,9 @@ final class OpenAICompatibleProvider: LLMProviding, @unchecked Sendable {
 
     func generate(_ request: LLMGenerationRequest, model: String?) async throws -> LLMRawResponse {
         let useModel = model ?? defaultModel
+        if endpoint.host?.lowercased() == "api.deepseek.com" {
+            return try await generateDeepSeek(request, model: useModel)
+        }
         let urlRequest = try makeURLRequest(for: request, model: useModel, stream: false)
 
         let data: Data
@@ -161,6 +174,54 @@ final class OpenAICompatibleProvider: LLMProviding, @unchecked Sendable {
                 Self.extractErrorMessage(from: data) ?? "HTTP \(http.statusCode)"
             )
         }
+    }
+
+    private struct GenerationChunk: Decodable {
+        struct Choice: Decodable {
+            struct Delta: Decodable { let content: String? }
+            let delta: Delta?
+            let finish_reason: String?
+        }
+        let model: String?
+        let choices: [Choice]?
+        let usage: LLMUsage?
+    }
+
+    /// Reasoning may take longer than a non-streaming request's idle deadline. Receive the
+    /// provider's SSE activity throughout generation, retaining only final text and usage.
+    private func generateDeepSeek(_ request: LLMGenerationRequest, model: String) async throws -> LLMRawResponse {
+        do {
+            let wire = try makeURLRequest(for: request, model: model, stream: true)
+            let (bytes, response) = try await session.bytes(for: wire)
+            guard let http = response as? HTTPURLResponse else { throw LLMError.networkError(localized("非 HTTP 回應")) }
+            AIDiagnostics.current?.event("http", ["status": "\(http.statusCode)", "transport": "sse"])
+            guard (200...299).contains(http.statusCode) else {
+                if http.statusCode == 401 { throw LLMError.unauthorized }
+                if http.statusCode == 429 { throw LLMError.rateLimited }
+                var data = Data()
+                for try await byte in bytes { data.append(byte); if data.count >= 4096 { break } }
+                throw LLMError.providerError(Self.extractErrorMessage(from: data) ?? "HTTP \(http.statusCode)")
+            }
+            var content = "", servedModel = model
+            var usage: LLMUsage?, reason: String?
+            var done = false
+            for try await line in bytes.lines {
+                try Task.checkCancellation()
+                if LLMStreamDecoding.isDone(line) { done = true; break }
+                guard let payload = LLMStreamDecoding.payload(ofDataLine: line), !payload.isEmpty else { continue }
+                guard let chunk = try? JSONDecoder().decode(GenerationChunk.self, from: Data(payload.utf8)),
+                      chunk.choices != nil else { throw LLMError.providerError(localized("回應解析失敗")) }
+                if let text = chunk.choices?.first?.delta?.content { content += text }
+                if let finish = chunk.choices?.first?.finish_reason { reason = finish }
+                if let value = chunk.usage { usage = value }
+                if let value = chunk.model { servedModel = value }
+            }
+            guard done else { throw LLMError.networkError(localized("串流回應在完成標記前中斷")) }
+            return .init(content: content, provider: identifier, model: servedModel, finishReason: reason, usage: usage, httpStatus: http.statusCode)
+        } catch is CancellationError { throw CancellationError() }
+        catch let error as URLError where error.code == .cancelled { throw CancellationError() }
+        catch let error as LLMError { throw error }
+        catch { throw LLMError.networkError(error.localizedDescription) }
     }
 
     /// Streaming via SSE. Cancelling the stream cancels the URLSession task.
@@ -217,6 +278,7 @@ final class OpenAICompatibleProvider: LLMProviding, @unchecked Sendable {
                             receivedDone = true
                             break
                         }
+                        try LLMStreamDecoding.validateFinish(from: line)
                         if let delta = LLMStreamDecoding.contentDelta(from: line) {
                             continuation.yield(delta)
                         }

@@ -53,8 +53,8 @@ enum AIAgenticAssistant {
     static let promptVersion = "yuedu.agentic.v1"
     static let defaultMaxSteps = 5
     static let defaultMaxQueries = 5
-    static let plannerMaxTokens = 512
-    static let answerMaxTokens = 1024
+    static let plannerMaxTokens = 8192
+    static let answerMaxTokens = 16384
     static let temperature = 0.2
     static let topP = 1.0
 

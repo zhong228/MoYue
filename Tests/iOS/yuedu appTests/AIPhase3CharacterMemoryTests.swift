@@ -58,6 +58,36 @@ struct AIPhase3CharacterMemoryTests {
         return try AIMemoryExtraction.validate(raw: Self.response(input.request), input: input, source: source)
     }
 
+    @Test func segmentReferencesKeepExactAppOwnedEvidenceAndRejectInventedSurfaces() throws {
+        let text = "柳青站在門邊。柳青讀完書信，沒有說話。𠮷來訪。"
+        let source = source([text]), job = try plan(source)
+        let input = try AIMemoryExtraction.input(unit: job.units[0], source: source, job: job, previous: [])
+        func raw(surface: String = "柳青", segment: String = "s0", quote: String? = nil) throws -> LLMRawResponse {
+            var evidence: [String: Any] = ["segmentID": segment]
+            if let quote { evidence["quote"] = quote }
+            let data = try JSONSerialization.data(withJSONObject: ["complete": true,
+                "mentions": [["id": "m1", "surface": surface, "type": "person", "unresolved": false, "evidence": evidence]],
+                "facts": [], "aliases": []])
+            return .init(content: String(decoding: data, as: UTF8.self), provider: "mock", model: "mock")
+        }
+        let record = try AIMemoryExtraction.validate(raw: raw(), input: input, source: source)
+        #expect(record.mentions[0].evidence.quote == text)
+        #expect(record.mentions[0].evidence.span.text(in: source) == text)
+        #expect(record.mentions[0].evidence.span.end == text.utf16.count)
+        #expect(throws: AIMemoryFailure.invalidEvidence) {
+            try AIMemoryExtraction.validate(raw: raw(surface: "未出現的人"), input: input, source: source)
+        }
+        #expect(throws: AIMemoryFailure.invalidEvidence) {
+            try AIMemoryExtraction.validate(raw: raw(segment: "s999"), input: input, source: source)
+        }
+        #expect(throws: AIMemoryFailure.invalidEvidence) {
+            try AIMemoryExtraction.validate(raw: raw(quote: "柳青"), input: input, source: source)
+        }
+        #expect(throws: AIMemoryFailure.invalidEvidence) {
+            try AIMemoryExtraction.validate(raw: raw(quote: "柳青說了原文沒有的話"), input: input, source: source)
+        }
+    }
+
     @Test @MainActor func consentProposalIsReadOnlyAndScopeIsFixedWithMissingCoverage() async throws {
         let source = source(["人物1在書信中被提及。", nil, "人物2在遠處。"], spine: 0)
         let dir = temporary(); defer { try? FileManager.default.removeItem(at: dir) }

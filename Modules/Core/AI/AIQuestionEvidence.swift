@@ -34,13 +34,24 @@ enum AIQuestionSourceReader {
         }
     }
 
+    /// The visible reading context is useful even when the first question is "Who is he?".
+    /// Never read past the verified offset, including the chunk crossing that offset.
+    static func currentReadingEvidence(index: AIBookRetrievalIndex, context: AIQuestionContext) -> [AIQuestionEvidence] {
+        let safe = index.chunks.filter { context.boundary.contains($0) &&
+            $0.start.spineIndex <= context.boundary.spineIndex }
+        let recent = safe.suffix(3).map { AIQuestionEvidence(chunk: $0, parentChunkID: $0.id, kind: .currentPosition) }
+        return deduplicated(recent + prefixes(index: index, context: context, query: "current passage"), context: context)
+    }
+
     static func isCurrentPositionQuestion(_ query: String) -> Bool {
-        ["剛剛", "這一段", "這段", "目前這", "current passage", "just read"].contains { query.localizedCaseInsensitiveContains($0) }
+        ["剛剛", "刚刚", "這一段", "这一段", "這段", "这段", "目前這", "目前这", "current passage", "just read", "what just happened"].contains { query.localizedCaseInsensitiveContains($0) }
     }
 
     /// Local phrase signal supplements NLTokenizer when a proper name is split differently.
     /// It authorizes no alias equivalence, and only examines already eligible source text.
-    static func literalScore(_ query: String, text: String) -> Double {
+    static func literalScore(_ input: String, text original: String) -> Double {
+        let query = AIBM25Index.searchText(input)
+        let text = AIBM25Index.searchText(original)
         var terms = Set(AIBM25Index.tokenize(query).filter { $0.count >= 2 })
         let chars = Array(query)
         if chars.count >= 2 {
@@ -57,9 +68,9 @@ enum AIQuestionSourceReader {
         var result = hits.map { AIQuestionEvidence(chunk: $0.chunk, parentChunkID: $0.id, kind: kind) }
         result += prefixes(index: index, context: context, query: query)
         if isCurrentPositionQuestion(query) {
-            if let current = index.chunks.last(where: { $0.start.spineIndex == context.boundary.spineIndex && context.boundary.contains($0) }) {
-                result.insert(.init(chunk: current, parentChunkID: current.id, kind: .currentPosition), at: 0)
-            }
+            // At a chapter start, the most recently read prose belongs to the previous
+            // chapter. A same-spine lookup alone yields nothing and searches random events.
+            result.insert(contentsOf: currentReadingEvidence(index: index, context: context), at: 0)
         }
         // Subject/dialogue/cause can cross a chunk boundary. Start at +/- one in the same
         // section; the assembler may remove neighbors before higher-priority direct hits.
@@ -104,6 +115,11 @@ enum AIQuestionPrompt {
         let request: LLMGenerationRequest
         let evidence: [AIQuestionEvidence]
         let history: [AIChatMessage]
+        func restoringCitationIDs(in text: String) -> String {
+            evidence.enumerated().reduce(text) { value, entry in
+                value.replacingOccurrences(of: "[S\(entry.offset + 1)]", with: "[\(entry.element.chunk.id)]")
+            }
+        }
     }
     static func fits(_ messages: [LLMMessage], budget: AIQuestionBudget) -> Bool {
         guard let data = try? JSONEncoder().encode(messages), let string = String(data: data, encoding: .utf8) else { return false }
@@ -117,8 +133,10 @@ enum AIQuestionPrompt {
             [.init(role: .system, content: system)] + selectedHistory.map {
                 .init(role: $0.role == .user ? .user : .assistant,
                       content: "<conversation-data role=\"\($0.role.rawValue)\" evidence=\"false\">\n\($0.text)\n</conversation-data>")
-            } + [.init(role: .user, content: data + "\n<source-evidence>\n" + selected.map {
-                "[\($0.chunk.id)]\n\($0.chunk.text)"
+            } + [.init(role: .user, content: data + "\n<source-evidence>\n" + selected.enumerated().map { offset, item in
+                let current = item.kind == .currentPosition || item.kind == .prefix
+                let passage = "[S\(offset + 1)]\n\(item.chunk.text)"
+                return current ? "<current-reading-context>\n" + passage + "\n</current-reading-context>" : passage
             }.joined(separator: "\n\n") + "\n</source-evidence>")]
         }
         // Older optional history goes first. Referential context is preserved verbatim or

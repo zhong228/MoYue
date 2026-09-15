@@ -27,72 +27,33 @@ struct AICharacterListView: View {
     @State private var stepText: String?
     @State private var errorMessage: String?
     @State private var task: Task<Void, Never>?
-    @State private var isConfigured = false
-    @State private var showSettings = false
-    /// Everyone who speaks anywhere in the book, most talkative first.
-    @StateObject private var scanner = AISpeakerScanCoordinator()
-    private var scanned: [AIBookSpeakerScan.Speaker] { scanner.speakers }
-    private var isScanning: Bool { scanner.isScanning }
     @State private var confirmWholeBook = false
     @State private var scope: Scope = .read
-    @ObservedObject private var rosters = AISpeakerRosterStore.shared
-    @State private var isVerifying = false
 
     private var profiles: [AICharacterProfile] {
         store.profiles(forBook: bookID).filter { scope == .wholeBook || $0.isSafe(at: activeBoundary) }
     }
 
     private var activeBoundary: AIReadingBoundary { adapter.boundary(wholeBook: scope == .wholeBook) }
-    private var scanKey: String { "\(adapter.contentFingerprint)@\(activeBoundary)" }
-    private var roster: [String: String] {
-        scope == .wholeBook ? rosters.roster(forBook: bookID) : rosters.safeRoster(forBook: bookID, boundary: activeBoundary)
-    }
-
-    /// Scanned speakers that have no card yet, with the roster's verdict applied.
-    ///
-    /// Before the roster exists this is the raw heuristic output, artefacts and all — the
-    /// 試探 / 一邊 / 劉癩子苦 problem. Once it exists, rejected candidates are gone and the
-    /// survivors appear under their canonical name.
-    private var uncarded: [AIBookSpeakerScan.Speaker] {
-        let known = Set(profiles.flatMap(\.allNames))
-        guard !roster.isEmpty else {
-            return scanned.filter { !known.contains($0.name) }
-        }
-        var merged: [String: Int] = [:]
-        for speaker in scanned {
-            guard let canonical = roster[speaker.name] else { continue }
-            merged[canonical, default: 0] += speaker.lineCount
-        }
-        return merged
-            .filter { !known.contains($0.key) }
-            .map { AIBookSpeakerScan.Speaker(name: $0.key, lineCount: $0.value) }
-            .sorted {
-                if $0.lineCount != $1.lineCount { return $0.lineCount > $1.lineCount }
-                return $0.name < $1.name
-            }
-    }
-
+    private var scopeKey: String { "\(adapter.contentFingerprint)@\(activeBoundary)" }
     var body: some View {
         List {
-            if isScanning { scanningSection }
             scopeSection
             Section {
-                NavigationLink(localized("逐批人物建檔")) { AICharacterMemoryView(adapter: adapter) }
+                NavigationLink(localized("用 AI 建立人物表")) { AICharacterMemoryView(adapter: adapter) }
             }
             Section {
                 NavigationLink(localized("AI 狀態與診斷")) { AIStatusView(adapter: adapter) }
             } footer: {
-                Text(localized("候選來自啟發式掃描；逐批人物建檔需另外啟動。"))
+                Text(localized("人物由 AI 直接閱讀正文辨識，包含沒有對白的角色。"))
                     .dsSectionFooter()
                 if scope == .read, store.profiles(forBook: bookID).count > profiles.count {
                     Text(localized("部分卡片來源或範圍未驗證，已在安全模式隱藏；自訂設定仍保留。"))
                         .dsSectionFooter()
                 }
             }
-            if !scanned.isEmpty { verifySection }
-            if !uncarded.isEmpty { detectedSection }
             if let errorMessage { errorSection(errorMessage) }
-            if profiles.isEmpty, buildingName == nil, !isScanning, uncarded.isEmpty {
+            if profiles.isEmpty, buildingName == nil {
                 emptySection
             } else {
                 ForEach(profiles, id: \.name) { profile in
@@ -107,156 +68,34 @@ struct AICharacterListView: View {
         .themedAppSurface(for: .settings)
         .onAppear {
             store.loadIfNeeded(forBook: bookID)
-            rosters.loadIfNeeded(forBook: bookID)
-            isConfigured = AIAssistantService.shared.isConfigured
-
         }
-        .task(id: scanKey) {
+        .task(id: scopeKey) {
             task?.cancel()
             buildingName = nil
-            isVerifying = false
             AIAssistantService.shared.activate(adapter)
-            await scanner.scan(adapter: adapter, boundary: activeBoundary, aliases: store.aliasMap(forBook: bookID, boundary: activeBoundary))
         }
         .onDisappear { task?.cancel() }
         .confirmationDialog(localized("全書模式可能揭露身分、關係與結局"), isPresented: $confirmWholeBook, titleVisibility: .visible) {
             Button(localized("使用全書模式")) { scope = .wholeBook }
             Button(localized("取消"), role: .cancel) {}
         }
-        .sheet(isPresented: $showSettings, onDismiss: {
-            isConfigured = AIAssistantService.shared.isConfigured
-        }) {
-            AISettingsView()
-        }
     }
 
-    /// One tap per name. The heuristic already found them; asking the reader to retype
-    /// 張若塵 by hand was the whole problem.
-    private var scanningSection: some View {
-        Section {
-            HStack(spacing: DSSpacing.sm) {
-                ProgressView()
-                Text(localized("正在掃描說話人候選…"))
-                    .foregroundStyle(DSColor.textSecondary)
-            }
-        }
-        .listRowBackground(Color.clear)
-    }
-
-    /// One tap per name, and the names come from the book rather than from the reader's
-    /// memory. Asking someone to type a character they already know, in order to be told
-    /// who that character is, is a circle.
-    private var detectedSection: some View {
-        Section {
-            if !isConfigured {
-                Button {
-                    showSettings = true
-                } label: {
-                    LabeledContent(localized("設定 AI 助手")) {
-                        Text(localized("未設定"))
-                            .foregroundStyle(DSColor.textSecondary)
-                    }
-                }
-            }
-            ForEach(uncarded) { speaker in
-                Button {
-                    build(name: speaker.name)
-                } label: {
-                    HStack {
-                        Text(speaker.name)
-                            .foregroundStyle(DSColor.textPrimary)
-                        Spacer()
-                        Text(String(format: localized("%d 句"), speaker.lineCount))
-                            .font(DSFont.footnote)
-                            .foregroundStyle(DSColor.textSecondary)
-                        if buildingName == speaker.name {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "sparkles")
-                                .foregroundStyle(DSColor.textSecondary)
-                                .accessibilityHidden(true)
-                        }
-                    }
-                }
-                .disabled(buildingName != nil || !isConfigured)
-                .accessibilityLabel(String(format: localized("整理 %@ 的人物卡"), speaker.name))
-            }
-        } header: {
-            Text(localized("說話人候選"))
-        } footer: {
-            // Says the one thing the rows cannot: that the un-verified list contains
-            // things that are not people.
-            if roster.isEmpty {
-                Text(localized("自動抓的，會混進「試探」這種不是人的詞。"))
-                    .dsSectionFooter()
-            }
-        }
-        .listRowBackground(Color.clear)
-    }
-
-    /// The button that fixes the list itself.
-    ///
-    /// Stripping a speech verb off the end of a sentence is right often enough to be useful
-    /// and wrong in ways a blocklist cannot fix — 試探道, 一邊道, 劉癩子苦笑道. One model call
-    /// over the whole candidate list sorts out what is a person and what their real name is.
-    private var verifySection: some View {
-        Section {
-            Button {
-                verifyRoster()
-            } label: {
-                HStack {
-                    Text(roster.isEmpty ? localized("用 AI 整理名單") : localized("重新整理名單"))
-                    Spacer()
-                    if isVerifying { ProgressView() }
-                }
-            }
-            .disabled(isVerifying || isScanning || scanned.isEmpty || !isConfigured)
-        }
-        .listRowBackground(Color.clear)
-    }
-
-    private func verifyRoster() {
-        let candidates = scanned.map {
-            AISpeakerRoster.Candidate(name: $0.name, lineCount: $0.lineCount, sample: $0.sample)
-        }
-        guard !candidates.isEmpty else { return }
-        errorMessage = nil
-        isVerifying = true
-        task?.cancel()
-        task = Task {
-            do {
-                _ = try await AIAssistantService.shared.buildSpeakerRoster(
-                    bookID: bookID,
-                    adapter: adapter,
-                    candidates: candidates,
-                    boundary: activeBoundary
-                )
-            } catch is CancellationError {
-                // The reader left.
-            } catch {
-                if !Task.isCancelled { errorMessage = error.localizedDescription }
-            }
-            isVerifying = false
-        }
-    }
-
-    /// Widens the scan to the whole book.
+    /// Selects the evidence scope for manually requested character cards.
     private var scopeSection: some View {
         Section {
             if scope == .read {
                 Button {
                     confirmWholeBook = true
                 } label: {
-                    Label(localized("掃描整本書"), systemImage: "books.vertical")
+                    Label(localized("使用全書模式"), systemImage: "books.vertical")
                 }
-                .disabled(isScanning)
             } else {
                 Button {
                     scope = .read
                 } label: {
                     Label(localized("只看讀過的部分"), systemImage: "bookmark")
                 }
-                .disabled(isScanning)
             }
         } footer: {
             Text(
@@ -290,7 +129,7 @@ struct AICharacterListView: View {
                     || newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             )
         } header: {
-            Text(localized("掃不到的人物"))
+            Text(localized("指定人物整理卡片"))
         } footer: {
             // The one place in the assistant that reads past the reader's progress. It is
             // opt-in, and the only thing holding spoilers back is a prompt rule — so the

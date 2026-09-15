@@ -33,7 +33,7 @@ struct AIMemoryBudget: Codable, Hashable, Sendable {
     var auxiliaryCharacters = 200
     var maximumInputCharacters = 10_000
     var maximumInputBytes = 32_000
-    var outputTokens = 4_096
+    var outputTokens = 32_768
     var maximumCalls = 100
     /// Explicitly opt in to at most this many automatic bisections per original unit.
     var automaticSplitDepth = 0
