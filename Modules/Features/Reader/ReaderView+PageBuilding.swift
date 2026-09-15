@@ -52,7 +52,8 @@ extension ReaderView {
             regexHighlightConfiguration: settings.regexHighlightConfiguration,
             readerStyleAppearance: activeReaderStyleAppearance,
             readerStyleAssetRevision: settings.readerStyleAssetRevision,
-            dialogueBubbleStyle: settings.dialogueBubbleStyle
+            dialogueBubbleStyle: settings.dialogueBubbleStyle,
+            textConversion: settings.textConversion
         )
 
         let surface: ReaderRenderSurface

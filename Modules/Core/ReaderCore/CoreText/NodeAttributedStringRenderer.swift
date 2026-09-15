@@ -63,6 +63,8 @@ struct NodeAttributedStringRenderer {
         /// 對話氣泡. Applied after every typography pass, so the bubble's own
         /// paragraph indents are the last word on where its text sits.
         let dialogueBubbleStyle: ReaderDialogueBubbleStyle
+        /// 繁簡轉換, applied to the rendered text before any pass that reads characters.
+        let textConversion: TextConversion
 
         init(
             from settings: ReaderRenderSettings,
@@ -76,7 +78,8 @@ struct NodeAttributedStringRenderer {
             imageLoader: ((String) async -> UIImage?)? = nil,
             mediaURLResolver: ((String) -> String?)? = nil,
             baseWritingDirection: NSWritingDirection = .natural,
-            centerStandaloneImages: Bool = false
+            centerStandaloneImages: Bool = false,
+            textConversion: TextConversion? = nil
         ) {
             self.baseFontSize = baseFontSize ?? settings.fontSize
             self.lineHeightMultiple = settings.lineHeightMultiple
@@ -88,6 +91,7 @@ struct NodeAttributedStringRenderer {
             self.readerStyleAppearance = settings.readerStyleAppearance
             self.readerStyleAssetRevision = settings.readerStyleAssetRevision
             self.dialogueBubbleStyle = settings.dialogueBubbleStyle
+            self.textConversion = textConversion ?? settings.textConversion
             // EPUB <h1> path: size/spacing/visibility always apply. Font and
             // weight apply only when the user explicitly picked a title font
             // (跟隨閱讀字體 off) — otherwise the publisher's own heading CSS wins,
@@ -167,6 +171,9 @@ struct NodeAttributedStringRenderer {
             }
             result.append(await render(node: node, ctx: ctx))
         }
+        // Before every pass that reads characters (CJK typography, regex highlight, dialogue
+        // bubbles), so they all see the text the reader will.
+        config.textConversion.apply(to: result)
         let processed = NSMutableAttributedString(attributedString: CJKTypographyProcessor.apply(to: result))
         relaxParagraphsContainingRubyAnnotations(processed)
         relaxParagraphsContainingTallRuns(processed)

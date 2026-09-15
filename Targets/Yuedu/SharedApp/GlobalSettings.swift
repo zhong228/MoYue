@@ -430,21 +430,6 @@ final class ReaderConfig: ObservableObject {
     }
 }
 
-extension String {
-    /// Offline ICU text conversion for book content.
-    func converted(to mode: TextConversion) -> String {
-        switch mode {
-        case .original: return self
-        case .toTraditional:
-            return self.applyingTransform(StringTransform(rawValue: "Hans-Hant"), reverse: false)
-                ?? self
-        case .toSimplified:
-            return self.applyingTransform(StringTransform(rawValue: "Hant-Hans"), reverse: false)
-                ?? self
-        }
-    }
-}
-
 func localized(_ key: String, bundle: Bundle = .main) -> String {
     NSLocalizedString(key, bundle: bundle, comment: "")
 }

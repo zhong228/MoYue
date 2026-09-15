@@ -1143,7 +1143,7 @@ struct ReaderView: View {
 
         return ReaderOverlayContentSnapshot(
             bookTitle: book?.title ?? snapshotBook?.title ?? "",
-            chapterTitle: currentChapterTitle,
+            chapterTitle: currentChapterTitle.converted(to: settings.textConversion),
             chapterPage: pageMetrics.chapterPage,
             chapterPageCount: pageMetrics.chapterPageCount,
             totalProgress: pageMetrics.totalProgress,
@@ -1372,8 +1372,8 @@ struct ReaderView: View {
 
     var activeTTSChapterTitle: String {
         let index = ttsChapterIndex ?? currentChapterIndex
-        guard chapters.indices.contains(index) else { return currentChapterTitle }
-        return chapters[index].title
+        let title = chapters.indices.contains(index) ? chapters[index].title : currentChapterTitle
+        return title.converted(to: settings.textConversion)
     }
 
     var ttsNowPlayingBookTitle: String {
@@ -2109,6 +2109,7 @@ struct ReaderView: View {
             )
         }
         .onReceive(ReplaceRuleStore.shared.$rules) { _ in refreshAIContentIfVisible() }
+        .onChanged(of: settings.textConversion) { _ in refreshAIContentIfVisible() }
         .onChange(of: aiCurrentSourceContext) { _, _ in
             aiSourceAdapter = nil
             refreshAIContentIfVisible()
@@ -2300,7 +2301,11 @@ struct ReaderView: View {
         .sheet(isPresented: $showTOC) {
             AdaptiveSheetContainer(maxWidth: DSLayout.readableListWidth) {
                 ReaderTOCView(
-                    chapters: chapters,
+                    chapters: chapters.map { chapter in
+                        var display = chapter
+                        display.title = chapter.title.converted(to: settings.textConversion)
+                        return display
+                    },
                     bookTitle: book?.title ?? "",
                     currentPage: currentPage,
                     totalPages: renderedPageCount,
@@ -2431,7 +2436,8 @@ struct ReaderView: View {
                 if let chapterIndex = activeMediaOverlayChapterIndex,
                    let overlay = epubRenderer.mediaOverlaysByChapter[chapterIndex] {
                     EPUBMediaOverlayPlayerView(
-                        title: chapters.indices.contains(chapterIndex) ? chapters[chapterIndex].title : currentChapterTitle,
+                        title: (chapters.indices.contains(chapterIndex) ? chapters[chapterIndex].title : currentChapterTitle)
+                            .converted(to: settings.textConversion),
                         overlay: overlay,
                         chapterIndex: chapterIndex,
                         coordinator: mediaOverlayCoordinator,

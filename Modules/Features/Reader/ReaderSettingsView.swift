@@ -411,6 +411,20 @@ struct ReaderSettingsView: View {
                 }
             }
 
+            if supportsFontSize {
+                Picker(selection: $settings.textConversion) {
+                    ForEach(TextConversion.allCases, id: \.self) { mode in
+                        Text(mode.localizedTitle).tag(mode)
+                    }
+                } label: {
+                    HStack(spacing: 16) {
+                        SettingSymbolIcon(systemName: "character.book.closed")
+                        Text(localized("繁簡轉換"))
+                            .font(DSFont.body)
+                    }
+                }
+            }
+
             if supportsLineHeight {
                 NavigationLink {
                     ChapterTitleStyleSettingsView(

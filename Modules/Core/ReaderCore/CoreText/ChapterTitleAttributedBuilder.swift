@@ -36,7 +36,10 @@ enum ChapterTitleAttributedBuilder {
         to attr: NSMutableAttributedString
     ) async {
         guard style.visible else { return }
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 繁簡轉換 happens here, once, for all three title paths below; the CSS path's
+        // renderer is told not to convert again.
+        let trimmed = title.converted(to: settings.textConversion)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
         if style.advancedCSSEnabled {
@@ -415,7 +418,8 @@ enum ChapterTitleAttributedBuilder {
                 baseFontSize: style.size,
                 paragraphSpacing: 0,
                 fontFamily: UserReaderFontResolver.selectedPostScriptName,
-                renderWidth: renderWidth
+                renderWidth: renderWidth,
+                textConversion: .original
             )
         )
         let rendered = await renderer.render(nodes)

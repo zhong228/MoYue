@@ -157,6 +157,8 @@ extension ReaderRenderSettings {
             // 對話氣泡 rewrites paragraph alignment and indents while the string
             // is built, so it is a layout change, not a repaint.
             || dialogueBubbleStyle != old.dialogueBubbleStyle
+            // 繁簡轉換 swaps characters while the string is built.
+            || textConversion != old.textConversion
             || regexRefresh == .relayout
 
         if layoutChanged { return .layout }

@@ -931,9 +931,11 @@ final class OnlineProviderAttributedStringBuilder: @preconcurrency AttributedStr
             to: attr
         )
 
+        // Title and body convert together so the leading-title match still compares like with
+        // like; the title block above converts inside `ChapterTitleAttributedBuilder`.
         let paragraphs = ReaderHTMLUtilities.bodyParagraphs(
-            fromPlainText: text,
-            excludingLeadingTitle: payload.title
+            fromPlainText: text.converted(to: settings.textConversion),
+            excludingLeadingTitle: payload.title.converted(to: settings.textConversion)
         )
 
         for para in paragraphs {

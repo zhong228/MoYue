@@ -74,7 +74,7 @@ struct TXTLazyAttributedStringBuilder: AttributedStringBuilding {
         themeBackgroundColor: UIColor
     ) async throws -> AttributedChapterBuildResult {
         _ = themeBackgroundColor
-        guard let chapterText = chapterText(at: index) else {
+        guard let chapterText = chapterText(at: index, conversion: settings.textConversion) else {
             throw AttributedStringBuildingError.chapterOutOfRange(index)
         }
 
@@ -198,7 +198,7 @@ struct TXTLazyAttributedStringBuilder: AttributedStringBuilding {
         return text
     }
 
-    private func chapterText(at index: Int) -> String? {
+    private func chapterText(at index: Int, conversion: TextConversion = .original) -> String? {
         let rawText: String?
         if mappedChapterIndexes.indices.contains(index), let mappedTextFile {
             rawText = TXTChapterParser.chapterText(mappedTextFile, byteRange: mappedChapterIndexes[index].byteRange)
@@ -209,6 +209,10 @@ struct TXTLazyAttributedStringBuilder: AttributedStringBuilding {
         }
 
         guard var result = rawText else { return nil }
+
+        // 繁簡轉換 runs before replace rules, as in legado's ContentProcessor: a rule made from
+        // a selection holds the characters the reader saw, which are the converted ones.
+        result = result.converted(to: conversion)
 
         let globalRules = ReplaceRuleStore.shared.rules(for: "")
         if !globalRules.isEmpty {

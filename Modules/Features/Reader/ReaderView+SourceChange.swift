@@ -693,7 +693,7 @@ extension ReaderView {
             ttsCoordinator.roleAliases = activeTTSRoleAliases()
             ttsCoordinator.speak(
                 text: text,
-                title: chapters[chapterIndex].title,
+                title: chapters[chapterIndex].title.converted(to: settings.textConversion),
                 bookTitle: ttsNowPlayingBookTitle,
                 author: ttsNowPlayingAuthor,
                 artwork: ttsNowPlayingArtwork(),
@@ -747,7 +747,7 @@ extension ReaderView {
             .chapterStart(target),
             alignReader: true
         )
-        ttsCoordinator.updateNowPlayingChapter(title: chapters[target].title, text: narration.text)
+        ttsCoordinator.updateNowPlayingChapter(title: chapters[target].title.converted(to: settings.textConversion), text: narration.text)
         prepareNextTTSChapter(after: target)
     }
 
@@ -867,7 +867,7 @@ extension ReaderView {
         }
         ttsLog("[TTS][Reader] chapter wait resolved chapter=\(target) textCount=\(text.count)")
         commitTTSChapterAdvance(to: target, narration: narration)
-        ttsCoordinator.supplyPendingNarration(narration, chapterTitle: chapters[target].title)
+        ttsCoordinator.supplyPendingNarration(narration, chapterTitle: chapters[target].title.converted(to: settings.textConversion))
     }
 
     /// Called from the `chapterStates` observer. Drives the pending wait forward on the real
@@ -1106,13 +1106,16 @@ extension ReaderView {
         aiGatherGeneration = generation
         let capturedBook = bookId
         let capturedContext = aiCurrentSourceContext
+        let conversion = settings.textConversion
         let chapterIDs = chapters.map { "\($0.index):\($0.href):\($0.title)" }
         var gathered: [Int: String] = [:]
         var statuses: [Int: AISourceManifest.Availability] = [:]
         for index in chapters.indices {
             guard !Task.isCancelled, aiGatherGeneration == generation else { return }
             let result = await epubRenderer.localChapterText(at: index)
-            gathered[index] = result.text
+            // AI quotes are located again by searching the rendered text, so the source text
+            // has to carry the characters the reader shows.
+            gathered[index] = result.text?.converted(to: conversion)
             statuses[index] = result.status
         }
         guard !Task.isCancelled, aiGatherGeneration == generation, bookId == capturedBook, aiCurrentSourceContext == capturedContext,
@@ -1121,7 +1124,7 @@ extension ReaderView {
         let rulesDigest = (try? encoder.encode(ReplaceRuleStore.shared.rules)).map(AISourceManifest.digest) ?? "unavailable"
         aiSourceContext = capturedContext
         aiSourceAdapter = AIBookContentAdapter(bookID: bookId, chapters: chapters,
-            transformationVersion: "chapterPlainText.v1@rules:" + rulesDigest, missingStatus: statuses,
+            transformationVersion: "chapterPlainText.v1@rules:" + rulesDigest + "@conversion:" + conversion.rawValue, missingStatus: statuses,
             acquisitionMilliseconds: Date().timeIntervalSince(acquisitionStarted) * 1000) { gathered[$0] }
         AIAssistantService.shared.activate(aiBookAdapter())
     }

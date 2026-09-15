@@ -123,7 +123,7 @@ extension ReaderView {
             totalProgressPercent: totalProgressPercent,
             chapterSliderProgressValue: { chapterSliderProgressValue() },
             applyChapterSliderProgress: { applyChapterSliderProgress($0) },
-            chapterTitleForProgress: { chapterTitle(forProgress: $0) },
+            chapterTitleForProgress: { chapterTitle(forProgress: $0).converted(to: settings.textConversion) },
             onPrevChapter: { jumpToChapter(currentChapterIndex - 1) },
             onNextChapter: { jumpToChapter(currentChapterIndex + 1) },
             onRefresh: { refreshCurrentChapter() },
@@ -298,7 +298,7 @@ extension ReaderView {
             chapterPageInfo: chapterPageInfo,
             chapterSliderProgressValue: { chapterSliderProgressValue() },
             applyChapterSliderProgress: { applyChapterSliderProgress($0) },
-            chapterTitleForProgress: { chapterTitle(forProgress: $0) },
+            chapterTitleForProgress: { chapterTitle(forProgress: $0).converted(to: settings.textConversion) },
             onPrevChapter: { jumpToChapter(currentChapterIndex - 1) },
             onNextChapter: { jumpToChapter(currentChapterIndex + 1) },
             onOpenTOC: { showTOC = true },
@@ -387,7 +387,7 @@ extension ReaderView {
             activePanel: $appleBooksActivePanel,
             progressValue: { chapterSliderProgressValue() },
             applyProgress: { applyChapterSliderProgress($0) },
-            progressDescription: { chapterTitle(forProgress: $0) },
+            progressDescription: { chapterTitle(forProgress: $0).converted(to: settings.textConversion) },
             secondaryActions: readerSecondaryActions,
             onOpenTOC: { showTOC = true },
             onOpenBookmarks: { showBookmarkList = true },
@@ -545,7 +545,7 @@ extension ReaderView {
                 return ReaderBookSearchItem(
                     pageIndex: pageIndex,
                     chapterTitle: title.converted(to: settings.textConversion),
-                    text: engine.plainText(forPage: pageIndex).converted(to: settings.textConversion)
+                    text: engine.plainText(forPage: pageIndex)
                 )
             }
         }
@@ -607,7 +607,7 @@ extension ReaderView {
         }
         return String(
             format: localized("聽書仍在「%@」，可以選擇回去，或改從目前章節開始。"),
-            chapters[ttsChapterIndex].title
+            chapters[ttsChapterIndex].title.converted(to: settings.textConversion)
         )
     }
 

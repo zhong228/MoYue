@@ -20,6 +20,7 @@ struct ReaderRenderSettingsSnapshotInput {
     let readerStyleAppearance: ReaderStyleAppearance
     let readerStyleAssetRevision: UInt64
     let dialogueBubbleStyle: ReaderDialogueBubbleStyle
+    var textConversion: TextConversion = .original
 }
 
 enum ReaderRenderSurface {
@@ -64,7 +65,8 @@ enum ReaderRenderSettingsSnapshotBuilder {
             regexHighlightConfiguration: input.regexHighlightConfiguration,
             readerStyleAppearance: input.readerStyleAppearance,
             readerStyleAssetRevision: input.readerStyleAssetRevision,
-            dialogueBubbleStyle: input.dialogueBubbleStyle
+            dialogueBubbleStyle: input.dialogueBubbleStyle,
+            textConversion: input.textConversion
         )
     }
 }

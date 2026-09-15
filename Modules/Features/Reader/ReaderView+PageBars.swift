@@ -60,7 +60,7 @@ extension ReaderView {
         let chapterTitle = tocChapter(
             forSpineIndex: position.spineIndex,
             charOffset: position.charOffset
-        )?.title ?? book?.title ?? ""
+        )?.title.converted(to: settings.textConversion) ?? book?.title ?? ""
 
         let pace = readingStatsTracker?.currentPaceMetrics(at: readerOverlayClock.now)
             ?? (elapsed: 0, contentUnitsRead: 0)
