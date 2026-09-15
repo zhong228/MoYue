@@ -150,6 +150,53 @@ struct SubscriptionAccessPolicyTests {
         #expect(paywallState(purchased: [], isProActive: false) == .offer)
     }
 
+    @Test("a free user's Pro row opens the paywall")
+    func freeUserProRowOpensPaywall() {
+        #expect(ProEntryPolicy.destination(for: paywallState(purchased: [], isProActive: false)) == .paywall)
+    }
+
+    @Test("anyone who owns Pro reaches the status page instead of the paywall")
+    func ownerProRowOpensStatusPage() {
+        // A monthly subscriber must reach the only page that links to subscription management.
+        #expect(
+            ProEntryPolicy.destination(for: paywallState(purchased: [Self.monthlyID], isProActive: true))
+                == .statusPage
+        )
+        #expect(
+            ProEntryPolicy.destination(for: paywallState(purchased: [Self.lifetimeID], isProActive: true))
+                == .statusPage
+        )
+        // Pro from the Yuedu account or the iCloud mirror, bought on another Apple Account.
+        #expect(ProEntryPolicy.destination(for: paywallState(purchased: [], isProActive: true)) == .statusPage)
+    }
+
+    private func subscriptionManagement(purchased: Set<String>) -> ProSubscriptionManagement {
+        ProStatusPagePolicy.subscriptionManagement(
+            purchasedProductIDs: purchased,
+            lifetimeProductID: Self.lifetimeID,
+            monthlyProductID: Self.monthlyID
+        )
+    }
+
+    @Test("the status page links to Apple's subscription management only for a monthly plan")
+    func subscriptionManagementNeedsMonthly() {
+        #expect(subscriptionManagement(purchased: [Self.monthlyID]) == .monthly)
+        // Lifetime is not a subscription, and Pro granted by the account or the
+        // iCloud mirror leaves nothing on this Apple Account to manage.
+        #expect(subscriptionManagement(purchased: [Self.lifetimeID]) == .unavailable)
+        #expect(subscriptionManagement(purchased: []) == .unavailable)
+    }
+
+    @Test("monthly held next to lifetime keeps the cancellation reminder")
+    func monthlyAlongsideLifetimeRemindsToCancel() {
+        // Buying lifetime never ends the monthly subscription. Without the reminder
+        // it keeps billing once the one-time success page is gone.
+        #expect(
+            subscriptionManagement(purchased: [Self.monthlyID, Self.lifetimeID])
+                == .monthlyAlongsideLifetime
+        )
+    }
+
     @Test("verified cache restores account access before the network answers")
     func cachedEntitlementSeedsColdLaunch() {
         #expect(SubscriptionEntitlementSeedPolicy.shouldSeed(current: false, cached: true))

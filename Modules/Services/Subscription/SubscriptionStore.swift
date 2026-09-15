@@ -190,6 +190,27 @@ final class SubscriptionStore: ObservableObject {
         isProActive
     }
 
+    /// What the paywall shows right now. The paywall, the Settings row that
+    /// chooses between the paywall and the status page, and the status page's
+    /// plan action all read this one value, so they cannot disagree.
+    var paywallPresentationState: PaywallPresentationState {
+        PaywallPresentationPolicy.state(
+            purchasedProductIDs: purchasedProductIDs,
+            lifetimeProductID: ProProduct.lifetime.rawValue,
+            monthlyProductID: ProProduct.monthly.rawValue,
+            isProActive: isProActive
+        )
+    }
+
+    /// Whether the status page links to Apple's subscription management.
+    var subscriptionManagement: ProSubscriptionManagement {
+        ProStatusPagePolicy.subscriptionManagement(
+            purchasedProductIDs: purchasedProductIDs,
+            lifetimeProductID: ProProduct.lifetime.rawValue,
+            monthlyProductID: ProProduct.monthly.rawValue
+        )
+    }
+
     /// Whether this account may claim a TestFlight seat. Narrower than Pro:
     /// lifetime only. `requestTestFlightAccess` enforces the same rule.
     var testFlightEligibility: TestFlightEligibility {

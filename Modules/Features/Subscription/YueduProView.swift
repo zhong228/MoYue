@@ -1,8 +1,11 @@
 import SwiftUI
 
 /// Pushed settings page describing `Yuedu Pro` status and its features.
-/// Free users see a subscribe CTA that presents the paywall; subscribers see an
-/// active badge plus a link to manage the subscription in the App Store.
+///
+/// `UserDetailView` opens it instead of the paywall once the user owns anything
+/// (`ProEntryPolicy`), which makes it the one place a subscriber can restore,
+/// reach Apple's subscription management, or start the lifetime upgrade. Those
+/// actions sit above the feature list so they are visible without scrolling.
 struct YueduProView: View {
     @EnvironmentObject private var store: SubscriptionStore
     @Environment(\.openURL) private var openURL
@@ -13,11 +16,12 @@ struct YueduProView: View {
     var body: some View {
         Form {
             statusSection
-            featuresSection
             manageSection
+            featuresSection
         }
         .navigationTitle(localized("閱讀Pro"))
         .toolbarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .themedAppSurface(for: .settings)
         .sheet(isPresented: $showPaywall) {
             PaywallView()
@@ -39,7 +43,7 @@ struct YueduProView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(localized("閱讀Pro"))
                         .font(DSFont.headline)
-                    Text(store.isProActive ? localized("已訂閱，感謝支持") : localized("解鎖高級個人化"))
+                    Text(statusDescription)
                         .font(DSFont.caption)
                         .foregroundColor(DSColor.textSecondary)
                 }
@@ -51,23 +55,88 @@ struct YueduProView: View {
                 }
             }
             .padding(.vertical, DSSpacing.xs)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("pro_status_summary")
         }
         .interfaceSectionSurface()
 
-        if !store.isProActive {
+        if let planActionTitle {
             Section {
                 Button {
                     showPaywall = true
                 } label: {
-                    Text(localized("查看訂閱方案"))
+                    Text(planActionTitle)
                         .font(DSFont.bodyBold)
                         .foregroundStyle(DSColor.textOnAccent)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, DSSpacing.xs)
                 }
                 .listRowBackground(DSColor.accent)
+                .accessibilityIdentifier("pro_status_plan_action")
             }
         }
+    }
+
+    private var statusDescription: String {
+        if store.purchasedProductIDs.contains(SubscriptionStore.ProProduct.lifetime.rawValue) {
+            return localized("你持有永久會員，所有 Pro 功能都已啟用")
+        }
+        return store.isProActive ? localized("已訂閱，感謝支持") : localized("解鎖高級個人化")
+    }
+
+    /// Follows the paywall's own state, so this page never offers a plan the
+    /// paywall would not sell: nothing for a lifetime owner, the upgrade for a
+    /// monthly subscriber, and the plans again if Pro lapses while the page is open.
+    private var planActionTitle: String? {
+        switch store.paywallPresentationState {
+        case .offer:
+            return localized("查看訂閱方案")
+        case .upgradeFromMonthly:
+            return localized("升級為永久會員")
+        case .alreadyPro:
+            return nil
+        }
+    }
+
+    // MARK: - Manage
+
+    private var manageSection: some View {
+        Section {
+            Button {
+                Task { await store.restore() }
+            } label: {
+                HStack {
+                    Label(localized("恢復購買"), systemImage: "arrow.clockwise")
+                        .labelStyle(IconConsistentLabelStyle())
+                    Spacer()
+                    if store.isRestoring { ProgressView() }
+                }
+            }
+            .disabled(store.isRestoring)
+            .accessibilityIdentifier("pro_status_restore")
+
+            if store.subscriptionManagement != .unavailable, let manageSubscriptionsURL {
+                Button {
+                    openURL(manageSubscriptionsURL)
+                } label: {
+                    Label(localized("管理訂閱"), systemImage: "gear")
+                        .labelStyle(IconConsistentLabelStyle())
+                }
+                .accessibilityIdentifier("pro_status_manage_subscription")
+            }
+        } footer: {
+            VStack(alignment: .leading, spacing: DSSpacing.xs) {
+                if store.subscriptionManagement == .monthlyAlongsideLifetime {
+                    Text(localized("升級後請記得取消月訂閱，否則會繼續扣款"))
+                        .dsSectionFooter()
+                }
+                if let error = store.lastErrorMessage {
+                    Text(error)
+                        .dsSectionFooter(color: DSColor.destructive)
+                }
+            }
+        }
+        .interfaceSectionSurface()
     }
 
     // MARK: - Features
@@ -94,39 +163,7 @@ struct YueduProView: View {
                         .accessibilityLabel(store.hasAccess(feature) ? localized("已解鎖") : localized("需要 Pro"))
                 }
                 .padding(.vertical, 2)
-            }
-        }
-        .interfaceSectionSurface()
-    }
-
-    // MARK: - Manage
-
-    private var manageSection: some View {
-        Section {
-            Button {
-                Task { await store.restore() }
-            } label: {
-                HStack {
-                    Label(localized("恢復購買"), systemImage: "arrow.clockwise")
-                        .labelStyle(IconConsistentLabelStyle())
-                    Spacer()
-                    if store.isRestoring { ProgressView() }
-                }
-            }
-            .disabled(store.isRestoring)
-
-            if store.isProActive, let manageSubscriptionsURL {
-                Button {
-                    openURL(manageSubscriptionsURL)
-                } label: {
-                    Label(localized("管理訂閱"), systemImage: "gear")
-                        .labelStyle(IconConsistentLabelStyle())
-                }
-            }
-        } footer: {
-            if let error = store.lastErrorMessage {
-                Text(error)
-                    .dsSectionFooter(color: DSColor.destructive)
+                .accessibilityElement(children: .combine)
             }
         }
         .interfaceSectionSurface()

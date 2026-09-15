@@ -83,6 +83,55 @@ enum PaywallPresentationPolicy {
     }
 }
 
+/// Where the 「閱讀Pro」 row in Settings leads.
+enum ProEntryDestination: Equatable {
+    /// The paywall, for someone it would make an offer to.
+    case paywall
+    /// `YueduProView`: status, restore, subscription management, and the
+    /// lifetime upgrade a monthly subscriber can still buy.
+    case statusPage
+}
+
+enum ProEntryPolicy {
+    /// Derived from the paywall state rather than `isProActive` alone, so the row
+    /// and the paywall always agree on who has something to manage. When the row
+    /// opened the paywall unconditionally, the status page was unreachable and a
+    /// monthly subscriber had no way to manage the subscription from the app.
+    static func destination(for state: PaywallPresentationState) -> ProEntryDestination {
+        switch state {
+        case .offer:
+            return .paywall
+        case .upgradeFromMonthly, .alreadyPro:
+            return .statusPage
+        }
+    }
+}
+
+/// What the Pro status page offers for Apple's subscription management.
+enum ProSubscriptionManagement: Equatable {
+    /// No monthly plan on this Apple Account: lifetime only, or Pro granted by the
+    /// Yuedu account or the iCloud mirror. Apple's subscription list has nothing
+    /// of ours to show, so the page offers no link.
+    case unavailable
+    /// A monthly subscription the user may want to cancel.
+    case monthly
+    /// Monthly still held next to lifetime. Buying a non-consumable never ends a
+    /// subscription, so the link keeps the cancellation reminder that
+    /// `PurchaseSuccessView` shows only once, right after the upgrade.
+    case monthlyAlongsideLifetime
+}
+
+enum ProStatusPagePolicy {
+    static func subscriptionManagement(
+        purchasedProductIDs: Set<String>,
+        lifetimeProductID: String,
+        monthlyProductID: String
+    ) -> ProSubscriptionManagement {
+        guard purchasedProductIDs.contains(monthlyProductID) else { return .unavailable }
+        return purchasedProductIDs.contains(lifetimeProductID) ? .monthlyAlongsideLifetime : .monthly
+    }
+}
+
 enum SubscriptionEntitlementRefreshPolicy {
     /// Whether a server response is authoritative enough to overwrite the local
     /// cache. Only an existing document counts: a missing one means the backend

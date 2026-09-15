@@ -62,6 +62,7 @@ struct SettingsView: View {
                         NavigationLink(destination: UserDetailView()) {
                             AccountRowContent()
                         }
+                        .accessibilityIdentifier("settings_account_row")
                     }
                     .interfaceSectionSurface()
                     // ── App Language ──

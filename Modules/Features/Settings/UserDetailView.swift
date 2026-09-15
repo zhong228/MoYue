@@ -16,6 +16,7 @@ struct UserDetailView: View {
     @State private var deleteAccountErrorMessage: String?
     @State private var showReadingStats = false
     @State private var showPaywall = false
+    @State private var showProStatus = false
     @State private var showRenameAlert = false
     @State private var draftDisplayName = ""
     @State private var showDeletePasswordAlert = false
@@ -106,13 +107,19 @@ struct UserDetailView: View {
 
             Section {
                 Button {
-                    showPaywall = true
+                    switch ProEntryPolicy.destination(for: subscriptionStore.paywallPresentationState) {
+                    case .paywall:
+                        showPaywall = true
+                    case .statusPage:
+                        showProStatus = true
+                    }
                 } label: {
                     HStack(spacing: DSSpacing.md) {
                         Image(systemName: "crown.fill")
                             .font(DSFont.fixed(size: 17, weight: .medium))
                             .frame(width: 28, height: 28)
                             .foregroundStyle(DSColor.accent)
+                            .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(localized("閱讀Pro"))
                                 .foregroundColor(.primary)
@@ -127,14 +134,15 @@ struct UserDetailView: View {
                             Text(localized("已啟用"))
                                 .font(DSFont.caption.weight(.semibold))
                                 .foregroundStyle(DSColor.success)
-                        } else {
-                            Image(systemName: "chevron.right")
-                                .font(DSFont.fixed(size: 13, weight: .semibold))
-                                .foregroundColor(.secondary.opacity(0.5))
                         }
+                        Image(systemName: "chevron.right")
+                            .font(DSFont.fixed(size: 13, weight: .semibold))
+                            .foregroundColor(.secondary.opacity(0.5))
+                            .accessibilityHidden(true)
                     }
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("settings_pro_row")
             }
             .interfaceSectionSurface()
 
@@ -314,6 +322,10 @@ struct UserDetailView: View {
         }
         .sheet(isPresented: $showPaywall) {
             PaywallView()
+                .environmentObject(subscriptionStore)
+        }
+        .navigationDestination(isPresented: $showProStatus) {
+            YueduProView()
                 .environmentObject(subscriptionStore)
         }
         .fullScreenCover(isPresented: $showLogin) {

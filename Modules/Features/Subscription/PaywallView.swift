@@ -42,12 +42,7 @@ struct PaywallView: View {
     /// an "already Pro" page for someone who has nothing left to buy, or the
     /// offer itself.
     private var presentation: PaywallPresentationState {
-        PaywallPresentationPolicy.state(
-            purchasedProductIDs: store.purchasedProductIDs,
-            lifetimeProductID: SubscriptionStore.ProProduct.lifetime.rawValue,
-            monthlyProductID: SubscriptionStore.ProProduct.monthly.rawValue,
-            isProActive: store.isProActive
-        )
+        store.paywallPresentationState
     }
 
     var body: some View {
@@ -388,6 +383,7 @@ struct PaywallView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(store.isPurchasing || store.product(for: selectedProduct) == nil)
+            .accessibilityIdentifier("paywall_purchase_button")
 
             if presentation == .upgradeFromMonthly, selectedProduct == .lifetime {
                 // Apple prorates only within a subscription group. Lifetime is a
