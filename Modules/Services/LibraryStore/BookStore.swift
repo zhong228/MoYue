@@ -105,6 +105,9 @@ class BookStore: ObservableObject, BookProvider {
     private var saveGeneration = 0
     private let metadataFileURL: URL
     private var lastPersistedMetadataData: Data?
+    /// Set when the shelf file could not be read, or did not decode and could not be copied
+    /// aside. Writing would replace the only copy of data nobody has seen.
+    private var metadataWritesBlocked = false
     private var lastPersistedPositionSnapshots: [UUID: PersistedPositionSnapshot] = [:]
     private var lastPersistedPositionSaveUptimeByBook: [UUID: TimeInterval] = [:]
 
@@ -2092,7 +2095,10 @@ class BookStore: ObservableObject, BookProvider {
         do {
             // Write the shelf first: a crash while promoting a reading record must
             // leave at least one durable copy. Loading gives shelf IDs precedence.
-            if data != lastPersistedMetadataData {
+            if metadataWritesBlocked {
+                // What is on disk is the only copy of a shelf this launch could not read.
+                AppLogger.cache("Bookshelf metadata is unreadable and was not kept aside; leaving it as it is")
+            } else if data != lastPersistedMetadataData {
                 try data.write(to: metadataFileURL, options: .atomic)
                 markMetadataPersisted(data)
                 syncWidgetData()
@@ -2166,17 +2172,28 @@ class BookStore: ObservableObject, BookProvider {
         if shelfFileExists {
             do {
                 let data = try Data(contentsOf: metadataFileURL)
-                records = try JSONDecoder().decode([ReadingBook].self, from: data)
-                markMetadataPersisted(data)
-                sanitizePersistedChapterURLs()
-                return true
+                do {
+                    records = try JSONDecoder().decode([ReadingBook].self, from: data)
+                    markMetadataPersisted(data)
+                    sanitizePersistedChapterURLs()
+                    return true
+                } catch {
+                    // The shelf opens empty when this happens, and nothing on screen says why.
+                    AppLogger.error(
+                        "Bookshelf metadata could not be decoded",
+                        error: error,
+                        context: ["file": metadataFileURL.lastPathComponent]
+                    )
+                    metadataWritesBlocked = !keptUnreadableMetadataAside(data)
+                }
             } catch {
-                // The shelf opens empty when this happens, and nothing on screen says why.
+                // Not even the bytes are in hand, so nothing may be written over them.
                 AppLogger.error(
-                    "Bookshelf metadata could not be loaded",
+                    "Bookshelf metadata could not be read",
                     error: error,
                     context: ["file": metadataFileURL.lastPathComponent]
                 )
+                metadataWritesBlocked = true
             }
         }
 
@@ -2187,7 +2204,7 @@ class BookStore: ObservableObject, BookProvider {
         {
             records = decoded
             sanitizePersistedChapterURLs()
-            if let migrated = encodeBooksMetadata() {
+            if !metadataWritesBlocked, let migrated = encodeBooksMetadata() {
                 try? migrated.write(to: metadataFileURL, options: .atomic)
                 markMetadataPersisted(migrated)
             }
@@ -2195,6 +2212,40 @@ class BookStore: ObservableObject, BookProvider {
             return true
         }
         return !shelfFileExists
+    }
+
+    /// Copies a shelf file that did not decode next to itself, before anything writes over it.
+    ///
+    /// Named after the file's own modification time, so the next launch recognises the copy it
+    /// already made instead of filling the folder with duplicates. Returns whether the bytes
+    /// are safely preserved; when they are not, the shelf is left exactly as it is for this
+    /// launch — an empty shelf written over the only copy is how a library disappears.
+    private func keptUnreadableMetadataAside(_ data: Data) -> Bool {
+        let modified = try? metadataFileURL
+            .resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        let stamp = Int((modified ?? Date()).timeIntervalSince1970)
+        let backupURL = metadataFileURL
+            .deletingPathExtension()
+            .appendingPathExtension("corrupt-\(stamp).json")
+        do {
+            try data.write(to: backupURL, options: .withoutOverwriting)
+            AppLogger.error(
+                "Bookshelf metadata kept aside as \(backupURL.lastPathComponent)",
+                context: ["bytes": data.count]
+            )
+            return true
+        } catch {
+            if let existing = try? Data(contentsOf: backupURL), existing == data {
+                // An earlier launch already kept exactly these bytes.
+                return true
+            }
+            AppLogger.error(
+                "Bookshelf metadata could not be kept aside; this launch will not write the shelf",
+                error: error,
+                context: ["backup": backupURL.lastPathComponent]
+            )
+            return false
+        }
     }
 
     /// Whether every reading-only record is known: the file decoded, or there is none.
