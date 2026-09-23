@@ -26,8 +26,8 @@ import SwiftUI
 final class AutoReadController: NSObject, ObservableObject {
 
     /// legado's slider: 1–120 seconds for one page, default 10. Bigger is slower.
-    static let secondsPerPageRange: ClosedRange<Double> = 1...120
-    static let defaultSecondsPerPage: Double = 10
+    nonisolated static let secondsPerPageRange: ClosedRange<Double> = 1...120
+    nonisolated static let defaultSecondsPerPage: Double = 10
 
     private static let defaultsKey = "yd_auto_read_seconds_per_page"
     /// The old 0.5×–5× multiplier. Read once, converted, then left alone — a

@@ -106,10 +106,10 @@ final class FixedLayoutPageEngine: PageRenderingProvider, FixedLayoutSpreadPairi
     @discardableResult
     func preloadChapter(at spineIndex: Int) async -> ChapterLayoutOutcome {
         guard spineIndex >= 0, spineIndex < totalPages else { return .outOfRange }
-        let viewport = await viewportResolver.viewport(
+        _ = await viewportResolver.viewport(
             for: spineIndex, resourceProvider: resourceProvider
         )
-        return viewport == nil ? .contentUnavailable : .laidOut
+        return .laidOut
     }
 
     func invalidateLayout(newSize: CGSize) async {

@@ -167,7 +167,7 @@ struct TXTLazyAttributedStringBuilder: AttributedStringBuilding {
                 style: settings.dialogueBubbleStyle
             )
             // Same width the chapter title above is composed against.
-            ReaderDialogueBubbleMarker.apply(
+            await ReaderDialogueBubbleMarker.apply(
                 style: settings.dialogueBubbleStyle,
                 columnWidth: max(
                     1,

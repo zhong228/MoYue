@@ -3,7 +3,7 @@ import Combine
 /// Presentation mirrors for chapter-dependent controls. The reader session owns
 /// the canonical (spine, character) position; these values never persist it.
 @MainActor
-final class ReaderChapterPresentationState: ObservableObject {
+final class ReaderChapterPresentationState: @MainActor ObservableObject {
     let objectWillChange = ObservableObjectPublisher()
     private(set) var currentChapter = 0
     private(set) var visibleChapter = 0

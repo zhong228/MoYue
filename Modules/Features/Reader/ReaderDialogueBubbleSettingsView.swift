@@ -562,7 +562,7 @@ final class ReaderDialogueBubblePreviewView: UIView {
 
         let framesetter = CTFramesetterCreateWithAttributedString(text)
         let fullRange = CFRange(location: 0, length: text.length)
-        var size = CTFramesetterSuggestFrameSizeWithConstraints(
+        let size = CTFramesetterSuggestFrameSizeWithConstraints(
             framesetter,
             fullRange,
             nil,

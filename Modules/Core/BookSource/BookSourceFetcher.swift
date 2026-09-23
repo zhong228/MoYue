@@ -238,7 +238,7 @@ final class WebCrawlerDebugger: ObservableObject {
     private static let entryLimit = 500
     /// Response bodies are truncated to this before being held. A chapter body can be
     /// megabytes; the head is what identifies a wrong response.
-    private static let bodyLimit = 8 * 1024
+    private nonisolated static let bodyLimit = 8 * 1024
 
     struct LogEntry: Identifiable, Sendable {
         let id = UUID()
@@ -301,7 +301,7 @@ final class WebCrawlerDebugger: ObservableObject {
         func set(parse value: Bool) { lock.withLock { parse = value } }
     }
 
-    private static let gate = Gate()
+    private nonisolated static let gate = Gate()
 
     // MARK: - Capture points
     //

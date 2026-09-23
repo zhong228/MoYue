@@ -10,8 +10,9 @@ final class EPUBBookService {
     }
 
     @MainActor
-    func openSession(for book: ReadingBook, using store: BookStore, remoteLibrary: any RemoteLibraryServing = RemoteLibraryService.shared) async throws -> PublicationSession {
+    func openSession(for book: ReadingBook, using store: BookStore, remoteLibrary: (any RemoteLibraryServing)? = nil) async throws -> PublicationSession {
         if book.remoteSource != nil {
+            let remoteLibrary = remoteLibrary ?? RemoteLibraryService.shared
             _ = try await remoteLibrary.prepare(bookID: book.id, store: store)
             guard let session = remoteLibrary.publication(bookID: book.id) else {
                 throw RemoteLibraryError.missingBook

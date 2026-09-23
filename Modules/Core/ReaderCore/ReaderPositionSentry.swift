@@ -144,9 +144,9 @@ final class ReaderPositionSentry {
     private var lastCommitted: CoreTextReadingPosition?
     private var trail: [String] = []
     private var bookLabel: String = "-"
-    private let emit: (Report) -> Void
+    private let emit: @MainActor (Report) -> Void
 
-    init(emit: @escaping (Report) -> Void = ReaderPositionSentry.emitToLog) {
+    init(emit: @escaping @MainActor (Report) -> Void = ReaderPositionSentry.emitToLog) {
         self.emit = emit
     }
 
@@ -549,7 +549,7 @@ final class ReaderPositionSentry {
         AppLogger.render("[FlipTrace] sentry \(line)")
     }
 
-    private static func describe(_ position: CoreTextReadingPosition?) -> String {
+    private nonisolated static func describe(_ position: CoreTextReadingPosition?) -> String {
         guard let position else { return "nil" }
         let offset = position.charOffset == .max ? "end" : String(position.charOffset)
         return "(ch\(position.spineIndex),off\(offset))"

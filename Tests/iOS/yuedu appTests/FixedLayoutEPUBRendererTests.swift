@@ -87,7 +87,9 @@ struct FixedLayoutEPUBRendererTests {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let source = root.appendingPathComponent("source", isDirectory: true)
-        let archiveURL = archiveURL ?? root.appendingPathComponent("fixed-layout.epub")
+        // Local publication metadata is keyed by filename; each fixture is a
+        // different book, even when its temporary parent directory differs.
+        let archiveURL = archiveURL ?? root.appendingPathComponent("fixed-layout-\(UUID().uuidString).epub")
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
             at: archiveURL.deletingLastPathComponent(),
@@ -108,6 +110,17 @@ struct FixedLayoutEPUBRendererTests {
     }
 
     // MARK: Tests
+
+    @Test @MainActor
+    func pageEnginePreloadPreservesValidAndOutOfRangeOutcomes() async throws {
+        let url = try await Self.makeFixedLayoutEPUB(pageCount: 2)
+        let session = try await PublicationSession.open(sourceURL: url)
+        let engine = FixedLayoutPageEngine(session: session, renderSize: CGSize(width: 320, height: 600))
+        #expect(await engine.preloadChapter(at: 0) == .laidOut)
+        #expect(await engine.preloadChapter(at: 1) == .laidOut)
+        #expect(await engine.preloadChapter(at: -1) == .outOfRange)
+        #expect(await engine.preloadChapter(at: 2) == .outOfRange)
+    }
 
     @Test("The document reports every page and a table of contents in one pass")
     func describesDocumentOnce() async throws {

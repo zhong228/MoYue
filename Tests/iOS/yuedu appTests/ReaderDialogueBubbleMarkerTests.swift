@@ -8,6 +8,24 @@ struct ReaderDialogueBubbleMarkerTests {
     private static let columnWidth: CGFloat = 340
     private static let fontSize: CGFloat = 18
 
+    @Test func txtBuilderPreservesDialogueAndNarration() async throws {
+        let body = "敘述。\n「你好。」\n結尾。"
+        let builder = TXTLazyAttributedStringBuilder(text: body, chapterIndexes: [
+            TXTChapterIndex(index: 0, title: "", contentRange: NSRange(location: 0, length: (body as NSString).length))
+        ])
+        var settings = EPUBTestFixtures.renderSettings()
+        settings.dialogueBubbleStyle = style()
+        let result = try await builder.buildChapter(at: 0, settings: settings,
+            themeTextColor: .black, themeBackgroundColor: .white)
+        let attributed = result.attributedString
+        let quote = (attributed.string as NSString).range(of: "你好")
+        #expect(quote.location != NSNotFound)
+        guard quote.location != NSNotFound else { return }
+        #expect(attributed.attribute(ReaderDialogueBubbleMarker.attributeKey,
+            at: quote.location, effectiveRange: nil) is ReaderDialogueBubbleMark)
+        #expect(attributed.string.contains("敘述。") && attributed.string.contains("結尾。"))
+    }
+
     @Test("marks whole-paragraph speech and leaves narration alone")
     func marksWholeParagraphSpeech() {
         let attr = make([

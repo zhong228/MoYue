@@ -25,7 +25,7 @@ final class ReaderViewportFragmentHost: UIView {
         let owner: ObjectIdentifier
         let fragment: FragmentID
     }
-    private final class CoreTextState {
+    @MainActor private final class CoreTextState {
         let owner: CoreTextChunk
         let view = UIView()
         let backdrop = CoreTextChunkBackdropView()
@@ -39,7 +39,7 @@ final class ReaderViewportFragmentHost: UIView {
             view.addSubview(backdrop)
         }
     }
-    private final class ChapterState {
+    @MainActor private final class ChapterState {
         let owner: BrowserScrollChapter
         let view = UIView()
         /// Behind every chapter's content, only while the chapter has a page background.
@@ -54,7 +54,7 @@ final class ReaderViewportFragmentHost: UIView {
             view.clipsToBounds = true
         }
     }
-    private final class Entry {
+    @MainActor private final class Entry {
         let surface = BrowserFragmentSurface()
         var touched: UInt64 = 0
         var pixels = 0

@@ -1893,12 +1893,22 @@ extension BrowserLayoutPageEngine {
         let htmlDocument = HTMLLayoutDocument(input: input, configuration: config,
                                               imageLoader: { [store] in store.image(for: $0) })
         let prepareStart = SourcePerfTrace.now
-        let prepared = try await Task.detached(priority: .userInitiated) {
-            try ReaderPerfTrace.span(.layoutPageRanges, metadata: ReaderPerfMetadata(
-                resourceID: "continuous", spineIndex: spine, executor: "background")) {
-                try htmlDocument.prepareContinuous(validateCapabilities: false)
+        // These package results are not Sendable. A continuation transfers each
+        // freshly built result once; a Task.value would expose a shared result.
+        // Keep both expensive stages on their existing background executor.
+        let prepared: BrowserContinuousLayout = try await withCheckedThrowingContinuation { continuation in
+            Task.detached(priority: .userInitiated) {
+                do {
+                    let result = try ReaderPerfTrace.span(.layoutPageRanges, metadata: ReaderPerfMetadata(
+                        resourceID: "continuous", spineIndex: spine, executor: "background")) {
+                        try htmlDocument.prepareContinuous(validateCapabilities: false)
+                    }
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
             }
-        }.value
+        }
         SourcePerfTrace.record("browser.scroll.prepare", "spine=\(spine)", since: prepareStart)
         if let source = prepared.backgroundImageSource, store.image(for: source) == nil {
             store.set(await resource.loadImage(forChapter: spine, source: source,
@@ -1906,12 +1916,15 @@ extension BrowserLayoutPageEngine {
         }
         try Task.checkCancellation()
         FootnoteStore.index(notes: prepared.footnotes, spineIndex: spine)
-        let document = await Task.detached(priority: .userInitiated) {
-            ReaderPerfTrace.span(.layoutDisplayList, metadata: ReaderPerfMetadata(
-                resourceID: "continuous", spineIndex: spine, executor: "background")) {
-                prepared.makeDocument()
+        let document: BrowserScrollDocument = await withCheckedContinuation { continuation in
+            Task.detached(priority: .userInitiated) {
+                let result = ReaderPerfTrace.span(.layoutDisplayList, metadata: ReaderPerfMetadata(
+                    resourceID: "continuous", spineIndex: spine, executor: "background")) {
+                    prepared.makeDocument()
+                }
+                continuation.resume(returning: result)
             }
-        }.value
+        }
         return BrowserScrollChapter(spineIndex: spine, document: document, writingMode: settings.writingMode,
             backgroundColor: settings.backgroundColor,
             usesReaderBackground: settings.readerBackgroundImageURL != nil,

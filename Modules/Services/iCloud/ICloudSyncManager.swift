@@ -389,7 +389,7 @@ final class ICloudSyncManager: ObservableObject {
                        store.snapshotForSync(bookMerge.values, expectedMutationRevision: bookMutationRevision)
                    }) {
                     let prepared = try await BookStore.encodeSyncSnapshot(snapshot)
-                    await MainActor.run {
+                    _ = await MainActor.run {
                         SourcePerfTrace.span("sync.apply.books", "count=\(bookMerge.values.count)") {
                             store.applySyncSnapshot(prepared)
                         }

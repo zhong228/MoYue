@@ -37,6 +37,12 @@ struct AIReadingBoundary: Codable, Hashable, Sendable {
     var wholeBook = false
     let coordinateUnit: String = "sourceUTF16"
 
+    // Keep encoding the fixed unit while decoding always uses the constant above.
+    // Explicit keys preserve the existing on-disk format and decoding behavior.
+    private enum CodingKeys: String, CodingKey {
+        case sourceVersion, sectionID, spineIndex, utf16Offset, wholeBook, coordinateUnit
+    }
+
     func contains(_ chunk: AIContentChunk) -> Bool {
         guard chunk.sourceVersion == sourceVersion else { return false }
         return allows(chunk.end)

@@ -81,7 +81,7 @@ struct ContinuousScrollGestureFixture: UIViewControllerRepresentable {
 
     @MainActor
     final class Resource: BrowserLayoutResourceProviding, AttributedStringBuilding {
-        let chapterCount = 2
+        nonisolated let chapterCount = 2
         private var previousReleased = false
         private var waiting: [CheckedContinuation<Void, Never>] = []
         private lazy var txtBuilder: TXTLazyAttributedStringBuilder = {
@@ -100,8 +100,8 @@ struct ContinuousScrollGestureFixture: UIViewControllerRepresentable {
             waiting.removeAll()
             completions.forEach { $0.resume() }
         }
-        func chapterTitle(at index: Int) -> String { "Chapter \(index)" }
-        func chapterSourceHref(at index: Int) -> String? { "\(index).xhtml" }
+        nonisolated func chapterTitle(at index: Int) -> String { "Chapter \(index)" }
+        nonisolated func chapterSourceHref(at index: Int) -> String? { "\(index).xhtml" }
         func chapterHTML(at index: Int) async throws -> String {
             if index == 0 && !previousReleased {
                 await withCheckedContinuation { waiting.append($0) }

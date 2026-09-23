@@ -64,7 +64,7 @@ final class AIModelCatalog: ObservableObject {
                 let (data, response) = try await URLSession.shared.data(for: request)
                 try Task.checkCancellation()
                 guard let http = response as? HTTPURLResponse else {
-                    await self?.finish(base: base, failure: localized("非 HTTP 回應"))
+                    self?.finish(base: base, failure: localized("非 HTTP 回應"))
                     return
                 }
                 guard (200...299).contains(http.statusCode) else {
@@ -72,21 +72,21 @@ final class AIModelCatalog: ObservableObject {
                     // the key back.
                     let message = OpenAICompatibleProvider.extractErrorMessage(from: data)
                         ?? "HTTP \(http.statusCode)"
-                    await self?.finish(base: base, failure: message)
+                    self?.finish(base: base, failure: message)
                     return
                 }
                 let decoded = try JSONDecoder().decode(ModelList.self, from: data)
                 let ids = (decoded.data ?? decoded.models ?? []).map(\.id)
                     .filter { !$0.isEmpty }
                 guard !ids.isEmpty else {
-                    await self?.finish(base: base, failure: localized("這個服務沒有回報任何模型"))
+                    self?.finish(base: base, failure: localized("這個服務沒有回報任何模型"))
                     return
                 }
-                await self?.finish(base: base, models: Self.sorted(ids))
+                self?.finish(base: base, models: Self.sorted(ids))
             } catch is CancellationError {
                 // Superseded by a newer request.
             } catch {
-                await self?.finish(base: base, failure: error.localizedDescription)
+                self?.finish(base: base, failure: error.localizedDescription)
             }
         }
     }

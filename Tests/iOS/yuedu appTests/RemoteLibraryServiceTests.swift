@@ -130,6 +130,9 @@ struct RemoteLibraryServiceTests {
         #expect(book.resolvedPipelineKind == .epub)
         #expect(book.remoteSource?.format.fileExtension == "epub")
         #expect(context.service.publication(bookID: book.id) != nil)
+        let session = try await EPUBBookService.shared.openSession(
+            for: book, using: context.store, remoteLibrary: context.service)
+        #expect(session === context.service.publication(bookID: book.id))
         #expect(context.store.books.isEmpty)
     }
 
