@@ -510,6 +510,7 @@ private struct DiscoverSettingsView: View {
                 .padding(.horizontal, DSSpacing.lg)
                 .padding(.vertical, DSSpacing.lg)
             }
+            .softScrollEdges()
             .background(DSColor.groupedBackground.opacity(0.001))
         }
         .navigationTitle(localized("發現頁設定"))

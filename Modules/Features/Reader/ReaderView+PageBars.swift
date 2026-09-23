@@ -19,6 +19,14 @@ extension ReaderView {
     }
 
     var readerPageBarsEnvironment: ReaderPageBarsEnvironment {
+        readerPageBarsEnvironment(clock: readerOverlayClock)
+    }
+
+    /// Same as above for one specific set of clock readings — see
+    /// `readerOverlayContentSnapshot(clock:)` for why the clock is a parameter.
+    func readerPageBarsEnvironment(
+        clock: ReaderOverlayClockSnapshot
+    ) -> ReaderPageBarsEnvironment {
         ReaderPageBarsEnvironment(
             layout: settings.readerBarLayout,
             headerEnabled: readerConfig.readerHeaderVisible,
@@ -29,11 +37,11 @@ extension ReaderView {
             headerTopOffset: readerHeaderBarOffset,
             footerBottomOffset: readerFooterBarOffset,
             bookTitle: book?.title ?? snapshotBook?.title ?? "",
-            now: readerOverlayClock.now,
-            batteryLevel: readerOverlayClock.batteryLevel,
-            isCharging: readerOverlayClock.isCharging,
+            now: clock.now,
+            batteryLevel: clock.batteryLevel,
+            isCharging: clock.isCharging,
             readingDuration: readingStatsTracker?
-                .currentMetrics(at: readerOverlayClock.now).elapsed ?? 0,
+                .currentMetrics(at: clock.now).elapsed ?? 0,
             // The reader's own surface, not the app's colour scheme: a night
             // reading theme under a light system appearance still needs the dark
             // resolution of a dynamic tip colour.
@@ -127,13 +135,25 @@ extension ReaderView {
     /// One bar for the *current* position, for the modes that keep a fixed overlay.
     func readerBarModel(
         for bar: ReaderBar,
-        content: ReaderOverlayContentSnapshot
+        clock: ReaderOverlayClockSnapshot
     ) -> ReaderBarRenderModel {
         pageBarsController.model(
             for: bar,
-            snapshot: content,
-            environment: readerPageBarsEnvironment
+            snapshot: readerOverlayContentSnapshot(clock: clock),
+            environment: readerPageBarsEnvironment(clock: clock)
         )
+    }
+
+    /// Takes the clock forward one tick.
+    ///
+    /// The bars layer owns the model and redraws itself; this stores the readings
+    /// where the rest of the reader looks them up and rebuilds the page-baked bars,
+    /// which no view of theirs would otherwise notice. In scroll and fixed-layout
+    /// mode `refreshPageBars` stops before touching any `@State`, so a tick costs
+    /// nothing outside the bars.
+    func applyClockTick(_ snapshot: ReaderOverlayClockSnapshot) {
+        pageBarsController.clock = snapshot
+        refreshPageBars()
     }
 }
 

@@ -94,7 +94,17 @@ struct yuedu_appApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            Group {
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-continuous-scroll-gesture-test") {
+                    ContinuousScrollGestureFixture()
+                } else {
+                    ContentView()
+                }
+                #else
+                ContentView()
+                #endif
+            }
                 .environmentObject(bookStore)
                 .environmentObject(subscriptionStore)
                 .environment(\.appDependencies, .live)

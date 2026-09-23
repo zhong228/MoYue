@@ -21,6 +21,9 @@ struct ReaderLayoutSnapshot: Equatable, Sendable {
     var pageTurnStyle: PageTurnStyle
     var scrollMode: Bool
     var readerOverlayLayout: ReaderOverlayLayout
+    var pageMarginTop: CGFloat? = nil
+    var pageMarginBottom: CGFloat? = nil
+    var readerBarLayout: ReaderBarLayout? = nil
 }
 
 /// Writes exactly the `readConfig.json` shape `ReaderLayoutPresetImporter` reads.
@@ -73,6 +76,7 @@ private struct ExportedReadConfig: Encodable {
     let titleBottomSpacing: CGFloat
     let pageAnim: Int
     let readerOverlayLayout: ReaderOverlayLayout
+    let readerBarLayout: ReaderBarLayout?
 
     init(_ snapshot: ReaderLayoutSnapshot) {
         name = snapshot.name
@@ -84,8 +88,8 @@ private struct ExportedReadConfig: Encodable {
         paragraphSpacing = max(0, snapshot.paragraphSpacingMultiplier * snapshot.fontSize)
         paddingLeft = snapshot.pageMarginH
         paddingRight = snapshot.pageMarginH
-        paddingTop = snapshot.pageMarginV
-        paddingBottom = snapshot.pageMarginV
+        paddingTop = snapshot.pageMarginTop ?? snapshot.pageMarginV
+        paddingBottom = snapshot.pageMarginBottom ?? snapshot.pageMarginV
         footerPaddingBottom = snapshot.footerBottomPadding
         footerPaddingTop = snapshot.footerTextGap
         headerMode = snapshot.titleVisible ? 1 : 0
@@ -94,5 +98,6 @@ private struct ExportedReadConfig: Encodable {
         titleBottomSpacing = snapshot.titleBottomSpacing
         pageAnim = ReaderLayoutPresetExporter.pageAnim(for: snapshot)
         readerOverlayLayout = snapshot.readerOverlayLayout
+        readerBarLayout = snapshot.readerBarLayout
     }
 }

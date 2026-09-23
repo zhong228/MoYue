@@ -30,6 +30,12 @@ final class BrowserLayoutPageView: UIView, UIGestureRecognizerDelegate, @preconc
     var skipAuthoredBackgroundPaint = false
     /// Let UICollectionView own VoiceOver scrolling for continuous tiles.
     var usesContinuousScrolling = false
+    var usesExternalContentSurface = false {
+        didSet { if oldValue != usesExternalContentSurface { setNeedsDisplay() } }
+    }
+    var continuousSpineIndex: Int?
+    var continuousDocumentRect = CGRect.zero
+    var continuousLayoutRevision: UInt64 = 0
     /// Every tappable link on this page, in final page-local geometry, built by
     /// the engine from the SAME display list this view draws. The view never
     /// derives link geometry itself.
@@ -42,7 +48,14 @@ final class BrowserLayoutPageView: UIView, UIGestureRecognizerDelegate, @preconc
     private(set) var textInteraction: BrowserTextInteractionController?
 
     func configureTextInteraction(sourceText: String, spineIndex: Int, annotations: [CoreTextTextAnnotation], paragraphRanges: [NSRange] = []) {
-        guard textInteraction == nil else { textInteraction?.annotations = annotations; return }
+        if let textInteraction {
+            if !textInteraction.isBound {
+                textInteraction.bind(sourceText: sourceText, spineIndex: spineIndex, paragraphRanges: paragraphRanges)
+            }
+            textInteraction.annotations = annotations
+            refreshAccessibility()
+            return
+        }
         let interaction = BrowserTextInteractionController(page: self, sourceText: sourceText,
                                                           spineIndex: spineIndex, paragraphRanges: paragraphRanges)
         interaction.onSearch = { text in
@@ -54,6 +67,25 @@ final class BrowserLayoutPageView: UIView, UIGestureRecognizerDelegate, @preconc
         textInteraction = interaction
         interaction.annotations = annotations
         refreshAccessibility()
+    }
+
+    /// Continuous cells reuse their drawing surface and fixed tap recognizers.
+    /// The source binding is reset without rebuilding UIKit menu infrastructure.
+    func resetContinuousBinding() {
+        textInteraction?.resetBinding()
+        cancelLinkPress()
+        setPlaybackHighlight(sourceRange: nil)
+        highlightRects = []
+        displayList = .empty
+        interactionRegions = .empty
+        pageSourceRange = NSRange(location: 0, length: 0)
+        pageSourceText = ""
+        continuousSpineIndex = nil
+        continuousDocumentRect = .zero
+        continuousLayoutRevision = 0
+        accessibilityLabel = nil
+        accessibilityCustomActions = nil
+        accessibilityCustomContent = []
     }
     /// Pressed-link wash. Paint only — never affects layout or pagination.
     var linkPressedColor: UIColor = UIColor.label.withAlphaComponent(0.15) {
@@ -245,22 +277,30 @@ final class BrowserLayoutPageView: UIView, UIGestureRecognizerDelegate, @preconc
 
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
+        // Measures tile command generation only; Core Animation can rasterize
+        // the recorded commands later. Compare this span with Hitches' app
+        // update/render tracks rather than treating it as total frame time.
+        let tileTrace = usesContinuousScrolling && !usesExternalContentSurface ? ReaderPerfTrace.begin(.renderTile,
+            metadata: continuousRenderMetadata()) : nil
+        defer { ReaderPerfTrace.end(tileTrace) }
         let ctmBefore = BrowserLayoutDeviceDiagnostic.ctm(context)
-        backgroundColorFill.setFill()
-        context.fill(bounds)
-        if let readerBackgroundImage {
-            // Aspect-fill and centred through the SAME helper the legacy page
-            // and the 載入中 placeholder use, so the artwork does not shift when
-            // a page turn crosses between the two engines.
-            CoreTextPageView.drawPageBackground(readerBackgroundImage, in: bounds)
+        if !usesExternalContentSurface {
+            backgroundColorFill.setFill()
+            context.fill(bounds)
+            if let readerBackgroundImage {
+                // Aspect-fill and centred through the SAME helper the legacy page
+                // and the 載入中 placeholder use, so the artwork does not shift when
+                // a page turn crosses between the two engines.
+                CoreTextPageView.drawPageBackground(readerBackgroundImage, in: bounds)
+            }
+            ReaderDisplayListDrawer.draw(
+                displayList,
+                in: context,
+                // A reader-chosen background REPLACES the book's own page surface,
+                // exactly as in the legacy page.
+                skipAuthoredBackgroundPaint: skipAuthoredBackgroundPaint || readerBackgroundImage != nil
+            )
         }
-        ReaderDisplayListDrawer.draw(
-            displayList,
-            in: context,
-            // A reader-chosen background REPLACES the book's own page surface,
-            // exactly as in the legacy page.
-            skipAuthoredBackgroundPaint: skipAuthoredBackgroundPaint || readerBackgroundImage != nil
-        )
         for highlight in highlightRects {
             highlightColor.setFill()
             context.fill(highlight.intersection(bounds))
@@ -283,6 +323,34 @@ final class BrowserLayoutPageView: UIView, UIGestureRecognizerDelegate, @preconc
                 drawDebugOverlay(in: context)
             }
         }
+    }
+
+    /// Evaluated by the signpost autoclosure only when Instruments enables it.
+    /// No source URLs, filenames or book text. These bounded runtime identities
+    /// connect a costly CA replay frame with the images submitted by its tiles;
+    /// this interval itself measures command generation, not deferred decoding.
+    func continuousRenderMetadata() -> ReaderPerfMetadata {
+        var textRuns = 0
+        var imageCount = 0
+        var identities: [String] = []
+        for item in displayList.items {
+            switch item {
+            case .text: textRuns += 1
+            case .image(let image):
+                if skipAuthoredBackgroundPaint && image.isBackgroundPaint { continue }
+                imageCount += 1
+                if identities.count < 8 {
+                    let bitmap = image.image?.cgImage
+                    let identity = image.image.map { String(describing: ObjectIdentifier($0)) } ?? "pending"
+                    identities.append("node=\(image.nodeID):\(identity):\(bitmap?.width ?? 0)x\(bitmap?.height ?? 0):bg=\(image.isBackgroundPaint)")
+                }
+            case .fill: break
+            }
+        }
+        return ReaderPerfMetadata(resourceID: "tile=\(ObjectIdentifier(self));rect=\(continuousDocumentRect);scale=\(contentScaleFactor);runs=\(textRuns);images=\(imageCount);\(identities.joined(separator: ","))",
+            spineIndex: continuousSpineIndex, characterCount: pageSourceRange.length,
+            elementCount: displayList.items.count, executor: "main",
+            generation: Int(truncatingIfNeeded: continuousLayoutRevision))
     }
 
     /// Three reference lines in the REAL view's context:

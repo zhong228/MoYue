@@ -174,7 +174,7 @@ struct ReaderBarLayoutTests {
         let messy = ReaderBarLayout(
             fields: [
                 ReaderBarField(kind: .battery, slot: .footerRight),
-                ReaderBarField(kind: .battery, slot: .headerLeft)
+                ReaderBarField(kind: .battery, slot: .footerRight)
             ]
         )
         let clean = messy.normalized()

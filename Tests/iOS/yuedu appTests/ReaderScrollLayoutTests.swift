@@ -22,7 +22,7 @@ struct ReaderScrollLayoutTests {
     ]
 
     private final class Source: NSObject, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
-        let extents: [CGFloat]
+        var extents: [CGFloat]
         let axis: CoreTextScrollAxis
 
         init(extents: [CGFloat], axis: CoreTextScrollAxis) {
@@ -55,6 +55,29 @@ struct ReaderScrollLayoutTests {
                 return CGSize(width: extent, height: collectionView.bounds.height)
             }
         }
+    }
+
+    @Test func measuredHeightCorrectionAndCountChangePreserveScreenAnchor() throws {
+        let source = Source(extents: [CGFloat](repeating: 800, count: 12), axis: .vertical)
+        let collection = Self.makeReaderCollectionView(axis: .vertical, source: source)
+        let layout = try #require(collection.collectionViewLayout as? ReaderScrollLayout)
+        collection.contentOffset = CGPoint(x: 0, y: 1700)
+        let oldSize = collection.contentSize
+        let before = try #require(layout.layoutAttributesForItem(at: IndexPath(item: 2, section: 0))).frame.minY - collection.contentOffset.y
+        source.extents[0] += 123.25
+        source.extents.append(517)
+        UIView.performWithoutAnimation {
+            collection.performBatchUpdates {
+                collection.insertItems(at: [IndexPath(item: 12, section: 0)])
+                layout.commitViewportGeometry(offsetAdjustment: CGPoint(x: 0, y: layout.snappedOrigin(1723.25) - 1600),
+                    oldSize: oldSize, newSize: CGSize(width: 390, height: source.extents.reduce(0, +)))
+            }
+            collection.layoutIfNeeded()
+        }
+        let after = try #require(layout.layoutAttributesForItem(at: IndexPath(item: 2, section: 0))).frame.minY - collection.contentOffset.y
+        #expect(abs(after - before) <= 1 / UIScreen.main.scale)
+        #expect(collection.numberOfItems(inSection: 0) == 13)
+        #expect(abs(collection.contentSize.height - source.extents.reduce(0, +)) < 0.001)
     }
 
     /// The production flow-layout configuration, verbatim.

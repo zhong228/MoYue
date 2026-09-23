@@ -384,10 +384,14 @@ final class ICloudSyncManager: ObservableObject {
                     fallbackUpdatedAt: { $0.lastOpenedDate ?? $0.addedDate }
                 )
                 changedRemote = changedRemote || bookMerge.uploaded
-                if bookMerge.shouldApplyLocally {
+                if bookMerge.shouldApplyLocally,
+                   let snapshot = await MainActor.run(body: {
+                       store.snapshotForSync(bookMerge.values, expectedMutationRevision: bookMutationRevision)
+                   }) {
+                    let prepared = try await BookStore.encodeSyncSnapshot(snapshot)
                     await MainActor.run {
                         SourcePerfTrace.span("sync.apply.books", "count=\(bookMerge.values.count)") {
-                            store.replaceBooksFromSync(bookMerge.values, expectedMutationRevision: bookMutationRevision)
+                            store.applySyncSnapshot(prepared)
                         }
                     }
                 }
@@ -427,15 +431,47 @@ final class ICloudSyncManager: ObservableObject {
         hash: @escaping (T) -> String,
         fallbackUpdatedAt: @escaping (T) -> Date
     ) async throws -> CloudSyncMergeResult<T> {
-        let localFingerprint = Self.collectionFingerprint(local, id: id, hash: hash)
         let remote = try await downloadRecords(recordName, as: T.self, id: id, fallbackUpdatedAt: fallbackUpdatedAt)
-        var shadow = SyncShadowStore.load(shadowKey)
-        let loadedShadow = shadow
+        let loadedShadow = SyncShadowStore.load(shadowKey)
+        let result = Self.resolveMerge(
+            local: local,
+            remote: remote.records,
+            shadow: loadedShadow,
+            id: id,
+            hash: hash,
+            fallbackUpdatedAt: fallbackUpdatedAt
+        )
+        if loadedShadow != result.shadow {
+            SyncShadowStore.save(shadowKey, result.shadow)
+        }
+        let uploaded = try await uploadRecords(
+            recordName,
+            values: result.values,
+            shadow: result.shadow,
+            id: id,
+            remotePayloadHash: remote.payloadHash
+        )
+        AppLogger.sync("merge \(recordName): local=\(local.count) remote=\(remote.records.count) → \(result.values.count), uploaded=\(uploaded), applyLocally=\(result.shouldApplyLocally)", level: .notice)
+        return CloudSyncMergeResult(values: result.values, shouldApplyLocally: result.shouldApplyLocally, uploaded: uploaded)
+    }
+
+    /// Everything `mergeType` decides between the download and the upload, apart
+    /// from the network so it can be tested.
+    static func resolveMerge<T>(
+        local: [T],
+        remote: [FirestoreSyncRecord<T>],
+        shadow loadedShadow: [String: SyncShadowEntry],
+        id: (T) -> String,
+        hash: (T) -> String,
+        fallbackUpdatedAt: (T) -> Date,
+        now: Date = Date()
+    ) -> (values: [T], shadow: [String: SyncShadowEntry], shouldApplyLocally: Bool) {
+        let localFingerprint = collectionFingerprint(local, id: id, hash: hash)
+        var shadow = loadedShadow
         var localIDs = Set<String>(minimumCapacity: local.count)
         for v in local {
             localIDs.insert(id(v))
         }
-        let now = Date()
         // Local deletions: an id we synced before but no longer have locally was
         // deleted on this device → tombstone it (newer than the remote copy) so the
         // deletion propagates and the item isn't resurrected from the cloud.
@@ -448,30 +484,20 @@ final class ICloudSyncManager: ObservableObject {
         // the fresh local one.
         for value in local {
             let key = id(value)
-            guard let updated = Self.updatedShadowEntry(
+            guard let updated = updatedShadowEntry(
                 existing: shadow[key],
                 currentHash: hash(value),
-                fallbackUpdatedAt: fallbackUpdatedAt(value)
+                fallbackUpdatedAt: fallbackUpdatedAt(value),
+                now: now
             ) else { continue }
             shadow[key] = updated
         }
         let result = FirestoreSyncMerge.merge(
-            local: local, remote: remote.records, shadow: shadow,
+            local: local, remote: remote, shadow: shadow,
             id: id, hash: hash, fallbackUpdatedAt: fallbackUpdatedAt
         )
-        if loadedShadow != result.shadow {
-            SyncShadowStore.save(shadowKey, result.shadow)
-        }
-        let uploaded = try await uploadRecords(
-            recordName,
-            values: result.values,
-            shadow: result.shadow,
-            id: id,
-            remotePayloadHash: remote.payloadHash
-        )
-        let shouldApplyLocally = localFingerprint != Self.collectionFingerprint(result.values, id: id, hash: hash)
-        AppLogger.sync("merge \(recordName): local=\(local.count) remote=\(remote.records.count) → \(result.values.count), uploaded=\(uploaded)", level: .notice)
-        return CloudSyncMergeResult(values: result.values, shouldApplyLocally: shouldApplyLocally, uploaded: uploaded)
+        let shouldApplyLocally = localFingerprint != collectionFingerprint(result.values, id: id, hash: hash)
+        return (result.values, result.shadow, shouldApplyLocally)
     }
 
     /// Reads a cloud blob into sync records. Understands the current envelope
@@ -551,8 +577,18 @@ final class ICloudSyncManager: ObservableObject {
         try await saveRecord(record)
     }
 
-    private static func stableHash<T: Encodable>(_ value: T) -> String {
-        guard let data = try? JSONEncoder().encode(value) else { return UUID().uuidString }
+    /// Edit detection: equal content must hash equally every time. Without
+    /// `.sortedKeys` JSONEncoder writes keys in a different order on every call —
+    /// the same unchanged struct encoded 200 ways in 200 tries (2026-09-23) — so
+    /// every item looked edited on every sync: its shadow was stamped `now`, the
+    /// local copy won over newer edits from other devices, and every merge was
+    /// applied, re-rendering the reader and the shelf behind it mid-scroll
+    /// (15/16.trace). Sets need a sorted encoding of their own
+    /// (`BookOfflineDownloadTask.encode(to:)`); sorting keys cannot order them.
+    static func stableHash<T: Encodable>(_ value: T) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(value) else { return UUID().uuidString }
         return stableHash(data)
     }
 
@@ -941,6 +977,8 @@ final class ICloudSyncManager: ObservableObject {
                     withIntermediateDirectories: true
                 )
                 try data.write(to: file.localURL, options: .atomic)
+                // A restored cover replaces a file the shelf may have found missing.
+                CoverImagePipeline.shared.invalidateBookCover(at: file.localURL)
                 rememberUploadedBookFileMarker("\(file.recordName):\(data.count)")
                 fetched += 1
             } catch {

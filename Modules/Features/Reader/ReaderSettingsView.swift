@@ -325,10 +325,18 @@ struct ReaderSettingsView: View {
             )
 
             LayoutSliderRow(
-                title: localized("上下邊距"),
-                icon: .pageMarginVertical,
-                valueText: String(format: localized("ReaderOverlay.Format.Points"), Int(readerConfig.pageMarginV)),
-                value: $readerConfig.pageMarginV,
+                title: localized("上邊距"),
+                icon: .pageMarginTop,
+                valueText: String(format: localized("ReaderOverlay.Format.Points"), Int(readerConfig.pageMarginTop)),
+                value: $readerConfig.pageMarginTop,
+                range: 0...50,
+                step: 1
+            )
+            LayoutSliderRow(
+                title: localized("下邊距"),
+                icon: .pageMarginBottom,
+                valueText: String(format: localized("ReaderOverlay.Format.Points"), Int(readerConfig.pageMarginBottom)),
+                value: $readerConfig.pageMarginBottom,
                 range: 0...50,
                 step: 1
             )
@@ -356,6 +364,8 @@ struct ReaderSettingsView: View {
     private func resetPageMargins() {
         readerConfig.pageMarginH = defaultPageMarginH
         readerConfig.pageMarginV = defaultPageMarginV
+        readerConfig.pageMarginTop = defaultPageMarginV
+        readerConfig.pageMarginBottom = defaultPageMarginV
     }
 
     private func spreadTitleKey(for mode: ReaderSpreadMode) -> String {

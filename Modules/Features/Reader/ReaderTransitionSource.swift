@@ -19,6 +19,9 @@ struct ReaderTransitionSource {
     private let frameProvider: (@MainActor () -> CGRect?)?
     /// 書封快照,nil 時用純色卡片。
     let snapshot: UIImage?
+    /// A sharper rendering of the same artwork, prepared off the main thread after
+    /// the tap. Memory lookup only: nil until it is ready, and nobody waits for it.
+    private let snapshotUpgrade: (@MainActor () -> UIImage?)?
     /// 開書方向。
     let direction: ReaderBookOpeningDirection
 
@@ -28,6 +31,7 @@ struct ReaderTransitionSource {
         frame: CGRect? = nil,
         frameProvider: (@MainActor () -> CGRect?)? = nil,
         snapshot: UIImage? = nil,
+        snapshotUpgrade: (@MainActor () -> UIImage?)? = nil,
         direction: ReaderBookOpeningDirection = .leftSpine
     ) {
         self.bookID = bookID
@@ -35,7 +39,30 @@ struct ReaderTransitionSource {
         self.frame = frame
         self.frameProvider = frameProvider
         self.snapshot = snapshot
+        self.snapshotUpgrade = snapshotUpgrade
         self.direction = direction
+    }
+
+    /// The best bitmap of the cover available right now: the upgrade once it is
+    /// ready, otherwise the tap-time snapshot. The shelf's thumbnail is sized for
+    /// the shelf, and the card grows it toward full screen.
+    ///
+    /// Only ever the *same* artwork at a higher resolution: a plain card (no
+    /// snapshot) stays plain, and an upgrade whose proportions differ is ignored so
+    /// the cover's crop cannot shift mid-animation.
+    @MainActor
+    func bestAvailableSnapshot() -> UIImage? {
+        guard let snapshot else { return nil }
+        guard let upgraded = snapshotUpgrade?(),
+              upgraded !== snapshot,
+              upgraded.size.width > snapshot.size.width,
+              snapshot.size.width > 0, snapshot.size.height > 0,
+              upgraded.size.width > 0, upgraded.size.height > 0,
+              abs(upgraded.size.width / upgraded.size.height - snapshot.size.width / snapshot.size.height) < 0.01
+        else {
+            return snapshot
+        }
+        return upgraded
     }
 
     /// Resolve a snapshot of the geometry, or nil when unavailable.
@@ -64,6 +91,7 @@ struct ReaderTransitionSource {
             frame: frame,
             frameProvider: frameProvider,
             snapshot: snapshot,
+            snapshotUpgrade: snapshotUpgrade,
             direction: direction
         )
     }

@@ -2,19 +2,12 @@ import UIKit
 
 /// Single-axis layout for the CoreText scroll reader, replacing `UICollectionViewFlowLayout`.
 ///
-/// `Technotes/ViewportScrollArchitecture.md` §4.3 (option A) and §7 stage 2.
+/// The vertical continuous host supplies estimated or measured extents through
+/// `extentProvider`. Scrolling changes only the query window; size corrections
+/// explicitly invalidate geometry inside the host's character-anchor transaction.
 ///
-/// Flow layout derives `contentSize` by asking the delegate for **every** item's exact size, which
-/// is what forces a whole chapter to be laid out before it can be inserted (§3.2). Owning the
-/// layout is what later allows an *estimated* extent to answer, and a measured one to replace it
-/// in place without re-running the whole thing.
-///
-/// Stage 2 changes nothing visible: extents still come from real layout, and the geometry it
-/// produces is asserted pixel-identical to flow layout's in `ReaderScrollLayoutTests`.
-///
-/// The reader's collection view is one section of full-cross-axis items with zero spacing, so the
-/// geometry is a running sum along the scroll axis. Chapter gaps are *inside* an item's extent
-/// (that is how `sizeForItemAt` has always reported them), not spacing between items.
+/// Chapter gaps are included in each item's extent. Origins preserve the old
+/// flow layout's pixel snapping, covered by `ReaderScrollLayoutTests`.
 final class ReaderScrollLayout: UICollectionViewLayout {
 
     enum Axis {
@@ -30,9 +23,6 @@ final class ReaderScrollLayout: UICollectionViewLayout {
     }
 
     /// Extent of item `i` along the scroll axis, chapter gap included.
-    ///
-    /// A closure rather than a delegate callback: the layout asks the geometry store, and stage 3
-    /// changes what that store answers with — not this call site.
     var extentProvider: ((Int) -> CGFloat)?
 
     private var itemAttributes: [UICollectionViewLayoutAttributes] = []
@@ -116,6 +106,22 @@ final class ReaderScrollLayout: UICollectionViewLayout {
     }
 
     override var collectionViewContentSize: CGSize { contentSize }
+
+    /// Apply measured geometry without starting a programmatic scroll. In particular,
+    /// setContentOffset(_:animated: false) stops UIKit's native deceleration.
+    func commitViewportGeometry(offsetAdjustment: CGPoint, oldSize: CGSize, newSize: CGSize) {
+        let context = UICollectionViewLayoutInvalidationContext()
+        context.contentOffsetAdjustment = offsetAdjustment
+        context.contentSizeAdjustment = CGSize(width: newSize.width - oldSize.width,
+                                               height: newSize.height - oldSize.height)
+        invalidateLayout(with: context)
+    }
+
+    func snappedOrigin(_ origin: CGFloat) -> CGFloat {
+        guard let collectionView else { return origin }
+        let scale = pixelScale(for: collectionView)
+        return (origin * scale).rounded(.toNearestOrAwayFromZero) / scale
+    }
 
     override func layoutAttributesForItem(
         at indexPath: IndexPath

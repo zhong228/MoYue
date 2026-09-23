@@ -40,6 +40,8 @@ struct ReaderPreferences: Codable, Equatable {
     var paragraphSpacingMultiplier: Double
     var pageMarginH: Double
     var pageMarginV: Double
+    var pageMarginTop: Double?
+    var pageMarginBottom: Double?
     var footerBottomPadding: Double
     var footerTextGap: Double
     var pageTurnStyle: String
@@ -64,6 +66,8 @@ struct ReaderPreferences: Codable, Equatable {
             paragraphSpacingMultiplier: settings.paragraphSpacingMultiplier,
             pageMarginH: settings.pageMarginH,
             pageMarginV: settings.pageMarginV,
+            pageMarginTop: settings.pageMarginTop,
+            pageMarginBottom: settings.pageMarginBottom,
             footerBottomPadding: settings.footerBottomPadding,
             footerTextGap: settings.footerTextGap,
             pageTurnStyle: settings.pageTurnStyle.rawValue,
@@ -80,36 +84,39 @@ struct ReaderPreferences: Codable, Equatable {
 
     @MainActor
     func apply(to settings: GlobalSettings = .shared) {
-        settings.readerFontSize = readerFontSize
+        var updates = SettingsUpdateBatch(settings, reason: "readerPreferences")
+        defer { updates.finish() }
+        updates.set(\.readerFontSize, readerFontSize, field: "readerFontSize")
         if let theme = ReaderTheme(rawValue: theme) {
-            theme.persist()
-            ReaderConfig.shared.theme = theme
+            if ReaderTheme.loadPersisted() != theme { theme.persist() }
         }
-        settings.lineHeightMultiple = lineHeightMultiple
-        settings.letterSpacing = letterSpacing
-        settings.paragraphSpacingMultiplier = paragraphSpacingMultiplier
-        settings.pageMarginH = pageMarginH
-        settings.pageMarginV = pageMarginV
-        settings.footerBottomPadding = footerBottomPadding
-        settings.footerTextGap = footerTextGap
-        settings.pageTurnStyle = PageTurnStyle(rawValue: pageTurnStyle) ?? settings.pageTurnStyle
-        settings.readerWritingMode = ReaderWritingMode(rawValue: readerWritingMode) ?? settings.readerWritingMode
-        settings.textConversion = TextConversion(rawValue: textConversion) ?? settings.textConversion
-        settings.scrollMode = scrollMode
+        updates.set(\.lineHeightMultiple, lineHeightMultiple, field: "lineHeightMultiple")
+        updates.set(\.letterSpacing, letterSpacing, field: "letterSpacing")
+        updates.set(\.paragraphSpacingMultiplier, paragraphSpacingMultiplier, field: "paragraphSpacingMultiplier")
+        updates.set(\.pageMarginH, pageMarginH, field: "pageMarginH")
+        updates.set(\.pageMarginV, pageMarginV, field: "pageMarginV")
+        updates.set(\.pageMarginTop, pageMarginTop ?? pageMarginV, field: "pageMarginTop")
+        updates.set(\.pageMarginBottom, pageMarginBottom ?? pageMarginV, field: "pageMarginBottom")
+        updates.set(\.footerBottomPadding, footerBottomPadding, field: "footerBottomPadding")
+        updates.set(\.footerTextGap, footerTextGap, field: "footerTextGap")
+        updates.set(\.pageTurnStyle, PageTurnStyle(rawValue: pageTurnStyle) ?? settings.pageTurnStyle, field: "pageTurnStyle")
+        updates.set(\.readerWritingMode, ReaderWritingMode(rawValue: readerWritingMode) ?? settings.readerWritingMode, field: "readerWritingMode")
+        updates.set(\.textConversion, TextConversion(rawValue: textConversion) ?? settings.textConversion, field: "textConversion")
+        updates.set(\.scrollMode, scrollMode, field: "scrollMode")
         if let readerHeaderVisible {
-            settings.readerHeaderVisible = readerHeaderVisible
+            updates.set(\.readerHeaderVisible, readerHeaderVisible, field: "readerHeaderVisible")
         }
         if let readerHeaderTopPadding {
-            settings.readerHeaderTopPadding = readerHeaderTopPadding
+            updates.set(\.readerHeaderTopPadding, readerHeaderTopPadding, field: "readerHeaderTopPadding")
         }
         if let readerHeaderTextGap {
-            settings.readerHeaderTextGap = readerHeaderTextGap
+            updates.set(\.readerHeaderTextGap, readerHeaderTextGap, field: "readerHeaderTextGap")
         }
         if let readerHeaderFieldPositions {
-            settings.readerHeaderFieldPositions = readerHeaderFieldPositions
+            updates.set(\.readerHeaderFieldPositions, readerHeaderFieldPositions, field: "readerHeaderFieldPositions")
         }
         if let readerTextColorOverrides {
-            settings.readerTextColorOverrides = readerTextColorOverrides
+            updates.set(\.readerTextColorOverrides, readerTextColorOverrides, field: "readerTextColorOverrides")
         }
         ReaderConfig.shared.syncFromGlobalSettings()
     }

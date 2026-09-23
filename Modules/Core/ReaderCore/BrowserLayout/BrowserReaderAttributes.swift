@@ -29,8 +29,9 @@ enum BrowserReaderAttributes {
 
 /// Reader-only rule decorations; HTML/CSS backgrounds/borders and all glyphs are drawn in the package.
 enum ReaderDisplayListDrawer {
-    static func draw(_ list: DisplayList, in context: CGContext, skipAuthoredBackgroundPaint: Bool = false) {
-        list.draw(in: context, skipAuthoredBackgroundPaint: skipAuthoredBackgroundPaint) { line, text, context in
+    static func draw(_ list: DisplayList, in context: CGContext, skipAuthoredBackgroundPaint: Bool = false,
+                     textPaintPhase: TextPaintPhase = .all) {
+        list.draw(in: context, skipAuthoredBackgroundPaint: skipAuthoredBackgroundPaint, textPaintPhase: textPaintPhase) { line, text, context in
             RegexHighlightDecorationRenderer.drawHorizontal(line: line, origin: .zero,
                 attributedString: text, range: NSRange(location: 0, length: text.length), context: context)
         }

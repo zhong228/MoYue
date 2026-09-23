@@ -105,6 +105,7 @@ struct FileImportTab: View {
             }
             .padding()
         }
+        .softScrollEdges()
         .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [
             .plainText, UTType(filenameExtension: "md") ?? .plainText,
             UTType(filenameExtension: "markdown") ?? .plainText, .json, .epub, .pdf,
@@ -269,6 +270,7 @@ struct URLImportTab: View {
             }
             .padding()
         }
+        .softScrollEdges()
     }
 
     private func fetchURL() {

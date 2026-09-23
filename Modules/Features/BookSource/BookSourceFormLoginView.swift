@@ -74,6 +74,7 @@ struct BookSourceFormLoginView: View {
                 .padding(.horizontal, DSSpacing.lg)
                 .padding(.vertical, DSSpacing.md)
             }
+            .softScrollEdges()
             .scrollDismissesKeyboard(.interactively)
             .disabled(isLoading)
             .navigationTitle(loginTitle)

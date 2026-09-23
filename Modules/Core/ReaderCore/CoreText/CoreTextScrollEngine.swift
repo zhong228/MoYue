@@ -13,7 +13,7 @@ struct ScrollProgress {
     let percentage: Double
 }
 
-/// Dedicated scroll-mode engine: slices each chapter's attributedString into a series of chunks for UICollectionView rendering.
+/// Continuous host data: viewport-backed Browser paint tiles or legacy CTFrame chunks.
 /// Operates alongside the page-oriented `CoreTextPageEngine` without interfering with it.
 @MainActor
 final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
@@ -29,19 +29,23 @@ final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
     @Published private(set) var isReady: Bool = false
     @Published var textAnnotations: [CoreTextTextAnnotation] = []
 
+    /// Scroll-only chapters need not exist in the paged engine's layout cache.
+    /// Every chunk retains its chapter text in canonical UTF-16 offset space.
+    func chapterText(forSpine spine: Int) -> String? {
+        guard let row = chapterRanges[spine]?.first, chunks.indices.contains(row),
+              !placeholderChapters.contains(spine) else { return nil }
+        return chunks[row].attributedString.string
+    }
+
     /// UTF-16 character counts retained independently of rendered chunks so
     /// scroll positions can be converted to stable book-wide content units.
     private var chapterCharacterCounts: [Int: Int] = [:]
 
     // MARK: - Scroll geometry
 
-    /// Owner of every height the scroll view lays out with
-    /// (`Technotes/ViewportScrollArchitecture.md` §5).
-    ///
-    /// At stage 1 it is populated from chunks that have *already* been laid out, so it reports
-    /// exactly the numbers `CoreTextChunk.height` always did — the seam is in place, the
-    /// behaviour is unchanged. Stage 3 is what lets estimates answer these queries instead, and
-    /// it needs the collection view to have stopped asking chunks directly by then.
+    /// Owns the collection geometry derived from current tiles/chunks. Browser
+    /// tiles include estimated offscreen extent; viewport commits replace their
+    /// geometry after demand has been measured.
     private let geometryStore = FragmentGeometryStore()
 
     /// Derived, never incrementally maintained. `insert` alone has three branches that each
@@ -130,7 +134,7 @@ final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
 
     /// Chapters currently being sliced (deduplication)
     private var slicingChapters: [Int: UUID] = [:]
-    /// Chapters that have been fully sliced
+    /// Chapters whose content and tile/chunk outline have been prepared
     private var loadedChapters: Set<Int> = []
     /// Chapters that could not be sliced because their online content was not cached yet.
     /// Was `[Int: Bool]`, where the Bool recorded a prepend direction that no longer decides
@@ -163,7 +167,7 @@ final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
 
     // MARK: - Lifecycle
 
-    /// Initial load: slices the starting chapter + adjacent chapters
+    /// Prepare the starting chapter and adjacent content; Browser text remains demand-driven.
     func start(
         initialChapter: Int,
         contentWidth: CGFloat,
@@ -255,6 +259,10 @@ final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
         self.viewportExtent = resolvedViewportExtent
         chunks = replacement.chunks
         chapterRanges = replacement.chapterRanges
+        // The replacement bound its chapters to itself; this engine owns them now.
+        for spine in chapterRanges.keys {
+            if let chapter = browserChapter(at: spine) { bindViewportSnapshots(of: chapter) }
+        }
         chapterCharacterCounts = replacement.chapterCharacterCounts
         loadedChapters = replacement.loadedChapters
         slicingChapters = [:]
@@ -294,6 +302,10 @@ final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
     func invalidateChapterDocument(at chapterIndex: Int) {
         guard chapterIndex >= 0, chapterIndex < builder.chapterCount else { return }
         chapterDocumentStore.invalidate(spineIndex: chapterIndex)
+    }
+
+    func invalidateChapterDocuments() {
+        chapterDocumentStore.invalidateAll()
     }
 
     func applyThemeChange(textColor: UIColor, backgroundColor: UIColor) {
@@ -357,23 +369,32 @@ final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
     /// (the expensive part) does not hitch the main thread. willDisplay still
     /// materializes synchronously as a correctness fallback for chunks that
     /// scroll into view before the async warm completes.
-    func warmChunksAhead(around row: Int, radius: Int = 2) {
-        guard !chunks.isEmpty else { return }
+    ///
+    /// The builds run in `frameWarmer`, one at a time, with its own framesetters:
+    /// the chapter's shared framesetter stays with the main thread, which may be
+    /// materializing a neighbouring chunk at that very moment.
+    @discardableResult
+    func warmChunksAhead(around row: Int, radius: Int = 2) -> Task<Void, Never>? {
+        guard !chunks.isEmpty else { return nil }
         let center = max(0, min(row, chunks.count - 1))
         let start = max(0, center - max(0, radius))
         let end = min(chunks.count - 1, center + max(0, radius))
-        guard start <= end else { return }
+        guard start <= end else { return nil }
         let pending = (start...end)
-            .map { chunks[$0] }
+            .compactMap { chunks[$0].legacyChunk }
             .filter { !$0.isMaterialized }
-        guard !pending.isEmpty else { return }
-        Task.detached(priority: .userInitiated) {
+        guard !pending.isEmpty else { return nil }
+        let warmer = frameWarmer
+        return Task.detached(priority: .userInitiated) {
             for chunk in pending {
-                guard let built = chunk.buildFrameData() else { continue }
+                guard let built = await warmer.buildFrameData(for: chunk) else { continue }
                 await MainActor.run { chunk.applyBuiltFrame(built) }
             }
         }
     }
+
+    /// Off-main frame builds for `warmChunksAhead`. Owns its framesetters.
+    let frameWarmer = CoreTextFrameWarmer()
 
     /// Drops CTFrames far from the visible row so a long scroll session does not keep
     /// every chapter it has passed materialized. This is the engine's memory policy;
@@ -455,7 +476,8 @@ final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
                 guard generation == resliceGeneration, !Task.isCancelled else { return }
                 chapterCharacterCounts[chapterIndex] = (chapter.document.sourceText as NSString).length
                 let vacatedIndex = removeLoadingPlaceholder(for: chapterIndex)
-                insert(items: chapter.tiles(width: contentWidth, heightCap: renderSettings.writingMode.isVertical ? max(1, viewportExtent) : 2000), chapterIndex: chapterIndex, at: vacatedIndex)
+                bindViewportSnapshots(of: chapter)
+                insert(items: chapter.tiles(width: contentWidth, heightCap: renderSettings.writingMode.isVertical ? max(1, viewportExtent) : browserPaintTileHeight), chapterIndex: chapterIndex, at: vacatedIndex)
                 loadedChapters.insert(chapterIndex)
                 pendingMissingChapters.remove(chapterIndex)
                 SourcePerfTrace.record("browser.scroll.loadChapter", "spine=\(chapterIndex) height=\(chapter.document.contentHeight)",
@@ -859,6 +881,86 @@ final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
         return (chunk.chapterIndex, chunk.charRange.location)
     }
 
+    func browserChapter(at spine: Int) -> BrowserScrollChapter? {
+        guard let index = chapterRanges[spine]?.first, chunks.indices.contains(index),
+              case .browser(let tile) = chunks[index] else { return nil }
+        return tile.chapter
+    }
+
+    /// Asks a viewport-driven chapter to lay out `bounds` on its layout thread.
+    /// Never waits: the snapshot arrives later through `onViewportSnapshot`.
+    func requestViewport(chapter spine: Int, bounds: CGRect, anchorOffset: Int? = nil) {
+        browserChapter(at: spine)?.requestViewport(bounds, anchorOffset: anchorOffset)
+    }
+
+    /// The scroll host's geometry transaction for an arriving snapshot: read the
+    /// visible anchor, call `install`, then commit. Without a host, snapshots are
+    /// installed as they arrive.
+    var onViewportSnapshot: ((_ spine: Int, _ install: () -> Void) -> Void)?
+
+    private func bindViewportSnapshots(of chapter: BrowserScrollChapter) {
+        guard chapter.isViewportDriven else { return }
+        chapter.onSnapshot = { [weak self, weak chapter] snapshot in
+            guard let self, let chapter else { return }
+            receiveViewportSnapshot(snapshot, for: chapter)
+        }
+    }
+
+    private func receiveViewportSnapshot(_ snapshot: BrowserViewportSnapshot, for chapter: BrowserScrollChapter) {
+        // A replaced chapter's late result must never enter the current layout.
+        guard browserChapter(at: chapter.spineIndex) === chapter else { return }
+        let install: () -> Void = { [weak self] in self?.installViewportSnapshot(snapshot, for: chapter) }
+        if let onViewportSnapshot {
+            onViewportSnapshot(chapter.spineIndex, install)
+        } else {
+            install()
+        }
+    }
+
+    /// Installs the snapshot and re-tiles its chapter.
+    private func installViewportSnapshot(_ snapshot: BrowserViewportSnapshot, for chapter: BrowserScrollChapter) {
+        let spine = chapter.spineIndex
+        guard browserChapter(at: spine) === chapter, let range = chapterRanges[spine] else { return }
+        chapter.apply(snapshot)
+        let tiles = chapter.tiles(width: contentWidth, heightCap: browserPaintTileHeight)
+        // Restoring evicted CTLines changes paint, not necessarily collection
+        // geometry. Reverse scrolling must not invalidate every cell for that.
+        if tiles.count != range.count || zip(chunks[range], tiles).contains(where: {
+            $0.height != $1.height || $0.width != $1.width
+        }) {
+            viewportGeometryRevision &+= 1
+        }
+        chunks.replaceSubrange(range, with: tiles)
+        let delta = tiles.count - range.count
+        chapterRanges = chapterRanges.mapValues { old in
+            old.lowerBound > range.lowerBound ? (old.lowerBound + delta)..<(old.upperBound + delta) : old
+        }
+        chapterRanges[spine] = range.lowerBound..<(range.lowerBound + tiles.count)
+    }
+
+    /// Tests and explicit readiness checks only: every chapter's layout requests
+    /// have been answered and installed.
+    func waitForViewportIdle() async {
+        while let busy = chapterRanges.keys.compactMap({ browserChapter(at: $0) }).first(where: \.hasViewportWork) {
+            await busy.waitForViewportIdle()
+        }
+    }
+
+    private(set) var viewportGeometryRevision: UInt64 = 0
+
+    /// Paint boundaries only: shaping, prefetch distance and source anchors are
+    /// unchanged. A new cell must not rasterize several screens in one frame.
+    /// Integral point boundaries preserve the pixel phase across tile seams.
+    private var browserPaintTileHeight: CGFloat {
+        viewportExtent > 0 ? max(1, min(2000, ceil(viewportExtent))) : 2000
+    }
+
+    func trimViewportChapters(keeping chapters: Set<Int>) {
+        for spine in chapterRanges.keys where !chapters.contains(spine) {
+            browserChapter(at: spine)?.discardViewportResources()
+        }
+    }
+
     /// Finds the chunk index for a given (chapterIndex, charOffset)
     func chunkIndex(forChapter chapter: Int, charOffset: Int) -> Int? {
         guard let range = chapterRanges[chapter] else { return nil }
@@ -872,7 +974,7 @@ final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
                     return point.x > candidate.documentRect.minX && point.x <= candidate.documentRect.maxX
                 } ?? range.last
             }
-            let y = document.documentY(forCharOffset: charOffset)
+            let y = tile.chapter.documentY(for: charOffset)
             return range.first { index in
                 guard case .browser(let candidate) = chunks[index] else { return false }
                 return y >= candidate.documentRect.minY && y < candidate.documentRect.maxY

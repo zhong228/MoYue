@@ -487,5 +487,6 @@ struct LoginGridLayout: Layout {
         )
         .padding(DSSpacing.lg)
     }
+    .softScrollEdges()
     .themedAppSurface(for: .settings)
 }

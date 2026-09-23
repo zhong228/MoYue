@@ -903,14 +903,14 @@ extension ReaderView {
         guard ttsCoordinator.playbackState != .stopped,
               let anchor = ttsPlaybackAnchor
         else {
-            showTTSJumpPrompt = false
-            ttsJumpPromptChapterIndex = nil
+            if showTTSJumpPrompt { showTTSJumpPrompt = false }
+            if ttsJumpPromptChapterIndex != nil { ttsJumpPromptChapterIndex = nil }
             return
         }
 
         guard !isReaderAtTTSAnchor(anchor) else {
-            showTTSJumpPrompt = false
-            ttsJumpPromptChapterIndex = nil
+            if showTTSJumpPrompt { showTTSJumpPrompt = false }
+            if ttsJumpPromptChapterIndex != nil { ttsJumpPromptChapterIndex = nil }
             return
         }
 
@@ -1085,9 +1085,13 @@ extension ReaderView {
     // MARK: - AI assistant
 
     /// Stable source context and one gathered snapshot, independent of layout-cache eviction.
+    var aiSourceIdentity: ReaderAISourceIdentity {
+        ReaderAISourceIdentity(bookID: bookId, sourceID: book?.bookSourceId,
+                               source: book?.source ?? "", chapters: chapters)
+    }
+
     var aiCurrentSourceContext: String {
-        "\(bookId):\(book?.bookSourceId?.uuidString ?? "local"):\(book?.source ?? "")"
-            + chapters.map { "\($0.index):\($0.href):\($0.title)" }.joined(separator: "\n")
+        aiSourceIdentity.context
     }
 
     func aiBookAdapter() -> AIBookContentAdapter {

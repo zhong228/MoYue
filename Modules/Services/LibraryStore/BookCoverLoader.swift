@@ -17,26 +17,18 @@ enum BookCoverLoader {
         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 "
         + "(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
 
-    private static let cache: NSCache<NSString, UIImage> = {
-        let c = NSCache<NSString, UIImage>()
-        c.countLimit = 600
-        // Entries carry their decoded-bitmap byte size as cost (~1.1MB at the
-        // 640px ceiling). A fully-populated discover page holds several hundred
-        // covers; size the budget so scrolling back doesn't churn through
-        // evict → refetch → redecode. NSCache still dumps entries on memory
-        // pressure regardless of this limit.
-        c.totalCostLimit = 128 * 1024 * 1024
-        return c
-    }()
+    /// The memory budget (128 MB, costed by decoded bitmap size) and the in-flight
+    /// coalescing live in the pipeline, shared with the covers saved on disk. A fully
+    /// populated discover page holds several hundred covers; the budget is sized so
+    /// scrolling back doesn't churn through evict → refetch → redecode. Concurrent
+    /// loads of one URL coalesce: on 發現頁 the same book (and cover) appears in
+    /// several sections, and prefetch races the cell-driven loads.
+    private static var pipeline: CoverImagePipeline { .shared }
 
     /// The largest cover slot in the app renders at ~140pt ≈ 420px @3x; 640px
     /// keeps a comfortable margin while cutting a 1080×1440 original's decoded
     /// footprint by ~5×.
-    private static let maxCoverPixelSize = 640
-
-    /// Coalesces concurrent loads of one URL: on 發現頁 the same book (and cover)
-    /// appears in several sections, and prefetch races the cell-driven loads.
-    private static let inflight = CoverInflightStore()
+    private static let maxCoverPixelSize = CoverPixelSize.standard.longEdge
 
     /// Headers for a cover request: browser UA + Referer (the source's base URL),
     /// with the source's own header rule layered on top (it may override the UA).
@@ -61,14 +53,15 @@ enum BookCoverLoader {
     }
 
     static func cachedImage(for urlString: String, session: URLSession? = nil) -> UIImage? {
-        cache.object(forKey: cacheKey(for: urlString, session: session) as NSString)
+        pipeline.cachedNetworkImage(forKey: cacheKey(for: urlString, session: session))
     }
 
-    /// Drops decoded cover bitmaps without touching the persisted cover files.
-    /// Cache management calls this after deleting the file-backed cover cache so
-    /// an already-visible screen cannot keep serving stale images from memory.
+    /// Drops decoded cover bitmaps without touching the persisted cover files: memory
+    /// reclaim only. When cover *files* change, the writer invalidates instead
+    /// (`BookCoverFileStore`, `CoverImagePipeline.invalidateDownloadedBookCovers`), which
+    /// is what also stops a load already in flight from putting the old bitmap back.
     static func clearMemoryCache() {
-        cache.removeAllObjects()
+        pipeline.purgeMemory()
     }
 
     /// Fetch a cover image, honoring the in-memory cache and the supplied headers.
@@ -76,8 +69,8 @@ enum BookCoverLoader {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, URL(string: trimmed) != nil else { return nil }
         let key = cacheKey(for: trimmed, session: session)
-        if let cached = cache.object(forKey: key as NSString) { return cached }
-        return await inflight.value(for: key) {
+        if let cached = pipeline.cachedNetworkImage(forKey: key) { return cached }
+        return await pipeline.coalescedNetworkLoad(key: key) {
             await fetchAndCache(urlString: trimmed, headers: headers, session: session, cacheKey: key)
         }
     }
@@ -102,7 +95,7 @@ enum BookCoverLoader {
         ) ?? data
         guard let image = decodedCover(from: effectiveData) else { return nil }
 
-        cache.setObject(image, forKey: cacheKey as NSString, cost: bitmapCost(of: image))
+        pipeline.storeNetworkImage(image, forKey: cacheKey)
         return image
     }
 
@@ -129,23 +122,20 @@ enum BookCoverLoader {
         return UIImage(cgImage: cgImage)
     }
 
-    /// The cover already saved for a book, read from `ReadingBook.coverImagePath`.
+    /// The cover already saved for a book, read from `ReadingBook.coverImagePath`,
+    /// **blocking**, at the pipeline's largest size.
     ///
-    /// The one reader of the on-disk cover. `StorageLocations.coverFile` routes between
-    /// `Covers` and `CustomCovers` by the filename marker, so callers must not join that path
-    /// themselves — two of them used to, and any change to the routing had to be found in
-    /// three places instead of one.
+    /// Only for callers that need the artwork right now and are not a scrolling list:
+    /// Now Playing, the reader's 現代 chrome, the download Live Activity. The bookshelf
+    /// never calls this; it loads through `BookshelfCoverArtwork`, which reads memory
+    /// in its body and leaves the disk to a task. Shares the pipeline's cache, decoder
+    /// and invalidation, so what these callers get is exactly what the shelf shows.
+    /// `StorageLocations` routes between `Covers` and `CustomCovers`; callers must not
+    /// join that path themselves.
     static func localImage(filename: String?) -> UIImage? {
         guard let filename, !filename.isEmpty else { return nil }
-        guard let data = try? Data(contentsOf: StorageLocations.coverFile(filename)) else {
-            return nil
-        }
-        return UIImage(data: data)
-    }
-
-    private static func bitmapCost(of image: UIImage) -> Int {
-        guard let cgImage = image.cgImage else { return 1 }
-        return cgImage.bytesPerRow * cgImage.height
+        let request = CoverImageRequest(source: .bookCover(filename: filename), size: .largest)
+        return pipeline.loadImmediately(request).image
     }
 
     /// Download a cover and save it as JPEG under Application Support/Covers; returns the saved
@@ -158,32 +148,58 @@ enum BookCoverLoader {
     ) async -> String? {
         guard let image = await loadImage(urlString: urlString, headers: headers, session: session),
               let jpeg = image.jpegData(compressionQuality: 0.85) else { return nil }
-        let fileURL = StorageLocations.coverFile(filename)
         do {
-            try jpeg.write(to: fileURL)
+            try BookCoverFileStore.live.write(jpeg, filename: filename)
             return filename
         } catch {
+            AppLogger.cache("⟐ downloaded cover could not be saved", error: error)
             return nil
         }
     }
 }
 
-/// Serializes "is someone already fetching this URL?" bookkeeping; the fetches
-/// themselves run concurrently in their own tasks.
-private actor CoverInflightStore {
-    private var tasks: [String: Task<UIImage?, Never>] = [:]
+/// The one way the app's own flows write or delete a saved cover: download
+/// (`downloadAndSave`), 相簿 / 封面搜索 picks and 重設封面 (`BookStore`).
+///
+/// A write creates the directory first, since 快取管理 or the system may have removed
+/// it since launch, and replaces the file atomically, so a decode running at the
+/// same moment reads the old bytes or the new ones, never half of each. A failed
+/// write throws and leaves the previous file and its cached bitmap untouched; a
+/// successful one invalidates that filename, so the shelf redraws it without a
+/// restart, and a load that read the old bytes cannot publish them afterwards.
+struct BookCoverFileStore: Sendable {
+    let root: URL
+    let pipeline: CoverImagePipeline
 
-    func value(
-        for key: String,
-        make: @escaping @Sendable () async -> UIImage?
-    ) async -> UIImage? {
-        if let existing = tasks[key] {
-            return await existing.value
+    static var live: BookCoverFileStore {
+        BookCoverFileStore(root: StorageLocations.applicationSupportRoot, pipeline: .shared)
+    }
+
+    func location(of filename: String) -> URL {
+        StorageLocations.coverFileLocation(filename, in: root)
+    }
+
+    func write(_ data: Data, filename: String) throws {
+        let url = location(of: filename)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: url, options: .atomic)
+        pipeline.invalidate([.bookCover(filename: filename)])
+    }
+
+    /// Deletes a saved cover. A file already gone is not an error; anything else is
+    /// logged. The bitmap is invalidated either way, so nothing keeps drawing a file
+    /// the book no longer points at.
+    func remove(filename: String) {
+        do {
+            try FileManager.default.removeItem(at: location(of: filename))
+        } catch CocoaError.fileNoSuchFile {
+            // Already gone: the state the caller wanted.
+        } catch {
+            AppLogger.cache("⟐ cover file could not be removed", error: error)
         }
-        let task = Task { await make() }
-        tasks[key] = task
-        let result = await task.value
-        tasks[key] = nil
-        return result
+        pipeline.invalidate([.bookCover(filename: filename)])
     }
 }

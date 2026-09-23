@@ -2,6 +2,30 @@ import YueduCoreText
 import UIKit
 import CoreText
 
+/// The reader-wide text underline decoration as a value. Paint that runs off
+/// the main thread (the continuous-scroll raster worker) is handed this
+/// snapshot instead of reading `GlobalSettings`, which the UI mutates.
+struct ReaderTextUnderlineDecoration: Equatable {
+    let color: UIColor
+    let thickness: CGFloat
+    let offset: CGFloat
+    let style: ReaderTextUnderlineStyle
+
+    /// Reads the live settings; call where `GlobalSettings` is safe to read.
+    /// `nil` when the decoration is off.
+    static func current() -> ReaderTextUnderlineDecoration? {
+        let settings = GlobalSettings.shared
+        guard settings.readerTextUnderlineDecorationEnabled else { return nil }
+        return ReaderTextUnderlineDecoration(
+            color: GlobalSettings.uiColor(rgbHex: settings.readerTextUnderlineDecorationColorHex)
+                .withAlphaComponent(0.45),
+            thickness: CGFloat(settings.readerTextUnderlineThickness),
+            offset: CGFloat(settings.readerTextUnderlineOffset),
+            style: settings.readerTextUnderlineStyle
+        )
+    }
+}
+
 /// Horizontal writing mode text rendering.
 ///
 /// Draws CTFrame line-by-line with CJK-optimized justification,
@@ -21,6 +45,8 @@ enum CoreTextHorizontalLineDrawer {
         suppressedRanges: [NSRange] = [],
         hrDividerKey: NSAttributedString.Key,
         bottomJustified: Bool = true,
+        lineIndices: IndexSet? = nil,
+        underline: ReaderTextUnderlineDecoration? = .current(),
         in ctx: CGContext
     ) {
         let lines = CTFrameGetLines(frame) as! [CTLine]
@@ -90,6 +116,9 @@ enum CoreTextHorizontalLineDrawer {
         )
 
         for (lineIdx, line) in lines.enumerated() {
+            // The continuous viewport owns small, retained paint surfaces.
+            // Unrelated lines must not be justified or submitted to Core Graphics.
+            if let lineIndices, !lineIndices.contains(lineIdx) { continue }
             var origin = shiftedOrigins[lineIdx]
 
             let lineRange = CTLineGetStringRange(line)
@@ -185,6 +214,7 @@ enum CoreTextHorizontalLineDrawer {
             ctx.textPosition = origin
             CTLineDraw(lineToDraw, ctx)
             drawTextUnderlineDecorationIfNeeded(
+                underline,
                 line: lineToDraw,
                 origin: origin,
                 lineStart: lineStart,
@@ -198,6 +228,7 @@ enum CoreTextHorizontalLineDrawer {
     // MARK: - Reader decoration underline
 
     private static func drawTextUnderlineDecorationIfNeeded(
+        _ decoration: ReaderTextUnderlineDecoration?,
         line: CTLine,
         origin: CGPoint,
         lineStart: Int,
@@ -205,7 +236,7 @@ enum CoreTextHorizontalLineDrawer {
         stringLength: Int,
         in ctx: CGContext
     ) {
-        guard GlobalSettings.shared.readerTextUnderlineDecorationEnabled,
+        guard let decoration,
               stringLength > 0,
               lineStart >= 0,
               lineStart < stringLength
@@ -230,18 +261,13 @@ enum CoreTextHorizontalLineDrawer {
               nsString.substring(with: boundedRange).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         else { return }
 
-        let settings = GlobalSettings.shared
-        let color = GlobalSettings.uiColor(
-            rgbHex: settings.readerTextUnderlineDecorationColorHex
-        ).withAlphaComponent(0.45)
-        let thickness = CGFloat(settings.readerTextUnderlineThickness)
-        let offset = CGFloat(settings.readerTextUnderlineOffset)
-        let underlineY = origin.y - max(1, offset)
+        let thickness = decoration.thickness
+        let underlineY = origin.y - max(1, decoration.offset)
 
         ctx.saveGState()
-        ctx.setStrokeColor(color.cgColor)
+        ctx.setStrokeColor(decoration.color.cgColor)
         ctx.setLineWidth(thickness)
-        switch settings.readerTextUnderlineStyle {
+        switch decoration.style {
         case .solid:
             ctx.setLineCap(.round)
             ctx.setLineDash(phase: 0, lengths: [])

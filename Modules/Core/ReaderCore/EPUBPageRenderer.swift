@@ -1,3 +1,4 @@
+import YueduCoreText
 import Combine
 import UIKit
 
@@ -139,9 +140,13 @@ final class EPUBPageRenderer: ObservableObject {
                 return .failed(.engineUnavailable(.paged))
             }
 
+            if let browser = engine as? BrowserLayoutPageEngine {
+                await browser.activatePagedLayout()
+                await browser.preloadChapter(at: request.position.spineIndex)
+            }
             let coverage: RefreshRevisionCoverage
             switch request.intent {
-            case .layout:
+            case .layout, .documentStyle:
                 await invalidatePagedLayout(
                     engine,
                     newSize: request.viewportSize,
@@ -214,12 +219,13 @@ final class EPUBPageRenderer: ObservableObject {
         }
 
         private func prepareScroll() async -> RefreshPreparationResult {
+            (engine as? BrowserLayoutPageEngine)?.usesViewportScrolling = !request.settings.writingMode.isVertical
             guard let scrollEngine else {
                 return .failed(.engineUnavailable(.scroll))
             }
 
             switch request.intent {
-            case .layout:
+            case .layout, .documentStyle:
                 return .requiresVisibleCommit(
                     RefreshRevisionCoverage(
                         layout: revisions.layout,
@@ -381,7 +387,8 @@ final class EPUBPageRenderer: ObservableObject {
         publicationSession session: PublicationSession,
         bookIdentifier: String,
         renderSize: CGSize,
-        settings: ReaderRenderSettings
+        settings: ReaderRenderSettings,
+        continuousScrolling: Bool = false
     ) {
         layoutMode = session.layoutMode
         pageProgressionDirection = session.pageProgressionDirection
@@ -431,6 +438,7 @@ final class EPUBPageRenderer: ObservableObject {
             resource: EPUBBrowserLayoutResourceAdapter(session: session),
             delegate: newEngine, settings: settings, mode: .browserAuto
         )
+        (self.engine as? BrowserLayoutPageEngine)?.usesViewportScrolling = continuousScrolling && !settings.writingMode.isVertical
         self.scrollEngine?.browserAutoEngine = self.engine as? BrowserLayoutPageEngine
         isCoreTextReady = false
 
@@ -754,6 +762,12 @@ final class EPUBPageRenderer: ObservableObject {
         engine?.cancelPendingWork(cause: .refreshTransaction)
 
         switch request.intent {
+        case .documentStyle:
+            // Both modes share this store. Styles outside ReaderRenderSettings must
+            // rebuild documents, including cached neighbours, and mark the inactive
+            // mode's layout stale even though the settings snapshot is unchanged.
+            scrollEngine?.invalidateChapterDocuments()
+            layoutRevision &+= 1
         case .layout:
             if latestLayoutRenderSettings != request.settings {
                 latestLayoutRenderSettings = request.settings

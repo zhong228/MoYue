@@ -50,6 +50,8 @@ final class ReaderBarRenderModelBuilder {
         userInterfaceStyle: UIUserInterfaceStyle,
         displayScale: CGFloat
     ) -> ReaderBarRenderModel {
+        let layout = layout.resolved(isChapterOpening: content.chapterPage == 1)
+        let margins = bar == .header ? layout.headerMargins : layout.footerMargins
         let style = ReaderBarStyleResolver.resolve(
             layout.style,
             readerTextColor: readerTextColor,
@@ -59,7 +61,7 @@ final class ReaderBarRenderModelBuilder {
         let slots = barSlots.map { slot in
             layout.fields(in: slot).compactMap { field in
                 var fieldStyle = layout.style
-                fieldStyle.color = field.color ?? layout.style.color
+                fieldStyle.color = field.effectiveColor ?? layout.style.color
                 let resolved = ReaderBarStyleResolver.resolve(
                     fieldStyle,
                     readerTextColor: readerTextColor,
@@ -91,7 +93,10 @@ final class ReaderBarRenderModelBuilder {
                 slots: barSlots,
                 layout: layout,
                 content: content
-            )
+            ),
+            leftPadding: margins.left.map { CGFloat($0) },
+            rightPadding: margins.right.map { CGFloat($0) },
+            showsComponentSeparators: layout.showsComponentSeparators
         )
     }
 
@@ -106,7 +111,7 @@ final class ReaderBarRenderModelBuilder {
             .compactMap { field in
                 let presentation = ReaderOverlayPresentationResolver.resolve(
                     kind: field.kind,
-                    configuration: field.configuration,
+                    configuration: field.effectiveConfiguration,
                     snapshot: content
                 )
                 guard !presentation.accessibilityValue.isEmpty else { return nil }
@@ -143,7 +148,7 @@ final class ReaderBarRenderModelBuilder {
 
         let presentation = ReaderOverlayPresentationResolver.resolve(
             kind: field.kind,
-            configuration: field.configuration,
+            configuration: field.effectiveConfiguration,
             snapshot: content,
             availableSVGAssetIDs: available
         )
@@ -172,8 +177,8 @@ final class ReaderBarRenderModelBuilder {
         displayScale: CGFloat
     ) -> ImportedKey? {
         guard field.kind == .battery,
-              field.configuration.normalized.batteryVisual == .importedSVG,
-              let assetID = field.configuration.normalized.svgAssetID,
+              field.effectiveConfiguration.normalized.batteryVisual == .importedSVG,
+              let assetID = field.effectiveConfiguration.normalized.svgAssetID,
               displayScale.isFinite, displayScale >= 0.5, displayScale <= 4
         else {
             return nil

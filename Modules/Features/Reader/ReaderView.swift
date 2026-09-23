@@ -36,9 +36,16 @@ struct ReaderView: View {
     @ObservedObject var settings = GlobalSettings.shared
     @ObservedObject var subscriptionStore = SubscriptionStore.shared
     @StateObject var readerConfig = ReaderConfig.shared
-    /// Not private: the per-page bars are built in `ReaderView+PageBars` and the
-    /// clock is what makes them tick.
-    @StateObject var readerOverlayClock = ClockBatteryModel()
+    /// The clock/battery readings the bars draw — read, never observed.
+    ///
+    /// `ClockBatteryModel` used to live here as a `@StateObject`. It publishes `now`
+    /// and `displayTime` on a minute-aligned timer, which invalidated the whole
+    /// reader: a device trace measured ~13 ms of `buildBody()`, the toolbars and the
+    /// bar models on E cores when the minute rolled over mid-fling — a dropped frame
+    /// at 120 Hz, for a clock nothing outside the two bars reads. `ReaderPageBarsLayer`
+    /// owns and observes the model now and pushes its readings here, so a tick
+    /// rebuilds the bars and leaves the rest of the reader alone.
+    var readerOverlayClock: ReaderOverlayClockSnapshot { pageBarsController.clock }
 
     // MARK: - Speculative Pre-Layout for Cross-Chapter Scrolling
     @State private var scrollVelocity: CGFloat = 0.0
@@ -167,7 +174,7 @@ struct ReaderView: View {
 
     private func restoreReaderDisplayStateAfterResume() {
         guard let engine = epubRenderer.engine, isEPUB, engine.totalPages > 0 else { return }
-        let (spineIndex, charOffset) = engine.charOffset(forPage: currentPage)
+        let (spineIndex, charOffset) = displayedCoreTextPosition(in: engine)
         currentChapterIndex = spineIndex
         moveReaderSession(
             to: CoreTextReadingPosition(spineIndex: spineIndex, charOffset: charOffset),
@@ -226,10 +233,17 @@ struct ReaderView: View {
     @State var showMediaOverlayPanel = false
     @State var activeMediaOverlayChapterIndex: Int? = nil
 
-    @State var currentChapterIndex = 0
+    @StateObject var chapterPresentation = ReaderChapterPresentationState()
+    var currentChapterIndex: Int {
+        get { chapterPresentation.currentChapter }
+        nonmutating set { chapterPresentation.setCurrentChapter(newValue) }
+    }
 
     // Scroll mode progress tracking
-    @State var scrollVisibleChapter = 0
+    var scrollVisibleChapter: Int {
+        get { chapterPresentation.visibleChapter }
+        nonmutating set { chapterPresentation.setVisibleChapter(newValue) }
+    }
     @State var scrollNavigationVersion: UInt64 = 0
     @State var scrollNavigationRequest: ReaderScrollNavigationRequest?
     @State var pendingScrollJumpTarget: CoreTextReadingPosition?
@@ -237,7 +251,13 @@ struct ReaderView: View {
     @State var pendingChapterContentReplacements: Set<Int> = []
 
     @State var readerSessionCoordinator: ReaderSessionCoordinator?
-    @State var readingStatsTracker: ReadingStatsSessionTracker?
+    @State private var readingStatistics = ReaderReadingStatistics()
+    // Metrics are consumed by the session/clock-driven bars. A progress sample
+    // must not invalidate ReaderView's navigation, sheets and UIKit bridge.
+    var readingStatsTracker: ReadingStatsSessionTracker? {
+        get { readingStatistics.tracker }
+        nonmutating set { readingStatistics.tracker = newValue }
+    }
     @State var readerOverlayLegacyContentIndex = ReaderLegacyContentIndex.empty
 
     @State var isRestoringPosition = true
@@ -549,7 +569,7 @@ struct ReaderView: View {
 
     private var currentTOCChapter: BookChapter? {
         if let engine = epubRenderer.engine, usesCoreTextEPUB {
-            let position = engine.charOffset(forPage: currentPage)
+            let position = displayedCoreTextPosition(in: engine)
             return tocChapter(
                 forSpineIndex: position.spineIndex,
                 charOffset: position.charOffset
@@ -1130,8 +1150,15 @@ struct ReaderView: View {
         return allPages[min(currentPage, allPages.count - 1)].chapterTitle
     }
 
-    var readerOverlayContentSnapshot: ReaderOverlayContentSnapshot {
-        let now = readerOverlayClock.now
+    /// Everything a screen-fixed bar shows, for one set of clock readings.
+    ///
+    /// Takes the clock rather than reading it so `ReaderPageBarsLayer` — which owns
+    /// the ticking model — can build this from the value it is redrawing for, without
+    /// the reader having to observe the clock to stay in step.
+    func readerOverlayContentSnapshot(
+        clock: ReaderOverlayClockSnapshot
+    ) -> ReaderOverlayContentSnapshot {
+        let now = clock.now
         let pageMetrics = readerOverlayPageMetrics
         let readingMetrics = readingStatsTracker?.currentMetrics(at: now) ?? (elapsed: 0, charactersRead: 0)
         let paceMetrics = readingStatsTracker?.currentPaceMetrics(at: now) ?? (elapsed: 0, contentUnitsRead: 0)
@@ -1148,8 +1175,8 @@ struct ReaderView: View {
             chapterPageCount: pageMetrics.chapterPageCount,
             totalProgress: pageMetrics.totalProgress,
             now: now,
-            batteryLevel: readerOverlayClock.batteryLevel,
-            isCharging: readerOverlayClock.isCharging,
+            batteryLevel: clock.batteryLevel,
+            isCharging: clock.isCharging,
             readingDuration: readingMetrics.elapsed,
             estimatedRemainingTime: estimatedRemainingTime
         )
@@ -1161,11 +1188,8 @@ struct ReaderView: View {
         totalProgress: Double
     ) {
         if let engine = epubRenderer.engine, usesCoreTextEPUB, engine.totalPages > 0 {
-            let position = readerOverlayCoreTextPosition(in: engine)
-            let pagination = engine.chapterPagination(
-                forSpine: position.spineIndex,
-                charOffset: position.charOffset
-            )
+            let position = displayedCoreTextPosition(in: engine)
+            let pagination = displayedChapterPagination(in: engine)
             let chapterPageCount = pagination?.displayPageCount ?? 0
             let chapterPage = pagination.map { $0.localPageIndex + 1 } ?? 0
             return (
@@ -1190,7 +1214,7 @@ struct ReaderView: View {
 
     private var readerOverlayRemainingContentUnits: Int? {
         if let engine = epubRenderer.engine, usesCoreTextEPUB {
-            let position = readerOverlayCoreTextPosition(in: engine)
+            let position = displayedCoreTextPosition(in: engine)
             return readerContentMetrics(
                 for: CoreTextReadingPosition(
                     spineIndex: position.spineIndex,
@@ -1205,14 +1229,29 @@ struct ReaderView: View {
         return readerOverlayLegacyContentIndex.remainingUnitCount(forPageAt: currentIndex)
     }
 
-    private func readerOverlayCoreTextPosition(
+    /// The position the reader is showing, in either mode: what the bars, the
+    /// menu, the TOC's current chapter and a bookmark all describe. Scroll mode does
+    /// not move `currentPage` (it stays on the page the book opened at), so its
+    /// position is the session's, as each settled scroll commits it.
+    func displayedCoreTextPosition(
         in engine: any PagedReaderEngine
     ) -> (spineIndex: Int, charOffset: Int) {
-        if effectiveScrollMode, let location = readerSessionCoordinator?.state.location {
-            return (location.spineIndex, location.charOffset)
+        let position = ReaderDisplayedPosition.resolve(
+            engine: engine, currentPage: currentPage, isScrolling: effectiveScrollMode,
+            sessionLocation: readerSessionCoordinator?.state.location
+        )
+        return (position.spineIndex, position.charOffset)
+    }
+
+    /// The displayed position's page within its chapter. Scroll mode has no pages:
+    /// one visible band between the bars counts as one (the user's choice,
+    /// 2026-09-23), measured on the scroll view.
+    func displayedChapterPagination(in engine: any PagedReaderEngine) -> ChapterPagination? {
+        let position = displayedCoreTextPosition(in: engine)
+        if effectiveScrollMode {
+            return autoScrollHandle.screenPagination?(position.spineIndex)
         }
-        let page = max(0, min(currentPage, engine.totalPages - 1))
-        return engine.charOffset(forPage: page)
+        return engine.chapterPagination(forSpine: position.spineIndex, charOffset: position.charOffset)
     }
 
     var canGoPrevChapter: Bool { currentChapterIndex > 0 }
@@ -1223,9 +1262,7 @@ struct ReaderView: View {
 
     var currentTopBarBookmarkPosition: CoreTextReadingPosition? {
         if let engine = epubRenderer.engine, usesCoreTextEPUB {
-            let position = engine.readingPosition(forPage: currentPage)
-                ?? CoreTextReadingPosition(spineIndex: engine.charOffset(forPage: currentPage).spineIndex, charOffset: 0)
-            return .chapterStart(position.spineIndex)
+            return .chapterStart(displayedCoreTextPosition(in: engine).spineIndex)
         }
         if !allPages.isEmpty {
             let page = allPages[min(currentPage, allPages.count - 1)]
@@ -1258,6 +1295,13 @@ struct ReaderView: View {
     /// Current page excerpt (first 30 characters).
     var currentPageExcerpt: String {
         if let engine = epubRenderer.engine, usesCoreTextEPUB {
+            if effectiveScrollMode {
+                let position = displayedCoreTextPosition(in: engine)
+                return ReaderDisplayedPosition.excerpt(
+                    in: epubRenderer.scrollEngine?.chapterText(forSpine: position.spineIndex) ?? "",
+                    charOffset: position.charOffset
+                )
+            }
             return String(engine.plainText(forPage: currentPage).prefix(30))
         }
         guard !allPages.isEmpty else { return "" }
@@ -1305,7 +1349,7 @@ struct ReaderView: View {
     /// Overall reading progress percentage.
     var totalProgressPercent: String {
         if usesCoreTextEPUB, let engine = epubRenderer.engine {
-            let (spine, offset) = engine.charOffset(forPage: currentPage)
+            let (spine, offset) = displayedCoreTextPosition(in: engine)
             let pct = engine.totalProgress(forSpine: spine, charOffset: offset) * 100
             return String(format: "%.2f%%", pct)
         }
@@ -1320,11 +1364,7 @@ struct ReaderView: View {
             return ""
         }
         if let engine = epubRenderer.engine, usesCoreTextEPUB {
-            let (spineIndex, charOffset) = engine.charOffset(forPage: currentPage)
-            guard let pagination = engine.chapterPagination(
-                forSpine: spineIndex,
-                charOffset: charOffset
-            ) else {
+            guard let pagination = displayedChapterPagination(in: engine) else {
                 return ""
             }
             return "\(pagination.localPageIndex + 1)/\(pagination.displayPageCount)"
@@ -1394,7 +1434,7 @@ struct ReaderView: View {
     }
 
     func loadTOCStyleCoverImage(filename: String) -> UIImage? {
-        BookshelfCoverLoader.load(filename: filename)
+        BookCoverLoader.localImage(filename: filename)
     }
 
     func makeTOCStyleTitleCardArtwork(title: String) -> UIImage? {
@@ -1510,12 +1550,14 @@ struct ReaderView: View {
     }
 
     private func buildBody() -> AnyView {
-        let barContent = readerOverlayContentSnapshot
+        // Only the page number is needed here, so the full bar snapshot — reading
+        // pace, remaining-time estimate, clock — is no longer built on every body
+        // pass. `ReaderPageBarsLayer` builds it, once, for the bars that show it.
         let barVisibility = ReaderOverlayPresentationPolicy.visibility(
             layout: settings.readerBarLayout,
             headerEnabled: readerConfig.readerHeaderVisible,
             footerEnabled: readerConfig.readerFooterVisible,
-            isChapterOpeningPage: barContent.chapterPage == 1
+            isChapterOpeningPage: readerOverlayPageMetrics.chapterPage == 1
         )
         let readerLayers = AnyView(
             ZStack(alignment: .top) {
@@ -1625,31 +1667,41 @@ struct ReaderView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
 
-            // Ordinary lazy loading keeps using the inline chapter placeholder. A manual
-            // refresh is different: the user explicitly requested a new copy, so keep a
-            // visible loading surface up until the renderer has consumed that copy.
-            if manuallyRefreshingChapterIndex == currentChapterIndex {
-                readerSurfaceBackground
-                    .overlay { ProgressView(localized("載入中…")) }
-                    .readerLoadingChromeTap { toggleReaderChrome() }
-                    .transition(.opacity)
-            }
-
-            // Failed chapter fetches surface the reason and a manual retry. Do not
-            // auto-retry here: rate-limited sources would otherwise avalanche.
-            if case .failed(let message) = currentChapterOverlayState {
-                chapterLoadFailureOverlay(message: message)
+            if usesSessionLocalScrollProgress, let session = readerSessionCoordinator?.navigator.sessionStore {
+                ReaderSessionProgressView(session: session) { _ in readerChapterStatusOverlays }
+            } else {
+                readerChapterStatusOverlays
             }
 
             // Paged CoreText draws its own bars inside each page, so they turn with
-            // it. What is left here is the two cases that cannot: scroll mode, where
+            // it. What is drawn here is the two cases that cannot: scroll mode, where
             // a stationary band is the whole point, and fixed-layout pages, which
             // are images with no CoreText surface to draw into.
-            if !chapters.isEmpty,
-               !usesPageBakedBars,
-               barVisibility.showsHeader || barVisibility.showsFooter {
-                readerBars(content: barContent, visibility: barVisibility)
-                    .transition(.opacity.animation(.easeOut(duration: 0.2)))
+            //
+            // The layer is mounted either way, because it also owns the reader's
+            // clock — the baked bars tick from it too, and an unmounted layer would
+            // stop the header's time at whatever minute the book opened on.
+            if usesSessionLocalScrollProgress, !chapters.isEmpty, !usesPageBakedBars,
+               let session = readerSessionCoordinator?.navigator.sessionStore {
+                // Continuous scroll keeps its position in the session; only the bars
+                // observe it, so a settled scroll redraws them and not the reader.
+                ReaderSessionProgressView(session: session) { _ in
+                    let visibility = ReaderOverlayPresentationPolicy.visibility(
+                        layout: settings.readerBarLayout,
+                        headerEnabled: readerConfig.readerHeaderVisible,
+                        footerEnabled: readerConfig.readerFooterVisible,
+                        isChapterOpeningPage: readerOverlayPageMetrics.chapterPage == 1
+                    )
+                    readerBars(visibility: visibility,
+                               drawsFixedBars: visibility.showsHeader || visibility.showsFooter)
+                }
+            } else {
+                readerBars(
+                    visibility: barVisibility,
+                    drawsFixedBars: !chapters.isEmpty
+                        && !usesPageBakedBars
+                        && (barVisibility.showsHeader || barVisibility.showsFooter)
+                )
             }
 
             // The pill lives at the bottom of the screen, independent of the
@@ -2048,7 +2100,7 @@ struct ReaderView: View {
                 }
                 .onChanged(of: readerDocumentStyleFingerprint) { _ in
                     submitReaderRefresh(
-                        intent: .chapterContent(currentChapterIndex),
+                        intent: .documentStyle,
                         settings: activeReaderRenderSettings
                     )
                 }
@@ -2110,7 +2162,7 @@ struct ReaderView: View {
         }
         .onReceive(ReplaceRuleStore.shared.$rules) { _ in refreshAIContentIfVisible() }
         .onChanged(of: settings.textConversion) { _ in refreshAIContentIfVisible() }
-        .onChange(of: aiCurrentSourceContext) { _, _ in
+        .onChange(of: aiSourceIdentity) { _, _ in
             aiSourceAdapter = nil
             refreshAIContentIfVisible()
         }
@@ -2158,7 +2210,8 @@ struct ReaderView: View {
         .onChanged(of: book?.bookmarks ?? []) { _ in
             syncCoreTextTextAnnotations()
         }
-        .onChanged(of: currentChapterIndex) { _ in
+        .onChanged(of: chapterPresentation.currentChangeRevision) { _ in
+            guard chapterPresentation.consumeCurrentChapterChange() else { return }
             handleReaderPositionChangedForTTS()
         }
         .onChanged(of: currentPage) { _ in
@@ -2171,7 +2224,9 @@ struct ReaderView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ttsFloatingPlayerOpenPanel)) { _ in
             showTTSPanel = true
         }
-        .onChanged(of: scrollVisibleChapter) { newChapter in
+        .onChanged(of: chapterPresentation.visibleChangeRevision) { _ in
+            guard chapterPresentation.consumeVisibleChapterChange() else { return }
+            let newChapter = scrollVisibleChapter
             autoSaveProgress()
             handleReaderPositionChangedForTTS()
             if let session = activePublicationSession {
@@ -2711,6 +2766,25 @@ struct ReaderView: View {
     }
 
     func applyInitialProgressIfNeeded() {
+        if effectiveScrollMode, scrollAxis == .vertical {
+            // Every continuous source restores a character anchor in the scroll
+            // host. A late paged-engine preload must not reassert the opening
+            // position after the reader has already scrolled elsewhere.
+            guard epubRenderer.scrollEngine != nil,
+                  ReaderProgressSyncPolicy.canPublishIndexPosition(isTXT: isTXT, indexReady: txtIndexReady)
+            else { return }
+            if let target = savedCoreTextRestoreTarget {
+                let position = CoreTextReadingPosition(spineIndex: max(0, min(target.chapterIndex, chapters.count - 1)),
+                                                       charOffset: max(0, target.charOffset))
+                pendingScrollJumpTarget = position
+                currentChapterIndex = position.spineIndex
+                scrollVisibleChapter = position.spineIndex
+                moveReaderSession(to: position, source: .restored, shouldPersist: false)
+                savedCoreTextRestoreTarget = nil
+                isRestoringPosition = false
+            }
+            return
+        }
         if let engine = epubRenderer.engine {
             progressTrace(
                 "applyInitialProgress start enginePage=\(engine.currentPage) totalPages=\(engine.totalPages) target=\(savedCoreTextRestoreTarget.map { "(\($0.chapterIndex),\($0.charOffset))" } ?? "nil")"

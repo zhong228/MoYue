@@ -159,6 +159,7 @@ enum ReaderBatteryValueResolver {
 
 enum ReaderOverlayValueFormatter {
     private static let unavailable = "--"
+    private static let formatters = ReaderOverlayFormatterCache()
 
     static func text(
         for kind: ReaderOverlayComponentKind,
@@ -167,6 +168,10 @@ enum ReaderOverlayValueFormatter {
         locale: Locale,
         calendar: Calendar
     ) -> String {
+        // Freeze auto-updating inputs for the cache key. A subsequent system
+        // locale/calendar change must select newly configured formatters.
+        let locale = locale == .autoupdatingCurrent ? Locale.current : locale
+        let calendar = calendar == .autoupdatingCurrent ? Calendar.current : calendar
         switch kind {
         case .bookTitle:
             return snapshot.bookTitle
@@ -224,21 +229,19 @@ enum ReaderOverlayValueFormatter {
         locale: Locale
     ) -> String {
         guard current > 0, total > 0, current <= total else { return unavailable }
-        let formatter = NumberFormatter()
-        formatter.locale = locale
-        formatter.numberStyle = .decimal
-        formatter.usesGroupingSeparator = false
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 0
-        guard let currentText = formatter.string(from: NSNumber(value: current)),
-              let totalText = formatter.string(from: NSNumber(value: total))
-        else {
-            return unavailable
+        return formatters.string(kind: .page, locale: locale, make: { () -> NumberFormatter in
+            let formatter = NumberFormatter()
+            formatter.locale = locale
+            formatter.numberStyle = .decimal
+            formatter.usesGroupingSeparator = false
+            formatter.minimumFractionDigits = 0
+            formatter.maximumFractionDigits = 0
+            return formatter
+        }) { formatter in
+            guard let currentText = formatter.string(from: NSNumber(value: current)),
+                  let totalText = formatter.string(from: NSNumber(value: total)) else { return unavailable }
+            return format == .compact ? currentText : "\(currentText)/\(totalText)"
         }
-        if format == .compact {
-            return currentText
-        }
-        return "\(currentText)/\(totalText)"
     }
 
     private static func percentage(_ value: Double, locale: Locale) -> String {
@@ -249,12 +252,14 @@ enum ReaderOverlayValueFormatter {
             normalized = 0
         }
 
-        let formatter = NumberFormatter()
-        formatter.locale = locale
-        formatter.numberStyle = .percent
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 1
-        return formatter.string(from: NSNumber(value: normalized)) ?? unavailable
+        return formatters.string(kind: .percent, locale: locale, make: { () -> NumberFormatter in
+            let formatter = NumberFormatter()
+            formatter.locale = locale
+            formatter.numberStyle = .percent
+            formatter.minimumFractionDigits = 0
+            formatter.maximumFractionDigits = 1
+            return formatter
+        }) { $0.string(from: NSNumber(value: normalized)) ?? unavailable }
     }
 
     private static func time(
@@ -263,17 +268,17 @@ enum ReaderOverlayValueFormatter {
         locale: Locale,
         calendar: Calendar
     ) -> String {
-        let formatter = dateFormatter(locale: locale, calendar: calendar)
-        switch format {
-        case .hourMinute24:
-            formatter.dateFormat = "HH:mm"
-        case .hourMinute12:
-            formatter.dateFormat = "h:mm a"
-        case .automatic, .compact, .detailed, .fraction, .percentage:
-            formatter.timeStyle = .short
-            formatter.dateStyle = .none
-        }
-        return formatter.string(from: value)
+        return formatters.string(kind: .time(format), locale: locale, calendar: calendar, make: { () -> DateFormatter in
+            let formatter = dateFormatter(locale: locale, calendar: calendar)
+            switch format {
+            case .hourMinute24: formatter.dateFormat = "HH:mm"
+            case .hourMinute12: formatter.dateFormat = "h:mm a"
+            case .automatic, .compact, .detailed, .fraction, .percentage:
+                formatter.timeStyle = .short
+                formatter.dateStyle = .none
+            }
+            return formatter
+        }) { $0.string(from: value) }
     }
 
     private static func date(
@@ -282,10 +287,12 @@ enum ReaderOverlayValueFormatter {
         locale: Locale,
         calendar: Calendar
     ) -> String {
-        let formatter = dateFormatter(locale: locale, calendar: calendar)
-        formatter.timeStyle = .none
-        formatter.dateStyle = format == .detailed ? .long : .short
-        return formatter.string(from: value)
+        return formatters.string(kind: .date(detailed: format == .detailed), locale: locale, calendar: calendar, make: { () -> DateFormatter in
+            let formatter = dateFormatter(locale: locale, calendar: calendar)
+            formatter.timeStyle = .none
+            formatter.dateStyle = format == .detailed ? .long : .short
+            return formatter
+        }) { $0.string(from: value) }
     }
 
     private static func weekday(
@@ -294,9 +301,11 @@ enum ReaderOverlayValueFormatter {
         locale: Locale,
         calendar: Calendar
     ) -> String {
-        let formatter = dateFormatter(locale: locale, calendar: calendar)
-        formatter.setLocalizedDateFormatFromTemplate(format == .detailed ? "EEEE" : "EEE")
-        return formatter.string(from: value)
+        return formatters.string(kind: .weekday(detailed: format == .detailed), locale: locale, calendar: calendar, make: { () -> DateFormatter in
+            let formatter = dateFormatter(locale: locale, calendar: calendar)
+            formatter.setLocalizedDateFormatFromTemplate(format == .detailed ? "EEEE" : "EEE")
+            return formatter
+        }) { $0.string(from: value) }
     }
 
     private static func duration(
@@ -307,16 +316,17 @@ enum ReaderOverlayValueFormatter {
     ) -> String {
         guard value.isFinite, value >= 0 else { return unavailable }
 
-        var localizedCalendar = calendar
-        localizedCalendar.locale = locale
-
-        let formatter = DateComponentsFormatter()
-        formatter.calendar = localizedCalendar
-        formatter.allowedUnits = [.day, .hour, .minute, .second]
-        formatter.unitsStyle = format == .detailed ? .full : .abbreviated
-        formatter.maximumUnitCount = format == .detailed ? 0 : 2
-        formatter.zeroFormattingBehavior = .dropLeading
-        return formatter.string(from: value) ?? unavailable
+        return formatters.string(kind: .duration(detailed: format == .detailed), locale: locale, calendar: calendar, make: { () -> DateComponentsFormatter in
+            var localizedCalendar = calendar
+            localizedCalendar.locale = locale
+            let formatter = DateComponentsFormatter()
+            formatter.calendar = localizedCalendar
+            formatter.allowedUnits = [.day, .hour, .minute, .second]
+            formatter.unitsStyle = format == .detailed ? .full : .abbreviated
+            formatter.maximumUnitCount = format == .detailed ? 0 : 2
+            formatter.zeroFormattingBehavior = .dropLeading
+            return formatter
+        }) { $0.string(from: value) ?? unavailable }
     }
 
     private static func dateFormatter(
@@ -331,5 +341,41 @@ enum ReaderOverlayValueFormatter {
         formatter.calendar = localizedCalendar
         formatter.timeZone = calendar.timeZone
         return formatter
+    }
+}
+
+/// Reuse configured ICU state across progress updates. Keep formatter mutation
+/// and use under the same lock: render snapshots can also request these strings.
+/// Configuration includes locale AND calendar/time zone; values are never cached.
+private final class ReaderOverlayFormatterCache: @unchecked Sendable {
+    enum Kind: Hashable {
+        case page, percent, time(ReaderOverlayDisplayFormat)
+        case date(detailed: Bool), weekday(detailed: Bool), duration(detailed: Bool)
+    }
+    private struct Key: Hashable {
+        let kind: Kind
+        let locale: Locale
+        let calendar: Calendar?
+    }
+    private let lock = NSLock()
+    private var entries: [Key: Formatter] = [:]
+    private var recency: [Key] = []
+
+    func string<F: Formatter>(kind: Kind, locale: Locale, calendar: Calendar? = nil,
+                              make: () -> F, format: (F) -> String) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = Key(kind: kind, locale: locale, calendar: calendar)
+        let formatter: F
+        if let cached = entries[key] as? F {
+            formatter = cached
+            recency.removeAll { $0 == key }
+        } else {
+            formatter = make()
+            if recency.count == 24 { entries.removeValue(forKey: recency.removeFirst()) }
+            entries[key] = formatter
+        }
+        recency.append(key)
+        return format(formatter)
     }
 }

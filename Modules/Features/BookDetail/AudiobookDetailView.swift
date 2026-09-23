@@ -200,6 +200,7 @@ struct AudiobookDetailView: View {
             }
             .padding(.vertical, DSSpacing.md)
         }
+        .softScrollEdges()
         .scrollIndicators(.hidden)
         .background(PageBackgroundView(scope: .global).ignoresSafeArea())
         .pageBackgroundToolbar(for: .global)

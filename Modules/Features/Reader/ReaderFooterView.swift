@@ -3,6 +3,16 @@ import Combine
 
 // MARK: - Clock + Battery ViewModel
 
+/// The clock and battery readings the reader's bars draw, as a plain value.
+///
+/// Lets `ReaderView` read what the bars show without observing the model that
+/// produces it — observing is what made a minute tick rebuild the whole reader.
+struct ReaderOverlayClockSnapshot: Equatable {
+    var now: Date
+    var batteryLevel: Double?
+    var isCharging: Bool
+}
+
 @MainActor
 final class ClockBatteryModel: ObservableObject {
     @Published private(set) var displayTime: String = ""
@@ -10,6 +20,19 @@ final class ClockBatteryModel: ObservableObject {
     @Published private(set) var now: Date = Date()
     @Published private(set) var batteryLevel: Double?
     @Published private(set) var isCharging = false
+
+    /// Fires *after* the readings above have been written.
+    ///
+    /// `@Published`'s own publisher emits in `willSet`, so a subscriber that re-reads
+    /// the model from it sees the previous values — which for the page-baked bars
+    /// means baking the minute that just ended and keeping it for the next sixty
+    /// seconds. Subscribers that need the new values take this instead; SwiftUI's own
+    /// `@ObservedObject` tracking is unaffected and still uses `objectWillChange`.
+    let didUpdate = PassthroughSubject<ReaderOverlayClockSnapshot, Never>()
+
+    var snapshot: ReaderOverlayClockSnapshot {
+        ReaderOverlayClockSnapshot(now: now, batteryLevel: batteryLevel, isCharging: isCharging)
+    }
 
     private var clockTimer: Timer?
     private var batteryLevelCancellable: AnyCancellable?
@@ -58,6 +81,7 @@ final class ClockBatteryModel: ObservableObject {
         let current = Date()
         now = current
         displayTime = formatter.string(from: current)
+        didUpdate.send(snapshot)
     }
 
     private func refreshBattery() {
@@ -69,6 +93,7 @@ final class ClockBatteryModel: ObservableObject {
         batteryLevel = value.level
         isCharging = value.isCharging
         batteryIcon = value.iconName
+        didUpdate.send(snapshot)
     }
 }
 

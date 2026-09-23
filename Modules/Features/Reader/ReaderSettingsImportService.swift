@@ -205,12 +205,10 @@ enum ReaderSettingsImportService {
         // partial import that changed the type size but silently dropped the bars
         // is worse than a reported failure.
         //
-        // Presets carry free coordinates — that is the legado-compatible schema,
-        // and every `.qitheme` pack uses it too — so they are snapped onto slots on
-        // the way in. A preset exported by this build round-trips exactly, because
-        // `freePositionLayout(from:)` writes the anchors `snap` maps back.
-        if let overlayLayout = preset.readerOverlayLayout,
-           !settings.saveReaderBarLayout(ReaderBarLayoutMigration.snap(overlayLayout)) {
+        // Native presets retain both page scopes and every margin. Older presets
+        // and external theme packs still enter through the coordinate migration.
+        if let barLayout = preset.readerBarLayout ?? preset.readerOverlayLayout.map(ReaderBarLayoutMigration.snap),
+           !settings.saveReaderBarLayout(barLayout) {
             throw ReaderOverlayLayoutPersistenceError.writeFailed
         }
 
@@ -235,6 +233,8 @@ enum ReaderSettingsImportService {
         if let pageMarginV = preset.pageMarginV {
             readerConfig.pageMarginV = pageMarginV
         }
+        if let top = preset.pageMarginTop ?? preset.pageMarginV { readerConfig.pageMarginTop = top }
+        if let bottom = preset.pageMarginBottom ?? preset.pageMarginV { readerConfig.pageMarginBottom = bottom }
         if let titleVisible = preset.titleVisible {
             settings.readerTitleVisible = titleVisible
         }
@@ -309,7 +309,10 @@ enum ReaderSettingsExportSnapshot {
             // free-position one, which no longer reflects what the reader draws.
             readerOverlayLayout: ReaderBarLayoutMigration.freePositionLayout(
                 from: settings.readerBarLayout
-            )
+            ),
+            pageMarginTop: readerConfig.pageMarginTop,
+            pageMarginBottom: readerConfig.pageMarginBottom,
+            readerBarLayout: settings.readerBarLayout
         )
         return ReaderSettingsExportInputs(
             layout: snapshot,

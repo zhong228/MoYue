@@ -32,6 +32,7 @@ struct PurchaseSuccessView: View {
             .frame(maxWidth: DSLayout.readableFormWidth)
             .frame(maxWidth: .infinity)
         }
+        .softScrollEdges()
         .background(PageBackgroundView(scope: .settings).ignoresSafeArea())
         .pageBackgroundToolbar(for: .settings)
         .navigationBarBackButtonHidden(true)

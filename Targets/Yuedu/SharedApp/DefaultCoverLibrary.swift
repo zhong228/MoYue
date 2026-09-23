@@ -90,6 +90,18 @@ final class DefaultCoverStorageManager {
         try imagesDirectoryURL().appendingPathComponent(fileName)
     }
 
+    /// Where a library image lives, from its name alone: no directory creation, no
+    /// `stat`. The shelf resolves one of these per card that falls back to 預設封面,
+    /// so it must stay free of file-system calls; `fileURL` above is for the import
+    /// and delete paths, which want the directory to exist.
+    static func imageLocation(fileName: String) -> URL {
+        StorageLocations.applicationSupportRoot
+            .appendingPathComponent(imagesDirectoryName, isDirectory: true)
+            .appendingPathComponent(fileName, isDirectory: false)
+    }
+
+    private static let imagesDirectoryName = "DefaultCovers"
+
     func delete(fileName: String) {
         guard let url = try? fileURL(fileName: fileName) else { return }
         try? fileManager.removeItem(at: url)
@@ -102,7 +114,7 @@ final class DefaultCoverStorageManager {
             appropriateFor: nil,
             create: true
         )
-        return base.appendingPathComponent("DefaultCovers", isDirectory: true)
+        return base.appendingPathComponent(Self.imagesDirectoryName, isDirectory: true)
     }
 }
 
@@ -113,16 +125,11 @@ final class DefaultCoverStorageManager {
 /// - The pick is a hash of the book's own key (`StableSeedHash`), not
 ///   `randomElement()`. A fresh random pick per body evaluation would reshuffle
 ///   every cover on each scroll.
-/// - Decoded bitmaps are cached and downsampled through `BookCoverLoader`. A
-///   full-size photo decoded per cell is the same main-thread stall documented
-///   there for downloaded covers.
+/// - Decoding goes through `CoverImagePipeline`: downsampled, decoded off the main
+///   thread for the shelf, and inside the same memory budget as every other cover.
+///   A full-size photo decoded per cell is the same main-thread stall documented in
+///   `BookCoverLoader` for downloaded covers.
 enum DefaultCoverLibrary {
-    private static let cache: NSCache<NSString, UIImage> = {
-        let c = NSCache<NSString, UIImage>()
-        c.countLimit = 24
-        return c
-    }()
-
     /// File names for `scheme`, falling back to the light set when the dark set
     /// is empty — the same "set one, get both" rule the launch image uses.
     static func fileNames(for scheme: DefaultCoverScheme) -> [String] {
@@ -136,12 +143,19 @@ enum DefaultCoverLibrary {
         !fileNames(for: colorScheme == .dark ? .dark : .light).isEmpty
     }
 
-    /// The default cover for `seed` (a book id / title — anything stable for that
-    /// book), or nil when the user has not added any — in which case the caller
-    /// falls back to `GeneratedBookCover`, which is always available.
+    /// The library file `seed` (a book id / title — anything stable for that book)
+    /// maps to, or nil when the user has not added any. Pure: settings and a hash,
+    /// no file access. The shelf decides its fallback with this and only loads the
+    /// image if it actually gets that far.
+    static func fileName(seed: String, colorScheme: ColorScheme) -> String? {
+        stableFileName(seed: seed, in: fileNames(for: colorScheme == .dark ? .dark : .light))
+    }
+
+    /// The default cover for `seed`, **blocking**, or nil when the library is empty —
+    /// in which case the caller falls back to `GeneratedBookCover`, which is always
+    /// available. Not for the shelf, which loads through `BookshelfCoverArtwork`.
     static func image(seed: String, colorScheme: ColorScheme) -> UIImage? {
-        let names = fileNames(for: colorScheme == .dark ? .dark : .light)
-        guard let fileName = stableFileName(seed: seed, in: names) else { return nil }
+        guard let fileName = fileName(seed: seed, colorScheme: colorScheme) else { return nil }
         return image(fileName: fileName)
     }
 
@@ -152,18 +166,30 @@ enum DefaultCoverLibrary {
         return fileNames[StableSeedHash.index(for: seed, count: fileNames.count)]
     }
 
+    /// One library image, **blocking**, at the size these have always been decoded
+    /// to. For the 預設封面 settings grid, which shows a handful of them once.
     static func image(fileName: String) -> UIImage? {
-        if let cached = cache.object(forKey: fileName as NSString) { return cached }
-        guard let url = try? DefaultCoverStorageManager.shared.fileURL(fileName: fileName),
-              let data = try? Data(contentsOf: url),
-              let image = BookCoverLoader.decodedCover(from: data) else { return nil }
-        cache.setObject(image, forKey: fileName as NSString)
-        return image
+        CoverImagePipeline.shared.loadImmediately(request(fileName: fileName)).image
     }
 
-    /// Drops decoded bitmaps after the library changes, so a removed or replaced
-    /// image cannot keep drawing from memory.
+    /// Memory only: the default cover for `seed` if it is already decoded at `size`.
+    /// Nil also while it is still loading, so callers must load it themselves.
+    static func cachedImage(
+        seed: String,
+        colorScheme: ColorScheme,
+        size: CoverPixelSize = .standard
+    ) -> UIImage? {
+        guard let fileName = fileName(seed: seed, colorScheme: colorScheme) else { return nil }
+        return CoverImagePipeline.shared.cachedImage(for: request(fileName: fileName, size: size))
+    }
+
+    static func request(fileName: String, size: CoverPixelSize = .standard) -> CoverImageRequest {
+        CoverImageRequest(source: .defaultCover(fileName: fileName), size: size)
+    }
+
+    /// Drops decoded bitmaps after the library changes, so a removed image cannot
+    /// keep drawing from memory and views showing one pick again.
     static func invalidateCache() {
-        cache.removeAllObjects()
+        CoverImagePipeline.shared.invalidateDefaultCovers()
     }
 }

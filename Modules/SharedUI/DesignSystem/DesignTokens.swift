@@ -180,6 +180,8 @@ enum DSFont {
 // MARK: - Design System: Spacing Tokens
 
 enum DSSpacing {
+    /// Compact ambient reader information.
+    static let readerBarComponentGap: CGFloat = 2
     /// 4pt — extra-small (between compact elements)
     static let xs: CGFloat = 4
     /// 8pt — small (within elements)

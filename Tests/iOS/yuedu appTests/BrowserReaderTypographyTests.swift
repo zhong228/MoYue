@@ -72,7 +72,9 @@ struct BrowserReaderTypographyTests {
         let config = BrowserLayoutConfig(textTransform: BrowserReaderAttributes.transform(configuration: configuration(pattern: "測試", style: style), appearance: .light, assetRevision: 0))
         let document = BrowserLayoutDocument(html: "<p>前測<span>試</span>後</p>", cssTexts: [css], config: config)
         let result = try document.makeLayout(containerSize: size)
-        #expect(lines(result.rootBox)[0].height == 60)
+        // Half-leading sums ascent and descent halves around the font's ink (YueduCoreText 0.5.0),
+        // so the used height can land one ULP off (60.00000000000001).
+        #expect(abs(lines(result.rootBox)[0].height - 60) < 0.01)
         let pages = try await document.renderPages(containerSize: size)
         let list = DisplayListBuilder.build(for: try #require(pages.first), sourceText: document.lastSourceText)
         let textItems = list.items.compactMap { item -> DisplayTextItem? in
@@ -121,6 +123,43 @@ struct BrowserReaderTypographyTests {
         let attrs = CTRunGetAttributes(run) as! [NSAttributedString.Key: Any]
         #expect((attrs[.font] as? UIFont)?.pointSize == 26)
         #expect(attrs[.foregroundColor] as? UIColor == .red)
+    }
+
+    /// A rule that only enlarges the font must grow its line box, as it did before
+    /// YueduCoreText 0.5.0's half-leading. Measured 2026-09-23: a 30pt glyph on a 17pt line
+    /// reached 13.78pt into the previous line — with or without an authored line-height.
+    @Test func regexFontSizeWithoutLineHeightStaysInsideItsLine() throws {
+        let style = ReaderStyleRuleStyle(text: ReaderStyleTextStyle(fontSize: 30))
+        let config = BrowserLayoutConfig(textTransform: BrowserReaderAttributes.transform(
+            configuration: configuration(pattern: "測", style: style), appearance: .light, assetRevision: 0
+        ))
+        for sheet in [css, css + " p { line-height: 20px; }"] {
+            let result = try BrowserLayoutDocument(html: "<p>上一行<br/>前測後</p>", cssTexts: [sheet], config: config)
+                .makeLayout(containerSize: size)
+            let rows = lines(result.rootBox)
+            #expect(rows.count == 2)
+            let styled = try #require(rows.last)
+            let runs = CTLineGetGlyphRuns(try #require(styled.ctLine)) as! [CTRun]
+            let fonts = runs.compactMap { (CTRunGetAttributes($0) as NSDictionary)[kCTFontAttributeName] as? UIFont }
+            let big = try #require(fonts.first { $0.pointSize == 30 })
+            #expect(styled.baseline - big.ascender >= styled.top - 0.01, "glyph top reaches into the previous line")
+            #expect(styled.baseline - big.descender <= styled.top + styled.height + 0.01, "glyph bottom leaves its line")
+        }
+    }
+
+    /// Vertical writing honours a rule's line-height as the column width, as it did before
+    /// 0.5.0. Measured 2026-09-23: the column stayed 17 while horizontal lines became 60.
+    @Test func regexLineHeightSizesVerticalColumn() throws {
+        let style = ReaderStyleRuleStyle(text: ReaderStyleTextStyle(lineHeight: 60))
+        let transform = BrowserReaderAttributes.transform(
+            configuration: configuration(pattern: "測", style: style), appearance: .light, assetRevision: 0
+        )
+        let plainResult = try layout("<p>前測後</p>", config: BrowserLayoutConfig(writingMode: .verticalRTL))
+        let styledResult = try layout("<p>前測後</p>", config: BrowserLayoutConfig(textTransform: transform, writingMode: .verticalRTL))
+        let plain = try #require(lines(plainResult.rootBox).first)
+        let styled = try #require(lines(styledResult.rootBox).first)
+        #expect(plain.height < 60)
+        #expect(abs(styled.height - 60) < 0.01)
     }
 
     @Test func existingBrowserChapterRefreshesRegexAppearanceAndDisabling() async throws {

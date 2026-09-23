@@ -76,6 +76,8 @@ final class ReaderPositionSentry {
         case renderSizeChange
         /// Settings changed enough to re-slice the text.
         case refresh
+        /// A viewport-driven chapter's layout arrived from its layout thread.
+        case viewportLayout
         case unspecified
     }
 

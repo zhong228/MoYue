@@ -105,6 +105,23 @@ struct PageViewControllerPagingAdapterDescriptor: Equatable {
     }
 }
 
+/// Which animation engine plays a programmatic slide turn.
+///
+/// Interactive swipes always use UIKit's own `.scroll` transition, and so does a
+/// programmatic turn at 1× — a lone tap must animate exactly like a swipe. Only a
+/// tap burst falls back to our own timed push, because UIKit's slide cannot be
+/// shortened: it animates its content offset off a display link inside
+/// `_UIQueuingScrollView`, which `layer.speed` does not scale.
+enum ReaderSlideTurnAnimation {
+    static func runsTimedPush(
+        pageTurnStyle: PageTurnStyle,
+        animated: Bool,
+        turnSpeed: Float
+    ) -> Bool {
+        animated && pageTurnStyle == .slide && turnSpeed > 1
+    }
+}
+
 enum ReaderCurlVirtualIndex {
     static func frontIndex(forGlobalPage page: Int, isRTL: Bool) -> Int {
         let base = max(0, page) * 2

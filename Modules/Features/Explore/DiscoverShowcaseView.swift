@@ -43,6 +43,7 @@ struct DiscoverShowcaseView: View {
             .padding(.vertical, DSSpacing.lg)
             .padding(.bottom, 120)
         }
+        .softScrollEdges()
         .scrollDismissesKeyboard(.immediately)
         .refreshable { discover.reload(forceRefresh: true) }
     }
@@ -661,6 +662,7 @@ struct DiscoverCategoryView: View {
             .padding(.horizontal, DSSpacing.lg)
             .padding(.vertical, DSSpacing.sm)
         }
+        .softScrollEdges()
         .scrollDismissesKeyboard(.immediately)
         .navigationTitle(section.title)
         .toolbarTitleDisplayMode(.inline)

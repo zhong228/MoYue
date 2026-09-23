@@ -162,7 +162,9 @@ final class SubscriptionStore: ObservableObject {
     /// every foreground. A temporary failure deliberately stays out of this set.
     private var permanentBindFailureProductIDs: Set<String> = []
 
-    private init() {
+    /// Tests can exercise publication without starting StoreKit/network observers.
+    init(observeTransactions: Bool = true) {
+        guard observeTransactions else { return }
         // Start listening for transactions BEFORE any purchase so we never miss
         // an update delivered while the app was backgrounded or during a
         // purchase interrupted by an Ask-to-Buy / SCA prompt.
@@ -640,20 +642,21 @@ final class SubscriptionStore: ObservableObject {
 
     private func recomputeEntitlement() {
         let hasPurchase = ProProduct.allCases.contains { purchasedProductIDs.contains($0.rawValue) }
-        storeKitIsProActive = hasPurchase
+        if storeKitIsProActive != hasPurchase { storeKitIsProActive = hasPurchase }
         #if DEBUG
-        isProActive = SubscriptionAccessPolicy.isProActive(
+        let nextIsProActive = SubscriptionAccessPolicy.isProActive(
             storeKit: hasPurchase || debugForceProActive,
             account: accountIsProActive,
             iCloud: iCloudIsProActive
         )
         #else
-        isProActive = SubscriptionAccessPolicy.isProActive(
+        let nextIsProActive = SubscriptionAccessPolicy.isProActive(
             storeKit: hasPurchase,
             account: accountIsProActive,
             iCloud: iCloudIsProActive
         )
         #endif
+        if isProActive != nextIsProActive { isProActive = nextIsProActive }
         if isProActive {
             hadProEver = true
         }

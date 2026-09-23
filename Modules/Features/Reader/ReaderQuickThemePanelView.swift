@@ -88,6 +88,7 @@ struct ReaderQuickThemePanelView: View {
                     }
                 )
             }
+            .softScrollEdges()
             .onPreferenceChange(ReaderQuickPanelContentHeightKey.self) { height in
                 guard height > 0 else { return }
                 contentHeight = height

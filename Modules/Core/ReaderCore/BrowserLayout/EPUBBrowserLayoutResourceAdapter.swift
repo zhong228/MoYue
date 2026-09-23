@@ -172,10 +172,21 @@ final class EPUBBrowserLayoutResourceAdapter: BrowserLayoutResourceProviding {
     // MARK: - Fonts
 
     func fontResolver() -> (([String], Int, Bool, CGFloat) -> UIFont?)? {
-        { [styleResolver] families, weight, italic, size in
-            styleResolver.resolveRegisteredFont(
-                families: families, weight: weight, italic: italic, size: size
-            )
+        // Continuous chapter preparation (including its current paged prerequisite)
+        // resolves the same CSS font tuple for many runs/lines. The Sep 19 scroll
+        // trace spends most of each 260–280 ms main-thread hang rebuilding those
+        // same authored cascades. Own bounded reuse at this existing resolver;
+        // do not change font choice, registration, or either mode's layout rules.
+        // Continuous layout runs off the main thread. It resolves from the faces
+        // registered when this chapter's input was collected (its own faces are
+        // registered by then); later registrations for other chapters happen on
+        // the main actor and never touch this value.
+        let registered = styleResolver.registeredFonts
+        let documentResolver = BrowserDocumentFontResolver { @Sendable families, weight, italic, size in
+            registered.resolve(families: families, weight: weight, italic: italic, size: size)
+        }
+        return { @Sendable families, weight, italic, size in
+            documentResolver.resolve(families: families, weight: weight, italic: italic, size: size)
         }
     }
 }

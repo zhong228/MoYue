@@ -4,7 +4,7 @@ import UIKit
 
 extension ReaderView {
 
-    // MARK: - TXT Vertical Scroll Mode
+    // MARK: - Continuous reading (all text sources)
     @ViewBuilder
     var scrollBody: some View {
         if let scrollEngine = epubRenderer.scrollEngine {
@@ -43,12 +43,26 @@ extension ReaderView {
                     guard ReaderProgressSyncPolicy.canPublishIndexPosition(
                         isTXT: book?.resolvedPipelineKind == .txt, indexReady: txtIndexReady
                     ) else { return }
-                    pendingScrollJumpTarget = nil
-                    scrollVisibleChapter = position.spineIndex
-                    currentChapterIndex = position.spineIndex
+                    if pendingScrollJumpTarget != nil { pendingScrollJumpTarget = nil }
+                    let change: ReaderChapterPresentationState.Change?
+                    if usesSessionLocalScrollProgress {
+                        change = chapterPresentation.commitScrollChapter(position.spineIndex,
+                            controlsVisible: showBars || showTOC || showTTSPanel || showAIAssistantPanel)
+                    } else {
+                        change = nil
+                        scrollVisibleChapter = position.spineIndex
+                        currentChapterIndex = position.spineIndex
+                    }
                     moveReaderSession(to: position, source: .scrollCommit)
+                    if change?.any == true { handleReaderPositionChangedForTTS() }
+                    if change?.visible == true, let session = activePublicationSession {
+                        Task { await backgroundAudioCoordinator.update(session: session, chapterIndex: position.spineIndex) }
+                    }
+                    // Persist progress on every settled gesture as before. Only
+                    // broad UI invalidation is omitted; bars observe the session.
                     let pct = epubRenderer.engine?.totalProgress(forSpine: position.spineIndex, charOffset: position.charOffset) ?? 0
-                    store.updatePosition(bookId: bookId, position: pct)
+                    store.updatePosition(bookId: bookId, position: pct,
+                                         notifyLibraryViews: !usesSessionLocalScrollProgress)
                 },
                 onInternalLinkTap: { href in
                     if let target = ReaderHTMLUtilities.reviewTarget(fromHref: href) {
@@ -105,10 +119,15 @@ extension ReaderView {
         )
     }
 
-    /// Scroll mode starting position priority:
-    /// 1) Paged engine ready → use current page's (spine, charOffset) (same-session switch)
-    /// 2) Persisted snapshot (mode == .scroll) → restore from last exit position (cold start)
-    /// 3) Fallback to currentChapterIndex / 0
+    var usesSessionLocalScrollProgress: Bool {
+        ReaderProgressSyncPolicy.usesSessionLocalScrollProgress(
+            isScrollMode: effectiveScrollMode,
+            axis: scrollAxis, hasScrollEngine: epubRenderer.scrollEngine != nil
+        )
+    }
+
+    /// The session owns the canonical character position in every rendering mode.
+    /// A pending target is used only before that session has been constructed.
     func computeScrollInitialPosition() -> (chapter: Int, charOffset: Int) {
         if let position = readerSessionCoordinator?.state.location.coreTextPosition {
             return (position.spineIndex, position.charOffset)
@@ -195,6 +214,7 @@ extension ReaderView {
                     Color.clear.frame(height: 80)
                 }
             }
+            .softScrollEdges()
             .onAppear {
                 if scrollVisibleChapter > 0 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {

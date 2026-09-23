@@ -382,6 +382,16 @@ extension ReaderView {
         guard !isRestoringPosition else { return }
 
         if effectiveScrollMode {
+            if usesSessionLocalScrollProgress,
+               let session = readerSessionCoordinator,
+               let engine = epubRenderer.engine {
+                // Preserve the actual character position in the library summary;
+                // chapter-only progress would move the summary backwards at exit.
+                session.synchronizeLibraryProgress(to: store, bookId: bookId, forceSave: force) { position in
+                    engine.totalProgress(forSpine: position.spineIndex, charOffset: position.charOffset)
+                }
+                return
+            }
             AppLogger.render("autoSave scroll visibleChapter=\(scrollVisibleChapter)")
             store.updatePosition(
                 bookId: bookId,
@@ -437,6 +447,10 @@ extension ReaderView {
         guard ReaderProgressSyncPolicy.canPublishIndexPosition(
             isTXT: book?.resolvedPipelineKind == .txt, indexReady: txtIndexReady
         ) else { return }
+        if usesSessionLocalScrollProgress,
+           let position = autoScrollHandle.positionForPersistence?() {
+            moveReaderSession(to: position, source: .scrollCommit)
+        }
         let wasRestoring = isRestoringPosition
         AppLogger.render("saveProgress begin wasRestoring=\(wasRestoring)")
         isRestoringPosition = false

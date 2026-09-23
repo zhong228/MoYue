@@ -46,6 +46,15 @@ final class ReaderPageBarsController {
 
     private let builder = ReaderBarRenderModelBuilder()
 
+    /// The latest clock/battery readings, pushed by the bars layer that owns the
+    /// clock.
+    ///
+    /// `ReaderView` reads the clock back from here instead of observing
+    /// `ClockBatteryModel`: observing it made the once-a-minute tick invalidate the
+    /// entire reader body. This is a plain stored property on a class SwiftUI does
+    /// not track, so writing it publishes nothing.
+    var clock = ReaderOverlayClockSnapshot(now: Date(), batteryLevel: nil, isCharging: false)
+
     private var environment: ReaderPageBarsEnvironment?
     private var svgAssetStore: ReaderOverlaySVGAssetStore?
     /// Reassigned on every `update`, so it is never stale.

@@ -143,16 +143,21 @@ final class CacheManagementService: @unchecked Sendable {
     /// through the singleton to the real device log.
     private let diagnosticLog: DiagnosticLog?
     private let remoteLibraryCache: RemoteLibraryCache
+    /// Told when the downloaded-cover directory is emptied, so no screen keeps
+    /// drawing a deleted cover and no load already reading one can put it back.
+    private let coverPipeline: CoverImagePipeline
 
     init(
         fileManager: FileManager = .default,
         roots: CacheStorageRoots = .live,
         diagnosticLog: DiagnosticLog? = .shared,
-        remoteLibraryCache: RemoteLibraryCache? = nil
+        remoteLibraryCache: RemoteLibraryCache? = nil,
+        coverPipeline: CoverImagePipeline = .shared
     ) {
         self.fileManager = fileManager
         self.roots = roots
         self.diagnosticLog = diagnosticLog
+        self.coverPipeline = coverPipeline
         self.remoteLibraryCache = remoteLibraryCache
             ?? (roots.remoteBooks == StorageLocations.remoteLibraryCache ? .shared : RemoteLibraryCache(root: roots.remoteBooks))
     }
@@ -181,10 +186,14 @@ final class CacheManagementService: @unchecked Sendable {
                 try remoteLibraryCache.clearInactive()
                 return
             }
-            try clearDirectory(roots[category])
             if category == .covers {
-                BookCoverLoader.clearMemoryCache()
+                // Also when the delete stops partway: whatever did go must not
+                // keep drawing from memory.
+                defer { coverPipeline.invalidateDownloadedBookCovers() }
+                try clearDirectory(roots[category])
+                return
             }
+            try clearDirectory(roots[category])
         } catch {
             AppLogger.error(
                 "CacheManagementService failed to clear \(category.rawValue)",

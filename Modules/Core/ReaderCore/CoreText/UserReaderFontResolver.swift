@@ -42,7 +42,9 @@ enum UserReaderFontResolver {
     }
 
     static func bodyBoldRequested(isBold: Bool) -> Bool {
-        isBold || GlobalSettings.shared.readerFontBold
+        // The render snapshot is authoritative. ReaderConfig persists to global
+        // settings later, so OR-ing that older value makes bold impossible to turn off.
+        isBold
     }
 
     /// Returns the only extra attributed-string attributes required to render a

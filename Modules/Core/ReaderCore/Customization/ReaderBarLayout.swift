@@ -85,20 +85,34 @@ struct ReaderBarField: Codable, Equatable, Sendable, Identifiable {
     var configuration: ReaderOverlayComponentConfiguration
     /// Nil inherits the shared bar color; an explicit reference overrides it.
     var color: ReaderOverlayColorReference?
+    var usesCustomOptions: Bool?
 
-    /// One entry per kind, so the kind is the identity.
-    var id: String { kind.rawValue }
+    var isCustomizing: Bool {
+        usesCustomOptions ?? (configuration != ReaderOverlayComponentConfiguration() || color != nil)
+    }
+
+    var effectiveConfiguration: ReaderOverlayComponentConfiguration {
+        usesCustomOptions == false ? .init() : configuration
+    }
+    var effectiveColor: ReaderOverlayColorReference? {
+        usesCustomOptions == false ? nil : color
+    }
+
+    /// A kind may appear independently in several positions.
+    var id: String { "\(slot.rawValue).\(kind.rawValue)" }
 
     init(
         kind: ReaderOverlayComponentKind,
         slot: ReaderBarSlot,
         configuration: ReaderOverlayComponentConfiguration = ReaderOverlayComponentConfiguration(),
-        color: ReaderOverlayColorReference? = nil
+        color: ReaderOverlayColorReference? = nil,
+        usesCustomOptions: Bool? = nil
     ) {
         self.kind = kind
         self.slot = slot
         self.configuration = configuration
         self.color = color
+        self.usesCustomOptions = usesCustomOptions
     }
 
     var normalized: ReaderBarField {
@@ -106,7 +120,8 @@ struct ReaderBarField: Codable, Equatable, Sendable, Identifiable {
             kind: kind,
             slot: slot,
             configuration: configuration.normalized,
-            color: color?.normalized
+            color: color?.normalized,
+            usesCustomOptions: usesCustomOptions
         )
     }
 
@@ -115,10 +130,12 @@ struct ReaderBarField: Codable, Equatable, Sendable, Identifiable {
         case slot
         case configuration
         case color
+        case usesCustomOptions
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        usesCustomOptions = try container.decodeIfPresent(Bool.self, forKey: .usesCustomOptions)
         kind = try container.decode(ReaderOverlayComponentKind.self, forKey: .kind)
         slot = try container.decodeIfPresent(ReaderBarSlot.self, forKey: .slot) ?? .hidden
         configuration = try container.decodeIfPresent(
@@ -220,25 +237,66 @@ struct ReaderBarEdgeDistances: Codable, Equatable, Sendable {
     }
 }
 
+/// Independent insets around each bar. Nil side insets retain legacy settings.
+struct ReaderBarMargins: Codable, Equatable, Sendable {
+    var left: Double?
+    var right: Double?
+    /// Header below / footer above, between the bar and body margin.
+    var inner: Double = 0
+
+    var normalized: Self {
+        func clamp(_ value: Double) -> Double { value.isFinite ? min(200, max(0, value)) : 0 }
+        return Self(left: left.map(clamp), right: right.map(clamp), inner: clamp(inner))
+    }
+}
+
 /// Which fields exist, which slot each one sits in, and how the two bars are drawn.
 ///
 /// Visibility and legacy padding remain in GlobalSettings. Explicit edge
 /// distances take precedence and travel with the layout through save and export.
 struct ReaderBarLayout: Codable, Equatable, Sendable {
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     var version: Int
-    /// One entry per `ReaderOverlayComponentKind`. Array order is render order
-    /// within a slot, so reordering in the editor reorders on the page.
+    /// One entry per kind and slot. Array order is render order within a slot.
     var fields: [ReaderBarField]
     var showsHeaderDivider: Bool
     var showsFooterDivider: Bool
-    /// The chapter-opening page usually already carries the chapter title in large
-    /// type, so repeating it in the header reads as a duplicate. This replaces the
-    /// two independent free-position layouts the editor used to keep per page scope.
+    /// Legacy opening-page behavior, used until an explicit opening selection exists.
     var hidesHeaderOnChapterOpening: Bool
     var style: ReaderBarStyle
     var edgeDistances: ReaderBarEdgeDistances
+    var headerMargins: ReaderBarMargins
+    var footerMargins: ReaderBarMargins
+    var showsComponentSeparators: Bool
+    /// Nil follows the legacy opening-page visibility; an empty array hides both bars.
+    var chapterOpeningFields: [ReaderBarField]?
+
+    func resolved(isChapterOpening: Bool) -> Self {
+        guard isChapterOpening else { return self }
+        var result = self
+        result.fields = chapterOpeningFields ?? fields.filter {
+            !hidesHeaderOnChapterOpening || $0.slot.bar != .header
+        }
+        return result
+    }
+
+    func reservesSpace(in bar: ReaderBar) -> Bool {
+        hasContent(in: bar) || resolved(isChapterOpening: true).hasContent(in: bar)
+    }
+
+    mutating func setSelected(_ selected: Bool, kind: ReaderOverlayComponentKind, in slot: ReaderBarSlot) {
+        if selected {
+            guard !fields.contains(where: { $0.kind == kind && $0.slot == slot }) else { return }
+            var field = fields.first { $0.kind == kind && $0.slot == .hidden }
+                ?? ReaderBarField(kind: kind, slot: slot, usesCustomOptions: false)
+            field.slot = slot
+            fields.removeAll { $0.kind == kind && $0.slot == .hidden }
+            fields.append(field)
+        } else {
+            fields.removeAll { $0.kind == kind && $0.slot == slot }
+        }
+    }
 
     init(
         version: Int = ReaderBarLayout.currentVersion,
@@ -247,7 +305,11 @@ struct ReaderBarLayout: Codable, Equatable, Sendable {
         showsFooterDivider: Bool = false,
         hidesHeaderOnChapterOpening: Bool = true,
         style: ReaderBarStyle = ReaderBarStyle(),
-        edgeDistances: ReaderBarEdgeDistances = ReaderBarEdgeDistances()
+        edgeDistances: ReaderBarEdgeDistances = ReaderBarEdgeDistances(),
+        headerMargins: ReaderBarMargins = ReaderBarMargins(),
+        footerMargins: ReaderBarMargins = ReaderBarMargins(),
+        showsComponentSeparators: Bool = true,
+        chapterOpeningFields: [ReaderBarField]? = nil
     ) {
         self.version = version
         self.fields = fields
@@ -256,6 +318,10 @@ struct ReaderBarLayout: Codable, Equatable, Sendable {
         self.hidesHeaderOnChapterOpening = hidesHeaderOnChapterOpening
         self.style = style
         self.edgeDistances = edgeDistances
+        self.headerMargins = headerMargins
+        self.footerMargins = footerMargins
+        self.showsComponentSeparators = showsComponentSeparators
+        self.chapterOpeningFields = chapterOpeningFields
     }
 
     static var `default`: ReaderBarLayout {
@@ -308,18 +374,9 @@ struct ReaderBarLayout: Codable, Equatable, Sendable {
         }
     }
 
-    /// Collapses duplicates and guarantees one entry per kind, so the editor can
-    /// address every field by kind without first checking whether it exists.
+    /// Collapse duplicates within each slot while retaining independent instances.
     func normalized(preservingVersion: Bool = true) -> ReaderBarLayout {
-        var seen = Set<ReaderOverlayComponentKind>()
-        var ordered: [ReaderBarField] = []
-        for field in fields where !seen.contains(field.kind) {
-            seen.insert(field.kind)
-            ordered.append(field.normalized)
-        }
-        for kind in ReaderOverlayComponentKind.allCases where !seen.contains(kind) {
-            ordered.append(ReaderBarField(kind: kind, slot: .hidden))
-        }
+        let ordered = Self.normalizedFields(fields)
         return ReaderBarLayout(
             version: preservingVersion ? version : Self.currentVersion,
             fields: ordered,
@@ -327,8 +384,25 @@ struct ReaderBarLayout: Codable, Equatable, Sendable {
             showsFooterDivider: showsFooterDivider,
             hidesHeaderOnChapterOpening: hidesHeaderOnChapterOpening,
             style: style.normalized,
-            edgeDistances: edgeDistances.normalized
+            edgeDistances: edgeDistances.normalized,
+            headerMargins: headerMargins.normalized,
+            footerMargins: footerMargins.normalized,
+            showsComponentSeparators: showsComponentSeparators,
+            chapterOpeningFields: chapterOpeningFields.map(Self.normalizedFields)
         )
+    }
+
+    private static func normalizedFields(_ fields: [ReaderBarField]) -> [ReaderBarField] {
+        var seen = Set<String>()
+        let visibleKinds = Set(fields.filter { $0.slot != .hidden }.map(\.kind))
+        var result = fields.filter {
+            ($0.slot != .hidden || !visibleKinds.contains($0.kind)) && seen.insert($0.id).inserted
+        }.map(\.normalized)
+        let kinds = Set(result.map(\.kind))
+        for kind in ReaderOverlayComponentKind.allCases where !kinds.contains(kind) {
+            result.append(ReaderBarField(kind: kind, slot: .hidden))
+        }
+        return result
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -339,10 +413,15 @@ struct ReaderBarLayout: Codable, Equatable, Sendable {
         case hidesHeaderOnChapterOpening
         case style
         case edgeDistances
+        case headerMargins, footerMargins, showsComponentSeparators, chapterOpeningFields
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        headerMargins = try container.decodeIfPresent(ReaderBarMargins.self, forKey: .headerMargins) ?? .init()
+        footerMargins = try container.decodeIfPresent(ReaderBarMargins.self, forKey: .footerMargins) ?? .init()
+        showsComponentSeparators = try container.decodeIfPresent(Bool.self, forKey: .showsComponentSeparators) ?? true
+        chapterOpeningFields = try container.decodeIfPresent([ReaderBarField].self, forKey: .chapterOpeningFields)
         version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 0
         fields = try container.decodeIfPresent([ReaderBarField].self, forKey: .fields) ?? []
         showsHeaderDivider = try container.decodeIfPresent(Bool.self, forKey: .showsHeaderDivider) ?? false

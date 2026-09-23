@@ -261,12 +261,16 @@ struct BookOfflineDownloadTask: Codable, Equatable, Sendable {
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? startedAt
     }
 
+    /// The index sets are written sorted: a set encodes in its storage order, so
+    /// two equal tasks would differ byte for byte, and both iCloud sync edit
+    /// detection (`ICloudSyncManager.stableHash`) and the shelf's skip-unchanged
+    /// write compare encodings.
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(Self.currentSchemaVersion, forKey: .schemaVersion)
-        try container.encode(requestedIndices, forKey: .requestedIndices)
-        try container.encode(pendingIndices, forKey: .pendingIndices)
-        try container.encode(completedIndices, forKey: .completedIndices)
+        try container.encode(requestedIndices.sorted(), forKey: .requestedIndices)
+        try container.encode(pendingIndices.sorted(), forKey: .pendingIndices)
+        try container.encode(completedIndices.sorted(), forKey: .completedIndices)
         try container.encode(failedChapters, forKey: .failedChapters)
         try container.encode(isPaused, forKey: .isPaused)
         try container.encode(startedAt, forKey: .startedAt)

@@ -302,6 +302,8 @@ final class ReaderConfig: ObservableObject {
     @Published var paragraphSpacingMultiplier: CGFloat
     @Published var pageMarginH: CGFloat
     @Published var pageMarginV: CGFloat
+    @Published var pageMarginTop: CGFloat
+    @Published var pageMarginBottom: CGFloat
     @Published var footerBottomPadding: CGFloat
     @Published var footerTextGap: CGFloat
     @Published var chapterTitleStyle: ChapterTitleStyle
@@ -323,6 +325,8 @@ final class ReaderConfig: ObservableObject {
     }
 
     private var cancellables = Set<AnyCancellable>()
+    private var isApplyingGlobalSettings = false
+    private var settingsSyncGeneration: UInt64 = 0
 
     private init() {
         let gs = GlobalSettings.shared
@@ -332,6 +336,8 @@ final class ReaderConfig: ObservableObject {
         paragraphSpacingMultiplier = CGFloat(gs.paragraphSpacingMultiplier)
         pageMarginH = CGFloat(gs.pageMarginH)
         pageMarginV = CGFloat(gs.pageMarginV)
+        pageMarginTop = CGFloat(gs.pageMarginTop)
+        pageMarginBottom = CGFloat(gs.pageMarginBottom)
         footerBottomPadding = CGFloat(gs.footerBottomPadding)
         footerTextGap = CGFloat(gs.footerTextGap)
         chapterTitleStyle = gs.chapterTitleStyle
@@ -347,54 +353,76 @@ final class ReaderConfig: ObservableObject {
     }
 
     func syncFromGlobalSettings() {
+        settingsSyncGeneration &+= 1
+        isApplyingGlobalSettings = true
+        defer { isApplyingGlobalSettings = false }
+        var updates = SettingsUpdateBatch(self, reason: "readerConfig")
+        defer { updates.finish() }
         let gs = GlobalSettings.shared
-        fontSize = CGFloat(gs.readerFontSize)
-        lineHeightMultiple = CGFloat(gs.lineHeightMultiple)
-        letterSpacing = CGFloat(gs.letterSpacing)
-        paragraphSpacingMultiplier = CGFloat(gs.paragraphSpacingMultiplier)
-        pageMarginH = CGFloat(gs.pageMarginH)
-        pageMarginV = CGFloat(gs.pageMarginV)
-        footerBottomPadding = CGFloat(gs.footerBottomPadding)
-        footerTextGap = CGFloat(gs.footerTextGap)
-        chapterTitleStyle = gs.chapterTitleStyle
-        readerFontBold = gs.readerFontBold
-        readerHeaderVisible = gs.readerHeaderVisible
-        readerHeaderTopPadding = CGFloat(gs.readerHeaderTopPadding)
-        readerHeaderTextGap = CGFloat(gs.readerHeaderTextGap)
-        readerHeaderHorizontalPadding = CGFloat(gs.readerHeaderHorizontalPadding)
-        readerFooterVisible = gs.readerFooterVisible
-        readerFooterHorizontalPadding = CGFloat(gs.readerFooterHorizontalPadding)
-        theme = ReaderTheme.loadPersisted()
+        updates.set(\.fontSize, CGFloat(gs.readerFontSize), field: "fontSize")
+        updates.set(\.lineHeightMultiple, CGFloat(gs.lineHeightMultiple), field: "lineHeightMultiple")
+        updates.set(\.letterSpacing, CGFloat(gs.letterSpacing), field: "letterSpacing")
+        updates.set(\.paragraphSpacingMultiplier, CGFloat(gs.paragraphSpacingMultiplier), field: "paragraphSpacingMultiplier")
+        updates.set(\.pageMarginH, CGFloat(gs.pageMarginH), field: "pageMarginH")
+        updates.set(\.pageMarginV, CGFloat(gs.pageMarginV), field: "pageMarginV")
+        updates.set(\.pageMarginTop, CGFloat(gs.pageMarginTop), field: "pageMarginTop")
+        updates.set(\.pageMarginBottom, CGFloat(gs.pageMarginBottom), field: "pageMarginBottom")
+        updates.set(\.footerBottomPadding, CGFloat(gs.footerBottomPadding), field: "footerBottomPadding")
+        updates.set(\.footerTextGap, CGFloat(gs.footerTextGap), field: "footerTextGap")
+        updates.set(\.chapterTitleStyle, gs.chapterTitleStyle, field: "chapterTitleStyle")
+        updates.set(\.readerFontBold, gs.readerFontBold, field: "readerFontBold")
+        updates.set(\.readerHeaderVisible, gs.readerHeaderVisible, field: "readerHeaderVisible")
+        updates.set(\.readerHeaderTopPadding, CGFloat(gs.readerHeaderTopPadding), field: "readerHeaderTopPadding")
+        updates.set(\.readerHeaderTextGap, CGFloat(gs.readerHeaderTextGap), field: "readerHeaderTextGap")
+        updates.set(\.readerHeaderHorizontalPadding, CGFloat(gs.readerHeaderHorizontalPadding), field: "readerHeaderHorizontalPadding")
+        updates.set(\.readerFooterVisible, gs.readerFooterVisible, field: "readerFooterVisible")
+        updates.set(\.readerFooterHorizontalPadding, CGFloat(gs.readerFooterHorizontalPadding), field: "readerFooterHorizontalPadding")
+        updates.set(\.theme, ReaderTheme.loadPersisted(), field: "theme")
     }
 
     private func setupBindings() {
+        $pageMarginTop.combineLatest($pageMarginBottom)
+            .dropFirst()
+            .filter { [weak self] _ in self?.isApplyingGlobalSettings == false }
+            .sink { top, bottom in
+                let gs = GlobalSettings.shared
+                if gs.pageMarginTop != Double(top) { gs.pageMarginTop = Double(top) }
+                if gs.pageMarginBottom != Double(bottom) { gs.pageMarginBottom = Double(bottom) }
+            }
+            .store(in: &cancellables)
+
         let layoutPublisher = Publishers.CombineLatest4($fontSize, $lineHeightMultiple, $letterSpacing, $paragraphSpacingMultiplier)
             .combineLatest($pageMarginH, $pageMarginV)
             .combineLatest($footerBottomPadding, $footerTextGap)
             .combineLatest($readerFontBold)
+            .dropFirst()
+            .filter { [weak self] _ in self?.isApplyingGlobalSettings == false }
+            .map { [weak self] value in (self?.settingsSyncGeneration, value) }
             .debounce(for: .milliseconds(120), scheduler: RunLoop.main)
 
         layoutPublisher
-            .dropFirst()
-            .sink { combinedAll, readerFontBold in
+            .sink { [weak self] generation, value in
+                guard generation == self?.settingsSyncGeneration else { return }
+                let (combinedAll, readerFontBold) = value
                 let (combinedMargins, footerBottomPadding, footerTextGap) = combinedAll
                 let (combined, marginH, marginV) = combinedMargins
                 let (fontSize, lineHeightMultiple, letterSpacing, paragraphSpacingMultiplier) = combined
                 let gs = GlobalSettings.shared
-                gs.readerFontSize = Double(fontSize)
-                gs.lineHeightMultiple = Double(lineHeightMultiple)
-                gs.letterSpacing = Double(letterSpacing)
-                gs.paragraphSpacingMultiplier = Double(paragraphSpacingMultiplier)
-                gs.pageMarginH = Double(marginH)
-                gs.pageMarginV = Double(marginV)
-                gs.footerBottomPadding = Double(footerBottomPadding)
-                gs.footerTextGap = Double(footerTextGap)
-                gs.readerFontBold = readerFontBold
+                if gs.readerFontSize != Double(fontSize) { gs.readerFontSize = Double(fontSize) }
+                if gs.lineHeightMultiple != Double(lineHeightMultiple) { gs.lineHeightMultiple = Double(lineHeightMultiple) }
+                if gs.letterSpacing != Double(letterSpacing) { gs.letterSpacing = Double(letterSpacing) }
+                if gs.paragraphSpacingMultiplier != Double(paragraphSpacingMultiplier) { gs.paragraphSpacingMultiplier = Double(paragraphSpacingMultiplier) }
+                if gs.pageMarginH != Double(marginH) { gs.pageMarginH = Double(marginH) }
+                if gs.pageMarginV != Double(marginV) { gs.pageMarginV = Double(marginV) }
+                if gs.footerBottomPadding != Double(footerBottomPadding) { gs.footerBottomPadding = Double(footerBottomPadding) }
+                if gs.footerTextGap != Double(footerTextGap) { gs.footerTextGap = Double(footerTextGap) }
+                if gs.readerFontBold != readerFontBold { gs.readerFontBold = readerFontBold }
             }
             .store(in: &cancellables)
 
         $theme
             .dropFirst()
+            .filter { [weak self] _ in self?.isApplyingGlobalSettings == false }
             .sink { theme in
                 theme.persist()
             }
@@ -402,29 +430,36 @@ final class ReaderConfig: ObservableObject {
 
         $chapterTitleStyle
             .dropFirst()
+            .filter { [weak self] _ in self?.isApplyingGlobalSettings == false }
+            .map { [weak self] value in (self?.settingsSyncGeneration, value) }
             .debounce(for: .milliseconds(120), scheduler: RunLoop.main)
-            .sink { style in
-                GlobalSettings.shared.chapterTitleStyle = style
+            .sink { [weak self] generation, style in
+                guard generation == self?.settingsSyncGeneration else { return }
+                if GlobalSettings.shared.chapterTitleStyle != style {
+                    GlobalSettings.shared.chapterTitleStyle = style
+                }
             }
             .store(in: &cancellables)
 
         Publishers.CombineLatest4($readerHeaderVisible, $readerHeaderTopPadding, $readerHeaderTextGap, $readerHeaderHorizontalPadding)
             .dropFirst()
+            .filter { [weak self] _ in self?.isApplyingGlobalSettings == false }
             .sink { visible, topPadding, textGap, hPadding in
                 let gs = GlobalSettings.shared
-                gs.readerHeaderVisible = visible
-                gs.readerHeaderTopPadding = Double(topPadding)
-                gs.readerHeaderTextGap = Double(textGap)
-                gs.readerHeaderHorizontalPadding = Double(hPadding)
+                if gs.readerHeaderVisible != visible { gs.readerHeaderVisible = visible }
+                if gs.readerHeaderTopPadding != Double(topPadding) { gs.readerHeaderTopPadding = Double(topPadding) }
+                if gs.readerHeaderTextGap != Double(textGap) { gs.readerHeaderTextGap = Double(textGap) }
+                if gs.readerHeaderHorizontalPadding != Double(hPadding) { gs.readerHeaderHorizontalPadding = Double(hPadding) }
             }
             .store(in: &cancellables)
 
         Publishers.CombineLatest($readerFooterVisible, $readerFooterHorizontalPadding)
             .dropFirst()
+            .filter { [weak self] _ in self?.isApplyingGlobalSettings == false }
             .sink { visible, hPadding in
                 let gs = GlobalSettings.shared
-                gs.readerFooterVisible = visible
-                gs.readerFooterHorizontalPadding = Double(hPadding)
+                if gs.readerFooterVisible != visible { gs.readerFooterVisible = visible }
+                if gs.readerFooterHorizontalPadding != Double(hPadding) { gs.readerFooterHorizontalPadding = Double(hPadding) }
             }
             .store(in: &cancellables)
     }
@@ -681,6 +716,12 @@ class GlobalSettings: ObservableObject {
     }
     @Published var pageMarginH: Double {
         didSet { UserDefaults.standard.set(pageMarginH, forKey: "yd_page_margin_h") }
+    }
+    @Published var pageMarginTop: Double {
+        didSet { UserDefaults.standard.set(pageMarginTop, forKey: "yd_page_margin_top") }
+    }
+    @Published var pageMarginBottom: Double {
+        didSet { UserDefaults.standard.set(pageMarginBottom, forKey: "yd_page_margin_bottom") }
     }
     @Published var pageMarginV: Double {
         didSet { UserDefaults.standard.set(pageMarginV, forKey: "yd_page_margin_v") }
@@ -1673,9 +1714,13 @@ class GlobalSettings: ObservableObject {
         pageMarginH =
             (UserDefaults.standard.object(forKey: "yd_page_margin_h") as? Double)
             ?? Self.defaultReaderPageMarginH
-        pageMarginV =
-            (UserDefaults.standard.object(forKey: "yd_page_margin_v") as? Double)
+        let loadedPageMarginV = (UserDefaults.standard.object(forKey: "yd_page_margin_v") as? Double)
             ?? Self.defaultReaderPageMarginV
+        pageMarginV = loadedPageMarginV
+        pageMarginTop = (UserDefaults.standard.object(forKey: "yd_page_margin_top") as? Double)
+            ?? loadedPageMarginV
+        pageMarginBottom = (UserDefaults.standard.object(forKey: "yd_page_margin_bottom") as? Double)
+            ?? loadedPageMarginV
         readerTextColorOverrides =
             (UserDefaults.standard.dictionary(forKey: Self.readerTextColorOverridesKey) as? [String: Int])?
                 .mapValues { UInt32(clamping: $0) } ?? [:]
@@ -2165,35 +2210,41 @@ class GlobalSettings: ObservableObject {
     /// Applies the iCloud-merged bubble style list (per-item last-write-wins).
     /// Does NOT re-stamp `updatedAt` — the merged values carry their own merge
     /// clock from the winning device.
+    @MainActor
     func applyCommentBubbleSync(styles: [ReaderCommentBubbleCustomStyle]) {
-        commentBubbleCustomStyles = ReaderCommentBubbleCustomStyleLibrary.uniqued(styles)
+        var updates = SettingsUpdateBatch(self, reason: "bubbleStyles")
+        defer { updates.finish() }
+        updates.set(\.commentBubbleCustomStyles, ReaderCommentBubbleCustomStyleLibrary.uniqued(styles), field: "commentBubbleCustomStyles")
         // Keep the invariant that select/delete maintain: a .custom selection
         // must point at a style that actually exists.
         guard commentBubblePresetMode == .custom,
               let selectedID = commentBubbleSelectedCustomStyleID,
               ReaderCommentBubbleCustomStyleLibrary.validatedSelectedID(selectedID, in: commentBubbleCustomStyles) == nil
         else { return }
-        commentBubbleSelectedCustomStyleID = nil
-        commentBubblePresetMode = .builtin
+        updates.set(\.commentBubbleSelectedCustomStyleID, nil, field: "commentBubbleSelectedCustomStyleID")
+        updates.set(\.commentBubblePresetMode, .builtin, field: "commentBubblePresetMode")
     }
 
     /// Applies the iCloud-merged bubble selection (single last-write-wins
     /// record). Mirroring the user picking a style: a synced selection becomes
     /// the active custom bubble; a cleared selection falls back to builtin when
     /// the custom mode was active. Never touches the sync clock.
+    @MainActor
     func applyCommentBubbleSync(selection: UUID?) {
+        var updates = SettingsUpdateBatch(self, reason: "bubbleSelection")
+        defer { updates.finish() }
         guard let selection else {
             guard commentBubblePresetMode == .custom else { return }
-            commentBubbleSelectedCustomStyleID = nil
-            commentBubblePresetMode = .builtin
+            updates.set(\.commentBubbleSelectedCustomStyleID, nil, field: "commentBubbleSelectedCustomStyleID")
+            updates.set(\.commentBubblePresetMode, .builtin, field: "commentBubblePresetMode")
             return
         }
         guard ReaderCommentBubbleCustomStyleLibrary.validatedSelectedID(
             selection,
             in: commentBubbleCustomStyles
         ) != nil else { return }
-        commentBubbleSelectedCustomStyleID = selection
-        commentBubblePresetMode = .custom
+        updates.set(\.commentBubbleSelectedCustomStyleID, selection, field: "commentBubbleSelectedCustomStyleID")
+        updates.set(\.commentBubblePresetMode, .custom, field: "commentBubblePresetMode")
     }
 
     private func stampCommentBubbleSelectionSyncClock() {
@@ -3444,12 +3495,14 @@ class GlobalSettings: ObservableObject {
 
     @MainActor
     func applyFirebaseProfile(_ profile: UserProfile) {
-        accountDisplayName = profile.displayName
-        accountEmail = profile.email
-        accountProvider = profile.provider
-        accountUserIdentifier = profile.uid
-        accountPhotoURL = profile.photoURL ?? ""
-        isLoggedIn = true
+        var updates = SettingsUpdateBatch(self, reason: "firebaseProfile")
+        defer { updates.finish() }
+        updates.set(\.accountDisplayName, profile.displayName, field: "accountDisplayName")
+        updates.set(\.accountEmail, profile.email, field: "accountEmail")
+        updates.set(\.accountProvider, profile.provider, field: "accountProvider")
+        updates.set(\.accountUserIdentifier, profile.uid, field: "accountUserIdentifier")
+        updates.set(\.accountPhotoURL, profile.photoURL ?? "", field: "accountPhotoURL")
+        updates.set(\.isLoggedIn, true, field: "isLoggedIn")
         profile.preferences.apply(to: self)
     }
 

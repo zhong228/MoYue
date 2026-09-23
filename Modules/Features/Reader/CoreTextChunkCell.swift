@@ -62,6 +62,8 @@ final class CoreTextChunkBackdropView: UIView {
 /// Draws the CTFrame directly. Handles the CoreText coordinate system inversion.
 final class CoreTextChunkDrawView: UIView {
     var chunk: CoreTextChunk?
+    private(set) var drawCount = 0
+    var rendersContentExternally = false
     /// VoiceOver double-tap on the chapter text — mirrors the sighted centre tap
     /// that opens the reader toolbar.
     var onAccessibilityActivate: (() -> Void)?
@@ -82,9 +84,16 @@ final class CoreTextChunkDrawView: UIView {
     required init?(coder: NSCoder) { fatalError() }
 
     override func draw(_ rect: CGRect) {
-        guard let chunk = chunk else { return }
+        guard !rendersContentExternally, let chunk else { return }
+        drawCount += 1
+        Self.draw(chunk, bounds: bounds)
+    }
 
-        let renderTrace = ReaderPerfTrace.begin(
+    /// Whole-chunk and partition paint on the main thread, using the chunk's own
+    /// frame and the live reader settings. Geometry stays in chunk coordinates.
+    static func draw(_ chunk: CoreTextChunk, bounds: CGRect, lineIndices: IndexSet? = nil) {
+
+        let renderTrace = lineIndices == nil ? ReaderPerfTrace.begin(
             .renderChunk,
             metadata: ReaderPerfMetadata(
                 spineIndex: chunk.chapterIndex,
@@ -93,30 +102,64 @@ final class CoreTextChunkDrawView: UIView {
                 writingMode: String(describing: chunk.writingMode),
                 executor: Thread.isMainThread ? "main" : "background"
             )
-        )
-        defer { ReaderPerfTrace.end(renderTrace) }
+        ) : nil
+        defer { if let renderTrace { ReaderPerfTrace.end(renderTrace) } }
 
+        guard let ctx = UIGraphicsGetCurrentContext() else { return }
+        chunk.materializeFrameIfNeeded()
+        CoreTextChunkPainter.paint(CoreTextChunkPainter.Content(chunk: chunk, frame: chunk.frame),
+                                   bounds: bounds, lineIndices: lineIndices,
+                                   underline: .current(), in: ctx)
+    }
+}
+
+/// The single chunk painter, shared by the on-screen cell and the continuous-scroll
+/// raster worker. It reads only the values it is handed — never `GlobalSettings`,
+/// never a chunk's mutable frame state — so it may run off the main thread.
+/// `ctx` must also be the current UIKit context: image attachments draw through it.
+enum CoreTextChunkPainter {
+    struct Content {
+        let attributedString: NSAttributedString
+        let writingMode: ReaderWritingMode
+        let isImageOnly: Bool
+        var frame: CTFrame?
+        let attachments: [CoreTextPaginator.RenderedAttachment]
+        let blockRenderables: [CoreTextPaginator.RenderedBlockRenderable]
+        let inlineAnnotations: [CoreTextPaginator.RenderedInlineAnnotation]
+
+        /// Snapshot a chunk's paint inputs. Main thread: `attachments`,
+        /// `blockRenderables` and `inlineAnnotations` are filled in by materialization.
+        init(chunk: CoreTextChunk, frame: CTFrame?) {
+            attributedString = chunk.attributedString
+            writingMode = chunk.writingMode
+            isImageOnly = chunk.isImageOnly
+            self.frame = frame
+            attachments = chunk.attachments
+            blockRenderables = chunk.blockRenderables
+            inlineAnnotations = chunk.inlineAnnotations
+        }
+    }
+
+    static func paint(_ content: Content, bounds: CGRect, lineIndices: IndexSet?,
+                      underline: ReaderTextUnderlineDecoration?, in ctx: CGContext) {
         // Image-only chunk (cover / full-page illustration): draw attachments directly.
-        if chunk.isImageOnly {
-            for attachment in chunk.attachments {
+        if content.isImageOnly {
+            for attachment in content.attachments {
                 attachment.image.draw(in: attachment.rect, blendMode: .normal, alpha: attachment.opacity)
             }
             return
         }
-
-        guard let ctx = UIGraphicsGetCurrentContext() else { return }
-        chunk.materializeFrameIfNeeded()
-        guard let frame = chunk.frame else { return }
+        guard let frame = content.frame else { return }
 
         // Phase 1: Block decorations in UIKit coordinates (backgrounds, borders)
         CoreTextPageView.drawBlockRenderables(
-            chunk.blockRenderables,
-            writingMode: chunk.writingMode,
+            content.blockRenderables,
+            writingMode: content.writingMode,
             in: ctx,
             boundsHeight: bounds.height
         )
 
-        let suppressedRanges = chunk.blockRenderables
+        let suppressedRanges = content.blockRenderables
             .flatMap { $0.suppressesSourceText ? $0.sourceRanges : [] }
 
         // Phase 2: Text — flip to CoreText coordinates for drawing
@@ -125,13 +168,13 @@ final class CoreTextChunkDrawView: UIView {
         ctx.translateBy(x: 0, y: bounds.height)
         ctx.scaleBy(x: 1.0, y: -1.0)
 
-        if chunk.writingMode.isVertical {
+        if content.writingMode.isVertical {
             RegexHighlightDecorationRenderer.drawVertical(
                 frame: frame,
-                attributedString: chunk.attributedString,
+                attributedString: content.attributedString,
                 contentOffset: .zero,
                 layoutHeight: bounds.height,
-                writingMode: chunk.writingMode,
+                writingMode: content.writingMode,
                 suppressedRanges: suppressedRanges,
                 context: ctx
             )
@@ -148,28 +191,30 @@ final class CoreTextChunkDrawView: UIView {
                 contentMinX: 0,
                 contentMinY: 0,
                 isLastPage: true,
-                attrStr: chunk.attributedString,
+                attrStr: content.attributedString,
                 suppressedRanges: suppressedRanges,
                 hrDividerKey: HTMLAttributedStringBuilder.hrDividerAttribute,
+                lineIndices: lineIndices,
+                underline: underline,
                 in: ctx
             )
         }
         ctx.restoreGState()
 
         // Phase 2b: Inline text annotations (span.small notes in vertical writing)
-        if chunk.writingMode.isVertical, !chunk.inlineAnnotations.isEmpty {
-            CoreTextPageView.drawInlineAnnotations(chunk.inlineAnnotations)
+        if content.writingMode.isVertical, !content.inlineAnnotations.isEmpty {
+            CoreTextPageView.drawInlineAnnotations(content.inlineAnnotations)
         }
 
         // Phase 3: Block image attachments (UIKit coordinates)
-        for item in chunk.blockRenderables {
+        for item in content.blockRenderables {
             if let attachment = item.imageAttachment {
                 attachment.image.draw(in: attachment.rect, blendMode: .normal, alpha: attachment.opacity)
             }
         }
 
         // Phase 4: Inline image attachments (UIKit coordinates)
-        for attachment in chunk.attachments {
+        for attachment in content.attachments {
             attachment.image.draw(in: attachment.rect, blendMode: .normal, alpha: attachment.opacity)
         }
     }
@@ -186,6 +231,15 @@ final class CoreTextChunkCollectionCell: UICollectionViewCell {
     private var topConstraint: NSLayoutConstraint!
     private var widthConstraint: NSLayoutConstraint!
     private var heightConstraint: NSLayoutConstraint!
+    var rendersContentExternally = false {
+        didSet {
+            guard oldValue != rendersContentExternally else { return }
+            drawView.rendersContentExternally = rendersContentExternally
+            backdropView.isHidden = rendersContentExternally
+            drawView.layer.contents = nil
+            if !rendersContentExternally { drawView.setNeedsDisplay() }
+        }
+    }
     private var boundAxis: CoreTextScrollAxis = .vertical
     private var boundLeadingSpacing: CGFloat = 0
     private(set) var currentChunk: CoreTextChunk?
@@ -253,6 +307,8 @@ final class CoreTextChunkCollectionCell: UICollectionViewCell {
         leadingSpacing: CGFloat,
         viewportSize: CGSize
     ) {
+        let contentChanged = currentChunk !== chunk || axis != .vertical
+        let backdropChanged = contentChanged || backdropView.viewportSize != viewportSize
         currentChunk = chunk
         boundAxis = axis
         boundLeadingSpacing = leadingSpacing
@@ -275,10 +331,12 @@ final class CoreTextChunkCollectionCell: UICollectionViewCell {
         }
 
         setNeedsLayout()
-        backdropView.setNeedsDisplay()
-        drawView.setNeedsDisplay()
-        overlay.clearSelection()
-        refreshAccessibility(for: chunk)
+        if backdropChanged { backdropView.setNeedsDisplay() }
+        if contentChanged {
+            drawView.setNeedsDisplay()
+            overlay.clearSelection()
+            refreshAccessibility(for: chunk)
+        }
     }
 
     /// The chunk is drawn with `CTFrameDraw`, so without this it is an empty view to

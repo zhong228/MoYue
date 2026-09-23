@@ -77,8 +77,9 @@ final class BrowserScrollTileView: UIView {
     }
 }
 
-/// Hosts a bounded browser paint window with the same interaction geometry as
-/// paged reading. The document remains the sole owner of chapter layout.
+/// Hosts a bounded browser interaction window. Viewport scrolling paints through
+/// the independent fragment host; other routes retain their existing tile painter.
+/// The document remains the sole owner of chapter layout.
 @MainActor
 final class BrowserScrollTileCell: UICollectionViewCell {
     static let reuseIdentifier = "BrowserScrollTileCell"
@@ -88,9 +89,28 @@ final class BrowserScrollTileCell: UICollectionViewCell {
     var onAccessibilityMenu: (() -> Void)?
     var onLinkActivate: ((LinkInteractionRegion) -> Void)?
     var onImageTap: ((DisplayImageItem) -> Void)?
+    private(set) var boundRevision: UInt64 = 0
+    private(set) var paintUpdateCount = 0
     private var horizontalInset: CGFloat = 0
     private var leadingSpacing: CGFloat = 0
     private var verticalInset: CGFloat = 0
+    private var paintClipView: UIView?
+
+    /// One point of sampling neighbours prevents scaled images from clamping
+    /// interpolation at a backing-store edge. Only the original tile is shown.
+    private var paintBleed: CGFloat {
+        guard let tile = currentTile, tile.chapter.isViewportDriven,
+              tile.chapter.writingMode == .horizontal else { return 0 }
+        return 1
+    }
+
+    var renderingDocumentRect: CGRect {
+        (currentTile?.documentRect ?? .zero).insetBy(dx: 0, dy: -paintBleed)
+    }
+
+    func tileLocalPoint(fromRenderingPoint point: CGPoint) -> CGPoint {
+        CGPoint(x: point.x, y: point.y - paintBleed)
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -105,43 +125,92 @@ final class BrowserScrollTileCell: UICollectionViewCell {
     override func layoutSubviews() {
         super.layoutSubviews()
         guard let tile = currentTile else { interactiveView.frame = .zero; return }
-        interactiveView.frame = CGRect(
+        let frame = CGRect(
             x: tile.chapter.writingMode.isVertical ? 0 : horizontalInset,
             y: tile.chapter.writingMode.isVertical ? verticalInset : leadingSpacing,
             width: tile.documentRect.width, height: tile.documentRect.height
         )
+        if paintBleed > 0 {
+            let clip: UIView
+            if let existing = paintClipView { clip = existing }
+            else {
+                clip = UIView()
+                clip.clipsToBounds = true
+                contentView.addSubview(clip)
+                paintClipView = clip
+            }
+            clip.isHidden = false
+            clip.frame = frame
+            if interactiveView.superview !== clip { clip.addSubview(interactiveView) }
+            interactiveView.frame = CGRect(x: 0, y: -paintBleed, width: frame.width,
+                                           height: frame.height + 2 * paintBleed)
+        } else {
+            paintClipView?.isHidden = true
+            if interactiveView.superview !== contentView { contentView.addSubview(interactiveView) }
+            interactiveView.frame = frame
+        }
     }
 
-    func configure(tile: BrowserScrollTile, horizontalInset: CGFloat, leadingSpacing: CGFloat, verticalInset: CGFloat = 0) {
+    func configure(tile: BrowserScrollTile, horizontalInset: CGFloat, leadingSpacing: CGFloat, verticalInset: CGFloat = 0,
+                   rendersContentExternally: Bool = false) {
+        interactiveView.usesExternalContentSurface = rendersContentExternally
         let isSameBinding = currentTile.map {
             $0.chapter === tile.chapter && $0.documentRect == tile.documentRect
                 && $0.charRange.location == tile.charRange.location
                 && $0.charRange.length == tile.charRange.length
         } ?? false
-        if !isSameBinding { replaceInteractiveView() }
+        if currentTile != nil, currentTile?.chapter !== tile.chapter {
+            interactiveView.resetContinuousBinding()
+        }
+        if !isSameBinding {
+            interactiveView.textInteraction?.clear()
+            interactiveView.cancelLinkPress()
+        }
         currentTile = tile
+        // UIView records draw commands on main; Core Animation executes the
+        // viewport tile's backing-store raster off main. Trace 4 shows glyph
+        // raster/PNG decode in CABackingStoreUpdate after draw(_:) has returned.
+        // Keep the existing scale, clipping, content lifetime and vertical path.
+        interactiveView.layer.drawsAsynchronously = tile.chapter.isViewportDriven
+            && !tile.chapter.writingMode.isVertical && !rendersContentExternally
+        interactiveView.continuousSpineIndex = tile.chapter.spineIndex
+        interactiveView.continuousDocumentRect = renderingDocumentRect
         self.horizontalInset = horizontalInset
         self.leadingSpacing = leadingSpacing
         self.verticalInset = verticalInset
-        if !isSameBinding {
+        if !isSameBinding || boundRevision != tile.chapter.layoutRevision {
+            boundRevision = tile.chapter.layoutRevision
+            interactiveView.continuousLayoutRevision = boundRevision
             let chapter = tile.chapter
-            let source = chapter.document.sourceText as NSString
-            let start = min(max(0, tile.charRange.location), source.length)
-            let range = NSRange(location: start, length: min(max(0, tile.charRange.length), source.length - start))
-            interactiveView.displayList = chapter.document.items(in: tile.documentRect)
-            interactiveView.pageSourceRange = range
-            interactiveView.pageSourceText = source.substring(with: range)
-            interactiveView.backgroundColorFill = chapter.usesReaderBackground ? .clear : chapter.backgroundColor
-            interactiveView.skipAuthoredBackgroundPaint = chapter.usesReaderBackground
-            interactiveView.interactionRegions = .build(
-                from: interactiveView.displayList, spineIndex: chapter.spineIndex,
-                anchors: chapter.document.linkAnchors
-            )
-            interactiveView.configureTextInteraction(
-                sourceText: chapter.document.sourceText, spineIndex: chapter.spineIndex, annotations: [],
-                paragraphRanges: chapter.paragraphRanges
-            )
-            interactiveView.setNeedsDisplay()
+            let displayList = chapter.document.items(in: renderingDocumentRect)
+            let paintChanged = !interactiveView.displayList.hasSameContents(as: displayList)
+                || interactiveView.backgroundColorFill != (chapter.usesReaderBackground ? .clear : chapter.backgroundColor)
+                || interactiveView.skipAuthoredBackgroundPaint != chapter.usesReaderBackground
+            // A new chapter snapshot can contain only offscreen additions.
+            // Keep the existing backing store and interaction state in that case.
+            if paintChanged || !isSameBinding {
+                let source = chapter.document.sourceText as NSString
+                let start = min(max(0, tile.charRange.location), source.length)
+                let range = NSRange(location: start, length: min(max(0, tile.charRange.length), source.length - start))
+                interactiveView.displayList = displayList
+                interactiveView.pageSourceRange = range
+                interactiveView.pageSourceText = source.substring(with: range)
+                interactiveView.backgroundColorFill = chapter.usesReaderBackground ? .clear : chapter.backgroundColor
+                interactiveView.skipAuthoredBackgroundPaint = chapter.usesReaderBackground
+                interactiveView.interactionRegions = .build(
+                    from: interactiveView.displayList, spineIndex: chapter.spineIndex,
+                    anchors: chapter.document.linkAnchors
+                )
+                interactiveView.configureTextInteraction(
+                    sourceText: chapter.document.sourceText, spineIndex: chapter.spineIndex, annotations: [],
+                    paragraphRanges: chapter.paragraphRanges
+                )
+                interactiveView.refreshAccessibility()
+                if paintChanged && !rendersContentExternally {
+                    paintUpdateCount += 1
+                    interactiveView.setNeedsDisplay()
+                }
+            }
         }
         setNeedsLayout()
         layoutIfNeeded()
@@ -197,6 +266,8 @@ final class BrowserScrollTileCell: UICollectionViewCell {
 
     /// The point is cell-local, matching collection tap routing.
     func ownsTap(at point: CGPoint) -> Bool {
+        if let clip = paintClipView, !clip.isHidden,
+           !clip.bounds.contains(clip.convert(point, from: self)) { return false }
         let local = interactiveView.convert(point, from: self)
         guard interactiveView.bounds.contains(local) else { return false }
         return interactiveView.textInteraction?.ownsTap(at: local) == true
@@ -207,26 +278,17 @@ final class BrowserScrollTileCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         currentTile = nil
+        paintClipView?.isHidden = true
         horizontalInset = 0
         leadingSpacing = 0
+        verticalInset = 0
         onAccessibilityMenu = nil
         onLinkActivate = nil
         onImageTap = nil
-        replaceInteractiveView()
-    }
-
-    private func replaceInteractiveView() {
-        // Source text and spine identity are immutable in the interaction
-        // controller. Replace their owner on rebind rather than reusing stale
-        // selection state or stacking another edit menu and handle recognizer.
-        interactiveView.textInteraction?.clear()
-        interactiveView.cancelLinkPress()
-        interactiveView.onLinkActivate = nil
-        interactiveView.onImageTap = nil
-        interactiveView.onAccessibilityAction = nil
-        interactiveView.removeFromSuperview()
-        interactiveView = BrowserLayoutPageView(frame: .zero)
-        installInteractiveView()
+        // Keep the surface attached: removing/recreating it re-registers all
+        // ancestor gesture dependencies on every prefetched/reversed tile.
+        // Clear the source/selection binding so chapter identity cannot leak.
+        interactiveView.resetContinuousBinding()
     }
 
     private func installInteractiveView() {

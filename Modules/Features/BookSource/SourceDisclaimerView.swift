@@ -23,6 +23,7 @@ struct SourceDisclaimerView: View {
                 .padding(.top, DSSpacing.lg)
                 .padding(.bottom, DSSpacing.xl)
             }
+            .softScrollEdges()
             .background(PageBackgroundView(scope: .settings).ignoresSafeArea())
             .navigationTitle(localized("注意事項"))
             .toolbarTitleDisplayMode(.inline)

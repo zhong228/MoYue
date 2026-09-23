@@ -1,4 +1,5 @@
 import YueduCoreText
+import os
 import AVKit
 import Combine
 import SwiftUI
@@ -29,10 +30,15 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     private(set) var lastAppliedRefreshTransactionID: UInt64 = 0
 
     private let collectionView: UICollectionView
+    let fragmentHost = ReaderViewportFragmentHost(frame: .zero)
+    private var frameDiagnostics: ReaderScrollFrameDiagnostics?
+    private var lastBridgeViewportSize: CGSize = .zero
     private var cancellables: Set<AnyCancellable> = []
-    /// **Where the reader is, as a character in the book. The source of truth.**
+    /// The latest explicit navigation target or settled reading checkpoint.
     ///
-    /// `contentOffset` is derived from this; never the reverse. Only four things write it: the
+    /// Explicit restores derive `contentOffset` from this. Geometry changes during
+    /// scrolling instead preserve the live painted anchor, including its fractional
+    /// screen position. Only four things write this checkpoint: the
     /// handover from paged mode / cold start, a scroll the *user* performed, a TTS follow, and a
     /// navigation request. Chapter loads deliberately do not — that was the compensation model,
     /// and it could not be made to work. Two overlapping `performBatchUpdates` completions each
@@ -122,7 +128,40 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     private var lastCommittedPosition: CoreTextReadingPosition?
     private var hasKickedOffEngine = false
     private var pendingInitialChapter: Int = 0
-    private var displayedCount: Int = 0
+    private struct ViewportItemID: Hashable {
+        let spine: Int
+        let ordinal: Int
+    }
+    private struct ViewportAnchor {
+        let spine: Int
+        let offset: Int
+        let screenY: CGFloat
+    }
+    private var displayedViewportIDs: [ViewportItemID] = []
+    private var displayedCount: Int = 0 {
+        didSet { displayedViewportIDs = viewportItemIDs() }
+    }
+    private func viewportItemIDs() -> [ViewportItemID] {
+        var ordinals: [Int: Int] = [:]
+        return engine.chunks.map { item in
+            let ordinal = ordinals[item.chapterIndex, default: 0]
+            ordinals[item.chapterIndex] = ordinal + 1
+            return ViewportItemID(spine: item.chapterIndex, ordinal: ordinal)
+        }
+    }
+    private var isResolvingViewport = false
+    /// A restore whose target was not laid out yet: the arriving layout re-applies
+    /// it exactly. Dropped as soon as the user starts scrolling.
+    private var restoreAwaitingLayout: CoreTextReadingPosition?
+    /// Layout is requested ahead of the viewport in the direction of travel.
+    private var lastViewportRequestY: CGFloat?
+    private var viewportRequestDirection: CGFloat = 1
+    private(set) var viewportCommitDiagnostics = ViewportCommitDiagnostics()
+    private var awaitingMomentumOffset: CGFloat?
+    #if DEBUG
+    var onViewportDiagnostics: ((ViewportCommitDiagnostics) -> Void)?
+    var onDeceleratingScroll: (() -> Void)?
+    #endif
     private var lastWarmRow: Int?
     private var lastWarmUptime: TimeInterval = 0
     private var resliceTask: Task<Void, Never>?
@@ -164,16 +203,23 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         self.horizontalInset = horizontalInset
         self.verticalInset = verticalInset
 
-        // Flow layout. `ReaderScrollLayout` exists and its geometry is proven pixel-identical, but
-        // it is not wired in: the migration it belongs to (`Technotes/ViewportScrollArchitecture.md`)
-        // is on hold pending an architecture change, and it buys the reader nothing until then.
-        let layout = CoreTextScrollFlowLayout()
-        layout.scrollDirection = axis.collectionScrollDirection
-        layout.minimumLineSpacing = 0
-        layout.minimumInteritemSpacing = 0
+        let layout: UICollectionViewLayout
+        if axis == .vertical {
+            layout = ReaderScrollLayout()
+        } else {
+            let flow = CoreTextScrollFlowLayout()
+            flow.scrollDirection = axis.collectionScrollDirection
+            flow.minimumLineSpacing = 0
+            flow.minimumInteritemSpacing = 0
+            layout = flow
+        }
         self.collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
 
         super.init(nibName: nil, bundle: nil)
+        (layout as? ReaderScrollLayout)?.extentProvider = { [weak self] index in
+            guard let self else { return 0 }
+            return (self.engine.scrollExtent(at: index) ?? 0) + self.chapterGap(for: index)
+        }
         view.backgroundColor = backgroundColor
         collectionView.backgroundColor = backgroundColor
         let isTransparent = backgroundColor.cgColor.alpha < 0.999
@@ -240,6 +286,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.allowsSelection = false
         view.addSubview(collectionView)
+        collectionView.insertSubview(fragmentHost, at: 0)
         let topConstraint = collectionView.topAnchor.constraint(
             equalTo: view.topAnchor,
             constant: barInsets.topBand
@@ -267,6 +314,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
 
         configureTapPriority()
         bindEngine()
+        if scrollAxis == .vertical { frameDiagnostics = ReaderScrollFrameDiagnostics(scrollView: collectionView) }
     }
 
     // MARK: - Gesture priority
@@ -528,6 +576,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         super.viewDidLayoutSubviews()
         kickoffEngineIfNeeded()
         applyReadingPositionIfPossible(cause: .initialLayout)
+        resolveVisibleViewport()
         verifyForegroundRestoreIfNeeded()
         reconcileInlineVideos()
     }
@@ -569,17 +618,48 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         bottomMargin: CGFloat = 0,
         barInsets: ReaderScrollBarInsets = .zero
     ) {
+        let viewportSize = collectionView.bounds.size
+        defer { lastBridgeViewportSize = viewportSize }
+        // SwiftUI also updates this host for progress/chrome and engine publishes.
+        // Engine events own content insertion/reset; unchanged vertical geometry
+        // must not invalidate flow layout, reload cells, and redraw their tiles.
+        // Keep the horizontal-RTL path unchanged in this scroll performance fix.
+        if axis == .vertical, scrollAxis == .vertical,
+           viewportSize == lastBridgeViewportSize,
+           horizontal == horizontalInset, vertical == verticalInset,
+           bottomMargin == self.bottomMargin, barInsets == self.barInsets {
+            return
+        }
         let oldExtent = currentContentExtent
         let oldImageExtent = currentImageContentWidth
         let restoreChapter = visibleProgressChapter()
         let axisChanged = axis != scrollAxis
         scrollAxis = axis
+        if axis != .vertical { fragmentHost.reset() }
         horizontalInset = horizontal
         verticalInset = vertical
         self.bottomMargin = bottomMargin
         applyBarInsets(axis == .vertical ? barInsets : .zero)
         collectionView.contentInset = contentInset
         collectionView.semanticContentAttribute = axis.semanticContentAttribute
+        if axisChanged {
+            let layout: UICollectionViewLayout
+            if axis == .vertical {
+                let vertical = ReaderScrollLayout()
+                vertical.extentProvider = { [weak self] index in
+                    guard let self else { return 0 }
+                    return (self.engine.scrollExtent(at: index) ?? 0) + self.chapterGap(for: index)
+                }
+                layout = vertical
+            } else {
+                let flow = CoreTextScrollFlowLayout()
+                flow.scrollDirection = axis.collectionScrollDirection
+                flow.minimumLineSpacing = 0
+                flow.minimumInteritemSpacing = 0
+                layout = flow
+            }
+            collectionView.setCollectionViewLayout(layout, animated: false)
+        }
         if let layout = collectionView.collectionViewLayout as? UICollectionViewFlowLayout {
             layout.scrollDirection = axis.collectionScrollDirection
             layout.invalidateLayout()
@@ -864,12 +944,20 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     }
 
     private func bindEngine() {
+        // The engine publishes these events on MainActor after committing both
+        // chunks and chapterRanges. Commit the collection outline in the same
+        // transaction: RunLoop.main's Combine scheduler waits for default mode
+        // during a drag, leaving displayedCount stale and suspending viewport
+        // layout until the finger lifts (Fixed Viewport.trace: 25.936–32.073s).
         engine.events
-            .receive(on: RunLoop.main)
             .sink { [weak self] event in
                 self?.handle(event: event)
             }
             .store(in: &cancellables)
+        engine.onViewportSnapshot = { [weak self] spine, install in
+            guard let self else { install(); return }
+            viewportSnapshotArrived(spine: spine, install: install)
+        }
 
         engine.$textAnnotations
             .receive(on: RunLoop.main)
@@ -894,6 +982,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     private func handle(event: CoreTextScrollEngine.Event) {
         switch event {
         case .reset(let restorePosition):
+            fragmentHost.reset()
             posTrace(
                 "event.reset",
                 "restore=\(restorePosition.map { "(ch\($0.spineIndex),off\($0.charOffset))" } ?? "nil") "
@@ -919,15 +1008,22 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         reconcileInlineVideos()
     }
 
-    /// Brings the collection view in line with `engine.chunks` after an insertion, then puts the
-    /// reader back where they were.
-    ///
-    /// There is no offset arithmetic here at all any more. The previous version captured the
-    /// current offset and an anchor frame *before* the batch update and applied the difference
-    /// afterwards, which is only correct if nothing else changes in between — and chapter loads
-    /// are concurrent, so something else routinely did. Re-applying the reading position needs no
-    /// before-picture, so overlapping insertions cannot interfere with each other.
+    /// Commit new items and the live anchor correction together, for both paint
+    /// backends. Only an initial/unresolved viewport uses the saved restore target.
     private func applyChunkInsertion(_ range: Range<Int>) {
+        if hasAppliedReadingPosition, scrollAxis == .vertical,
+           let anchor = visibleVerticalAnchor() {
+            // A chapter arriving while the finger is moving must preserve the
+            // live cell's source position, not the last scroll-end checkpoint.
+            // Read the old cell itself: engine indices already include the insertion.
+            // The anchor's chapter keeps its committed snapshot; a region it
+            // still lacks is requested below and arrives as its own transaction.
+            isResolvingViewport = true
+            commitViewportGeometry(anchor: anchor, cause: "chapterInsertion")
+            isResolvingViewport = false
+            resolveVisibleViewport()
+            return
+        }
         let total = engine.chunks.count
         let actualOld = displayedCount
         let expectedOld = max(0, total - range.count)
@@ -976,8 +1072,20 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         force: Bool = false,
         cause: ReaderPositionSentry.ScrollGeometryCause = .unspecified
     ) -> Bool {
-        guard force || !hasAppliedReadingPosition else { return false }
+        guard !isResolvingViewport, force || !hasAppliedReadingPosition else { return false }
         guard let target = readingPosition else { return false }
+        defer { updateFragmentSurfaces() }
+        if scrollAxis == .vertical, let chapter = engine.browserChapter(at: target.spineIndex),
+           chapter.isViewportDriven {
+            // Laid out on the chapter's thread. Until it arrives the reader lands on
+            // the estimated position; the arriving layout re-applies this target.
+            let bounds = CGRect(x: 0, y: chapter.documentY(for: target.charOffset),
+                                width: engine.contentWidth, height: max(1, collectionView.bounds.height))
+            let laidOut = chapter.materializedBounds.contains(bounds)
+                && chapter.document.documentPoint(forCharOffset: target.charOffset) != nil
+            restoreAwaitingLayout = laidOut ? nil : target
+            engine.requestViewport(chapter: target.spineIndex, bounds: bounds, anchorOffset: target.charOffset)
+        }
         guard let row = engine.chunkIndex(
             forChapter: target.spineIndex,
             charOffset: target.charOffset
@@ -1087,7 +1195,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         setScrollOffset(
             CGPoint(
                 x: collectionView.contentOffset.x,
-                y: frame.minY + withinChunk - collectionView.adjustedContentInset.top
+                y: frame.minY + chapterGap(for: row) + withinChunk - collectionView.adjustedContentInset.top
             ),
             source: .restore,
             detail: "row=\(row) off=\(charOffset) chunkStart=\(chunk.charRange.location) "
@@ -1486,7 +1594,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         isAutoScrollingPlayback = false
         // Narration moved the reader, not their finger — and narration declares itself as
         // an intent, so this is accounted for without claiming the reader did it.
-        commitProgress(readerDriven: false)
+        commitProgress(readerDriven: false, reason: "programmatic")
     }
 
     // MARK: - Position diagnostics
@@ -1525,6 +1633,268 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
             axisOffset,
             collectionView.window == nil ? "no" : "yes"
         )
+    }
+
+    private func visibleVerticalAnchor() -> ViewportAnchor? {
+        if let (cell, chunk, local) = hitTestChunk(at: visibleAnchorPoint),
+           let offset = chunk.readingOffset(atVerticalOffset: local.y) {
+            let lineY = chunk.topOffset(forCharacterIndex: offset) ?? 0
+            let point = cell.drawView.convert(CGPoint(x: 0, y: lineY), to: collectionView)
+            return ViewportAnchor(spine: chunk.chapterIndex, offset: offset,
+                                  screenY: point.y - collectionView.contentOffset.y)
+        }
+        if let painted = fragmentHost.textAnchor(in: collectionView, visible: collectionView.bounds) {
+            return ViewportAnchor(spine: painted.spine, offset: painted.offset,
+                                  screenY: painted.lineY - collectionView.contentOffset.y)
+        }
+        // A cold jump or image-only viewport may have no painted text yet.
+        // Keep the existing source/estimated geometry route for that case.
+        let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        let cells = collectionView.visibleCells.compactMap { $0 as? BrowserScrollTileCell }
+            .sorted { $0.frame.minY < $1.frame.minY }
+        guard let cell = cells.first(where: { $0.frame.maxY > top }), let tile = cell.currentTile,
+              tile.chapter.isViewportDriven else { return nil }
+        let local = cell.interactiveView.convert(CGPoint(x: 0, y: top), from: collectionView)
+        let offset = tile.chapter.sourceOffset(at: tile.documentRect.minY + max(0, cell.tileLocalPoint(fromRenderingPoint: local).y))
+        let point = collectionView.convert(CGPoint(x: 0, y: tile.chapter.documentY(for: offset) - cell.renderingDocumentRect.minY),
+                                           from: cell.interactiveView)
+        return ViewportAnchor(spine: tile.chapter.spineIndex, offset: offset, screenY: point.y - collectionView.contentOffset.y)
+    }
+
+    /// Commit only after all demanded chapters have stable geometry. Existing
+    /// cells keep their interaction owner; a snapshot revision refreshes paint.
+    private(set) var viewportLayoutInvalidationCount = 0
+    private static let viewportSignposter = OSSignposter(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.zhangruilin.yuedureader",
+        category: "ReaderPerformance")
+
+    private func commitViewportGeometry(geometryChanged: Bool = true,
+                                        anchor: ViewportAnchor? = nil,
+                                        cause: String = "viewport") {
+        let start = SourcePerfTrace.now
+        var paintUpdates = 0
+        let oldIDs = displayedViewportIDs
+        let newIDs = viewportItemIDs()
+        let outlineChanged = oldIDs != newIDs
+        let oldSize = collectionView.contentSize
+        let before = collectionView.contentOffset
+        let wasDragging = collectionView.isDragging
+        let wasDecelerating = collectionView.isDecelerating
+        var correction: CGFloat = 0
+        var anchorY: CGFloat?
+        let oldCount = displayedCount
+        if let layout = collectionView.collectionViewLayout as? ReaderScrollLayout {
+            // Resolve the new anchor from the new extents before UIKit changes any
+            // cell or offset. Never consult an old index path after chapter insertion.
+            let extents = engine.chunks.indices.map {
+                (engine.scrollExtent(at: $0) ?? 0) + chapterGap(for: $0)
+            }
+            if let anchor,
+               let row = engine.chunkIndex(forChapter: anchor.spine, charOffset: anchor.offset) {
+                let origin = layout.snappedOrigin(extents.prefix(row).reduce(0, +))
+                let within = engine.chunks[row].topOffset(forCharacterIndex: anchor.offset) ?? 0
+                let y = origin + chapterGap(for: row) + within
+                anchorY = y
+                correction = y - anchor.screenY - before.y
+            }
+            if geometryChanged || outlineChanged || abs(correction) > 0.01 {
+                let newSize = CGSize(width: collectionView.bounds.width, height: extents.reduce(0, +))
+                let invalidate = {
+                    self.viewportLayoutInvalidationCount += 1
+                    layout.commitViewportGeometry(offsetAdjustment: CGPoint(x: 0, y: correction),
+                                                  oldSize: oldSize, newSize: newSize)
+                }
+                UIView.performWithoutAnimation {
+                    if outlineChanged {
+                        let oldSet = Set(oldIDs), newSet = Set(newIDs)
+                        let deletes = oldIDs.indices.filter { !newSet.contains(oldIDs[$0]) }
+                            .map { IndexPath(item: $0, section: 0) }
+                        let inserts = newIDs.indices.filter { !oldSet.contains(newIDs[$0]) }
+                            .map { IndexPath(item: $0, section: 0) }
+                        collectionView.performBatchUpdates {
+                            self.displayedCount = self.engine.chunks.count
+                            self.collectionView.deleteItems(at: deletes)
+                            self.collectionView.insertItems(at: inserts)
+                            invalidate()
+                        }
+                    } else {
+                        invalidate()
+                    }
+                    collectionView.layoutIfNeeded()
+                }
+            }
+        }
+        if wasDecelerating, abs(correction) > 0.01 {
+            awaitingMomentumOffset = collectionView.contentOffset.y
+        }
+        if let anchor, let anchorY {
+            let error = anchorY - collectionView.contentOffset.y - anchor.screenY
+            viewportCommitDiagnostics.record(correction: correction, screenError: error,
+                wasDecelerating: wasDecelerating, isDecelerating: collectionView.isDecelerating,
+                countChanged: oldCount != displayedCount, cause: cause)
+            if Self.viewportSignposter.isEnabled {
+                Self.viewportSignposter.emitEvent("viewport.anchorCommit",
+                    "cause=\(cause) revision=\(self.engine.viewportGeometryRevision) spine=\(anchor.spine) anchor=\(anchor.offset) before=\(before.y) after=\(self.collectionView.contentOffset.y) correction=\(correction) screenError=\(error) oldTiles=\(oldCount) newTiles=\(self.displayedCount) dragBefore=\(wasDragging) dragAfter=\(self.collectionView.isDragging) decelBefore=\(wasDecelerating) decelAfter=\(self.collectionView.isDecelerating)")
+            }
+        }
+        #if DEBUG
+        onViewportDiagnostics?(viewportCommitDiagnostics)
+        #endif
+        for path in collectionView.indexPathsForVisibleItems {
+            guard engine.chunks.indices.contains(path.item) else { continue }
+            if let chunk = engine.chunks[path.item].legacyChunk,
+               let cell = collectionView.cellForItem(at: path) as? CoreTextChunkCollectionCell {
+                // The first retained chapter gains its inter-chapter gap when
+                // its predecessor arrives. Update its local paint origin in the
+                // same transaction, without invalidating unchanged glyph paint.
+                cell.bind(chunk: chunk, axis: scrollAxis, horizontalInset: horizontalInset,
+                          verticalInset: verticalInset, leadingSpacing: chapterGap(for: path.item),
+                          viewportSize: collectionView.bounds.size)
+                cell.layoutIfNeeded()
+                continue
+            }
+            guard case .browser(let tile) = engine.chunks[path.item],
+                  let cell = collectionView.cellForItem(at: path) as? BrowserScrollTileCell else { continue }
+            let previousPaintUpdates = cell.paintUpdateCount
+            cell.configure(tile: tile, horizontalInset: horizontalInset,
+                           leadingSpacing: chapterGap(for: path.item), verticalInset: verticalInset,
+                           rendersContentExternally: scrollAxis == .vertical && tile.chapter.isViewportDriven)
+            paintUpdates += cell.paintUpdateCount - previousPaintUpdates
+            cell.applyAnnotations(textAnnotations)
+            cell.applyPlaybackHighlight(playbackHighlight)
+        }
+        SourcePerfTrace.record("browser.viewport.commit",
+            "geometry=\(geometryChanged || outlineChanged) visibleRepaints=\(paintUpdates) tiles=\(displayedCount) offsetY=\(Int(collectionView.contentOffset.y))",
+            since: start, thresholdMs: 0)
+    }
+
+    private func chapterOrigin(_ spine: Int) -> CGFloat? {
+        guard let row = engine.chapterRanges[spine]?.first,
+              let frame = collectionView.layoutAttributesForItem(at: IndexPath(item: row, section: 0))?.frame else { return nil }
+        return frame.minY + chapterGap(for: row)
+    }
+
+    /// 捲動 mode has no pages, so one visible band between the bars counts as one —
+    /// the same "page" 自動閱讀 advances by (`autoScrollViewportHeight`). Which of
+    /// those pages of `spine` the top of the band is on, and how many the chapter
+    /// spans. Estimated geometry (text not laid out yet) counts as it stands, so
+    /// the total can settle while reading. Vertical axis only: nil for
+    /// right-to-left vertical writing.
+    func screenPagination(forChapter spine: Int) -> ChapterPagination? {
+        let page = autoScrollViewportHeight
+        guard scrollAxis == .vertical, page > 0, let top = chapterOrigin(spine),
+              let last = engine.chapterRanges[spine]?.last,
+              let bottom = collectionView.layoutAttributesForItem(at: IndexPath(item: last, section: 0))?.frame.maxY,
+              bottom > top else { return nil }
+        // Half a point of slack: a chapter exactly one screen tall is one page.
+        let count = max(1, Int(ceil((bottom - top - 0.5) / page)))
+        let visibleTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        let index = min(count - 1, max(0, Int(floor((visibleTop - top + 0.5) / page))))
+        return ChapterPagination(localPageIndex: index, displayPageCount: count)
+    }
+
+    /// Asks each visible viewport-driven chapter for its demand plus one screen
+    /// ahead in the direction of travel. Never lays out: each chapter lays out on
+    /// its own thread and its snapshot arrives as its own geometry transaction
+    /// (`viewportSnapshotArrived`). Never restores the last *saved* position.
+    private func resolveVisibleViewport() {
+        guard scrollAxis == .vertical, !isResolvingViewport, !isApplyingReadingPosition,
+              collectionView.bounds.height > 0, displayedCount == engine.chunks.count else { return }
+        isResolvingViewport = true
+        defer {
+            updateFragmentSurfaces()
+            isResolvingViewport = false
+        }
+        let visible = collectionView.bounds
+        let movement = visible.minY - (lastViewportRequestY ?? visible.minY)
+        lastViewportRequestY = visible.minY
+        if movement != 0 { viewportRequestDirection = movement > 0 ? 1 : -1 }
+        let attributes = collectionView.collectionViewLayout.layoutAttributesForElements(in: visible) ?? []
+        // Content fragments own paint. Crossing an interaction cell boundary
+        // no longer demands that cell's entire screen-sized backing store.
+        let paintWindow = visible.insetBy(dx: 0, dy: -1)
+        let lead = visible.height
+        let demandWindow = viewportRequestDirection > 0
+            ? CGRect(x: paintWindow.minX, y: paintWindow.minY, width: paintWindow.width, height: paintWindow.height + lead)
+            : CGRect(x: paintWindow.minX, y: paintWindow.minY - lead, width: paintWindow.width, height: paintWindow.height + lead)
+        let demandAttributes = collectionView.collectionViewLayout.layoutAttributesForElements(in: demandWindow) ?? []
+        let spines = Set(demandAttributes.compactMap { attr -> Int? in
+            guard engine.chunks.indices.contains(attr.indexPath.item) else { return nil }
+            return engine.chunks[attr.indexPath.item].chapterIndex
+        })
+        let anchorY = visible.minY + collectionView.adjustedContentInset.top
+        let painted = fragmentHost.textAnchor(in: collectionView, visible: visible)
+        let anchorSpine = painted?.spine ?? attributes.first { $0.frame.minY <= anchorY && $0.frame.maxY > anchorY }
+            .flatMap { engine.chunks.indices.contains($0.indexPath.item) ? engine.chunks[$0.indexPath.item].chapterIndex : nil }
+        let chapter = anchorSpine.flatMap { engine.browserChapter(at: $0) }
+        let origin = anchorSpine.flatMap { chapterOrigin($0) }
+        // Keeps the text under the viewport top in place while estimates converge.
+        let anchor = painted?.offset ?? chapter.flatMap { chapter in
+            origin.map { chapter.sourceOffset(at: anchorY - $0) }
+        }
+        for spine in spines.sorted() {
+            guard let origin = chapterOrigin(spine), let chapter = engine.browserChapter(at: spine),
+                  chapter.isViewportDriven else { continue }
+            let demand = CGRect(x: 0, y: max(0, demandWindow.minY - origin), width: engine.contentWidth,
+                                height: max(1, min(chapter.document.contentHeight, demandWindow.maxY - origin) - max(0, demandWindow.minY - origin)))
+            engine.requestViewport(chapter: spine, bounds: demand, anchorOffset: spine == anchorSpine ? anchor : nil)
+        }
+        // Residency is separate from demand. Keep the previous reversal
+        // window without forcing every retained chapter to lay out now.
+        let retention = collectionView.collectionViewLayout.layoutAttributesForElements(
+            in: collectionView.bounds.insetBy(dx: 0, dy: -2000)) ?? []
+        let retainedSpines = Set(retention.compactMap { attr -> Int? in
+            guard engine.chunks.indices.contains(attr.indexPath.item) else { return nil }
+            return engine.chunks[attr.indexPath.item].chapterIndex
+        })
+        engine.trimViewportChapters(keeping: retainedSpines.union(spines))
+    }
+
+    /// A chapter's layout arrived from its thread: one geometry transaction.
+    /// The anchor is read before the new geometry is installed — the text on
+    /// screen, or, while a restore still waits for its layout, the restore target.
+    private func viewportSnapshotArrived(spine: Int, install: () -> Void) {
+        guard scrollAxis == .vertical, collectionView.bounds.height > 0,
+              displayedCount == engine.chunks.count else {
+            install()
+            return
+        }
+        let restoring = restoreAwaitingLayout?.spineIndex == spine || !hasAppliedReadingPosition
+        let anchor = restoring ? nil : visibleVerticalAnchor()
+        let revision = engine.viewportGeometryRevision
+        isResolvingViewport = true
+        install()
+        commitViewportGeometry(geometryChanged: revision != engine.viewportGeometryRevision,
+                               anchor: anchor, cause: "viewportLayout")
+        isResolvingViewport = false
+        if restoring {
+            applyReadingPositionIfPossible(force: true, cause: .viewportLayout)
+        } else {
+            updateFragmentSurfaces()
+        }
+    }
+
+    private func updateFragmentSurfaces() {
+        guard scrollAxis == .vertical else { fragmentHost.reset(); return }
+        let retained = collectionView.bounds.insetBy(dx: 0, dy: -collectionView.bounds.height)
+        let inputs = engine.chapterRanges.keys.sorted().compactMap { spine -> ReaderViewportFragmentHost.Input? in
+            guard let chapter = engine.browserChapter(at: spine), chapter.isViewportDriven,
+                  !chapter.writingMode.isVertical, let origin = chapterOrigin(spine),
+                  CGRect(x: 0, y: origin, width: collectionView.bounds.width,
+                         height: chapter.document.contentHeight).intersects(retained) else { return nil }
+            return .init(chapter: chapter, origin: CGPoint(x: horizontalInset, y: origin), width: engine.contentWidth)
+        }
+        let attributes = collectionView.collectionViewLayout.layoutAttributesForElements(in: retained) ?? []
+        let coreText = attributes.compactMap { attr -> ReaderViewportFragmentHost.CoreTextInput? in
+            guard engine.chunks.indices.contains(attr.indexPath.item),
+                  let chunk = engine.chunks[attr.indexPath.item].legacyChunk,
+                  !chunk.writingMode.isVertical else { return nil }
+            return .init(chunk: chunk, origin: CGPoint(x: horizontalInset,
+                y: attr.frame.minY + chapterGap(for: attr.indexPath.item)))
+        }
+        fragmentHost.frame = CGRect(origin: .zero, size: collectionView.contentSize)
+        collectionView.sendSubviewToBack(fragmentHost)
+        fragmentHost.update(inputs, coreText: coreText, viewport: collectionView.bounds, scale: collectionView.window?.screen.scale ?? collectionView.traitCollection.displayScale)
     }
 
     private func chapterGap(for row: Int) -> CGFloat {
@@ -1566,7 +1936,8 @@ extension CoreTextCollectionScrollViewController: UICollectionViewDataSource, UI
                 preview.modalPresentationStyle = .fullScreen
                 present(preview, animated: true)
             }
-            cell.configure(tile: tile, horizontalInset: horizontalInset, leadingSpacing: chapterGap(for: indexPath.item), verticalInset: verticalInset)
+            cell.configure(tile: tile, horizontalInset: horizontalInset, leadingSpacing: chapterGap(for: indexPath.item), verticalInset: verticalInset,
+                           rendersContentExternally: scrollAxis == .vertical && tile.chapter.isViewportDriven)
             return cell
         }
         let cell = collectionView.dequeueReusableCell(
@@ -1578,6 +1949,7 @@ extension CoreTextCollectionScrollViewController: UICollectionViewDataSource, UI
            let chunk = engine.chunks[indexPath.item].legacyChunk {
             // Same sink as the centre tap, so VoiceOver reaches the reader toolbar.
             chunkCell.onAccessibilityMenu = { [weak self] in self?.onTap?() }
+            chunkCell.rendersContentExternally = scrollAxis == .vertical && !chunk.writingMode.isVertical
             chunkCell.bind(
                 chunk: chunk,
                 axis: scrollAxis,
@@ -1619,12 +1991,44 @@ extension CoreTextCollectionScrollViewController: UICollectionViewDataSource, UI
             chunkCell.applyAnnotations(textAnnotations)
             reconcileInlineVideos()
         } else if let tileCell = cell as? BrowserScrollTileCell {
+            // UIKit can prefetch this cell before a viewport commit changes
+            // measured heights or restores drawing resources. Offscreen cells
+            // are deliberately absent from commitViewportGeometry's refresh.
+            // Rebind at the visibility boundary so old source coordinates never
+            // become visible and then snap to the next snapshot.
+            if case .browser(let tile) = engine.chunks[indexPath.item] {
+                let stale = tileCell.currentTile?.chapter !== tile.chapter
+                    || tileCell.boundRevision != tile.chapter.layoutRevision
+                    || tileCell.currentTile?.documentRect != tile.documentRect
+                tileCell.configure(tile: tile, horizontalInset: horizontalInset,
+                                   leadingSpacing: chapterGap(for: indexPath.item), verticalInset: verticalInset,
+                           rendersContentExternally: scrollAxis == .vertical && tile.chapter.isViewportDriven)
+                if stale, Self.viewportSignposter.isEnabled {
+                    Self.viewportSignposter.emitEvent("viewport.visibleRebind",
+                        "spine=\(tile.chapter.spineIndex) row=\(indexPath.item) revision=\(tile.chapter.layoutRevision)")
+                }
+            }
             tileCell.applyPlaybackHighlight(playbackHighlight)
             tileCell.applyAnnotations(textAnnotations)
         }
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard !isResolvingViewport else { return }
+        let interval = Self.viewportSignposter.beginInterval("viewport.didScroll")
+        defer { Self.viewportSignposter.endInterval("viewport.didScroll", interval) }
+        #if DEBUG
+        if scrollView.isDecelerating { onDeceleratingScroll?() }
+        #endif
+        if let offset = awaitingMomentumOffset, scrollView.isDecelerating,
+           abs(scrollView.contentOffset.y - offset) > 0.01 {
+            viewportCommitDiagnostics.continuedDecelerations += 1
+            awaitingMomentumOffset = nil
+            #if DEBUG
+            onViewportDiagnostics?(viewportCommitDiagnostics)
+            #endif
+        }
+        resolveVisibleViewport()
         noteScrollAttribution(scrollView)
 
         let chunks = engine.chunks
@@ -1681,19 +2085,25 @@ extension CoreTextCollectionScrollViewController: UICollectionViewDataSource, UI
         ReaderPositionSentry.shared.noteUnattributedScroll(delta: delta, offset: offset)
     }
 
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // The reader now decides the position; a layout arriving later must
+        // keep what is on screen instead of returning to the restore target.
+        restoreAwaitingLayout = nil
+    }
+
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         // Momentum from the reader's own flick.
-        commitProgress(readerDriven: true)
+        commitProgress(readerDriven: true, reason: "decelerationEnded")
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { commitProgress(readerDriven: true) }
+        if !decelerate { commitProgress(readerDriven: true, reason: "dragEnded") }
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         // An animation the app started, not a finger. If this lands somewhere nobody
         // asked for, that is exactly what the sentry should say.
-        commitProgress(readerDriven: false)
+        commitProgress(readerDriven: false, reason: "programmatic")
     }
 
     /// The only place the screen is allowed to redefine `readingPosition`.
@@ -1703,9 +2113,20 @@ extension CoreTextCollectionScrollViewController: UICollectionViewDataSource, UI
     /// `commitProgress` → `readingPosition` overwritten with wherever the restore happened to
     /// land. That is how a precise saved offset degraded to the chapter start between reader
     /// instances (`off253 → off0` in the device log).
-    private func commitProgress(readerDriven: Bool) {
-        guard !isApplyingReadingPosition else { return }
-        guard let pos = visibleCanonicalPosition() else { return }
+    /// Lifecycle saves sample the same live anchor as a settled gesture. Leaving
+    /// during a drag/auto-scroll must not flush an older gesture's checkpoint.
+    func positionForPersistence() -> CoreTextReadingPosition? {
+        guard hasAppliedReadingPosition, !isApplyingReadingPosition, !isResolvingViewport else { return nil }
+        return visibleCanonicalPosition()
+    }
+
+    private func commitProgress(readerDriven: Bool, reason: String) {
+        if isResolvingViewport { viewportCommitDiagnostics.progressDuringGeometry += 1 }
+        if Self.viewportSignposter.isEnabled {
+            Self.viewportSignposter.emitEvent("viewport.progressCommit",
+                "reason=\(reason) geometryCommit=\(self.isResolvingViewport) dragging=\(self.collectionView.isDragging) decelerating=\(self.collectionView.isDecelerating)")
+        }
+        guard let pos = positionForPersistence() else { return }
         setReadingPosition(pos, .settle(readerDriven: readerDriven))
         // The displacement, not just the destination: reading a jump out of a column of
         // absolute offsets means subtracting them by hand, and the interesting ones are
@@ -1720,7 +2141,10 @@ extension CoreTextCollectionScrollViewController: UICollectionViewDataSource, UI
             "[ProgressTrace][ScrollVC] commit spine=\(pos.spineIndex)"
                 + " charOffset=\(pos.charOffset) moved=\(moved)"
         )
+        let apply = Self.viewportSignposter.beginInterval("viewport.progressApply",
+            "spine=\(pos.spineIndex) offset=\(pos.charOffset)")
         onProgressCommit?(pos)
+        Self.viewportSignposter.endInterval("viewport.progressApply", apply)
     }
 
     private func warmChunks(around row: Int, force: Bool = false) {
@@ -1760,12 +2184,15 @@ extension CoreTextCollectionScrollViewController: UICollectionViewDataSource, UI
            index.item < engine.chunks.count {
             let item = engine.chunks[index.item]
             let local = collectionView.convert(visibleAnchorPoint, to: cell.interactiveView)
-            if let char = item.stringIndex(atLocalPoint: local) {
+            if let char = item.stringIndex(atLocalPoint: cell.tileLocalPoint(fromRenderingPoint: local)) {
                 return CoreTextReadingPosition(spineIndex: item.chapterIndex, charOffset: char)
             }
         }
         if let (_, chunk, localPoint) = hitTestChunk(at: visibleAnchorPoint) {
-            let char = chunk.stringIndex(atLocalPoint: localPoint) ?? chunk.charRange.location
+            let offset = scrollAxis == .vertical
+                ? chunk.readingOffset(atVerticalOffset: localPoint.y)
+                : (chunk.stringIndex(atLocalPoint: localPoint) ?? chunk.charRange.location)
+            guard let char = offset else { return nil }
             return CoreTextReadingPosition(spineIndex: chunk.chapterIndex, charOffset: char)
         }
 

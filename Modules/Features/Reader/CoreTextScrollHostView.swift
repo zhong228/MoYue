@@ -1,15 +1,20 @@
 import SwiftUI
 import UIKit
 
-/// Lets 自動閱讀 drive the scroll view without the reader holding a UIKit
-/// controller. The host fills it in; `AutoReadController` calls through it once a
-/// frame.
+/// Lets 自動閱讀 drive the scroll view, and the reader's bars read its pages,
+/// without the reader holding a UIKit controller. The host fills it in;
+/// `AutoReadController` calls through it once a frame.
 @MainActor
 final class ReaderAutoScrollHandle {
     /// Advance by this many points. `false` once the content cannot move further.
     var scrollBy: ((CGFloat) -> Bool)?
     /// The visible text band's height — already the clipped one, not the screen.
     var viewportHeight: (() -> CGFloat)?
+    /// The live viewport anchor, sampled synchronously before lifecycle flushes.
+    var positionForPersistence: (() -> CoreTextReadingPosition?)?
+    /// A chapter's page at the top of the band, one band per page
+    /// (`CoreTextCollectionScrollViewController.screenPagination`).
+    var screenPagination: ((Int) -> ChapterPagination?)?
 }
 
 /// Wraps CoreTextCollectionScrollViewController as a SwiftUI representable, forwarding engine, insets, and theme.
@@ -109,6 +114,12 @@ struct CoreTextScrollHostView: UIViewControllerRepresentable {
         }
         autoScrollHandle.viewportHeight = { [weak vc] in
             vc?.autoScrollViewportHeight ?? 0
+        }
+        autoScrollHandle.positionForPersistence = { [weak vc] in
+            vc?.positionForPersistence()
+        }
+        autoScrollHandle.screenPagination = { [weak vc] spine in
+            vc?.screenPagination(forChapter: spine)
         }
     }
 

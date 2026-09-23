@@ -866,17 +866,22 @@ enum ReaderLayoutMetrics {
         footerBottomPadding: CGFloat = defaultFooterBottomPadding,
         headerExtent: CGFloat = headerHeight,
         footerExtent: CGFloat = footerHeight,
-        edgeDistances: ReaderBarEdgeDistances = ReaderBarEdgeDistances()
+        edgeDistances: ReaderBarEdgeDistances = ReaderBarEdgeDistances(),
+        topMargin: CGFloat? = nil,
+        bottomMargin: CGFloat? = nil,
+        headerInnerMargin: CGFloat = 0,
+        footerInnerMargin: CGFloat = 0
     ) -> (top: CGFloat, bottom: CGFloat) {
-        let margin = max(0, verticalMargin)
+        let topMargin = max(0, topMargin ?? verticalMargin)
+        let bottomMargin = max(0, bottomMargin ?? verticalMargin)
         let top = showsHeader
             ? headerBarTopOffset(safeTop: safeTop, headerTopPadding: headerTopPadding, edgeDistance: edgeDistances.header)
-                + headerExtent + margin
-            : max(minimumVerticalPadding, safeTop + margin)
+                + headerExtent + headerInnerMargin + topMargin
+            : max(minimumVerticalPadding, safeTop + topMargin)
         let bottom = showsFooter
             ? footerBarBottomOffset(safeBottom: safeBottom, footerBottomPadding: footerBottomPadding, edgeDistance: edgeDistances.footer)
-                + footerExtent + margin
-            : max(minimumVerticalPadding, safeBottom + margin)
+                + footerExtent + footerInnerMargin + bottomMargin
+            : max(minimumVerticalPadding, safeBottom + bottomMargin)
         return (top: top, bottom: bottom)
     }
 

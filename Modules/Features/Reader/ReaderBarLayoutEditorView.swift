@@ -26,16 +26,27 @@ struct ReaderBarLayoutEditorView: View {
     var svgAssetStore: ReaderOverlaySVGAssetStore?
 
     @State private var saveFailed = false
+    @State private var editsChapterOpening = false
 
     // MARK: - Body
 
     var body: some View {
         List {
             previewSection
-            fieldsSection
-            styleSection
+            Section {
+                Picker(localized("頁面類型"), selection: $editsChapterOpening) {
+                    Text(localized("正文")).tag(false)
+                    Text(localized("章節首頁")).tag(true)
+                }
+                .pickerStyle(.segmented)
+            } footer: {
+                Text(localized("兩種頁面可選不同組件，邊距與共用樣式一致。"))
+                    .dsSectionFooter()
+            }
+            .interfaceSectionSurface()
             barSection(.header)
             barSection(.footer)
+            styleSection
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
@@ -88,7 +99,7 @@ struct ReaderBarLayoutEditorView: View {
         ReaderBarView(
             model: barBuilder.model(
                 for: which,
-                layout: layout,
+                layout: settings.readerBarLayout,
                 content: previewContent,
                 readerTextColor: theme.uiTextColor,
                 horizontalPadding: which == .header
@@ -103,56 +114,70 @@ struct ReaderBarLayoutEditorView: View {
 
     // MARK: - Fields
 
-    private var fieldsSection: some View {
-        Section {
-            ForEach(ReaderOverlayComponentKind.allCases, id: \.self) { kind in
-                fieldRow(kind)
-            }
-        } header: {
-            Text(localized("欄位"))
-        } footer: {
-            Text(localized("同一格可以放多個欄位，會以「·」分隔並排。"))
-                .dsSectionFooter()
-        }
-        .interfaceSectionSurface()
+    private func slotSummary(_ slot: ReaderBarSlot) -> String {
+        let titles = layout.fields(in: slot).map { localized(ReaderBarFieldNaming.titleKey(for: $0.kind)) }
+        return titles.isEmpty ? localized("隱藏") : titles.joined(separator: localized("、"))
     }
 
-    @ViewBuilder
-    private func fieldRow(_ kind: ReaderOverlayComponentKind) -> some View {
-        let slot = layout.slot(for: kind)
-        Picker(
-            selection: Binding(
-                get: { slot },
-                set: { newSlot in update { $0.setSlot(newSlot, for: kind) } }
-            )
-        ) {
-            ForEach(ReaderBarSlot.allCases) { candidate in
-                Text(localized(candidate.titleKey)).tag(candidate)
+    private func slotEditor(_ slot: ReaderBarSlot) -> some View {
+        List {
+            Section {
+                ForEach(ReaderOverlayComponentKind.allCases, id: \.self) { kind in
+                    Toggle(localized(ReaderBarFieldNaming.titleKey(for: kind)), isOn: Binding(
+                        get: { field(kind, in: slot) != nil },
+                        set: { selected in update { $0.setSelected(selected, kind: kind, in: slot) } }
+                    ))
+                }
+            } header: {
+                Text(localized("顯示組件"))
             }
-        } label: {
-            Text(localized(ReaderBarFieldNaming.titleKey(for: kind)))
-                .font(DSFont.body)
-                .foregroundStyle(DSColor.textPrimary)
-        }
-        .pickerStyle(.menu)
+            .interfaceSectionSurface()
 
-        if slot != .hidden {
-            fieldOptions(kind)
+            ForEach(layout.fields(in: slot)) { selected in
+                Section {
+                    Toggle(localized("自訂"), isOn: Binding(
+                        get: { field(selected.kind, in: slot)?.isCustomizing ?? false },
+                        set: { value in updateField(selected.kind, in: slot) { $0.usesCustomOptions = value } }
+                    ))
+                    if selected.isCustomizing {
+                        fieldOptions(selected.kind, in: slot)
+                        fieldColorOptions(selected.kind, in: slot)
+                    }
+                } header: {
+                    Text(localized(ReaderBarFieldNaming.titleKey(for: selected.kind)))
+                }
+                .interfaceSectionSurface()
+            }
         }
-        fieldColorOptions(kind)
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(DSColor.groupedBackground)
+        .navigationTitle(localized(slot.titleKey))
+        .toolbarTitleDisplayMode(.inline)
     }
 
-    private func fieldColorOptions(_ kind: ReaderOverlayComponentKind) -> some View {
+    private func field(_ kind: ReaderOverlayComponentKind, in slot: ReaderBarSlot) -> ReaderBarField? {
+        layout.fields.first { $0.kind == kind && $0.slot == slot }
+    }
+
+    private func updateField(_ kind: ReaderOverlayComponentKind, in slot: ReaderBarSlot,
+                             _ mutate: (inout ReaderBarField) -> Void) {
+        update { layout in
+            guard let index = layout.fields.firstIndex(where: { $0.kind == kind && $0.slot == slot }) else { return }
+            mutate(&layout.fields[index])
+        }
+    }
+
+    private func fieldColorOptions(_ kind: ReaderOverlayComponentKind, in slot: ReaderBarSlot) -> some View {
         let title = String(format: localized("%@顏色"), localized(ReaderBarFieldNaming.titleKey(for: kind)))
         return DisclosureGroup {
             Picker(localized("顏色"), selection: Binding<ReaderOverlayColorSource?>(
-                get: { layout.fields.first { $0.kind == kind }?.color?.source },
+                get: { field(kind, in: slot)?.color?.source },
                 set: { source in
-                    update { layout in
-                        var color = layout.fields.first { $0.kind == kind }?.color
-                            ?? ReaderOverlayColorReference(source: .custom)
+                    updateField(kind, in: slot) { field in
+                        var color = field.color ?? ReaderOverlayColorReference(source: .custom)
                         if let source { color.source = source }
-                        layout.setColor(source == nil ? nil : color, for: kind)
+                        field.color = source == nil ? nil : color
                     }
                 }
             )) {
@@ -163,10 +188,10 @@ struct ReaderBarLayoutEditorView: View {
             .pickerStyle(.menu)
             .accessibilityLabel(title)
 
-            if layout.fields.first(where: { $0.kind == kind })?.color?.source == .custom {
-                ColorPicker(localized("亮色模式"), selection: colorBinding(dark: false, field: kind))
+            if field(kind, in: slot)?.color?.source == .custom {
+                ColorPicker(localized("亮色模式"), selection: colorBinding(dark: false, field: kind, slot: slot))
                     .accessibilityLabel("\(title)，\(localized("亮色模式"))")
-                ColorPicker(localized("深色模式"), selection: colorBinding(dark: true, field: kind))
+                ColorPicker(localized("深色模式"), selection: colorBinding(dark: true, field: kind, slot: slot))
                     .accessibilityLabel("\(title)，\(localized("深色模式"))")
             }
         } label: {
@@ -176,8 +201,8 @@ struct ReaderBarLayoutEditorView: View {
     }
 
     @ViewBuilder
-    private func fieldOptions(_ kind: ReaderOverlayComponentKind) -> some View {
-        let configuration = layout.fields.first { $0.kind == kind }?.configuration
+    private func fieldOptions(_ kind: ReaderOverlayComponentKind, in slot: ReaderBarSlot) -> some View {
+        let configuration = field(kind, in: slot)?.configuration
             ?? ReaderOverlayComponentConfiguration()
 
         switch kind {
@@ -189,7 +214,7 @@ struct ReaderBarLayoutEditorView: View {
                     set: { newValue in
                         var next = configuration
                         next.showsBatteryPercentage = newValue
-                        update { $0.setConfiguration(next, for: kind) }
+                        updateField(kind, in: slot) { $0.configuration = next }
                     }
                 )
             )
@@ -203,7 +228,7 @@ struct ReaderBarLayoutEditorView: View {
                     set: { newValue in
                         var next = configuration
                         next.customText = newValue
-                        update { $0.setConfiguration(next, for: kind) }
+                        updateField(kind, in: slot) { $0.configuration = next }
                     }
                 )
             )
@@ -216,7 +241,7 @@ struct ReaderBarLayoutEditorView: View {
                     set: { newValue in
                         var next = configuration
                         next.displayFormat = newValue
-                        update { $0.setConfiguration(next, for: kind) }
+                        updateField(kind, in: slot) { $0.configuration = next }
                     }
                 )
             ) {
@@ -266,41 +291,32 @@ struct ReaderBarLayoutEditorView: View {
             )
             .font(DSFont.body)
 
-            if which == .header {
-                Toggle(
-                    localized("章節首頁隱藏頁眉"),
-                    isOn: Binding(
-                        get: { layout.hidesHeaderOnChapterOpening },
-                        set: { newValue in
-                            update { $0.hidesHeaderOnChapterOpening = newValue }
-                        }
-                    )
-                )
-                .font(DSFont.body)
+            ForEach(ReaderBarSlot.slots(in: which)) { slot in
+                NavigationLink {
+                    slotEditor(slot)
+                } label: {
+                    LabeledContent(localized(slot.titleKey), value: slotSummary(slot))
+                }
             }
 
             BarSliderRow(
-                title: localized(which == .header ? "距離頂端" : "距離底部"),
-                value: edgeDistanceBinding(for: which),
-                range: 0...max(CGFloat(ReaderBarEdgeDistances.adjustmentRange.upperBound), edgeDistance(for: which))
+                title: localized("上邊距"),
+                value: which == .header ? edgeDistanceBinding(for: which) : innerMarginBinding(for: which),
+                range: 0...200
             )
-
             BarSliderRow(
-                title: localized("左右邊距"),
-                value: which == .header
-                    ? $readerConfig.readerHeaderHorizontalPadding
-                    : $readerConfig.readerFooterHorizontalPadding,
-                range: 0...48
+                title: localized("下邊距"),
+                value: which == .footer ? edgeDistanceBinding(for: which) : innerMarginBinding(for: which),
+                range: 0...200
             )
+            BarSliderRow(title: localized("左邊距"), value: sideMarginBinding(for: which, right: false), range: 0...200)
+            BarSliderRow(title: localized("右邊距"), value: sideMarginBinding(for: which, right: true), range: 0...200)
         } header: {
             Text(localized(which.titleKey))
         } footer: {
-            Text(localized("距離從畫面邊緣計算，可設為 0，不受安全區限制。未調整前保留目前位置。"))
+            Text(localized("頁眉上邊距與頁腳下邊距從畫面邊緣計算，另一側控制與正文的間距。"))
                 .dsSectionFooter()
-            if which == .header {
-                Text(localized("章節首頁的頁眉只是不畫出來，保留的空間不變——否則該頁會比其他頁多容納一行。"))
-                    .dsSectionFooter()
-            }
+
         }
         .interfaceSectionSurface()
     }
@@ -309,6 +325,10 @@ struct ReaderBarLayoutEditorView: View {
 
     private var styleSection: some View {
         Section {
+            Toggle(localized("顯示組件分隔點"), isOn: Binding(
+                get: { layout.showsComponentSeparators },
+                set: { value in update { $0.showsComponentSeparators = value } }
+            ))
             Picker(localized("顏色"), selection: Binding(
                 get: { layout.style.color.source },
                 set: { source in update { $0.style.color.source = source } }
@@ -366,13 +386,40 @@ struct ReaderBarLayoutEditorView: View {
         } header: {
             Text(localized("樣式"))
         } footer: {
-            Text(localized("此處設定共用樣式。各組件可在「欄位」中分別調整顏色，並設定淺色與深色模式。"))
+            Text(localized("此處設定共用樣式；各位置選中的組件可開啟自訂選項。"))
                 .dsSectionFooter()
         }
         .interfaceSectionSurface()
     }
 
     // MARK: - State
+
+    private func innerMarginBinding(for bar: ReaderBar) -> Binding<CGFloat> {
+        Binding(
+            get: { CGFloat(bar == .header ? layout.headerMargins.inner : layout.footerMargins.inner) },
+            set: { value in update {
+                if bar == .header { $0.headerMargins.inner = Double(value) }
+                else { $0.footerMargins.inner = Double(value) }
+            } }
+        )
+    }
+
+    private func sideMarginBinding(for bar: ReaderBar, right: Bool) -> Binding<CGFloat> {
+        Binding(
+            get: {
+                let margins = bar == .header ? layout.headerMargins : layout.footerMargins
+                let legacy = bar == .header ? readerConfig.readerHeaderHorizontalPadding : readerConfig.readerFooterHorizontalPadding
+                return (right ? margins.right : margins.left).map { CGFloat($0) } ?? legacy
+            },
+            set: { value in update {
+                if bar == .header {
+                    if right { $0.headerMargins.right = Double(value) } else { $0.headerMargins.left = Double(value) }
+                } else {
+                    if right { $0.footerMargins.right = Double(value) } else { $0.footerMargins.left = Double(value) }
+                }
+            } }
+        )
+    }
 
     private func edgeDistance(for bar: ReaderBar) -> CGFloat {
         if bar == .header {
@@ -396,14 +443,14 @@ struct ReaderBarLayoutEditorView: View {
         )
     }
 
-    private func colorBinding(dark: Bool, field: ReaderOverlayComponentKind? = nil) -> Binding<Color> {
+    private func colorBinding(dark: Bool, field: ReaderOverlayComponentKind? = nil, slot: ReaderBarSlot? = nil) -> Binding<Color> {
         let appearance: UIUserInterfaceStyle = dark ? .dark : .light
         let previewTheme: ReaderTheme = dark ? .night : (theme == .night ? .white : theme)
         return Binding(
             get: {
                 var style = layout.style
                 if let field {
-                    style.color = layout.fields.first { $0.kind == field }?.color ?? style.color
+                    style.color = layout.fields.first { $0.kind == field && $0.slot == slot }?.color ?? style.color
                 }
                 return Color(uiColor: ReaderBarStyleResolver.resolve(
                     style,
@@ -417,7 +464,7 @@ struct ReaderBarLayoutEditorView: View {
                 ), let value = UInt32(hex.dropFirst(), radix: 16) else { return }
                 update { layout in
                     var reference = field.flatMap { kind in
-                        layout.fields.first { $0.kind == kind }?.color
+                        layout.fields.first { $0.kind == kind && $0.slot == slot }?.color
                     } ?? layout.style.color
                     reference.source = .custom
                     if dark {
@@ -426,7 +473,9 @@ struct ReaderBarLayoutEditorView: View {
                         reference.hexRGBA = value
                     }
                     if let field {
-                        layout.setColor(reference, for: field)
+                        if let index = layout.fields.firstIndex(where: { $0.kind == field && $0.slot == slot }) {
+                            layout.fields[index].color = reference
+                        }
                     } else {
                         layout.style.color = reference
                     }
@@ -443,14 +492,16 @@ struct ReaderBarLayoutEditorView: View {
     private static let opacityRange: ClosedRange<CGFloat> =
         CGFloat(ReaderBarStyle.opacityRange.lowerBound)...CGFloat(ReaderBarStyle.opacityRange.upperBound)
 
-    private var layout: ReaderBarLayout { settings.readerBarLayout }
+    private var layout: ReaderBarLayout {
+        settings.readerBarLayout.resolved(isChapterOpening: editsChapterOpening)
+    }
 
     private var visibility: ReaderBarVisibility {
         ReaderOverlayPresentationPolicy.visibility(
             layout: layout,
             headerEnabled: readerConfig.readerHeaderVisible,
             footerEnabled: readerConfig.readerFooterVisible,
-            isChapterOpeningPage: false
+            isChapterOpeningPage: editsChapterOpening
         )
     }
 
@@ -458,7 +509,7 @@ struct ReaderBarLayoutEditorView: View {
         ReaderOverlayContentSnapshot(
             bookTitle: localized("示例書名"),
             chapterTitle: localized("第一章 示例章節"),
-            chapterPage: 3,
+            chapterPage: editsChapterOpening ? 1 : 3,
             chapterPageCount: 12,
             totalProgress: 0.4523,
             now: clock.now,
@@ -474,6 +525,10 @@ struct ReaderBarLayoutEditorView: View {
     private func update(_ mutate: (inout ReaderBarLayout) -> Void) {
         var next = layout
         mutate(&next)
+        if editsChapterOpening {
+            next.chapterOpeningFields = next.fields
+            next.fields = settings.readerBarLayout.fields
+        }
         guard settings.saveReaderBarLayout(next) else {
             saveFailed = true
             return
@@ -500,7 +555,7 @@ private struct BarSliderRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: DSSpacing.xs) {
             HStack {
                 Text(title)
                     .font(DSFont.body)

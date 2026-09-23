@@ -207,6 +207,7 @@ struct AIAssistantPanelView: View {
                     .padding(.horizontal, DSSpacing.lg)
                     .padding(.vertical, DSSpacing.lg)
                 }
+                .softScrollEdges()
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: messages) { _, _ in
                     withAnimation(DSAnimation.fast) {

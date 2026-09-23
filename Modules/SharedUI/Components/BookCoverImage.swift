@@ -27,6 +27,8 @@ struct BookCoverImage: View {
     var defaultCoverSeed: String?
 
     @State private var image: UIImage?
+    /// The 預設封面 this slot falls back to, once decoded off the main thread.
+    @State private var loadedDefaultCover: LoadedDefaultCover?
     @Environment(\.colorScheme) private var colorScheme
 
     init(
@@ -66,7 +68,20 @@ struct BookCoverImage: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
-        .task(id: BookCoverLoader.cacheKey(for: coverURL, session: session)) { await load() }
+        .task(id: LoadID(
+            cover: BookCoverLoader.cacheKey(for: coverURL, session: session),
+            defaultCover: defaultCoverRequest
+        )) { await load() }
+    }
+
+    private struct LoadID: Hashable {
+        var cover: String
+        var defaultCover: CoverImageRequest?
+    }
+
+    private struct LoadedDefaultCover {
+        let request: CoverImageRequest
+        let image: UIImage
     }
 
     /// 強制使用預設封面: the book's own artwork is ignored everywhere it is drawn,
@@ -75,11 +90,25 @@ struct BookCoverImage: View {
         GlobalSettings.shared.useDefaultCoverForAllBooks
     }
 
-    /// The default cover this slot should show, if any. Forcing applies to every
-    /// book, so it also supplies a seed to slots that opted out of the library.
+    /// The 預設封面 this slot falls back to, if any. Forcing applies to every book,
+    /// so it also supplies a seed to slots that opted out of the library. Pure: which
+    /// file, not its pixels.
+    private var defaultCoverRequest: CoverImageRequest? {
+        guard let seed = defaultCoverSeed ?? (forcesDefaultCover ? title : nil),
+              let fileName = DefaultCoverLibrary.fileName(seed: seed, colorScheme: colorScheme) else {
+            return nil
+        }
+        return DefaultCoverLibrary.request(fileName: fileName)
+    }
+
+    /// The default cover this slot should show, from memory only. One not decoded
+    /// yet is loaded by `load()`, never read here: this runs in `body`.
     private var resolvedDefaultCover: UIImage? {
-        guard let seed = defaultCoverSeed ?? (forcesDefaultCover ? title : nil) else { return nil }
-        return DefaultCoverLibrary.image(seed: seed, colorScheme: colorScheme)
+        guard let request = defaultCoverRequest else { return nil }
+        if let loadedDefaultCover, loadedDefaultCover.request == request {
+            return loadedDefaultCover.image
+        }
+        return CoverImagePipeline.shared.cachedImage(for: request)
     }
 
     // Runs on the MainActor (`.task` inherits the view's actor), so state
@@ -89,15 +118,39 @@ struct BookCoverImage: View {
         // Not conditional on the library having images any more — an empty
         // library now lands on `GeneratedBookCover` rather than on the book's own
         // artwork, so downloading it would be wasted either way.
-        if forcesDefaultCover { return }
+        if forcesDefaultCover {
+            await loadDefaultCover()
+            return
+        }
         if let cached = BookCoverLoader.cachedImage(for: coverURL, session: session) {
             if image !== cached { image = cached }
             return
         }
         if image != nil { image = nil }  // avoid showing a reused cell's old cover
+        // The 預設封面 is the placeholder while the network cover loads and the
+        // fallback when it fails. It is a local file, so it is ready first.
+        await loadDefaultCover()
+        guard !Task.isCancelled else { return }
         let headers = BookCoverLoader.headers(sourceBaseURL: sourceBaseURL, sourceHeaders: sourceHeaders)
         let loaded = await BookCoverLoader.loadImage(urlString: coverURL, headers: headers, session: session)
         if !Task.isCancelled { image = loaded }
+    }
+
+    /// Decodes this slot's 預設封面 off the main thread when memory does not have
+    /// it, and holds it while the slot is alive.
+    private func loadDefaultCover() async {
+        guard let request = defaultCoverRequest else { return }
+        let decoded: UIImage
+        if let cached = CoverImagePipeline.shared.cachedImage(for: request) {
+            decoded = cached
+        } else {
+            guard let loaded = await CoverImagePipeline.shared.image(for: request).image,
+                  !Task.isCancelled else { return }
+            decoded = loaded
+        }
+        if loadedDefaultCover?.request != request || loadedDefaultCover?.image !== decoded {
+            loadedDefaultCover = LoadedDefaultCover(request: request, image: decoded)
+        }
     }
 }
 

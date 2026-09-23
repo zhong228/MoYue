@@ -4,97 +4,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 // MARK: - Bookshelf Home
-/// Cover styling the bookshelf shares between its list rows and grid cells.
-enum BookshelfCoverStyle {
-    /// 設定 → 書架顯示 → 預設封面 → 封面圓角. Read unobserved: `HomeView` observes
-    /// `GlobalSettings`, so a change there rebuilds every row with the new value.
-    static var cornerRadius: CGFloat {
-        CGFloat(GlobalSettings.shared.bookshelfCoverCornerRadius)
-    }
-
-    /// The bitmap a bookshelf card draws, or nil when the book has no artwork of
-    /// its own and the user's 預設封面 library is empty — `artwork(for:)`
-    /// generates one for that case.
-    ///
-    /// One resolver for the row, the grid cell and the open-book transition
-    /// snapshot, so 強制使用預設封面 cannot end up honored in one of them and
-    /// ignored in another — a mismatch there shows as the cover swapping
-    /// mid-animation.
-    static func image(for book: ReadingBook, colorScheme: ColorScheme) -> UIImage? {
-        let defaultCover = DefaultCoverLibrary.image(
-            seed: book.id.uuidString, colorScheme: colorScheme
-        )
-        // Forcing means the book's own artwork is never drawn, even when the
-        // library is empty — that case falls through to the generated cover,
-        // which is what Legado's built-in default cover does.
-        if GlobalSettings.shared.useDefaultCoverForAllBooks { return defaultCover }
-        let cachedRemoteCover = book.remoteSource == nil ? nil : book.coverUrl.flatMap {
-            BookCoverLoader.cachedImage(for: $0, session: BookCoverLoader.remoteSession(for: book))
-        }
-        return book.coverImagePath.flatMap { BookshelfCoverLoader.load(filename: $0) }
-            ?? cachedRemoteCover ?? defaultCover
-    }
-
-    /// What a card actually shows. Always something: the book's own cover, the
-    /// user's 預設封面, or one generated from the title.
-    ///
-    /// Fills the frame the caller gives it. The row, the grid cell and the
-    /// reader's card all go through here — each used to inline its own grey
-    /// title card, which is how a local TXT with no artwork kept getting the old
-    /// placeholder after the generated covers landed.
-    @MainActor
-    @ViewBuilder
-    static func artwork(for book: ReadingBook, colorScheme: ColorScheme) -> some View {
-        if book.remoteSource != nil, !GlobalSettings.shared.useDefaultCoverForAllBooks,
-           book.coverImagePath.flatMap({ BookshelfCoverLoader.load(filename: $0) }) == nil,
-           book.coverUrl?.isEmpty == false {
-            BookCoverImage(readingBook: book, defaultCoverSeed: book.id.uuidString)
-        } else if let uiImage = image(for: book, colorScheme: colorScheme) {
-            Image(uiImage: uiImage)
-                .resizable()
-                .scaledToFill()
-        } else {
-            GeneratedBookCover(title: book.title, author: book.author)
-        }
-    }
-
-    /// Bitmap form for the open-book transition, which lifts a picture rather
-    /// than a view and so cannot take `artwork(for:)`. Keep the shelf's logical
-    /// size so thumbnail typography and ornaments do not change at handoff;
-    /// increase only pixel density for the lifted cover's expansion.
-    @MainActor
-    static func snapshot(
-        for book: ReadingBook,
-        colorScheme: ColorScheme,
-        sourceSize: CGSize? = nil
-    ) -> UIImage? {
-        if let uiImage = image(for: book, colorScheme: colorScheme) { return uiImage }
-        let settings = GlobalSettings.shared
-        // Opens without a visible shelf source have no thumbnail to match.
-        // Keep their existing full-cover canvas; remove this default if every
-        // opening entry point eventually supplies source geometry.
-        let layoutSize = sourceSize ?? CGSize(width: 300, height: 400)
-        // Preserve at least the previous 800-pixel long edge. An integer scale
-        // keeps pixel rounding from changing the bitmap's logical dimensions.
-        let scale = max(2, ceil(800 / max(layoutSize.width, layoutSize.height, 1)))
-        return GeneratedBookCoverRenderer.image(
-            title: book.title,
-            author: book.author,
-            size: layoutSize,
-            colorScheme: colorScheme,
-            drawsName: settings.defaultCoverDrawsBookName,
-            drawsAuthor: settings.defaultCoverDrawsBookAuthor,
-            scale: scale
-        )
-    }
-}
-
-enum BookshelfCoverLoader {
-    static func load(filename: String) -> UIImage? {
-        BookCoverLoader.localImage(filename: filename)
-    }
-}
-
 @MainActor
 private final class BookshelfReaderGeometryStore: ObservableObject {
     private var frames: [UUID: CGRect] = [:]
@@ -186,9 +95,22 @@ struct HomeView: View {
             count: gs.bookshelfGridColumnCount
         )
     }
+    /// A grid cell's cover frame: the flexible columns' share of the width left after
+    /// the insets and the gaps between columns, at the cell's 2:3. `.zero` before the
+    /// first layout, which leaves covers on their placeholder until it is known.
+    private var gridCoverDisplaySize: CGSize {
+        let columns = CGFloat(max(gs.bookshelfGridColumnCount, 1))
+        let available = gridContainerWidth - gridHorizontalInset * 2 - gridColumnSpacing * (columns - 1)
+        guard available > 0 else { return .zero }
+        let width = available / columns
+        return CGSize(width: width, height: width * 3 / 2)
+    }
 
     @StateObject private var readerCoordinator = ReaderNavigationCoordinator()
     @StateObject private var readerGeometryStore = BookshelfReaderGeometryStore()
+    /// The grid scroll view's width, measured once per size change (not per cell, not
+    /// per scroll), so every cell knows how large to decode its cover.
+    @State private var gridContainerWidth: CGFloat = 0
     @State private var pendingReaderOpenToken: UUID?
 
     /// Audiobooks and the iPad shell retain their modal reader presentation.
@@ -240,6 +162,9 @@ struct HomeView: View {
                 colorScheme: colorScheme,
                 sourceSize: sourceGeometry?.frame.size ?? readerGeometryStore.frame(for: book.id)?.size
             )
+            let snapshotUpgrade = snapshot == nil
+                ? nil
+                : BookshelfCoverStyle.snapshotUpgrade(for: book, colorScheme: colorScheme)
             AppLogger.info("⟐ openBook snapshot resolved hasSnapshot=\(snapshot != nil)")
             Task { @MainActor in
                 AppLogger.info("⟐ openBook begin resolveOpeningDirection bookID=\(book.id)")
@@ -270,6 +195,7 @@ struct HomeView: View {
                         return geometryStore?.frame(for: book.id)
                     },
                     snapshot: snapshot,
+                    snapshotUpgrade: snapshotUpgrade,
                     direction: direction
                 )
                 let shouldInvalidateForRecentSort =
@@ -799,7 +725,8 @@ struct HomeView: View {
 
     // MARK: - Book Grid
     private var bookGrid: some View {
-        ScrollView {
+        let coverDisplaySize = gridCoverDisplaySize
+        return ScrollView {
             LazyVGrid(
                 columns: gridColumns,
                 spacing: DSSpacing.lg
@@ -808,6 +735,7 @@ struct HomeView: View {
                     BookGridCell(
                         book: book,
                         isCompactLayout: isCompactFiveColumnGrid,
+                        coverDisplaySize: coverDisplaySize,
                         transitionNamespace: bookTransition,
                         onOpen: { sourceGeometry in
                             openBook(book, sourceGeometry: sourceGeometry)
@@ -826,10 +754,16 @@ struct HomeView: View {
             .padding(.horizontal, gridHorizontalInset)
             .padding(.vertical, DSSpacing.md)
         }
+        .softScrollEdges()
         .animation(.easeOut(duration: 0.25), value: sortedFilteredBooks.map(\.id))
         .animation(DSAnimation.standard, value: gs.bookshelfGridColumnCount)
         .refreshable {
             await ChapterUpdater.refreshAll(bookStore: store)
+        }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            gridContainerWidth = width
         }
     }
 
@@ -1149,25 +1083,21 @@ struct EditBookSheet: View {
     }
 
     /// The artwork itself, filling whatever frame the caller gives it: the user's
-    /// own image when they set one, otherwise the source's cover.
-    @ViewBuilder
+    /// own image when they set one, otherwise the source's cover. Loaded like a
+    /// shelf card, off the main thread, at the hero's size.
     private var coverArtwork: some View {
-        if let path = liveBook.coverImagePath,
-           let image = BookshelfCoverLoader.load(filename: path) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-        } else {
-            BookCoverImage(readingBook: liveBook)
-        }
+        BookshelfCoverArtwork(
+            book: liveBook,
+            plan: .bookInfo(for: liveBook),
+            displaySize: CGSize(width: DSLayout.bookCoverHeroWidth, height: DSLayout.bookCoverHeroHeight)
+        )
     }
 
     /// 書籍資訊 opens on the cover: the artwork at a size worth looking at, lifted
     /// off a blurred wash of itself that melts into the page background.
     ///
-    /// Both layers render one `coverArtwork` value, so the artwork is resolved
-    /// once per pass — `BookshelfCoverLoader.load` reads and decodes from disk on
-    /// every call, and `BookCoverImage` would start a second load.
+    /// Both layers render one `coverArtwork` value. They request the same size, so
+    /// the pipeline decodes the file once for both.
     private var coverHero: some View {
         let artwork = coverArtwork
         let shape = RoundedRectangle(cornerRadius: DSRadius.xl, style: .continuous)
@@ -1470,7 +1400,11 @@ struct BookRow: View {
     }
 
     private var bookCover: some View {
-        BookshelfCoverStyle.artwork(for: book, colorScheme: colorScheme)
+        BookshelfCoverStyle.artwork(
+            for: book,
+            colorScheme: colorScheme,
+            displaySize: CGSize(width: coverW, height: coverH)
+        )
             .frame(width: coverW, height: coverH)
             .clipShape(RoundedRectangle(cornerRadius: BookshelfCoverStyle.cornerRadius))
             .shadow(color: .black.opacity(0.08), radius: 15, x: 0, y: 10)
@@ -1517,6 +1451,8 @@ private struct BookSyncIndicator: View {
 struct BookGridCell: View {
     let book: ReadingBook
     var isCompactLayout: Bool = false
+    /// The cover's frame as the grid lays it out; picks the decode size.
+    var coverDisplaySize: CGSize = .zero
     var transitionNamespace: Namespace.ID? = nil
     let onOpen: (ReaderCardGeometry?) -> Void
     var onCoverFrameChange: ((CGRect) -> Void)? = nil
@@ -1646,7 +1582,13 @@ struct BookGridCell: View {
     private var coverView: some View {
         Color.clear
             .aspectRatio(2/3, contentMode: .fit)
-            .overlay(BookshelfCoverStyle.artwork(for: book, colorScheme: colorScheme))
+            .overlay(
+                BookshelfCoverStyle.artwork(
+                    for: book,
+                    colorScheme: colorScheme,
+                    displaySize: coverDisplaySize
+                )
+            )
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: BookshelfCoverStyle.cornerRadius))
             .shadow(color: .black.opacity(0.18), radius: 4, x: 0, y: 2)
@@ -1785,8 +1727,16 @@ private func previewOnlineBook(hasUpdate: Bool) -> ReadingBook {
         columns: Array(repeating: GridItem(.flexible(), spacing: DSSpacing.md), count: 3),
         spacing: DSSpacing.lg
     ) {
-        BookGridCell(book: previewOnlineBook(hasUpdate: true), onOpen: { _ in }, onEdit: {}, onDelete: {})
-        BookGridCell(book: previewOnlineBook(hasUpdate: false), onOpen: { _ in }, onEdit: {}, onDelete: {})
+        BookGridCell(
+            book: previewOnlineBook(hasUpdate: true),
+            coverDisplaySize: CGSize(width: 110, height: 165),
+            onOpen: { _ in }, onEdit: {}, onDelete: {}
+        )
+        BookGridCell(
+            book: previewOnlineBook(hasUpdate: false),
+            coverDisplaySize: CGSize(width: 110, height: 165),
+            onOpen: { _ in }, onEdit: {}, onDelete: {}
+        )
     }
     .padding()
 }

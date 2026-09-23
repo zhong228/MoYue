@@ -71,6 +71,7 @@ struct BookSourceCheckOptionsView: View {
                 .padding(.horizontal, DSSpacing.xl)
                 .padding(.bottom, DSSpacing.xl)
             }
+            .softScrollEdges()
             .scrollIndicators(.hidden)
             .navigationTitle(localized("書源驗證"))
             .toolbarTitleDisplayMode(.inline)

@@ -517,8 +517,7 @@ extension ReaderView {
     var appleBooksPagesLeftText: String {
         let left: Int
         if let engine = epubRenderer.engine, usesCoreTextEPUB {
-            let (spineIndex, charOffset) = engine.charOffset(forPage: currentPage)
-            if let pagination = engine.chapterPagination(forSpine: spineIndex, charOffset: charOffset) {
+            if let pagination = displayedChapterPagination(in: engine) {
                 // displayPageCount: estimated total while the chapter is still
                 // partially paginated, exact once complete.
                 left = max(0, pagination.displayPageCount - pagination.localPageIndex - 1)

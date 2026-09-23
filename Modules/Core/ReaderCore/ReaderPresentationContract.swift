@@ -286,26 +286,32 @@ final class ReaderSessionStore: ObservableObject {
     }
 
     func move(to location: ReaderLocation) {
+        guard state.location != location else { return }
         state.location = location
     }
 
     func updateAppearance(_ appearance: ReaderAppearance) {
+        guard state.appearance != appearance else { return }
         state.appearance = appearance
     }
 
     func updateViewport(_ size: CGSize) {
+        guard state.viewportSize != size else { return }
         state.viewportSize = size
     }
 
     func switchPagingStyle(_ style: ReaderPagingStyle) {
+        guard state.pagingStyle != style else { return }
         state.pagingStyle = style
     }
 
     func updateDirection(_ direction: ReaderReadingDirection) {
+        guard state.direction != direction else { return }
         state.direction = direction
     }
 
     func updateSpreadMode(_ spreadMode: ReaderSpreadMode) {
+        guard state.spreadMode != spreadMode else { return }
         state.spreadMode = spreadMode
     }
 }

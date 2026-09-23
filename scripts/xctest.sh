@@ -36,11 +36,16 @@ DEST="${YUEDU_DEST:-$(bash scripts/sim.sh dest)}"
 echo "log:  $LOG"
 echo "dest: $DEST"
 
+# `-collect-test-diagnostics never`: after any failing test, xcodebuild's default
+# (on-failure) runs `simctl diagnose ... --timeout=600` before it prints its verdict.
+# Measured 2026-09-21: Swift Testing finished at 20:37:44 and the run then sat in that
+# child process for ~10 minutes, twice in a row. Collect a sysdiagnose by hand when needed.
 xcodebuild test \
   -project Yuedu-Reader.xcodeproj \
   -scheme Yuedu-Reader \
   -destination "$DEST" \
   -parallel-testing-enabled NO \
+  -collect-test-diagnostics never \
   "$@" > "$LOG" 2>&1 &
 BUILD_PID=$!
 
@@ -78,7 +83,7 @@ echo "xcodebuild status: $RAW_STATUS; wrapper verdict stop: $VERDICT_STOP"
 echo "--- errors ---"
 grep -nE "^/Users.*error:" "$LOG" | sed "s|$ROOT/||" | head -25
 echo "--- verdict ---"
-grep -E "Test run with [0-9]+ tests|Test Suite 'All tests' (passed|failed)|✘ Suite|\*\* TEST (SUCCEEDED|FAILED) \*\*|\*\* BUILD FAILED \*\*" "$LOG" | head -20
+grep -E "Test run with [0-9]+ tests?|Test Suite 'All tests' (passed|failed)|✘ Suite|\*\* TEST (SUCCEEDED|FAILED) \*\*|\*\* BUILD FAILED \*\*" "$LOG" | head -20
 
 # Framework/background logs can contain "failed" on a successful run. Only the test
 # runner's final verdict is authoritative; absence of a verdict is never success.
@@ -87,7 +92,7 @@ grep -E "Test run with [0-9]+ tests|Test Suite 'All tests' (passed|failed)|✘ S
 if (( RAW_STATUS != 0 )) && ! { [[ "$VERDICT_STOP" == true ]] && (( RAW_STATUS >= 128 )); }; then
   exit 1
 fi
-if ! grep -qE 'Test run with [1-9][0-9]* tests|Executed [1-9][0-9]* tests?' "$LOG"; then
+if ! grep -qE 'Test run with [1-9][0-9]* tests?|Executed [1-9][0-9]* tests?' "$LOG"; then
   exit 1
 fi
 if grep -qE "\*\* TEST SUCCEEDED \*\*" "$LOG" && ! grep -qE "✘|\*\* TEST FAILED \*\*|\*\* BUILD FAILED \*\*" "$LOG"; then

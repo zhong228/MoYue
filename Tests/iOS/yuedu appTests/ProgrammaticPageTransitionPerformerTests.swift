@@ -3,6 +3,7 @@ import UIKit
 @testable import yuedu_app
 
 @Suite("ProgrammaticPageTransitionPerformer", .serialized)
+@MainActor
 struct ProgrammaticPageTransitionPerformerTests {
 
     private final class IndexedViewController: UIViewController, PageIndexProviding {
@@ -66,6 +67,17 @@ struct ProgrammaticPageTransitionPerformerTests {
         func layoutIfNeeded() {
             layoutIfNeededCalls += 1
         }
+    }
+
+    @Test("only a slide burst runs our timed push; a lone tap keeps UIKit's transition")
+    func slideTurnAnimationIsBurstOnly() {
+        #expect(!ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .slide, animated: true, turnSpeed: 1))
+        #expect(ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .slide, animated: true, turnSpeed: 1.5))
+        #expect(ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .slide, animated: true, turnSpeed: 3))
+        #expect(!ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .slide, animated: false, turnSpeed: 2))
+        #expect(!ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .curl, animated: true, turnSpeed: 2))
+        #expect(!ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .cover, animated: true, turnSpeed: 2))
+        #expect(!ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .none, animated: true, turnSpeed: 2))
     }
 
     @Test("reverse slide re-applies target non-animated so settled page stays on target")

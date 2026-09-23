@@ -20,6 +20,9 @@ struct ReaderLayoutPreset {
     let pageTurnStyle: PageTurnStyle?
     let scrollMode: Bool?
     let readerOverlayLayout: ReaderOverlayLayout?
+    var pageMarginTop: CGFloat? = nil
+    var pageMarginBottom: CGFloat? = nil
+    var readerBarLayout: ReaderBarLayout? = nil
 }
 
 enum ReaderLayoutPresetImportError: LocalizedError {
@@ -80,7 +83,7 @@ enum ReaderLayoutPresetImporter {
         "readerHeaderTopPadding", "readerHeaderTextGap",
         "readerHeaderHorizontalPadding", "footerBottomPadding", "footerTextGap",
         "readerFooterHorizontalPadding", "topContentReservation",
-        "bottomContentReservation", "readerOverlayLayout",
+        "bottomContentReservation", "readerOverlayLayout", "readerBarLayout",
     ]
 
     static func decode(data: Data) throws -> ReaderLayoutPreset {
@@ -155,6 +158,7 @@ private struct LegadoReadConfig: Decodable {
     let paddingRight: CGFloat?
     let paddingTop: CGFloat?
     let paddingBottom: CGFloat?
+    let readerBarLayout: ReaderBarLayout?
     let footerPaddingBottom: CGFloat?
     let footerPaddingTop: CGFloat?
     let headerMode: Int?
@@ -216,7 +220,10 @@ private struct LegadoReadConfig: Decodable {
             titleBottomSpacing: titleBottomSpacing.map { sanitized($0, range: 0...28) },
             pageTurnStyle: pageTurnStyle(from: pageAnim),
             scrollMode: pageAnim.map { $0 == 3 },
-            readerOverlayLayout: overlayLayout
+            readerOverlayLayout: overlayLayout,
+            pageMarginTop: paddingTop.map { sanitized($0, range: 0...50) },
+            pageMarginBottom: paddingBottom.map { sanitized($0, range: 0...50) },
+            readerBarLayout: readerBarLayout
         )
     }
 

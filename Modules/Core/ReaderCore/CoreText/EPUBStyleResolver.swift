@@ -219,79 +219,96 @@ final class EPUBStyleResolver {
         italic: Bool,
         size: CGFloat
     ) -> UIFont? {
-        let normalizedFamilies = families
-            .map(Self.normalizeFontName)
-            .filter { !$0.isEmpty }
-        // No CSS font-family means "use the reader default", not a failed embedded
-        // font lookup. Logging this normal path produced hundreds of false ERROR
-        // entries per chapter in exported diagnostics.
-        guard !normalizedFamilies.isEmpty else { return nil }
-
-        // CSS font-family is a glyph fallback list, not just a search for the
-        // first installed name. Resolve aliases before building the cascade so
-        // subset EPUB faces can hand missing characters to the next authored face.
-        let fonts = families.compactMap { authoredName -> UIFont? in
-            let family = Self.normalizeFontName(authoredName)
-            guard !family.isEmpty else { return nil }
-            let baseFont: UIFont?
-            if let face = bestVariant(for: family, weight: weight, italic: italic) {
-                baseFont = UIFont(name: face.postScriptName, size: size)
-                    ?? UIFont(name: face.familyName, size: size)
-            } else {
-                let name = authoredName.trimmingCharacters(in:
-                    .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'")))
-                baseFont = UIFont(name: name, size: size)
-            }
-            guard var font = baseFont else { return nil }
-            if weight >= 600 {
-                font = UserReaderFontResolver.boldVersion(of: font, size: size)
-            }
-            if italic {
-                var traits = font.fontDescriptor.symbolicTraits
-                traits.insert(.traitItalic)
-                if let descriptor = font.fontDescriptor.withSymbolicTraits(traits) {
-                    font = UIFont(descriptor: descriptor, size: size)
-                } else {
-                    font = HTMLAttributedStringBuilder.synthesizedObliqueFont(from: font)
-                }
-            }
-            return font
-        }
-        guard let primary = fonts.first else { return nil }
-        let descriptor = primary.fontDescriptor.addingAttributes([
-            .cascadeList: fonts.dropFirst().map(\.fontDescriptor)
-        ])
-        return ReaderFontCascade.preservingPrimary(
-            UIFont(descriptor: descriptor, size: size), size: size, isBoldRequested: weight >= 600
-        )
+        registeredFonts.resolve(families: families, weight: weight, italic: italic, size: size)
     }
 
-    /// Picks the registered variant closest to the requested weight/style — weight distance first,
-    /// then a style (italic) tiebreak. With one registered face this just returns it; with several
-    /// (separate light / bold / italic `@font-face` blocks) it returns the right file instead of
-    /// whichever registered first.
-    private func bestVariant(for family: String, weight: Int, italic: Bool) -> RegisteredFontFace? {
-        let variants: [RegisteredFontFace]
-        if let direct = registeredFontVariants[family], !direct.isEmpty {
-            variants = direct
-        } else {
-            variants = registeredFontVariants.values.flatMap { $0 }.filter {
-                Self.normalizeFontName($0.familyName) == family
-                    || Self.normalizeFontName($0.postScriptName) == family
-            }
-        }
-        guard !variants.isEmpty else {
-            // Fall back to the legacy representative-face map if variants weren't recorded.
-            return registeredFontFaces[family]
-                ?? registeredFontFaces.values.first {
-                    Self.normalizeFontName($0.familyName) == family
-                        || Self.normalizeFontName($0.postScriptName) == family
+    /// The faces registered so far, as a value any thread may resolve from.
+    /// A chapter laid out off the main thread takes this once its own input is
+    /// collected (its faces are registered by then), while other chapters keep
+    /// registering on the main actor without touching what it reads.
+    var registeredFonts: RegisteredFonts {
+        RegisteredFonts(faces: registeredFontFaces, variants: registeredFontVariants)
+    }
+
+    struct RegisteredFonts: @unchecked Sendable {
+        let faces: [String: RegisteredFontFace]
+        let variants: [String: [RegisteredFontFace]]
+
+        nonisolated func resolve(families: [String], weight: Int, italic: Bool, size: CGFloat) -> UIFont? {
+            let normalizedFamilies = families
+                .map(EPUBStyleResolver.normalizeFontName)
+                .filter { !$0.isEmpty }
+            // No CSS font-family means "use the reader default", not a failed embedded
+            // font lookup. Logging this normal path produced hundreds of false ERROR
+            // entries per chapter in exported diagnostics.
+            guard !normalizedFamilies.isEmpty else { return nil }
+
+            // CSS font-family is a glyph fallback list, not just a search for the
+            // first installed name. Resolve aliases before building the cascade so
+            // subset EPUB faces can hand missing characters to the next authored face.
+            let fonts = families.compactMap { authoredName -> UIFont? in
+                let family = EPUBStyleResolver.normalizeFontName(authoredName)
+                guard !family.isEmpty else { return nil }
+                let baseFont: UIFont?
+                if let face = bestVariant(for: family, weight: weight, italic: italic) {
+                    baseFont = UIFont(name: face.postScriptName, size: size)
+                        ?? UIFont(name: face.familyName, size: size)
+                } else {
+                    let name = authoredName.trimmingCharacters(in:
+                        .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'")))
+                    baseFont = UIFont(name: name, size: size)
                 }
+                guard var font = baseFont else { return nil }
+                if weight >= 600 {
+                    font = UserReaderFontResolver.boldVersion(of: font, size: size)
+                }
+                if italic {
+                    var traits = font.fontDescriptor.symbolicTraits
+                    traits.insert(.traitItalic)
+                    if let descriptor = font.fontDescriptor.withSymbolicTraits(traits) {
+                        font = UIFont(descriptor: descriptor, size: size)
+                    } else {
+                        font = HTMLAttributedStringBuilder.synthesizedObliqueFont(from: font)
+                    }
+                }
+                return font
+            }
+            guard let primary = fonts.first else { return nil }
+            let descriptor = primary.fontDescriptor.addingAttributes([
+                .cascadeList: fonts.dropFirst().map(\.fontDescriptor)
+            ])
+            return ReaderFontCascade.preservingPrimary(
+                UIFont(descriptor: descriptor, size: size), size: size, isBoldRequested: weight >= 600
+            )
         }
-        return variants.min { lhs, rhs in
-            let l = (abs(lhs.weight - weight), lhs.isItalic == italic ? 0 : 1)
-            let r = (abs(rhs.weight - weight), rhs.isItalic == italic ? 0 : 1)
-            return l.0 != r.0 ? l.0 < r.0 : l.1 < r.1
+
+        /// Picks the registered variant closest to the requested weight/style — weight distance first,
+        /// then a style (italic) tiebreak. With one registered face this just returns it; with several
+        /// (separate light / bold / italic `@font-face` blocks) it returns the right file instead of
+        /// whichever registered first.
+        private nonisolated func bestVariant(for family: String, weight: Int, italic: Bool) -> RegisteredFontFace? {
+            let candidates: [RegisteredFontFace]
+            if let direct = variants[family], !direct.isEmpty {
+                candidates = direct
+            } else {
+                candidates = variants.values.flatMap { $0 }.filter {
+                    EPUBStyleResolver.normalizeFontName($0.familyName) == family
+                        || EPUBStyleResolver.normalizeFontName($0.postScriptName) == family
+                }
+            }
+            guard !candidates.isEmpty else {
+                // Fall back to the legacy representative-face map if variants weren't recorded.
+                return faces[family]
+                    ?? faces.values.first {
+                        EPUBStyleResolver.normalizeFontName($0.familyName) == family
+                            || EPUBStyleResolver.normalizeFontName($0.postScriptName) == family
+                    }
+            }
+            return candidates.min { lhs, rhs in
+                let l = (abs(lhs.weight - weight), lhs.isItalic == italic ? 0 : 1)
+                let r = (abs(rhs.weight - weight), rhs.isItalic == italic ? 0 : 1)
+                return l.0 != r.0 ? l.0 < r.0 : l.1 < r.1
+            }
         }
     }
 
@@ -345,7 +362,7 @@ final class EPUBStyleResolver {
         return stack.joined(separator: "/")
     }
 
-    static func normalizeFontName(_ name: String) -> String {
+    nonisolated static func normalizeFontName(_ name: String) -> String {
         name
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "'\""))

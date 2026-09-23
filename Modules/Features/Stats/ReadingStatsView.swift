@@ -59,6 +59,7 @@ struct ReadingStatsView: View {
                     .padding(.vertical, DSSpacing.lg)
                 }
             }
+            .softScrollEdges()
             .background(PageBackgroundView(scope: .settings).ignoresSafeArea())
             .pageBackgroundToolbar(for: .settings)
             .navigationTitle(localized("閱讀統計"))

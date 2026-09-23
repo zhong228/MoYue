@@ -30,6 +30,9 @@ final class ReaderCardTransitionAnimator: NSObject, UIViewControllerAnimatedTran
     /// Guards `beginDrivingPresentation()` against running twice when both the
     /// gated and ungated paths are reachable.
     private var isDrivingPresentation = false
+    /// The bitmap currently on the cover layer, so a sharper rendering of the same
+    /// artwork can replace it once (`refreshCoverContentsIfUpgraded`).
+    private var stagedCoverImage: UIImage?
     /// Captured in `interruptibleAnimator` so a gated start can still use the
     /// duration UIKit asked for when it finally begins driving.
     private var presentationDuration: TimeInterval = 0
@@ -269,6 +272,30 @@ final class ReaderCardTransitionAnimator: NSObject, UIViewControllerAnimatedTran
         return animator
     }
 
+    /// `layer.contents` ignores UIImage orientation metadata, so a non-upright
+    /// cover is redrawn once here rather than shown rotated.
+    private func setCoverContents(_ image: UIImage, on coverView: UIView) {
+        let normalized: UIImage = image.imageOrientation == .up
+            ? image
+            : UIGraphicsImageRenderer(size: image.size).image { _ in
+                image.draw(at: .zero)
+            }
+        coverView.layer.contents = normalized.cgImage
+        coverView.layer.contentsScale = normalized.scale
+        stagedCoverImage = image
+    }
+
+    /// The card was staged with the shelf's thumbnail; the sharper rendering the
+    /// shelf started preparing at the tap has usually landed by the time the card
+    /// starts to grow. Swapped in only if it is already in memory: never waited for.
+    /// Same artwork and proportions (`bestAvailableSnapshot`), so the crop is unchanged.
+    private func refreshCoverContentsIfUpgraded(in stage: BookStage) {
+        guard let staged = stagedCoverImage,
+              let best = source.bestAvailableSnapshot(),
+              best !== staged else { return }
+        setCoverContents(best, on: stage.coverView)
+    }
+
     /// Commits the visual model and begins playback. Split out of
     /// `interruptibleAnimator` so an opening transition can hold the staged
     /// card at rest until the reader's first page exists, then start the
@@ -277,6 +304,7 @@ final class ReaderCardTransitionAnimator: NSObject, UIViewControllerAnimatedTran
         guard !isDrivingPresentation else { return }
         isDrivingPresentation = true
         guard let state = runtimeState else { return }
+        refreshCoverContentsIfUpgraded(in: state.stage)
         if state.isInteractive {
             // Interactive edge-pop scrubs with the finger: keep the per-frame
             // CADisplayLink model so drag position maps 1:1 to the visuals.
@@ -617,22 +645,16 @@ final class ReaderCardTransitionAnimator: NSObject, UIViewControllerAnimatedTran
 
         let coverView = UIView()
         coverView.isUserInteractionEnabled = false
-        if let image = source.snapshot {
+        // A pop builds its stage long after the tap, when the sharper rendering
+        // is normally in memory already.
+        if let image = source.bestAvailableSnapshot() {
             // Deliberately not a `UIImageView` with `.scaleAspectFill` +
             // `clipsToBounds`. That pairing clips a rounded, 3D-rotated layer,
             // which Core Animation can only satisfy with an offscreen pass on
             // every frame. Driving `contents` + `contentsRect` puts the exact
             // same crop in texture space, where the GPU does it for free.
-            // `layer.contents` ignores UIImage orientation metadata, so a
-            // non-upright cover is redrawn once here rather than shown rotated.
-            let normalized: UIImage = image.imageOrientation == .up
-                ? image
-                : UIGraphicsImageRenderer(size: image.size).image { _ in
-                    image.draw(at: .zero)
-                }
-            coverView.layer.contents = normalized.cgImage
+            setCoverContents(image, on: coverView)
             coverView.layer.contentsGravity = .resize
-            coverView.layer.contentsScale = normalized.scale
         } else {
             // A plain colour card gets its rounding straight from
             // `backgroundColor` + `cornerRadius`, which Core Animation draws

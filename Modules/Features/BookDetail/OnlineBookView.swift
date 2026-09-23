@@ -232,6 +232,7 @@ struct OnlineBookView: View {
             .padding(.top, DSSpacing.md)
             .padding(.bottom, DSSpacing.md)
         }
+        .softScrollEdges()
         .scrollIndicators(.hidden)
         .background(PageBackgroundView(scope: .global).ignoresSafeArea())
         .pageBackgroundToolbar(for: .global)
@@ -1100,6 +1101,7 @@ private struct ChapterListSheet: View {
                     }
                 }
             }
+            .softScrollEdges()
         }
         .navigationTitle(localized("目錄"))
         .toolbarTitleDisplayMode(.inline)

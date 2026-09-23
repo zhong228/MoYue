@@ -288,7 +288,11 @@ struct GeneratedBookCoverTests {
 
         for scheme in [ColorScheme.light, .dark] {
             let renderer = ImageRenderer(
-                content: BookshelfCoverStyle.artwork(for: book, colorScheme: scheme)
+                content: BookshelfCoverStyle.artwork(
+                    for: book,
+                    colorScheme: scheme,
+                    displaySize: CGSize(width: 104, height: 138)
+                )
                     .frame(width: 104, height: 138)
             )
             renderer.scale = 2

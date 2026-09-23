@@ -122,6 +122,34 @@ struct ReaderOverlayContentTests {
         #expect(snapshot().text(for: .weekday, format: .detailed, locale: locale, calendar: utcCalendar) == "Tuesday")
     }
 
+    @Test("formatter reuse follows locale calendar time zone and changing values after eviction")
+    func formatterConfigurationChanges() {
+        // Exceed the cache capacity, then revisit earlier configurations.
+        for hour in Array(-12...14) + [0, -12, 14] {
+            for localeID in ["en_US_POSIX", "ar_EG", "zh_TW"] {
+                let locale = Locale(identifier: localeID)
+                for identifier in [Calendar.Identifier.gregorian, .buddhist] {
+                    var calendar = Calendar(identifier: identifier)
+                    calendar.locale = locale
+                    calendar.timeZone = TimeZone(secondsFromGMT: hour * 3600)!
+                    let fresh = DateFormatter()
+                    fresh.locale = locale
+                    fresh.calendar = calendar
+                    fresh.timeZone = calendar.timeZone
+                    fresh.dateFormat = "HH:mm"
+                    for seconds in [0.0, 3601.0] {
+                        let value = ReaderOverlayContentSnapshot(bookTitle: "Book", chapterTitle: "Chapter",
+                            chapterPage: 3, chapterPageCount: 12, totalProgress: 0.5,
+                            now: fixedDate.addingTimeInterval(seconds), batteryLevel: 0.5,
+                            isCharging: false, readingDuration: 0, estimatedRemainingTime: nil)
+                        #expect(value.text(for: .currentTime, format: .hourMinute24,
+                            locale: locale, calendar: calendar) == fresh.string(from: value.now))
+                    }
+                }
+            }
+        }
+    }
+
     @Test("duration formats apply compact and detailed unit rules")
     func durationFormats() {
         let compact = snapshot().text(for: .readingDuration, format: .compact, locale: locale, calendar: utcCalendar)

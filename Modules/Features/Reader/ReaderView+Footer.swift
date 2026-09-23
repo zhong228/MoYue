@@ -1,7 +1,33 @@
 import SwiftUI
 import UIKit
 
+/// Progress changes invalidate only this fixed overlay, not ReaderView's whole
+/// navigation/representable tree. The session remains the single position owner.
+struct ReaderSessionProgressView<Content: View>: View {
+    @ObservedObject var session: ReaderSessionStore
+    @ViewBuilder var content: (ReaderLocation) -> Content
+
+    var body: some View {
+        content(session.state.location)
+    }
+}
+
 extension ReaderView {
+
+    @ViewBuilder
+    var readerChapterStatusOverlays: some View {
+        // These chapter-dependent surfaces follow session progress without
+        // rebuilding the navigation tree or replacing the scroll container.
+        if manuallyRefreshingChapterIndex == currentChapterIndex {
+            readerSurfaceBackground
+                .overlay { ProgressView(localized("載入中…")) }
+                .readerLoadingChromeTap { toggleReaderChrome() }
+                .transition(.opacity)
+        }
+        if case .failed(let message) = currentChapterOverlayState {
+            chapterLoadFailureOverlay(message: message)
+        }
+    }
 
     // MARK: - Header / Footer Bars
 
@@ -24,18 +50,14 @@ extension ReaderView {
     /// The band each bar occupies, taken out of the text area in *both* reading
     /// modes.
     ///
-    /// Deliberately asks the policy with `isChapterOpeningPage: false` — the
-    /// maximal case. Page geometry must not depend on which page you are looking
-    /// at: reserving the header band only on non-opening pages would give the
-    /// chapter's first page a taller text area than the rest, and pagination would
-    /// disagree with itself every time a chapter boundary moved.
-    /// `hidesHeaderOnChapterOpening` is therefore a *drawing* decision only.
+    /// Reserve the union of body and opening-page content. Geometry must not
+    /// depend on the currently visible page, or a chapter boundary could change
+    /// pagination while the reader is displaying it.
     var readerBarContentInsets: (top: CGFloat, bottom: CGFloat) {
-        let visibility = ReaderOverlayPresentationPolicy.visibility(
-            layout: settings.readerBarLayout,
-            headerEnabled: readerConfig.readerHeaderVisible,
-            footerEnabled: readerConfig.readerFooterVisible,
-            isChapterOpeningPage: false
+        let layout = settings.readerBarLayout
+        let visibility = ReaderBarVisibility(
+            showsHeader: readerConfig.readerHeaderVisible && layout.reservesSpace(in: .header),
+            showsFooter: readerConfig.readerFooterVisible && layout.reservesSpace(in: .footer)
         )
         return ReaderLayoutMetrics.barContentInsets(
             safeTop: effectiveReaderSafeTop,
@@ -47,7 +69,11 @@ extension ReaderView {
             footerBottomPadding: readerConfig.footerBottomPadding,
             headerExtent: readerBarExtents.header,
             footerExtent: readerBarExtents.footer,
-            edgeDistances: settings.readerBarLayout.edgeDistances
+            edgeDistances: layout.edgeDistances,
+            topMargin: readerConfig.pageMarginTop,
+            bottomMargin: readerConfig.pageMarginBottom,
+            headerInnerMargin: CGFloat(layout.headerMargins.inner),
+            footerInnerMargin: CGFloat(layout.footerMargins.inner)
         )
     }
 
@@ -79,20 +105,19 @@ extension ReaderView {
     /// inset straight from `pageMarginV` and never consult the bars at all — which
     /// is why the text started underneath the header.
     var readerScrollBarInsets: ReaderScrollBarInsets {
-        let visibility = ReaderOverlayPresentationPolicy.visibility(
-            layout: settings.readerBarLayout,
-            headerEnabled: readerConfig.readerHeaderVisible,
-            footerEnabled: readerConfig.readerFooterVisible,
-            isChapterOpeningPage: false
+        let layout = settings.readerBarLayout
+        let visibility = ReaderBarVisibility(
+            showsHeader: readerConfig.readerHeaderVisible && layout.reservesSpace(in: .header),
+            showsFooter: readerConfig.readerFooterVisible && layout.reservesSpace(in: .footer)
         )
         let extents = readerBarExtents
         let total = readerBarContentInsets
 
         let topBand = visibility.showsHeader
-            ? readerHeaderBarOffset + extents.header
+            ? readerHeaderBarOffset + extents.header + CGFloat(layout.headerMargins.inner)
             : 0
         let bottomBand = visibility.showsFooter
-            ? readerFooterBarOffset + extents.footer
+            ? readerFooterBarOffset + extents.footer + CGFloat(layout.footerMargins.inner)
             : 0
 
         return ReaderScrollBarInsets(
@@ -104,24 +129,23 @@ extension ReaderView {
     }
 
     /// Draws the two bars over the reading surface, at exactly the offsets
-    /// `readerBarContentInsets` reserved for them.
-    @ViewBuilder
-    func readerBars(
-        content: ReaderOverlayContentSnapshot,
-        visibility: ReaderBarVisibility
-    ) -> some View {
-        VStack(spacing: 0) {
-            if visibility.showsHeader {
-                ReaderBarView(model: readerBarModel(for: .header, content: content))
-                    .padding(.top, readerHeaderBarOffset)
-            }
-            Spacer(minLength: 0)
-            if visibility.showsFooter {
-                ReaderBarView(model: readerBarModel(for: .footer, content: content))
-                    .padding(.bottom, readerFooterBarOffset)
-            }
-        }
-        .ignoresSafeArea()
+    /// `readerBarContentInsets` reserved for them, and keeps the reader's clock.
+    ///
+    /// Mounted in every mode, drawing in only some: paged CoreText bakes its bars
+    /// into the page instead, but the clock behind them still has to tick, so the
+    /// layer stays and `drawsFixedBars` decides whether anything is painted.
+    func readerBars(visibility: ReaderBarVisibility, drawsFixedBars: Bool) -> some View {
+        ReaderPageBarsLayer(
+            visibility: visibility,
+            drawsFixedBars: drawsFixedBars,
+            headerTopOffset: readerHeaderBarOffset,
+            footerBottomOffset: readerFooterBarOffset,
+            // Captures `ReaderView`. Its `@State` and `@ObservedObject` read through
+            // shared storage, so the captured copy still sees live values — the same
+            // contract `refreshPageBars` documents.
+            model: { bar, clock in readerBarModel(for: bar, clock: clock) },
+            onClockTick: { clock in applyClockTick(clock) }
+        )
     }
 
     var windowSafeTop: CGFloat {

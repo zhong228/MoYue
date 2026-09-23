@@ -6,9 +6,11 @@ import YueduCoreText
 @MainActor
 final class BrowserTextInteractionController: NSObject, @preconcurrency UIEditMenuInteractionDelegate, UIGestureRecognizerDelegate {
     private weak var page: BrowserLayoutPageView?
-    private let source: NSAttributedString
-    private let paragraphRanges: [NSRange]
-    let spineIndex: Int
+    private var source: NSAttributedString
+    private var paragraphRanges: [NSRange]
+    private(set) var spineIndex: Int
+    private(set) var isBound = true
+    private(set) var bindingGeneration: UInt64 = 0
     let selection = TextSelectionInteractor()
     private let selectionOverlay = InteractionOverlayView()
     private let noteOverlay = NoteMarkerOverlayView()
@@ -16,7 +18,7 @@ final class BrowserTextInteractionController: NSObject, @preconcurrency UIEditMe
     private lazy var editMenu = UIEditMenuInteraction(delegate: self)
     private lazy var handlePan = UIPanGestureRecognizer(target: self, action: #selector(dragHandle(_:)))
     private var fixedDragOffset: Int?
-    private var menuVisible = false
+    private(set) var menuVisible = false
     private var pendingMenuAction: (() -> Void)?
     var onSearch: ((String) -> Void)?
     var onTranslate: ((String) -> Void)?
@@ -64,7 +66,7 @@ final class BrowserTextInteractionController: NSObject, @preconcurrency UIEditMe
     func finish() {
         selection.finalizeSelection(in: source)
         guard selection.hasSelection, let first = selectionOverlay.selectionRects.first else { return }
-        editMenu.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: CGPoint(x: first.midX, y: first.minY)))
+        editMenu.presentEditMenu(with: UIEditMenuConfiguration(identifier: NSNumber(value: bindingGeneration), sourcePoint: CGPoint(x: first.midX, y: first.minY)))
     }
 
     func clear() {
@@ -72,6 +74,33 @@ final class BrowserTextInteractionController: NSObject, @preconcurrency UIEditMe
         selection.clear()
         selectionOverlay.clearSelection()
         page?.hasActiveSelection = false
+    }
+
+    /// Keep UIKit's menu/gesture infrastructure attached, but release all
+    /// source and selection state before a continuous tile changes chapters.
+    func resetBinding() {
+        bindingGeneration &+= 1
+        pendingMenuAction = nil
+        menuVisible = false
+        clear()
+        fixedDragOffset = nil
+        source = NSAttributedString(string: "")
+        paragraphRanges = []
+        spineIndex = -1
+        isBound = false
+        annotations = []
+    }
+
+    func bind(sourceText: String, spineIndex: Int, paragraphRanges: [NSRange]) {
+        precondition(!isBound)
+        source = NSAttributedString(string: sourceText)
+        self.spineIndex = spineIndex
+        self.paragraphRanges = paragraphRanges
+        isBound = true
+    }
+
+    func acceptsMenuAction(generation: UInt64) -> Bool {
+        isBound && generation == bindingGeneration
     }
 
     func ownsTap(at point: CGPoint) -> Bool {
@@ -178,36 +207,48 @@ final class BrowserTextInteractionController: NSObject, @preconcurrency UIEditMe
     }
 
     func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration, suggestedActions: [UIMenuElement]) -> UIMenu? {
-        guard selection.hasSelection else { return nil }
+        let generation = (configuration.identifier as? NSNumber)?.uint64Value ?? bindingGeneration
+        guard acceptsMenuAction(generation: generation), selection.hasSelection else { return nil }
         var actions: [UIMenuElement] = [UIAction(title: localized("複製"), image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
-            UIPasteboard.general.string = self?.selection.selectedTextForCopy
-            self?.clear()
+            guard let self, acceptsMenuAction(generation: generation) else { return }
+            UIPasteboard.general.string = self.selection.selectedTextForCopy
+            self.clear()
         }]
         let colors: [(AnnotationColor, String)] = [(.yellow, "黃色"), (.green, "綠色"), (.blue, "藍色"), (.pink, "粉色"), (.orange, "橙色")]
         let highlights = colors.map { color, title in
             UIAction(title: localized(title), image: UIImage(systemName: "circle.fill")?.withTintColor(color.uiColor, renderingMode: .alwaysOriginal)) { [weak self] _ in
-                self?.requestAnnotation(style: .highlight, color: color)
+                guard let self, acceptsMenuAction(generation: generation) else { return }
+                self.requestAnnotation(style: .highlight, color: color)
             }
         }
-        actions.append(UIMenu(title: localized("重點"), children: highlights + [UIAction(title: localized("下劃線")) { [weak self] _ in self?.requestAnnotation(style: .underline, color: .yellow) }]))
-        actions.append(UIAction(title: localized("筆記"), image: UIImage(systemName: ReaderPremiumVisibilityPolicy(isProActive: SubscriptionStore.shared.isProActive).allowsParagraphNoteEditing ? "note.text" : "lock.fill")) { [weak self] _ in self?.requestNote(self?.selection.tappedAnnotation) })
+        actions.append(UIMenu(title: localized("重點"), children: highlights + [UIAction(title: localized("下劃線")) { [weak self] _ in
+            guard let self, acceptsMenuAction(generation: generation) else { return }
+            self.requestAnnotation(style: .underline, color: .yellow)
+        }]))
+        actions.append(UIAction(title: localized("筆記"), image: UIImage(systemName: ReaderPremiumVisibilityPolicy(isProActive: SubscriptionStore.shared.isProActive).allowsParagraphNoteEditing ? "note.text" : "lock.fill")) { [weak self] _ in
+            guard let self, acceptsMenuAction(generation: generation) else { return }
+            self.requestNote(self.selection.tappedAnnotation)
+        })
         actions.append(UIAction(title: localized("搜尋書籍"), image: UIImage(systemName: "magnifyingglass")) { [weak self] _ in
-            guard let self, let text = selection.selectedTextForCopy else { return }; afterMenuDismissal { [weak self] in self?.onSearch?(text) }
+            guard let self, acceptsMenuAction(generation: generation) else { return }
+            guard let text = selection.selectedTextForCopy else { return }; afterMenuDismissal { [weak self] in self?.onSearch?(text) }
         })
         if #available(iOS 17.4, *), onTranslate != nil {
             actions.append(UIAction(title: localized("翻譯")) { [weak self] _ in
-                guard let self, let text = selection.selectedTextForCopy else { return }; afterMenuDismissal { [weak self] in self?.onTranslate?(text) }
+                guard let self, acceptsMenuAction(generation: generation) else { return }
+                guard let text = selection.selectedTextForCopy else { return }; afterMenuDismissal { [weak self] in self?.onTranslate?(text) }
             })
         }
         actions.append(UIAction(title: localized("替換")) { [weak self] _ in
-            guard let self, let text = selection.selectedTextForCopy else { return }
+            guard let self, acceptsMenuAction(generation: generation) else { return }
+            guard let text = selection.selectedTextForCopy else { return }
             afterMenuDismissal {
                 NotificationCenter.default.post(name: .coreTextReplaceSelectionRequested, object: nil, userInfo: ["request": CoreTextReplaceSelectionRequest(selectedText: text)])
             }
         })
         if let annotation = selection.tappedAnnotation {
             actions.append(UIAction(title: localized("刪除標註"), attributes: .destructive) { [weak self] _ in
-                guard let self else { return }
+                guard let self, acceptsMenuAction(generation: generation) else { return }
                 if let note = annotation.note, !note.isEmpty {
                     let request = CoreTextNoteDeleteRequest(position: .init(spineIndex: spineIndex, charOffset: annotation.startOffset), length: annotation.range.length, excerpt: excerpt(annotation.range), note: note, style: annotation.style, color: annotation.color)
                     afterMenuDismissal {
@@ -241,12 +282,15 @@ final class BrowserTextInteractionController: NSObject, @preconcurrency UIEditMe
     }
 
     func editMenuInteraction(_ interaction: UIEditMenuInteraction, willPresentMenuFor configuration: UIEditMenuConfiguration, animator: any UIEditMenuInteractionAnimating) {
+        let generation = (configuration.identifier as? NSNumber)?.uint64Value ?? bindingGeneration
+        guard acceptsMenuAction(generation: generation) else { return }
         menuVisible = true
     }
 
     func editMenuInteraction(_ interaction: UIEditMenuInteraction, willDismissMenuFor configuration: UIEditMenuConfiguration, animator: any UIEditMenuInteractionAnimating) {
+        let generation = (configuration.identifier as? NSNumber)?.uint64Value ?? bindingGeneration
         animator.addCompletion { [weak self] in
-            guard let self else { return }
+            guard let self, acceptsMenuAction(generation: generation) else { return }
             menuVisible = false
             let action = pendingMenuAction
             pendingMenuAction = nil

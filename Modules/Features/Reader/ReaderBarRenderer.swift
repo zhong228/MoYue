@@ -36,6 +36,10 @@ struct ReaderBarRenderModel: Equatable {
     /// a CoreText page has no view hierarchy for VoiceOver to walk.
     var accessibilityValue: String
 
+    var leftPadding: CGFloat? = nil
+    var rightPadding: CGFloat? = nil
+    var showsComponentSeparators = true
+
     var isEmpty: Bool { slots.allSatisfy(\.isEmpty) }
 }
 
@@ -102,7 +106,11 @@ enum ReaderBarRenderer {
             model.color.cgColor.alpha * CGFloat(max(0, min(1, model.opacity)))
         )
 
-        var rowRect = rect
+        let left = model.leftPadding ?? model.horizontalPadding
+        let right = model.rightPadding ?? model.horizontalPadding
+        let insetRect = CGRect(x: rect.minX + left, y: rect.minY,
+                               width: max(0, rect.width - left - right), height: rect.height)
+        var rowRect = insetRect
         if model.showsDivider {
             let dividerRect: CGRect
             switch model.bar {
@@ -117,10 +125,10 @@ enum ReaderBarRenderer {
                 rowRect.size.height -= dividerHeight
             }
             ctx.setFillColor(color.withAlphaComponent(color.cgColor.alpha * 0.25).cgColor)
-            ctx.fill(dividerRect.insetBy(dx: model.horizontalPadding, dy: 0))
+            ctx.fill(CGRect(x: insetRect.minX, y: dividerRect.minY, width: insetRect.width, height: dividerHeight))
         }
 
-        let contentRect = rowRect.insetBy(dx: model.horizontalPadding, dy: 0)
+        let contentRect = rowRect
         guard contentRect.width > 0 else { return }
 
         let groups = model.slots.map { measure($0, model: model) }
@@ -164,7 +172,7 @@ enum ReaderBarRenderer {
     ) -> Group {
         var elements: [Element] = []
         for (index, field) in fields.enumerated() {
-            if index > 0, let dot = makeLine(separator, font: model.font) {
+            if index > 0, model.showsComponentSeparators, let dot = makeLine(separator, font: model.font) {
                 elements.append(dot)
             }
             switch field {
@@ -182,7 +190,7 @@ enum ReaderBarRenderer {
             }
         }
         guard !elements.isEmpty else { return Group(elements: [], width: 0) }
-        let spacing = DSSpacing.xs * CGFloat(elements.count - 1)
+        let spacing = DSSpacing.readerBarComponentGap * CGFloat(elements.count - 1)
         return Group(elements: elements, width: elements.reduce(0) { $0 + $1.width } + spacing)
     }
 
@@ -256,7 +264,7 @@ enum ReaderBarRenderer {
                                  width: element.width, height: imageSize(font: font).height)
                 image.draw(in: aspectFit(image.size, in: box), blendMode: .normal, alpha: imageAlpha)
             }
-            x += element.width + DSSpacing.xs
+            x += element.width + DSSpacing.readerBarComponentGap
         }
     }
 

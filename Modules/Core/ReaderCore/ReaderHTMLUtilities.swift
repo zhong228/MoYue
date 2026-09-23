@@ -14,29 +14,47 @@ enum ReaderHTMLUtilities {
         var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !result.isEmpty else { return "" }
 
-        // Book-source summaries frequently contain named/numeric HTML entities
-        // beyond the small common set below (for example `&lrm;`). Decode them
-        // before stripping markup so encoded tags are normalized as well.
-        if let decoded = try? Entities.unescape(result) {
-            result = decoded
+        // Markup and entity handling is skipped for text that carries neither.
+        //
+        // Every step in this section is a no-op on plain text, but not a free one:
+        // `Entities.unescape` walks the string in SwiftSoup, and each
+        // `replacingOccurrences(options: .regularExpression)` bridges to NSString and
+        // compiles a fresh NSRegularExpression. Chapter titles reach here already
+        // sanitized (`BookStore.addOnlineBook` / `addWebBrowsedBook` clean them on
+        // write), and `ReadingBook.latestChapterDisplayTitle` re-cleans one on every
+        // bookshelf row body — which is what a library publish behind the open reader
+        // paid for, per row. `&` and `<` are the only characters any step below can
+        // act on, so one scan for each decides whether that step can do anything.
+        if result.utf8.contains(UInt8(ascii: "&")) {
+            // Book-source summaries frequently contain named/numeric HTML entities
+            // beyond the small common set below (for example `&lrm;`). Decode them
+            // before stripping markup so encoded tags are normalized as well.
+            if let decoded = try? Entities.unescape(result) {
+                result = decoded
+            }
+
+            result = result.replacingOccurrences(
+                of: #"(?i)&lt;\s*br\s*/?\s*&gt;"#,
+                with: "\n",
+                options: .regularExpression
+            )
         }
 
-        result = result.replacingOccurrences(
-            of: #"(?i)&lt;\s*br\s*/?\s*&gt;"#,
-            with: "\n",
-            options: .regularExpression
-        )
-        result = result.replacingOccurrences(
-            of: #"(?i)<\s*br\s*/?\s*>"#,
-            with: "\n",
-            options: .regularExpression
-        )
-        result = result.replacingOccurrences(
-            of: #"(?i)</(?:p|div|li|h[1-6]|section|article|blockquote|dt|dd|tr)>"#,
-            with: "\n",
-            options: .regularExpression
-        )
-        result = result.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+        // Re-checked rather than reusing the test above: unescaping turns `&lt;` into
+        // a real `<`, so a fragment that arrived fully encoded only grows tags here.
+        if result.utf8.contains(UInt8(ascii: "<")) {
+            result = result.replacingOccurrences(
+                of: #"(?i)<\s*br\s*/?\s*>"#,
+                with: "\n",
+                options: .regularExpression
+            )
+            result = result.replacingOccurrences(
+                of: #"(?i)</(?:p|div|li|h[1-6]|section|article|blockquote|dt|dd|tr)>"#,
+                with: "\n",
+                options: .regularExpression
+            )
+            result = result.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+        }
 
         let entities: [(String, String)] = [
             ("&nbsp;", " "),
@@ -52,8 +70,12 @@ enum ReaderHTMLUtilities {
             ("&apos;", "'"),
             ("&#39;", "'"),
         ]
-        for (entity, replacement) in entities {
-            result = result.replacingOccurrences(of: entity, with: replacement, options: .caseInsensitive)
+        // Every entry above starts with `&`; without one, all twelve passes are
+        // twelve full scans that cannot match.
+        if result.utf8.contains(UInt8(ascii: "&")) {
+            for (entity, replacement) in entities {
+                result = result.replacingOccurrences(of: entity, with: replacement, options: .caseInsensitive)
+            }
         }
 
         // Directional formatting controls are invisible layout hints, not book
@@ -65,7 +87,12 @@ enum ReaderHTMLUtilities {
             0x2066, 0x2067, 0x2068, 0x2069,
             0xFEFF,
         ]
-        result = String(result.unicodeScalars.filter { !bidiControls.contains($0.value) })
+        // Testing first keeps the common case at one scan instead of a scan plus a
+        // whole new string; the filter allocates unconditionally even when it drops
+        // nothing.
+        if result.unicodeScalars.contains(where: { bidiControls.contains($0.value) }) {
+            result = String(result.unicodeScalars.filter { !bidiControls.contains($0.value) })
+        }
 
         if preservingLineBreaks {
             // Keep newlines as line breaks; only collapse horizontal whitespace and

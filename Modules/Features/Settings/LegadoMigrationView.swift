@@ -165,6 +165,7 @@ struct LegadoMigrationView: View {
                     }
                     .padding(.vertical, 4)
                 }
+                .softScrollEdges()
                 .frame(maxHeight: 200)
                 .onChange(of: manager.statusLog.count) { _, count in
                     let lastIndex = min(count, 20) - 1

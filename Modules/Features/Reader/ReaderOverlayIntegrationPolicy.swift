@@ -26,10 +26,10 @@ enum ReaderOverlayPresentationPolicy {
         footerEnabled: Bool,
         isChapterOpeningPage: Bool
     ) -> ReaderBarVisibility {
-        ReaderBarVisibility(
+        let layout = layout.resolved(isChapterOpening: isChapterOpeningPage)
+        return ReaderBarVisibility(
             showsHeader: headerEnabled
-                && layout.hasContent(in: .header)
-                && !(isChapterOpeningPage && layout.hidesHeaderOnChapterOpening),
+                && layout.hasContent(in: .header),
             showsFooter: footerEnabled && layout.hasContent(in: .footer)
         )
     }

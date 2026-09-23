@@ -100,6 +100,7 @@ struct PaywallView: View {
             .frame(maxWidth: DSLayout.readableFormWidth)
             .frame(maxWidth: .infinity)
         }
+        .softScrollEdges()
         .background(PageBackgroundView(scope: .settings).ignoresSafeArea())
         .pageBackgroundToolbar(for: .settings)
         .navigationTitle(localized("閱讀Pro"))
@@ -152,6 +153,7 @@ struct PaywallView: View {
             .frame(maxWidth: DSLayout.readableFormWidth)
             .frame(maxWidth: .infinity)
         }
+        .softScrollEdges()
         .background(PageBackgroundView(scope: .settings).ignoresSafeArea())
         .pageBackgroundToolbar(for: .settings)
         .navigationTitle(localized("閱讀Pro"))

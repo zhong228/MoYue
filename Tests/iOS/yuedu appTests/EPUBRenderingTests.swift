@@ -2087,11 +2087,19 @@ struct EPUBRenderingTests {
         #expect(rules.first?.selector.components.count == 3)
     }
 
-    /// Sibling combinators are still unsupported — the whole rule is dropped (safe no-op) rather
-    /// than silently matching the subject alone.
-    @Test func siblingCombinatorSelectorIsDropped() {
-        #expect(CSSParser.parse(css: "h1 + p { color: red; }").isEmpty)
-        #expect(CSSParser.parse(css: "h1 ~ p { color: red; }").isEmpty)
+    /// Sibling combinators are supported since YueduCoreText 0.5.0 (English publishing CSS such as
+    /// `p + p { text-indent }`); element-sibling matching is covered by the package's
+    /// `siblingSelectorsUseElementSiblings`. The rule must keep its subject and record the
+    /// combinator — not be dropped, and not collapse to a descendant match.
+    @Test func siblingCombinatorSelectorIsParsed() {
+        let adjacent = CSSParser.parse(css: "h1 + p { color: red; }")
+        #expect(adjacent.count == 1)
+        #expect(adjacent.first?.selector.components.map(\.tag) == ["h1", "p"])
+        #expect(adjacent.first?.selector.components.last?.combinator == .adjacentSibling)
+        let general = CSSParser.parse(css: "h1 ~ p { color: red; }")
+        #expect(general.count == 1)
+        #expect(general.first?.selector.components.map(\.tag) == ["h1", "p"])
+        #expect(general.first?.selector.components.last?.combinator == .generalSibling)
     }
 
     /// `@charset` / `@namespace` statement at-rules precede the first style rule in many EPUB

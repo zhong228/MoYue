@@ -7,6 +7,108 @@ import UIKit
 @Suite(.serialized)
 @MainActor
 struct BrowserScrollTileCellTests {
+    @Test func externalContentSurfaceRetainsSelectionLinksVoiceOverAndPlayback() throws {
+        let cell = BrowserScrollTileCell(frame: CGRect(x: 0, y: 0, width: 200, height: 90))
+        cell.configure(tile: secondTile(chapter()), horizontalInset: 0, leadingSpacing: 0,
+                       rendersContentExternally: true)
+        let view = cell.interactiveView
+        #expect(view.usesExternalContentSurface)
+        #expect(cell.paintUpdateCount == 0)
+        #expect(!view.layer.drawsAsynchronously)
+        #expect(view.accessibilityLabel == "丙丁")
+        var link: String?
+        cell.onLinkActivate = { link = $0.href }
+        view.beginLinkPress(at: CGPoint(x: 30, y: 20))
+        view.endLinkPress(at: CGPoint(x: 30, y: 20))
+        #expect(link == "#target")
+        view.textInteraction?.begin(at: CGPoint(x: 30, y: 20))
+        let selected = try #require(view.textInteraction?.selection.selectedTextForCopy)
+        #expect(selected.contains("丙"))
+        cell.applyPlaybackHighlight(ReaderPlaybackHighlight(text: "甲乙丙丁"))
+        #expect(cell.playbackHighlightBounds(in: cell) != nil)
+        cell.configure(tile: secondTile(chapter()), horizontalInset: 0, leadingSpacing: 0)
+        #expect(!view.usesExternalContentSurface)
+        #expect(cell.paintUpdateCount > 0)
+    }
+
+    @Test func oldMenuDismissalCannotChangeReboundMenuState() throws {
+        let cell = BrowserScrollTileCell(frame: CGRect(x: 0, y: 0, width: 200, height: 90))
+        cell.configure(tile: secondTile(chapter()), horizontalInset: 0, leadingSpacing: 0)
+        let controller = try #require(cell.interactiveView.textInteraction)
+        let menu = try #require(cell.interactiveView.interactions.compactMap { $0 as? UIEditMenuInteraction }.first)
+        let old = UIEditMenuConfiguration(identifier: NSNumber(value: controller.bindingGeneration), sourcePoint: .zero)
+        let animator = DeferredMenuAnimator()
+        controller.editMenuInteraction(menu, willPresentMenuFor: old, animator: animator)
+        cell.prepareForReuse()
+        cell.configure(tile: secondTile(chapter(spineIndex: 9)), horizontalInset: 0, leadingSpacing: 0)
+        controller.begin(at: CGPoint(x: 30, y: 20))
+        #expect(controller.selection.hasSelection)
+        #expect(controller.editMenuInteraction(menu, menuFor: old, suggestedActions: []) == nil)
+        // UIKit can deliver willDismiss after the source has already rebound.
+        controller.editMenuInteraction(menu, willDismissMenuFor: old, animator: animator)
+        let current = UIEditMenuConfiguration(identifier: NSNumber(value: controller.bindingGeneration), sourcePoint: .zero)
+        controller.editMenuInteraction(menu, willPresentMenuFor: current, animator: animator)
+        animator.complete()
+        #expect(controller.menuVisible)
+        controller.editMenuInteraction(menu, willDismissMenuFor: current, animator: animator)
+        animator.complete()
+        #expect(!controller.menuVisible)
+    }
+
+    @Test func recyclingUnderReaderGesturesHasBoundedInteractionWork() throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let host = UIViewController()
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.addGestureRecognizer(UITapGestureRecognizer())
+        let cell = BrowserScrollTileCell(frame: CGRect(x: 0, y: 0, width: 240, height: 100))
+        host.view.addSubview(cell)
+        let chapters = [chapter(), chapter(spineIndex: 8, source: "戊己庚辛")]
+        cell.configure(tile: secondTile(chapters[0]), horizontalInset: 20, leadingSpacing: 10)
+        let gestureCount = cell.interactiveView.gestureRecognizers?.count
+        let interactionCount = cell.interactiveView.interactions.count
+        let start = SourcePerfTrace.now
+        for index in 0..<200 {
+            cell.prepareForReuse()
+            cell.configure(tile: secondTile(chapters[index % 2]), horizontalInset: 20, leadingSpacing: 10)
+            #expect(cell.interactiveView.gestureRecognizers?.count == gestureCount)
+            #expect(cell.interactiveView.interactions.count == interactionCount)
+            #expect(cell.interactiveView.textInteraction?.spineIndex == chapters[index % 2].spineIndex)
+        }
+        SourcePerfTrace.record("test.viewport.cellReuse", "cycles=200", since: start, thresholdMs: 0)
+        print("[ViewportCellReuse] cycles=200 ms=\((SourcePerfTrace.now - start) * 1000)")
+    }
+
+    @Test func configuringAReusedTileKeepsSurfaceAndRefreshesSourceOwner() {
+        let cell = BrowserScrollTileCell(frame: CGRect(x: 0, y: 0, width: 240, height: 100))
+        let initial = cell.interactiveView
+        cell.configure(tile: secondTile(chapter()), horizontalInset: 20, leadingSpacing: 10)
+        #expect(cell.interactiveView === initial)
+        cell.prepareForReuse()
+        let fresh = cell.interactiveView
+        #expect(fresh === initial)
+        #expect(fresh.textInteraction?.isBound == false)
+        cell.configure(tile: secondTile(chapter(spineIndex: 8, source: "戊己庚辛")), horizontalInset: 20, leadingSpacing: 10)
+        #expect(cell.interactiveView === fresh)
+        #expect(fresh.pageSourceText == "庚辛")
+        #expect(fresh.interactionRegions.regions.allSatisfy { $0.spineIndex == 8 })
+    }
+
+    @Test func movingTheWindowWithinAChapterReusesOwnerAndUpdatesVoiceOverText() {
+        let chapter = chapter()
+        let cell = BrowserScrollTileCell(frame: CGRect(x: 0, y: 0, width: 200, height: 110))
+        cell.configure(tile: BrowserScrollTile(chapter: chapter,
+            documentRect: CGRect(x: 0, y: 0, width: 200, height: 110), charRange: CFRange(location: 0, length: 2)),
+            horizontalInset: 0, leadingSpacing: 0)
+        let view = cell.interactiveView
+        #expect(view.accessibilityLabel == "甲乙")
+        cell.configure(tile: secondTile(chapter), horizontalInset: 0, leadingSpacing: 0)
+        #expect(cell.interactiveView === view)
+        #expect(view.accessibilityLabel == "丙丁")
+    }
+
     private func chapter(spineIndex: Int = 4, usesReaderBackground: Bool = false, source: String = "甲乙丙丁") -> BrowserScrollChapter {
         let font = UIFont.systemFont(ofSize: 24)
         let items: [DisplayItem] = [(String(source.prefix(2)), 0, CGFloat(80)), (String(source.suffix(2)), 2, CGFloat(120))].map { text, start, y in
@@ -53,7 +155,7 @@ struct BrowserScrollTileCellTests {
         #expect(activated?.href == "#target")
     }
 
-    @Test func rebindReplacesSourceOwnerAndNeverStacksInteractions() throws {
+    @Test func rebindRefreshesSourceAndNeverStacksInteractions() throws {
         let cell = BrowserScrollTileCell(frame: CGRect(x: 0, y: 0, width: 200, height: 90))
         let first = secondTile(chapter())
         cell.configure(tile: first, horizontalInset: 0, leadingSpacing: 0)
@@ -61,14 +163,17 @@ struct BrowserScrollTileCellTests {
         let oldInteraction = try #require(oldView.textInteraction)
         oldInteraction.begin(at: CGPoint(x: 30, y: 20))
         #expect(oldView.hasActiveSelection)
+        let oldGeneration = oldInteraction.bindingGeneration
         let gestureCount = oldView.gestureRecognizers?.count
         let interactionCount = oldView.interactions.count
         cell.configure(tile: first, horizontalInset: 10, leadingSpacing: 0)
         #expect(cell.interactiveView === oldView)
         #expect(cell.interactiveView.hasActiveSelection)
         cell.configure(tile: secondTile(chapter(spineIndex: 9, source: "戊己庚辛")), horizontalInset: 0, leadingSpacing: 0)
-        #expect(cell.interactiveView !== oldView)
-        #expect(oldView.superview == nil)
+        #expect(cell.interactiveView === oldView)
+        #expect(cell.interactiveView.textInteraction === oldInteraction)
+        #expect(!oldInteraction.acceptsMenuAction(generation: oldGeneration), "old menu actions cannot affect a new chapter")
+        #expect(oldInteraction.acceptsMenuAction(generation: oldInteraction.bindingGeneration))
         #expect(!oldView.hasActiveSelection)
         #expect(cell.interactiveView.textInteraction?.spineIndex == 9)
         #expect(cell.interactiveView.pageSourceText == "庚辛")
@@ -80,8 +185,13 @@ struct BrowserScrollTileCellTests {
         #expect(cell.interactiveView.interactions.count == interactionCount)
         cell.prepareForReuse()
         #expect(cell.currentTile == nil)
-        #expect(cell.interactiveView.textInteraction == nil)
+        #expect(cell.interactiveView.textInteraction?.isBound == false)
         #expect(cell.interactiveView.displayList.items.isEmpty)
+        #expect(cell.interactiveView.interactionRegions.regions.isEmpty)
+        #expect(cell.interactiveView.accessibilityLabel == nil)
+        oldInteraction.begin(at: CGPoint(x: 30, y: 20))
+        #expect(!oldInteraction.selection.hasSelection)
+        #expect(cell.interactiveView.interactions.count == interactionCount)
     }
 
     @Test func annotationsAndCrossTilePlaybackUseChapterOffsets() throws {
@@ -154,4 +264,16 @@ struct BrowserScrollTileCellTests {
         #expect(mediaDocument.documentY(forCharOffset: 0) == 50)
     }
 
+}
+
+@MainActor
+private final class DeferredMenuAnimator: NSObject, UIEditMenuInteractionAnimating {
+    private var completions: [() -> Void] = []
+    func addAnimations(_ animations: @escaping () -> Void) { animations() }
+    func addCompletion(_ completion: @escaping () -> Void) { completions.append(completion) }
+    func complete() {
+        let pending = completions
+        completions.removeAll()
+        pending.forEach { $0() }
+    }
 }

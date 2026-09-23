@@ -751,6 +751,26 @@ outline 出來即插入，高度先用估算值；`willDisplay` ＋ overscan 觸
 
 ---
 
+## 8. 排版移出主執行緒（2026-09-22）
+
+**為什麼**：14.trace（EPUB 走瀏覽器引擎，繪製已在背景）閱讀中 77 個 hitch，74 個出在捲動回呼裡同步呼叫 `BrowserViewportSession.layout(in:)` 的那一幀：有排版的更新中位 6.7ms／p90 11.8ms，66% 在 E 核；沒排版的更新只掉 3 次。
+
+**做法**（WebKit 式：捲動永遠不等排版）
+- `BrowserViewportLayoutOwner`（套件，actor）擁有 session。建立 session（CSS cascade、box tree）、每次排版交易、資源退場都在它上面跑；主執行緒從不碰 session。
+- 主執行緒只讀 `BrowserViewportSnapshot`（document＋提交後的位置表，`documentY(for:)`／`sourceOffset(at:)`）與 `BrowserViewportChapterFacts`。查詢實作只有一份（`BrowserViewportPositions`），交易中途的收斂計算用同一份實作讀即時狀態。
+- `BrowserScrollChapter.requestViewport` 從不等待：同章同時最多一個要求在跑，其餘只留最新一個；退場（discard）也走同一條序列。捲動控制器的需求範圍＝可見範圍＋捲動方向前方一屏。
+- 快照回到主執行緒時，由捲動控制器在一次幾何交易裡處理：先讀可見錨點 → `install`（換快照、重切 tile）→ `commitViewportGeometry`。還原位置若還在等排版，排好後以還原目標精確重套；使用者一開始拖曳就放棄這個等待。
+- 還沒排到的區域先顯示底色、排好才出字（與背景點陣化相同的取捨）。
+- 建章（能力掃描、建 session、第一屏排版）、直排整章排版也都在背景。
+
+**前提**：背景排版會呼叫的東西必須可跨執行緒——字型解析改用建章時的已註冊字型快照（`EPUBStyleResolver.RegisteredFonts`）＋加鎖的 `BrowserDocumentFontResolver`；`BrowserLayoutImageStore` 加鎖。
+
+**刪掉的**：`prepareAdjacentLines`／`BrowserViewportLinePreparer`（背景預先斷行）。排版整個在背景後它與排版負責人做同一件事。
+
+**驗證**：`BrowserViewportAsyncLayoutTests`、`BrowserLayoutThreadSafetyTests`；`smallScrollUpdatesPreserveVisibleGlyphScreenPositions` 改成每步都等非同步提交，54,058 次比對最大誤差 1/6pt。
+
+---
+
 ## 附錄：不要做的事
 
 - 不要引入 `NSTextLayoutManager` / `NSTextViewportLayoutController`。它們無法驅動 CoreText。

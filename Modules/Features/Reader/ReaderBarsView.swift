@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UIKit
 
@@ -195,4 +196,114 @@ private struct ReaderBarsPreviewHost: View {
 
 #Preview("頁眉頁腳條 · 夜間") {
     ReaderBarsPreviewHost(theme: .night)
+}
+
+// MARK: - Page Bars Layer
+
+/// Owns the reader's clock and draws the screen-fixed 頁眉／頁腳.
+///
+/// The clock is observed here and nowhere else. `ClockBatteryModel` used to be a
+/// `@StateObject` on `ReaderView`, where its minute-aligned tick published `now`
+/// and `displayTime` and so invalidated the entire reader body — a device trace
+/// measured ~13 ms of `buildBody()`, the toolbars and both bar models on E cores,
+/// which at 120 Hz is a dropped frame whenever the minute rolled over mid-fling.
+/// Nothing outside these two bars and the page-baked ones reads the clock, so the
+/// subscription belongs down here, where a tick redraws two bars and stops.
+///
+/// Mounted in every reading mode. Paged CoreText draws its bars into the page
+/// rather than over it and passes `drawsFixedBars: false`, but its bars still have
+/// to tick, and `onClockTick` is what rebuilds them.
+struct ReaderPageBarsLayer: View {
+    let visibility: ReaderBarVisibility
+    let drawsFixedBars: Bool
+    let headerTopOffset: CGFloat
+    let footerBottomOffset: CGFloat
+    let model: @MainActor (ReaderBar, ReaderOverlayClockSnapshot) -> ReaderBarRenderModel
+    let onClockTick: @MainActor (ReaderOverlayClockSnapshot) -> Void
+
+    @StateObject private var clock = ClockBatteryModel()
+
+    /// The fade the whole bar container used to carry at the call site. It moved in
+    /// here with the container: the layer is mounted in every mode now, so a
+    /// transition on it would never run — only the bars inside it come and go.
+    private static let barTransition: AnyTransition = .opacity.animation(.easeOut(duration: 0.2))
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if drawsFixedBars && visibility.showsHeader {
+                ReaderBarView(model: model(.header, clock.snapshot))
+                    .padding(.top, headerTopOffset)
+                    .transition(Self.barTransition)
+            }
+            Spacer(minLength: 0)
+            if drawsFixedBars && visibility.showsFooter {
+                ReaderBarView(model: model(.footer, clock.snapshot))
+                    .padding(.bottom, footerBottomOffset)
+                    .transition(Self.barTransition)
+            }
+        }
+        .ignoresSafeArea()
+        // The layer stays mounted even when it paints nothing, so it must never take
+        // a touch away from the page underneath.
+        .allowsHitTesting(false)
+        // `didUpdate`, not `$now`: `@Published` emits in `willSet`, and the page-baked
+        // bars re-read the model, so the projected publisher would bake the minute
+        // that just ended.
+        .onReceive(clock.didUpdate) { onClockTick($0) }
+        // Seeds the controller before the first tick, so the page-baked bars are
+        // built from a real reading rather than the placeholder.
+        .onAppear { onClockTick(clock.snapshot) }
+    }
+}
+
+/// Same reason as `ReaderBarsPreviewHost` above: the model is built in a stored
+/// property so the preview body stays one expression.
+private struct ReaderPageBarsLayerPreviewHost: View {
+    @State private var builder = ReaderBarRenderModelBuilder()
+
+    private var snapshot: ReaderOverlayContentSnapshot {
+        ReaderOverlayContentSnapshot(
+            bookTitle: "紅樓夢",
+            chapterTitle: "第一回 甄士隱夢幻識通靈",
+            chapterPage: 3,
+            chapterPageCount: 12,
+            totalProgress: 0.4523,
+            now: Date(),
+            batteryLevel: 0.78,
+            isCharging: false,
+            readingDuration: 1_500,
+            estimatedRemainingTime: 4_200
+        )
+    }
+
+    var body: some View {
+        ZStack {
+            Color(uiColor: ReaderTheme.sepia.uiBackgroundColor).ignoresSafeArea()
+            ReaderPageBarsLayer(
+                visibility: ReaderBarVisibility(showsHeader: true, showsFooter: true),
+                drawsFixedBars: true,
+                headerTopOffset: 24,
+                footerBottomOffset: 16,
+                model: { bar, _ in model(for: bar) },
+                onClockTick: { _ in }
+            )
+        }
+    }
+
+    private func model(for bar: ReaderBar) -> ReaderBarRenderModel {
+        builder.model(
+            for: bar,
+            layout: .default,
+            content: snapshot,
+            readerTextColor: ReaderTheme.sepia.uiTextColor,
+            horizontalPadding: ReaderLayoutMetrics.defaultHeaderHorizontalPadding,
+            svgAssetStore: nil,
+            userInterfaceStyle: .light,
+            displayScale: 3
+        )
+    }
+}
+
+#Preview("頁眉頁腳層") {
+    ReaderPageBarsLayerPreviewHost()
 }

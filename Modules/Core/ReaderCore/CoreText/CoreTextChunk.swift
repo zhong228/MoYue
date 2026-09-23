@@ -11,7 +11,10 @@ final class CoreTextChunk {
     let charRange: CFRange
     let height: CGFloat
     let width: CGFloat
-    /// Shared across all chunks of the same chapter; used to rebuild frame after eviction
+    /// Shared across all chunks of the same chapter; used to rebuild frame after eviction.
+    /// The main thread owns it once slicing hands the chunks over: Core Text layout
+    /// objects are used by one thread at a time. Off-main frame builds use
+    /// framesetters their executor owns (`CoreTextFramesetterCache`).
     let framesetter: CTFramesetter
     let attributedString: NSAttributedString
     let writingMode: ReaderWritingMode
@@ -88,6 +91,23 @@ final class CoreTextChunk {
         applyBuiltFrame(built)
     }
 
+    /// The one recipe for this chunk's CTFrame: same range, path and frame
+    /// attributes for the first build, a rebuild after eviction, and the scroll
+    /// raster worker. Reads only immutable stored properties. The caller owns
+    /// `framesetter` exclusively while this runs (Core Text layout objects are
+    /// used by one thread at a time).
+    func makeFrame(using framesetter: CTFramesetter) -> CTFrame {
+        CoreTextPaginator.makeFrame(
+            framesetter: framesetter,
+            range: charRange,
+            path: CoreTextPaginator.framePath(
+                contentPathRect: CGRect(origin: .zero, size: CGSize(width: width, height: height)),
+                floatNotch: floatNotch
+            ),
+            writingMode: writingMode
+        )
+    }
+
     /// Result of an off-main frame build, ready to be applied on the main thread.
     struct BuiltFrame {
         let frame: CTFrame
@@ -96,22 +116,22 @@ final class CoreTextChunk {
         let blockRenderables: [CoreTextPaginator.RenderedBlockRenderable]
     }
 
-    /// Builds the CTFrame and its derived data. Reads only immutable stored
-    /// properties, so it is safe to call off the main thread; the result is
-    /// applied via `applyBuiltFrame` back on the main thread.
+    /// Builds with the chapter's shared `framesetter`, which the main thread owns
+    /// after slicing. Main thread only: an off-main build uses
+    /// `buildFrameData(using:)` with a framesetter its executor owns
+    /// (`CoreTextFrameWarmer`), never this one.
     func buildFrameData() -> BuiltFrame? {
+        assert(Thread.isMainThread, "CoreTextChunk.framesetter is used by the main thread only")
+        return buildFrameData(using: framesetter)
+    }
+
+    /// Builds the CTFrame and its derived data. Reads only immutable stored
+    /// properties; the caller owns `framesetter` exclusively while this runs.
+    /// The result is applied via `applyBuiltFrame` on the main thread.
+    func buildFrameData(using framesetter: CTFramesetter) -> BuiltFrame? {
         if isImageOnly { return nil }
         let size = CGSize(width: width, height: height)
-        let path = CoreTextPaginator.framePath(
-            contentPathRect: CGRect(origin: .zero, size: size),
-            floatNotch: floatNotch
-        )
-        let f = CoreTextPaginator.makeFrame(
-            framesetter: framesetter,
-            range: charRange,
-            path: path,
-            writingMode: writingMode
-        )
+        let f = makeFrame(using: framesetter)
         let builtAttachments = floatAttachments + CoreTextChunkAttachmentExtractor.extract(
             frame: f,
             chunkSize: size,
@@ -211,6 +231,38 @@ final class CoreTextChunk {
     }
 
     // MARK: - Selection (hit-test / rect calculation)
+
+    /// Reading progress is the line at the viewport's leading edge, independent
+    /// of its alignment or width. A selection hit test can legitimately miss a
+    /// short line at the viewport centre; that must never reset saved progress
+    /// to the start of a multi-screen chunk.
+    func readingOffset(atVerticalOffset y: CGFloat) -> Int? {
+        guard !writingMode.isVertical else { return nil }
+        if isImageOnly { return charRange.location }
+        materializeFrameIfNeeded()
+        guard let frame else { return nil }
+        let lines = CTFrameGetLines(frame) as! [CTLine]
+        guard !lines.isEmpty else { return nil }
+        var origins = [CGPoint](repeating: .zero, count: lines.count)
+        CTFrameGetLineOrigins(frame, CFRangeMake(0, lines.count), &origins)
+        let coreY = height - y
+        var nearest: Int?
+        var distance = CGFloat.greatestFiniteMagnitude
+        for index in lines.indices {
+            let range = CTLineGetStringRange(lines[index])
+            guard range.length > 0 else { continue }
+            var ascent: CGFloat = 0, descent: CGFloat = 0
+            CTLineGetTypographicBounds(lines[index], &ascent, &descent, nil)
+            let delta = max(0, origins[index].y - descent - coreY,
+                            coreY - origins[index].y - ascent)
+            if delta < distance {
+                nearest = range.location
+                distance = delta
+            }
+            if delta == 0 { break }
+        }
+        return nearest
+    }
 
     /// Converts a UIKit coordinate point within the cell to a chapter-level character index (including the full-chapter index starting from charRange.location)
     func stringIndex(atLocalPoint point: CGPoint) -> Int? {
@@ -312,9 +364,11 @@ final class CoreTextChunk {
 
 }
 
-// Thread-safety contract: `buildFrameData` reads only immutable stored
-// properties and may run off the main thread; `frame` and the derived arrays
-// are written exclusively on the main thread (via `applyBuiltFrame` /
+// Thread-safety contract: `buildFrameData(using:)` and `makeFrame(using:)` read
+// only immutable stored properties and may run off the main thread with a
+// framesetter the calling executor owns. The shared `framesetter` is used on the
+// main thread only (`buildFrameData()`). `frame` and the derived arrays are
+// written exclusively on the main thread (via `applyBuiltFrame` /
 // `materializeFrameIfNeeded`), which is also the only reader during cell draw.
 extension CoreTextChunk: @unchecked Sendable {}
 extension CoreTextChunk.BuiltFrame: @unchecked Sendable {}

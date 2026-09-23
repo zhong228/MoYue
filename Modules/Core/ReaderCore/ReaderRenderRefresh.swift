@@ -8,6 +8,8 @@ enum ReaderDisplayMode: Equatable {
 
 enum ReaderRenderRefreshIntent: Equatable {
     case layout
+    /// Global document styles changed without changing ReaderRenderSettings.
+    case documentStyle
     case appearance
     case chapterContent(Int)
     case modeActivation

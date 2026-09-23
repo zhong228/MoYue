@@ -59,6 +59,7 @@ struct CoverCandidateGrid: View {
                 .padding(.horizontal, DSSpacing.lg)
                 .padding(.bottom, DSSpacing.xxl)
         }
+        .softScrollEdges()
     }
 
     @ViewBuilder

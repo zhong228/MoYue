@@ -148,7 +148,8 @@ extension ReaderView {
             publicationSession: session,
             bookIdentifier: book.remoteEPUBRenderIdentifier ?? session.sourceURL.standardizedFileURL.path,
             renderSize: session.layoutMode == .prePaginated ? readerViewportSize : currentReaderRenderSize,
-            settings: settings
+            settings: settings,
+            continuousScrolling: effectiveScrollMode
         )
         updateFixedLayoutOrientationPreference()
 

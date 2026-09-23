@@ -69,7 +69,7 @@ enum StorageLocations {
 
     /// Downloaded cover images, named by `ReadingBook.coverImagePath`.
     static var covers: URL {
-        directory("Covers")
+        directory(coversDirectoryName)
     }
 
     /// Covers the user set by hand in 書籍資訊 (封面搜索 / 相簿).
@@ -78,8 +78,11 @@ enum StorageLocations {
     /// wholesale on the premise that every cover in it can be downloaded again,
     /// and a picture the user chose from their photo library cannot.
     static var customCovers: URL {
-        directory("CustomCovers")
+        directory(customCoversDirectoryName)
     }
+
+    private static let coversDirectoryName = "Covers"
+    private static let customCoversDirectoryName = "CustomCovers"
 
     /// Marker inside the filename that says a cover is user-set and therefore
     /// lives in `customCovers`. Encoded in the name so resolving a cover stays a
@@ -87,14 +90,38 @@ enum StorageLocations {
     /// filesystem probe per cover is not worth paying for.
     static let customCoverFilenameMarker = "_cover_custom_"
 
-    /// A cover image, resolved from the filename stored on `ReadingBook`.
-    /// Every cover read in the app goes through here — the lookup used to be
-    /// copy-pasted into five call sites, which is exactly how one gets missed.
+    static func isCustomCoverFilename(_ filename: String) -> Bool {
+        filename.contains(customCoverFilenameMarker)
+    }
+
+    /// A cover image, resolved from the filename stored on `ReadingBook`, with its
+    /// directory created if missing — the contract the importers and sync were
+    /// written against. Readers use `coverFileLocation`, which touches nothing.
     static func coverFile(_ filename: String) -> URL {
-        if filename.contains(customCoverFilenameMarker) {
-            return customCovers.appendingPathComponent(filename)
-        }
-        return covers.appendingPathComponent(filename)
+        let url = coverFileLocation(filename)
+        ensureDirectory(url.deletingLastPathComponent())
+        return url
+    }
+
+    // MARK: - Pure cover paths
+
+    /// Application Support, resolved once per launch. Kept in memory only: the
+    /// sandbox container path is not stable across installs, so it is never persisted.
+    static let applicationSupportRoot: URL =
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+
+    /// Where a cover lives, from its filename alone: string work, no `stat`, no
+    /// `mkdir`. The shelf resolves one per cover it loads, so this must stay free of
+    /// file-system calls — including the hidden one `appendingPathComponent(_:)`
+    /// makes to decide whether the result is a directory.
+    ///
+    /// Creating the directory is the writer's job (`BookCoverFileStore`), which is
+    /// also what keeps writes working after 快取管理 has removed it.
+    static func coverFileLocation(_ filename: String, in root: URL = applicationSupportRoot) -> URL {
+        let directory = isCustomCoverFilename(filename) ? customCoversDirectoryName : coversDirectoryName
+        return root
+            .appendingPathComponent(directory, isDirectory: true)
+            .appendingPathComponent(filename, isDirectory: false)
     }
 
     /// Downloaded chapters of online books, per book id.

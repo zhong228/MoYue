@@ -56,6 +56,18 @@ final class ReaderSessionCoordinator: ObservableObject {
         navigator.state
     }
 
+    /// Derive the summary from the same canonical character position as restore.
+    /// Normal scroll saves keep data current without a broad UI notification;
+    /// lifecycle saves publish it before the library becomes visible again.
+    func synchronizeLibraryProgress(
+        to store: BookStore, bookId: UUID, forceSave: Bool,
+        resolveProgress: (CoreTextReadingPosition) -> Double
+    ) {
+        let progress = resolveProgress(state.location.coreTextPosition)
+        store.updatePosition(bookId: bookId, position: min(1, max(0, progress)),
+                             forceSave: forceSave, notifyLibraryViews: forceSave)
+    }
+
     var isPageTransitioning: Bool {
         transitionQueue.isTransitioning
     }

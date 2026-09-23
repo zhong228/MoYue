@@ -90,6 +90,7 @@ struct RSSListView: View {
                     .padding(.top, 16)
                     .padding(.bottom, 36)
                 }
+                .softScrollEdges()
                 .scrollIndicators(.visible)
             }
             .navigationTitle(localized("RSS 訂閱"))

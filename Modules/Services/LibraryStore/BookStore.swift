@@ -45,9 +45,24 @@ private struct PersistedPositionSnapshot: Equatable {
     }
 }
 
+/// Owns the single record array and its data publisher. Data subscribers (sync)
+/// must still receive progress while the full-screen reader observes its session.
+private final class BookRecordStorage {
+    @Published var values: [ReadingBook] = []
+}
+
 class BookStore: ObservableObject, BookProvider {
-    @Published private var records: [ReadingBook] = [] {
-        didSet { mutationRevision &+= 1 }
+    let objectWillChange = ObservableObjectPublisher()
+    private let recordStorage = BookRecordStorage()
+    private var records: [ReadingBook] {
+        get { recordStorage.values }
+        set { replaceRecords(newValue) }
+    }
+
+    private func replaceRecords(_ value: [ReadingBook], notifyLibraryViews: Bool = true) {
+        if notifyLibraryViews { objectWillChange.send() }
+        recordStorage.values = value
+        mutationRevision &+= 1
     }
     /// The network may finish after an import, deletion or reading-position edit.
     /// A result may replace the shelf only while its input snapshot is current.
@@ -67,7 +82,7 @@ class BookStore: ObservableObject, BookProvider {
     }
 
     var shelfPublisher: AnyPublisher<[ReadingBook], Never> {
-        $records.map { $0.filter(\.isInBookshelf) }.eraseToAnyPublisher()
+        recordStorage.$values.map { $0.filter(\.isInBookshelf) }.eraseToAnyPublisher()
     }
 
     var readingBooks: [ReadingBook] { records }
@@ -714,10 +729,55 @@ class BookStore: ObservableObject, BookProvider {
 
     // MARK: Update Reading Progress
 
-    func updatePosition(bookId: UUID, position: Double, forceSave: Bool = false) {
-        if let idx = records.firstIndex(where: { $0.id == bookId }) {
-            records[idx].currentPosition = position
-            persistPositionUpdateIfNeeded(bookId: bookId, updatedBook: records[idx], force: forceSave)
+    /// Writes a position only when it moves something, or when the library views
+    /// have yet to see an earlier silent write.
+    ///
+    /// A notifying write invalidates every `@EnvironmentObject store` — `ContentView`,
+    /// `HomeView` and `BookReaderView` all hold one — and re-evaluates the whole
+    /// bookshelf behind the open reader. Reading re-sends the same position
+    /// routinely: `saveProgress()` forces a save straight after an auto-save, and a
+    /// scroll that settles back on the chapter it started in reports the same
+    /// fraction. Those writes move nothing on screen, so they no longer publish.
+    /// Persistence is asked either way — a forced save has to be able to flush a
+    /// value that is already in memory but not yet on disk.
+    ///
+    /// `notifyLibraryViews` affects observation only: records, sync, mutation
+    /// ownership and the existing disk-write policy always receive the position.
+    /// The continuous reader's bars observe ReaderSessionStore instead, and its
+    /// lifecycle save publishes the latest summary before the library reappears —
+    /// by writing that same position again with notification, which must therefore
+    /// publish even though the value did not change.
+    private func applyPositionUpdate(
+        bookId: UUID,
+        force: Bool,
+        notifyLibraryViews: Bool = true,
+        _ mutate: (inout ReadingBook) -> Void
+    ) {
+        guard let idx = records.firstIndex(where: { $0.id == bookId }) else { return }
+        var book = records[idx]
+        mutate(&book)
+        let moved = PersistedPositionSnapshot(book: book) != PersistedPositionSnapshot(book: records[idx])
+        if moved || (notifyLibraryViews && unpublishedPositionBookIDs.contains(bookId)) {
+            var updated = records
+            updated[idx] = book
+            replaceRecords(updated, notifyLibraryViews: notifyLibraryViews)
+            if notifyLibraryViews {
+                unpublishedPositionBookIDs.remove(bookId)
+            } else {
+                unpublishedPositionBookIDs.insert(bookId)
+            }
+        }
+        persistPositionUpdateIfNeeded(bookId: bookId, updatedBook: records[idx], force: force)
+    }
+
+    /// Books whose position was written without notifying the library views.
+    private var unpublishedPositionBookIDs: Set<UUID> = []
+
+    func updatePosition(
+        bookId: UUID, position: Double, forceSave: Bool = false, notifyLibraryViews: Bool = true
+    ) {
+        applyPositionUpdate(bookId: bookId, force: forceSave, notifyLibraryViews: notifyLibraryViews) { book in
+            book.currentPosition = position
         }
     }
 
@@ -735,14 +795,14 @@ class BookStore: ObservableObject, BookProvider {
         pageProgress: Double? = nil,
         forceSave: Bool = false
     ) {
-        guard let idx = records.firstIndex(where: { $0.id == bookId }) else { return }
-        records[idx].mangaChapterIndex = chapter
-        records[idx].mangaPage = page
-        if totalChapters > 0 {
-            let progress = (Double(chapter) + (pageProgress ?? 0)) / Double(totalChapters)
-            records[idx].currentPosition = min(1.0, max(0, progress))
+        applyPositionUpdate(bookId: bookId, force: forceSave) { book in
+            book.mangaChapterIndex = chapter
+            book.mangaPage = page
+            if totalChapters > 0 {
+                let progress = (Double(chapter) + (pageProgress ?? 0)) / Double(totalChapters)
+                book.currentPosition = min(1.0, max(0, progress))
+            }
         }
-        persistPositionUpdateIfNeeded(bookId: bookId, updatedBook: records[idx], force: forceSave)
     }
 
     /// Persist audiobook playback position (chapter index + elapsed seconds) plus
@@ -754,13 +814,13 @@ class BookStore: ObservableObject, BookProvider {
         totalChapters: Int,
         forceSave: Bool = false
     ) {
-        guard let idx = records.firstIndex(where: { $0.id == bookId }) else { return }
-        records[idx].audioChapterIndex = chapter
-        records[idx].audioTimeSeconds = max(0, time)
-        if totalChapters > 0 {
-            records[idx].currentPosition = min(1.0, Double(chapter) / Double(totalChapters))
+        applyPositionUpdate(bookId: bookId, force: forceSave) { book in
+            book.audioChapterIndex = chapter
+            book.audioTimeSeconds = max(0, time)
+            if totalChapters > 0 {
+                book.currentPosition = min(1.0, Double(chapter) / Double(totalChapters))
+            }
         }
-        persistPositionUpdateIfNeeded(bookId: bookId, updatedBook: records[idx], force: forceSave)
     }
 
     func updateLastOpened(bookId: UUID) {
@@ -1163,6 +1223,13 @@ class BookStore: ObservableObject, BookProvider {
             if remainingRoleVoices.count != globalSettings.ttsRoleVoices.count {
                 globalSettings.ttsRoleVoices = remainingRoleVoices
             }
+            // Nothing draws this book's covers any more: release their bitmaps. The
+            // files themselves stay where deletion has always left them.
+            let coverSources = [book.coverImagePath, book.originalCoverImagePath]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+                .map { CoverImageSource.bookCover(filename: $0) }
+            CoverImagePipeline.shared.invalidate(Set(coverSources))
             records.remove(at: idx)
             saveMeta()
         }
@@ -1352,7 +1419,7 @@ class BookStore: ObservableObject, BookProvider {
             "\(bookId.uuidString)\(StorageLocations.customCoverFilenameMarker)"
             + "\(UUID().uuidString.prefix(8)).jpg"
         do {
-            try jpeg.write(to: StorageLocations.coverFile(filename), options: .atomic)
+            try BookCoverFileStore.live.write(jpeg, filename: filename)
         } catch {
             AppLogger.render("[Cover] could not write custom cover: \(error.localizedDescription)")
             return false
@@ -1390,7 +1457,7 @@ class BookStore: ObservableObject, BookProvider {
         records[idx].originalCoverImagePath = nil
 
         if let originalPath,
-           FileManager.default.fileExists(atPath: StorageLocations.coverFile(originalPath).path) {
+           FileManager.default.fileExists(atPath: StorageLocations.coverFileLocation(originalPath).path) {
             records[idx].coverImagePath = originalPath
             if let customPath, customPath != originalPath { removeCoverFile(customPath) }
             // Immediate for the same reason as `storeCustomCover`, and because the
@@ -1411,7 +1478,7 @@ class BookStore: ObservableObject, BookProvider {
     }
 
     private func removeCoverFile(_ filename: String) {
-        try? FileManager.default.removeItem(at: StorageLocations.coverFile(filename))
+        BookCoverFileStore.live.remove(filename: filename)
     }
 
     // MARK: Add Browser-Imported Book (no book source; lazy-loads by URL)
@@ -1988,37 +2055,98 @@ class BookStore: ObservableObject, BookProvider {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
-    @discardableResult
-    func replaceBooksFromSync(_ syncedBooks: [ReadingBook], expectedMutationRevision: UInt64? = nil) -> Bool {
-        if let expectedMutationRevision, expectedMutationRevision != mutationRevision {
-            // Keep the live shelf; the next sync includes these newer local edits.
-            return false
-        }
-        // The synced copy omits `onlineChapters` (kept local & re-fetchable from the
-        // source) to stay under Firestore's 1 MB document limit. Preserve whatever the
-        // device already has so we don't drop a fetched table of contents.
+    /// Immutable input and encoded output share the same local revision. The worker
+    /// never reads the store or writes files, so a late result cannot overwrite a
+    /// newer progress save, import, deletion, or another sync application.
+    struct SyncSnapshot {
+        fileprivate let records: [ReadingBook]
+        fileprivate let revision: UInt64
+    }
+
+    struct EncodedSyncSnapshot {
+        fileprivate let snapshot: SyncSnapshot
+        fileprivate let shelfData: Data
+        fileprivate let readingData: Data
+    }
+
+    private static let syncEncodingQueue = DispatchQueue(
+        label: "com.yuedu.library.sync-metadata", qos: .utility
+    )
+
+    @MainActor
+    func snapshotForSync(_ syncedBooks: [ReadingBook], expectedMutationRevision: UInt64? = nil) -> SyncSnapshot? {
+        if let expectedMutationRevision, expectedMutationRevision != mutationRevision { return nil }
+        // Remote metadata omits the local, re-fetchable table of contents.
         let localChapters = Dictionary(records.map { ($0.id, $0.onlineChapters) }, uniquingKeysWith: { first, _ in first })
-        books = syncedBooks.map { book in
-            guard (book.onlineChapters?.isEmpty ?? true), let preserved = localChapters[book.id] ?? nil else {
-                return book
-            }
+        let shelf = syncedBooks.map { book in
             var merged = book
-            merged.onlineChapters = preserved
+            merged.isInBookshelf = true
+            if (book.onlineChapters?.isEmpty ?? true), let preserved = localChapters[book.id] ?? nil {
+                merged.onlineChapters = preserved
+            }
             return merged
         }.sorted { lhs, rhs in
             (lhs.lastOpenedDate ?? lhs.addedDate) > (rhs.lastOpenedDate ?? rhs.addedDate)
         }
-        saveMetaImmediately()
-        // A book the merged shelf no longer carries was deleted on another device.
+        let ids = Set(shelf.map(\.id))
+        return SyncSnapshot(records: shelf + records.filter { !$0.isInBookshelf && !ids.contains($0.id) },
+                            revision: mutationRevision)
+    }
+
+    static func encodeSyncSnapshot(_ snapshot: SyncSnapshot) async throws -> EncodedSyncSnapshot {
+        try await withCheckedThrowingContinuation { continuation in
+            syncEncodingQueue.async {
+                dispatchPrecondition(condition: .notOnQueue(.main))
+                do {
+                    let result = try SourcePerfTrace.span("sync.encode.books", "count=\(snapshot.records.count) main=false") {
+                        try encodeSyncSnapshotData(snapshot)
+                    }
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private static func encodeSyncSnapshotData(_ snapshot: SyncSnapshot) throws -> EncodedSyncSnapshot {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try EncodedSyncSnapshot(snapshot: snapshot,
+            shelfData: encoder.encode(snapshot.records.filter(\.isInBookshelf)),
+            readingData: encoder.encode(snapshot.records.filter { !$0.isInBookshelf }))
+    }
+
+    @discardableResult
+    @MainActor
+    func applySyncSnapshot(_ prepared: EncodedSyncSnapshot) -> Bool {
+        guard prepared.snapshot.revision == mutationRevision else { return false }
+        replaceRecords(prepared.snapshot.records)
+        cancelPendingMetadataSave()
+        persistMetadata(prepared.shelfData, readingData: prepared.readingData)
         readerSettings.removeSettings(notIn: Set(records.map(\.id)))
         return true
     }
 
-    private func saveMetaImmediately() {
+    /// Synchronous callers retain their immediate durability boundary. Live cloud
+    /// sync uses snapshot → worker encoding → revision-checked application instead.
+    @discardableResult
+    @MainActor
+    func replaceBooksFromSync(_ syncedBooks: [ReadingBook], expectedMutationRevision: UInt64? = nil) -> Bool {
+        guard let snapshot = snapshotForSync(syncedBooks, expectedMutationRevision: expectedMutationRevision),
+              let prepared = try? Self.encodeSyncSnapshotData(snapshot) else { return false }
+        return applySyncSnapshot(prepared)
+    }
+
+    private func cancelPendingMetadataSave() {
         saveWorkItem?.cancel()
         saveGeneration += 1
         saveWorkItem = nil
         firstPendingSaveRequestedAt = nil
+    }
+
+    private func saveMetaImmediately() {
+        cancelPendingMetadataSave()
         persistMetadataIfChanged()
     }
 
@@ -2092,6 +2220,10 @@ class BookStore: ObservableObject, BookProvider {
 
     private func persistMetadataIfChanged() {
         guard let data = encodeBooksMetadata() else { return }
+        persistMetadata(data)
+    }
+
+    private func persistMetadata(_ data: Data, readingData: Data? = nil) {
         do {
             // Write the shelf first: a crash while promoting a reading record must
             // leave at least one durable copy. Loading gives shelf IDs precedence.
@@ -2103,7 +2235,8 @@ class BookStore: ObservableObject, BookProvider {
                 markMetadataPersisted(data)
                 syncWidgetData()
             }
-            persistReadingRecords()
+            if let readingData { try persistEncodedReadingRecords(readingData) }
+            else { persistReadingRecords() }
         } catch {
             AppLogger.cache("Failed to write metadata: \(error)")
         }
@@ -2270,10 +2403,14 @@ class BookStore: ObservableObject, BookProvider {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
             let data = try encoder.encode(records.filter { !$0.isInBookshelf })
-            guard data != lastPersistedReadingData else { return }
-            try data.write(to: readingMetadataFileURL, options: .atomic)
-            lastPersistedReadingData = data
+            try persistEncodedReadingRecords(data)
         } catch { AppLogger.error("Remote reading records could not be saved", error: error) }
+    }
+
+    private func persistEncodedReadingRecords(_ data: Data) throws {
+        guard data != lastPersistedReadingData else { return }
+        try data.write(to: readingMetadataFileURL, options: .atomic)
+        lastPersistedReadingData = data
     }
 
     /// Cleans persisted online book chapter URLs: replaces URLs containing HTML

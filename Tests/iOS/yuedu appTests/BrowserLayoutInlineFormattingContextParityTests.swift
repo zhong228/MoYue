@@ -4,6 +4,11 @@ import Testing
 import UIKit
 @testable import yuedu_app
 
+/// Digests re-recorded 2026-09-23 for YueduCoreText 0.5.0. In the same environment the
+/// package at 0.4.0 still reproduces every previous digest and 0.5.1 produces these, so the
+/// change is 0.5.0's line box: half-leading from UIFont metrics (Helvetica's ascender carries
+/// 0.15em, moving baselines 1.275pt at 17pt) and the parent strut below images and ruby.
+/// Row-level evidence: docs/browser-layout/yueducoretext-0.5.0-baselines-2026-09-23.md.
 @MainActor
 struct BrowserLayoutInlineFormattingContextParityTests {
     private static let viewport = CGSize(width: 390, height: 844)
@@ -79,7 +84,7 @@ struct BrowserLayoutInlineFormattingContextParityTests {
             // is the one Phase-4E0 PRE artifact directly superseded by the
             // used-value correction: line breaking now uses the paragraph's
             // final content box instead of its provisional parent width.
-            equals: "ffde4343e9532ea04945205a9a020d8c10c83f820ebfd345da2da4baa720a3ea"
+            equals: "cba5c8c9d1be93ff915fd0b76ec30d4abad6b0bcea2aa7af8c17509476bb171c"
         )
     }
 
@@ -100,7 +105,7 @@ struct BrowserLayoutInlineFormattingContextParityTests {
         #expect(links.regions.count >= 2)
         assertDigest(
             snapshot(value),
-            equals: "1b3cad8dc98ca683446e60777298397d9192fd6fd4b01b7d68f2cdbaaa60141b"
+            equals: "5749e56ceb90c0cf7539df2ed89b746d94dbf4ae0004d94978973a04f24b4023"
         )
     }
 
@@ -116,7 +121,7 @@ struct BrowserLayoutInlineFormattingContextParityTests {
         #expect(annotations.first?.sourceMapping == .wholeRange)
         assertDigest(
             snapshot(value),
-            equals: "487b514008a050128f90e403a22ce16dc5092bf56512b6c13139947c8235be18"
+            equals: "50cc27c4ae1f1885315f7a06732fe6ab12a81ff44283a1c3a26111f0fb6814ad"
         )
     }
 
@@ -133,7 +138,7 @@ struct BrowserLayoutInlineFormattingContextParityTests {
         #expect(BrowserLayoutTestSupport.allImageFragments(value.pages).count == 1)
         assertDigest(
             snapshot(value),
-            equals: "ed7c89137e7970c7042467998085db8bd456a7bb910b88b2cd7c13694402c642"
+            equals: "1574c8f631367aff52768dd4e22f017d9a1dcffa151841d84a81cb90047731cc"
         )
     }
 
@@ -156,7 +161,7 @@ struct BrowserLayoutInlineFormattingContextParityTests {
         #expect(floated.count == 2)
         assertDigest(
             snapshot(value),
-            equals: "e6ccd9713e2a84dd2357ee8c09dfefce05c6083970eccb1a96f528b7a0a9fd66"
+            equals: "3aaccfaaddda305b282166d256e5bb9a5d143add7423439adf698eb81a904171"
         )
     }
 
@@ -178,7 +183,7 @@ struct BrowserLayoutInlineFormattingContextParityTests {
         })
         assertDigest(
             snapshot(value),
-            equals: "4b98122de2919d73a035f46b9f876e1f21c6a9dac30362a6cde329160db18f58"
+            equals: "c1452946a1c3d782156aa49e68e1d8cde7da3339b52808e41c3c565e4235ab10"
         )
     }
 
@@ -200,7 +205,7 @@ struct BrowserLayoutInlineFormattingContextParityTests {
         #expect(links.hitTest(CGPoint(x: firstLink.pageLocalRect.midX, y: firstLink.pageLocalRect.midY)) != nil)
         assertDigest(
             snapshot(value, selectionRange: selection),
-            equals: "9ff4b64197d06ebb8285b0e28d1e1053eebb2c31395ce41a45187839c674261f"
+            equals: "00c2be59d03554286ef9bb99e6d8b138a452a39d923ca8f78e39f8c8cc5114da"
         )
     }
 

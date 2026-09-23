@@ -59,6 +59,7 @@ struct FootnotePopoverContent: View {
                 .textSelection(.enabled)
                 .padding(FootnotePopoverContent.contentInset)
         }
+        .softScrollEdges()
     }
 
     static let contentInset: CGFloat = 14

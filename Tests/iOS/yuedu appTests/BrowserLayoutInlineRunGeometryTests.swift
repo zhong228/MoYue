@@ -39,6 +39,9 @@ struct BrowserLayoutInlineRunGeometryTests {
         var style = ComputedStyle()
         style.fontFamilies = ["TimesNewRomanPSMT"]
         style.fontSize = 40
+        // One unbreakable word: since YueduCoreText 0.5.0 it wraps only where
+        // the author allows emergency breaks, as CSS overflow-wrap requires.
+        style.overflowWrap = "anywhere"
         let runs = text.enumerated().map { index, character in
             InlineRun(text: String(character), style: style,
                       sourceRange: NSRange(location: index, length: 1), nodeID: index)
