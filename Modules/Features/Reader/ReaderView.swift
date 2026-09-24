@@ -2492,6 +2492,14 @@ struct ReaderView: View {
                     onSourcePrepared: { source in
                         guard source.chunkBookID == bookId, sourceContext == aiCurrentSourceContext else { return }
                         aiSourceAdapter = source
+                    },
+                    bookAnnotations: { [store, bookId] in
+                        (store.readingBook(id: bookId)?.bookmarks ?? []).compactMap { AIReaderAnnotation($0, bookTitle: nil) }
+                    },
+                    libraryAnnotations: { [store, bookId] in
+                        store.books.filter { $0.id != bookId }.flatMap { other in
+                            other.bookmarks.compactMap { AIReaderAnnotation($0, bookTitle: other.title) }
+                        }
                     }
                 )
                 .task { await gatherAIBookText() }

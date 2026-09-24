@@ -5,7 +5,6 @@ struct AIStatusView: View {
     let adapter: AIBookContentAdapter
     @ObservedObject private var service = AIAssistantService.shared
     @ObservedObject private var diagnostics = AIDiagnosticStore.shared
-    @ObservedObject private var embedding = AIEmbeddingModelStore.shared
     @State private var includeMessages = false
     @State private var includeEvidence = false
     @State private var includeResponse = false
@@ -24,10 +23,6 @@ struct AIStatusView: View {
                 LabeledContent(localized("本機可用正文"), value: "\(adapter.manifest.chapters.count - missingChapters.count) / \(adapter.manifest.chapters.count)")
                 LabeledContent(localized("已索引章節"), value: "\(service.indexedChapterCounts[adapter.chunkBookID] ?? 0)")
                 LabeledContent(localized("檢索索引"), value: indexDescription)
-                LabeledContent(localized("語意檢索"), value: embeddingDescription)
-                if let reason = diagnostics.retrievalDegradation {
-                    LabeledContent(localized("本次已降級關鍵字檢索"), value: AIEmbeddingContract.Failure(rawValue: reason)?.localizedDescription ?? localized("語意模型目前不可用"))
-                }
                 if !missingChapters.isEmpty {
                     DisclosureGroup {
                         ForEach(missingChapters, id: \.order) { chapter in
@@ -86,19 +81,9 @@ struct AIStatusView: View {
     private var indexDescription: String {
         switch service.indexState[adapter.chunkBookID] ?? .idle {
         case .idle: return localized("尚未建立")
-        case let .building(completed, total): return String(format: localized("建立中 %1$d / %2$d 片段"), completed, total)
-        case let .ready(count, tier): return String(format: localized("已索引 %d 個片段"), count) + " · " + (tier == .keyword ? localized("關鍵字") : localized("混合檢索"))
+        case .building: return localized("建立中…")
+        case let .ready(count): return String(format: localized("已索引 %d 個片段"), count)
         case let .failed(message): return message
-        }
-    }
-    private var embeddingDescription: String {
-        switch embedding.state {
-        case .absent: return localized("關鍵字模式，未安裝語意模型")
-        case .installed: return localized("模型已安裝，尚未驗證契約")
-        case .ready: return localized("模型載入及契約驗證通過")
-        case .downloading: return localized("下載中…")
-        case .verifying: return localized("驗證中…")
-        case let .failed(reason): return reason
         }
     }
     private func availability(_ status: AISourceManifest.Availability) -> String {

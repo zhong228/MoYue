@@ -51,6 +51,8 @@ struct AIQuestionContext: Sendable {
     var model: String?
     var provider: (any LLMProviding)?
     var allowsBackgroundKnowledge = false
+    /// The reader's highlights and notes on offer; `AIReaderAnnotations.select` decides which go in.
+    var annotations = AIReaderAnnotationSet()
 
     init(requestID: UUID = UUID(), bookID: UUID, conversationID: UUID = UUID(), question: String,
          source: AIBookContentAdapter, boundary: AIReadingBoundary, history: [AIChatMessage] = [],

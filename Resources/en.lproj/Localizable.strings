@@ -2671,11 +2671,6 @@
 /* AI assistant panel */
 "API Key" = "API Key";
 "下載中…" = "Downloading…";
-"下載位址無效" = "The download URL is not valid";
-"下載的檔案不是可用的 Core ML 模型" = "The downloaded file is not a usable Core ML model";
-"下載的檔案與預期的校驗碼不符，已捨棄" = "The download did not match its expected checksum and was discarded";
-"下載語意檢索模型" = "Download the semantic search model";
-"下載語意檢索模型（約 258 MB）" = "Download the semantic search model (~258 MB)";
 "不下載也能用：預設的關鍵詞檢索對人名、地名、術語這類精確查詢本來就更準。下載後會語意＋關鍵詞一起用，並重建所有書的索引。" = "It works without this. Keyword search is the default and is more accurate for names, places and terms. Downloading adds semantic search alongside it and rebuilds every book's index.";
 "人物卡" = "Characters";
 "人物卡會搜尋整本書（不只你讀到的地方），並要求不要透露結局。想完全避免劇透就先別整理主角。" = "Character cards search the whole book, not just what you have read, and ask the model not to reveal endings. To avoid spoilers entirely, hold off on the main characters.";
@@ -2695,16 +2690,11 @@
 "整理中…（第 %1$d/%2$d 步）" = "Working… (step %1$d of %2$d)";
 "整理之後，多角色朗讀也會用這裡的別名，把同一個人的不同稱呼歸成同一個聲音。" = "Once built, multi-voice read-aloud uses these aliases so one character's different names share one voice.";
 "整理人物卡" = "Build character card";
-"模型下載位址" = "Model URL";
 "模式" = "Mode";
-"檢索方式" = "Search method";
 "正在整理前情提要…" = "Writing the recap…";
 "產生前情提要" = "Write a recap";
 "發問" = "Ask";
-"移除語意檢索模型" = "Remove the semantic search model";
-"語意檢索" = "Semantic search";
 "讀到一半回來忘了劇情？產生一段只涵蓋你已讀範圍的提要。" = "Back after a break and lost the thread? Write a recap covering only what you have read.";
-"貼上模型網址" = "Paste the model URL";
 "跳到 %@" = "Go to %@";
 "跳到原文" = "Go to the passage";
 "身分" = "Role";
@@ -2714,9 +2704,6 @@
 "還沒有人物卡" = "No character cards yet";
 "還沒有前情提要" = "No recap yet";
 "重新產生" = "Regenerate";
-"重試下載" = "Retry download";
-"關鍵詞" = "Keyword";
-"關鍵詞 + 語意" = "Keyword + semantic";
 "首次登場" = "First appears";
 "（尚無片段）" = "(no passages yet)";
 
@@ -2797,8 +2784,6 @@
 "包含你還沒讀到的角色。" = "Includes characters you have not reached.";
 
 "相容 OpenAI /v1/chat/completions 的服務都可以。貼完整網址也行。" = "Any OpenAI-compatible service works. A full URL is fine too.";
-"會同時送 system 與 user 兩段訊息，和實際使用一致。" = "Sends both a system and a user message, like real requests do.";
-"不下載也能用。關鍵詞檢索對人名、術語本來就更準。" = "It works without this. Keyword search is more accurate for names and terms.";
 "只留在本機鑰匙圈，不同步 iCloud。費用由服務商向你收取。" = "Stays in this device's keychain, never synced. Your provider bills you.";
 "沒有 AI 也能用，只是同一個人的不同稱呼會各拿一個聲音。" = "Works without AI — one person's different names just get different voices.";
 
@@ -2855,7 +2840,6 @@
 
 "人物卡依目前範圍整理；全書及舊版未驗證卡片不會用於安全模式的別名或朗讀。" = "Cards use the selected scope. Whole-book and unverified cards are excluded from spoiler-safe aliases and narration.";
 
-"位置使用來源 UTF-16；正文與排版不同且無法驗證時，排除當章未確認範圍並停止引用跳轉。" = "Positions use source UTF-16. When source and layout differ without a verified match, unconfirmed text is excluded and citation navigation is unavailable.";
 
 "使用全書模式" = "Use Whole-Book Mode";
 
@@ -2879,7 +2863,6 @@
 
 "匯出檢索原文" = "Export retrieved passages";
 
-"契約驗證與語意品質不同；尚未評測語意品質。模型不可用時仍可使用關鍵字檢索。" = "Contract validation does not establish semantic quality, which has not been evaluated. Keyword search remains available without a model.";
 
 "尚未下載" = "Not downloaded";
 
@@ -2891,7 +2874,6 @@
 
 "已索引章節" = "Chapters indexed";
 
-"建立中 %1$d / %2$d 片段" = "Building: %1$d / %2$d chunks";
 
 "引用 %d 筆原文" = "%d cited passages";
 
@@ -2899,7 +2881,6 @@
 
 "最近已讀片段提要" = "Recent Read Passages Recap";
 
-"未下載或抽取失敗的章節不在搜尋範圍；不會自動下載正文。提要僅涵蓋最近最多 12 個已讀片段。" = "Missing or unextractable chapters are excluded; no text is downloaded automatically. Recaps cover at most 12 recent read chunks.";
 
 "未提供可核對引用" = "No verifiable citations provided";
 
@@ -2907,9 +2888,7 @@
 
 "格式不支援正文抽取" = "Text extraction unsupported";
 
-"模型已安裝，尚未驗證契約" = "Model installed; contract not yet validated";
 
-"模型載入及契約驗證通過" = "Model loaded; contract validated";
 
 "檢索索引" = "Retrieval index";
 
@@ -2919,7 +2898,6 @@
 
 "正文抽取失敗" = "Text extraction failed";
 
-"混合檢索" = "Hybrid retrieval";
 
 "目前可用、已讀範圍內的檢索結果不足以確認。" = "Retrieval from the currently available, read text is insufficient to confirm this.";
 
@@ -2931,29 +2909,17 @@
 
 "部分卡片來源或範圍未驗證，已在安全模式隱藏；自訂設定仍保留。" = "Cards with unverified sources or scope are hidden in safe mode. Custom settings are preserved.";
 
-"關鍵字" = "Keywords";
 
-"關鍵字模式，未安裝語意模型" = "Keyword mode; no semantic model installed";
 
-"預設僅保存 metadata。開啟保留後，下一次請求的輸入、messages、檢索原文與回覆暫存記憶體；匯出只包含勾選內容，會遮蔽憑證、帳號與網址，不會自動上傳。" = "Only metadata is saved by default. Opting in retains the next request’s input, messages, passages, and responses in memory. Exports include only selected content, redact credentials, accounts, and URLs, and are never uploaded automatically.";
 
-"本次已降級關鍵字檢索" = "This request used keyword search";
 
-"語意模型目前不可用" = "Semantic model currently unavailable";
 
-"語意模型版本與索引不相容" = "Semantic model version is incompatible with the index";
 
-"索引缺少語意向量" = "The index is missing semantic vectors";
 
-"語意模型回傳的向量數量錯誤" = "The model returned the wrong number of vectors";
 
-"語意向量不符合模型宣告的維度" = "Vectors do not match the model’s declared dimensions";
 
-"查詢與正文向量維度不相容" = "Query and document vector dimensions are incompatible";
 
-"語意模型回傳無效向量" = "The model returned invalid vectors";
 
-"驗證已安裝模型契約" = "Validate Installed Model Contract";
 
 "診斷請求" = "Diagnostic request";
 
@@ -2975,7 +2941,6 @@
 "已停止本次問答。" = "This request was stopped.";
 "每題模型呼叫上限" = "Maximum model calls per question";
 "每題搜尋詞上限" = "Maximum queries per question";
-"追問釐清與補查共用每題預算，最多補查及修訂一次；每次模型呼叫可能由供應商計費。" = "Follow-up clarification and additional searches share each question’s budget, with at most one revision. Your provider may charge for each model call.";
 
 /* Batch character memory */
 "%d 筆經歷記錄" = "%d experience records";
@@ -3000,13 +2965,11 @@
 "可重用已保存批次" = "Reusable saved batches";
 "同名或模型信心不是合併依據；確認只影響此揭露範圍之後的檢視，原始提及與事實仍保留。" = "Matching names or model confidence do not justify merging. Confirmation affects views from this disclosure point onward; original mentions and facts remain intact.";
 "失敗，等待重試" = "Failed, awaiting retry";
-"完成表示已分析本機可用且允許的正文；缺失章節與未保存批次不算完成，也不保證沒有漏抽人物。" = "Completion covers available local text within the allowed scope. Missing chapters and unsaved batches are excluded. Characters may still have been missed.";
 "已保存主要正文 UTF-16" = "Saved primary text UTF-16";
 "已保存批次" = "Saved batches";
 "建檔會逐批傳送允許範圍內的本機正文到你的生成服務；開始前會再次列明模型與預算。" = "Analysis sends allowed local text to your generation service in batches. You will review the model and budget before starting.";
 "建檔狀態" = "Analysis status";
 "建檔範圍" = "Build scope";
-"建檔範圍與查看範圍分開；卡片只使用目前範圍允許的提及、事實與身分關係。" = "Build and viewing scopes are separate. Cards use only mentions, facts, and identity links allowed at the selected reading position.";
 "後文反駁／修正" = "Later contradiction / correction";
 "截斷時允許自動分拆一次" = "Allow one automatic split on truncation";
 "截至目前閱讀位置" = "Through current reading position";
@@ -3054,15 +3017,12 @@
 "角色發言／自述" = "Character statement / self-report";
 "該批抽取失敗，未保存為成功。" = "This batch failed and was not saved as successful.";
 "追加呼叫額度：%d" = "Additional calls: %d";
-"逐批人物建檔" = "Batch character analysis";
 "這是模型抽取的結構化記錄，不代表人物或事實全部正確；每項保留原文供核對。新別名不會自動送入問答或朗讀。" = "These are model-extracted records, not a guarantee of correct characters or facts. Each item retains source evidence. New aliases are not automatically used in Q&A or narration.";
 "這會逐批傳送正文，不只是問答命中的少數片段。全書範圍可能包含後文；模型服務可能收費，沒有價格或 tokenizer 資料時不估價。" = "This sends text in batches, beyond the few passages retrieved for Q&A. Whole-book analysis may include unread text. The service may charge fees; costs are unknown without pricing and tokenizer data.";
 "關係記錄" = "Relationship record";
 "預算用盡，已暫停" = "Budget exhausted, paused";
 
 // AI character discovery from source prose
-"用 AI 建立人物表" = "Build characters with AI";
-"人物由 AI 直接閱讀正文辨識，包含沒有對白的角色。" = "AI identifies characters directly from the book, including characters without dialogue.";
 "指定人物整理卡片" = "Create a card for a named character";
 
 "頁面類型" = "Page type";
@@ -3135,6 +3095,52 @@
 
 "未附書中引用" = "No book citation";
 "捲到最新" = "Scroll to Latest";
+"建立中…" = "Building…";
+"人物關係圖" = "Relationship Map";
+"點任一人物，改看這個人物的關係。" = "Tap anyone to see their relationships instead.";
+"改看這個人物的關係" = "Shows this character's relationships";
+"%@的關係" = "%@'s relationships";
+"依整理已讀人物的記錄繪製，只含目前讀到的內容；每條關係都可到人物頁核對原文。" = "Drawn from your character records up to where you are; each relationship can be checked against the text on the character's page.";
+"%@的人物頁" = "%@'s page";
+"還沒有人物關係" = "No relationships yet";
+"先用「整理已讀人物」建立人物記錄，關係就會畫在這裡。" = "Build character records with “Organize characters read so far” and the relationships appear here.";
+"%1$@（第 %2$d 章）" = "%1$@ (chapter %2$d)";
+"整理我的劃線" = "Review my highlights";
+"本次參考了你的 %d 則劃線或筆記。" = "This answer drew on %d of your highlights or notes.";
+"本次參考了你在這本書的 %1$d 則、其他書的 %2$d 則劃線或筆記。" = "This answer drew on %1$d of your highlights or notes in this book and %2$d from other books.";
+"已讀範圍內還沒有劃線或筆記。" = "There are no highlights or notes in what you've read yet.";
+"全書與分卷摘要" = "Book & Volume Summaries";
+"全書摘要" = "Book summary";
+"分卷" = "Volumes";
+"第 %1$d–%2$d 章" = "Chapters %1$d–%2$d";
+"涵蓋到第 %d 章" = "Covers through chapter %d";
+"還沒有全書摘要" = "No book summary yet";
+"依已讀章節逐章整理，再彙整成分卷與全書摘要。" = "Summarizes each chapter you've read, then combines them into volume and book summaries.";
+"整理中…（%1$d / %2$d）" = "Summarizing… (%1$d / %2$d)";
+"摘要已涵蓋目前的閱讀進度。" = "Summaries cover your current reading position.";
+"整理摘要" = "Summarize";
+"更新摘要" = "Update summaries";
+"繼續整理" = "Continue";
+"只整理已讀、且本機有正文的章節；離開此頁會暫停，已完成的部分會保留。" = "Only chapters you've read that have text on this device are summarized. Leaving this screen pauses; finished parts are kept.";
+"未摘要" = "Not summarized";
+"已摘要" = "Summarized";
+"部分摘要" = "Partly summarized";
+"已用完這次確認的呼叫次數，已暫停。" = "Paused: the model calls you confirmed are used up.";
+"已暫停，已完成的部分會保留。" = "Paused. Finished parts are kept.";
+"要整理的章節" = "Chapters to summarize";
+"預計模型呼叫" = "Estimated model calls";
+"送出的正文" = "Text sent";
+"約 %d 字" = "About %d characters";
+"會把這些章節的本機正文分批傳送到你的 AI 服務，可能產生費用。超過預計次數時會先暫停。" = "These chapters' text is sent to your AI service in batches and may be billed. It pauses before going over the estimate.";
+"開始整理" = "Start";
+"確認整理摘要" = "Confirm Summaries";
+"清除本書摘要" = "Clear This Book's Summaries";
+"清除本書摘要？" = "Clear this book's summaries?";
+"已整理的逐章、分卷與全書摘要都會刪除，重新整理需要再次呼叫模型。" = "Chapter, volume and book summaries are deleted. Summarizing again calls the model again.";
+"這一卷還沒有摘要。" = "This volume has no summary yet.";
+"逐章摘要" = "Chapter summaries";
+"摘要服務回傳的格式不正確，這一批沒有保存。" = "The service returned summaries in an unexpected format; this batch was not saved.";
+"正文已變更，請重新整理摘要。" = "The book text changed. Summarize again.";
 "還沒有自訂提示詞" = "No custom prompts yet";
 "常用的問法存成提示詞，就會出現在 AI 對話的快捷按鈕裡。" = "Save questions you ask often as prompts, and they appear as shortcuts in the AI chat.";
 "本書內容" = "This book";
@@ -3183,7 +3189,6 @@
 
 "設為預設" = "Set as Default";
 
-"人物記錄保存在本機；清除不會刪除正文、聊天或人工角色聲音設定。離開功能或退到背景會暫停。" = "Character records stay on this device. Clearing them preserves book text, chats, and manually assigned voices. Leaving this screen or backgrounding pauses analysis.";
 
 "引用超出目前閱讀範圍。" = "This citation is outside the current reading scope.";
 

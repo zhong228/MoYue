@@ -144,32 +144,6 @@ struct AIRetrievalTests {
         #expect(top.map(\.chunk.ordinal) == [0, 1, 2])
     }
 
-    // MARK: - Fusion
-
-    @Test("fusion merges two rankings that are not on the same scale")
-    func fusionMergesRankings() {
-        let keyword = [
-            AIRetrievalHit(chunk: makeChunk(ordinal: 1), score: 18.2),
-            AIRetrievalHit(chunk: makeChunk(ordinal: 2), score: 4.1),
-        ]
-        let vector = [
-            AIRetrievalHit(chunk: makeChunk(ordinal: 2), score: 0.81),
-            AIRetrievalHit(chunk: makeChunk(ordinal: 3), score: 0.79),
-        ]
-        let merged = AIReciprocalRankFusion.merge(rankings: [keyword, vector], weights: [1.2, 1.0])
-        #expect(Set(merged.map(\.chunk.ordinal)) == [1, 2, 3])
-        // Ranked first by one list and second by the other beats appearing in only one.
-        #expect(merged.first?.chunk.ordinal == 2 || merged.first?.chunk.ordinal == 1)
-        #expect(merged.last?.chunk.ordinal == 3)
-    }
-
-    @Test("fusing one ranking with nothing leaves it intact")
-    func fusionHandlesEmptyRankings() {
-        let only = [AIRetrievalHit(chunk: makeChunk(ordinal: 5), score: 1)]
-        #expect(AIReciprocalRankFusion.merge(rankings: [only, []]).map(\.chunk.ordinal) == [5])
-        #expect(AIReciprocalRankFusion.merge(rankings: []).isEmpty)
-    }
-
     // MARK: - Fixtures
 
     private struct FakeBook: AIChunkableContent {

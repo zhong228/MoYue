@@ -28,6 +28,11 @@ struct AIBookCharactersView: View {
                         .foregroundStyle(DSColor.textPrimary)
                         .labelStyle(IconConsistentLabelStyle())
                 }
+                NavigationLink { AIRelationshipMapView(adapter: adapter, onOpenCitation: onOpenCitation) } label: {
+                    Label(localized("人物關係圖"), systemImage: "point.3.connected.trianglepath.dotted")
+                        .foregroundStyle(DSColor.textPrimary)
+                        .labelStyle(IconConsistentLabelStyle())
+                }
                 NavigationLink { AICharacterListView(bookID: adapter.chunkBookID, adapter: adapter, progress: progress) } label: {
                     Label(localized("人物卡與朗讀別稱"), systemImage: "person.text.rectangle")
                         .foregroundStyle(DSColor.textPrimary)

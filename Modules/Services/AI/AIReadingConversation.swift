@@ -10,6 +10,10 @@ final class AIReadingConversation: ObservableObject {
     @Published private(set) var stage: AIQuestionStage = .searching
     @Published private(set) var source: AIBookContentAdapter?
     @Published var selection: AIReadingSelection?
+    /// This book's highlights and notes, read at send time so a mark just made counts.
+    var bookAnnotations: @MainActor () -> [AIReaderAnnotation] = { [] }
+    /// Other books' marks, read only for a question that reaches across the shelf.
+    var libraryAnnotations: @MainActor () -> [AIReaderAnnotation] = { [] }
     private let store: AIChatStore
     private let assistant: AIAssistantService
     private var task: Task<Void, Never>?
@@ -79,6 +83,8 @@ final class AIReadingConversation: ObservableObject {
         context.action = action; context.selection = selection; context.customPrompt = custom
         context.serviceID = session.serviceID; context.model = session.model
         context.allowsBackgroundKnowledge = true
+        context.annotations = AIReaderAnnotationSet(book: bookAnnotations(),
+            library: AIReaderAnnotations.asksAcrossBooks(question) ? libraryAnnotations() : [])
         do { context = try assistant.freezeProvider(in: context) }
         catch { appendFailure(context: context, error: error); return nil }
         let metadata = AIChatProvenance(requestID: context.requestID, bookID: context.bookID,

@@ -213,6 +213,12 @@ enum DSLayout {
     /// The answer uses the full width as plain prose; the question stays a narrower
     /// bubble on the trailing side, so the two never read as the same kind of text.
     static let aiChatBubbleLeadingInset: CGFloat = 48
+    /// 人物關係圖: the ring's height, how far related characters sit inside its edge, the
+    /// spoke width, and the widest the relation line under a name may get.
+    static let relationshipMapHeight: CGFloat = 340
+    static let relationshipNodeInset: CGFloat = 52
+    static let relationshipLineWidth: CGFloat = 1
+    static let relationshipLabelWidth: CGFloat = 96
     /// Source-login controls: visible outlines and tactile feedback over themed artwork.
     static let loginControlBorder: CGFloat = 0.5
     static let loginControlContrastBorder: CGFloat = 2

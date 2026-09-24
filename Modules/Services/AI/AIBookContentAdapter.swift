@@ -9,6 +9,9 @@ struct AIBookContentAdapter: AIChunkableContent {
     private(set) var readingPositionVerified = false
     private(set) var readingBoundary: AIReadingBoundary?
     let contentFingerprint: String
+    /// Table-of-contents nesting per section, for grouping chapters into volumes. Layout
+    /// metadata, not source text, so it stays out of the fingerprint.
+    let sectionLevels: [Int]
     let acquisitionMilliseconds: Double?
     private let sectionLengths: [Int]
     private let sectionOffsets: [Int]
@@ -44,6 +47,7 @@ struct AIBookContentAdapter: AIChunkableContent {
             running += lengths.last!
         }
         chunkSections = sections
+        sectionLevels = chapters.map(\.level)
         manifest = .init(transformationVersion: transformationVersion, chapters: entries)
         contentFingerprint = manifest.identifier
         sectionLengths = lengths
@@ -65,6 +69,7 @@ struct AIBookContentAdapter: AIChunkableContent {
         chunkBookID = pendingBookID
         isPrepared = false
         chunkSections = []
+        sectionLevels = []
         manifest = .init(transformationVersion: "pending", chapters: [])
         contentFingerprint = "pending:\(pendingBookID)"
         acquisitionMilliseconds = nil

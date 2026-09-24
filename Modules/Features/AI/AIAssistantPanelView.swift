@@ -11,6 +11,9 @@ struct AIAssistantPanelView: View {
     var isSourceReady = true
     var prepareContent: AIReadingConversation.Prepare = { $0 }
     var onSourcePrepared: (AIBookContentAdapter) -> Void = { _ in }
+    /// This book's highlights and notes, and the rest of the shelf's, for the assistant to read.
+    var bookAnnotations: @MainActor () -> [AIReaderAnnotation] = { [] }
+    var libraryAnnotations: @MainActor () -> [AIReaderAnnotation] = { [] }
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -20,7 +23,7 @@ struct AIAssistantPanelView: View {
     @ObservedObject private var prompts = AICustomPromptStore.shared
     @State private var draft = ""
     private enum SecondaryScreen: Hashable {
-        case history, characters, settings, prompts, status
+        case history, characters, summary, settings, prompts, status
     }
     @State private var showMore = false
     @State private var pendingScreen: SecondaryScreen?
@@ -63,6 +66,7 @@ struct AIAssistantPanelView: View {
                 DismissalSequencedActionChooser(title: localized("更多"), actions: [
                     .init(route: SecondaryScreen.history, title: localized("對話列表"), systemImage: "clock.arrow.circlepath"),
                     .init(route: .characters, title: localized("書中人物"), systemImage: "person.2"),
+                    .init(route: .summary, title: localized("全書與分卷摘要"), systemImage: "text.book.closed"),
                     .init(route: .prompts, title: localized("自訂提示詞"), systemImage: "text.badge.plus"),
                     .init(route: .settings, title: localized("AI 助手設定"), systemImage: "gearshape"),
                     .init(route: .status, title: localized("AI 狀態與診斷"), systemImage: "info.circle")
@@ -77,6 +81,7 @@ struct AIAssistantPanelView: View {
                         onNew: { startNewConversation(); navigationPath.removeAll() })
                 case .settings: AISettingsView(embedded: true)
                 case .characters: AIBookCharactersView(adapter: currentSource, progress: progress, onOpenCitation: { onOpenCitation($0, currentSource.boundary()) })
+                case .summary: AIBookSummaryView(adapter: currentSource)
                 case .prompts: AICustomPromptListView()
                 case .status: AIStatusView(adapter: currentSource)
                 }
@@ -132,6 +137,7 @@ struct AIAssistantPanelView: View {
                     Button(localized("對話列表"), systemImage: "clock.arrow.circlepath") { openScreen(.history) }
                     Section {
                         Button(localized("書中人物"), systemImage: "person.2") { openScreen(.characters) }
+                        Button(localized("全書與分卷摘要"), systemImage: "text.book.closed") { openScreen(.summary) }
                         Button(localized("自訂提示詞"), systemImage: "text.badge.plus") { openScreen(.prompts) }
                     }
                     Section {
@@ -253,8 +259,17 @@ struct AIAssistantPanelView: View {
 
     private var suggestions: [AIChatSuggestionBar.Item] {
         let actions: [AIReadingAction] = conversation.selection == nil ? [.chapterSummary, .recap] : [.explain, .translate]
-        let builtIn = actions.map { action in
+        var builtIn = actions.map { action in
             AIChatSuggestionBar.Item(id: "action.\(action)", title: action.title) { sendAction(action) }
+        }
+        // Not a chat turn: the book summary is its own page, built once and kept.
+        if conversation.selection == nil {
+            builtIn.append(AIChatSuggestionBar.Item(id: "screen.summary", title: localized("全書摘要")) { openScreen(.summary) })
+            if !bookAnnotations().isEmpty {
+                builtIn.append(AIChatSuggestionBar.Item(id: "action.annotationReview", title: AIReadingAction.annotationReview.title) {
+                    sendAction(.annotationReview)
+                })
+            }
         }
         let custom = prompts.prompts
             .filter { $0.isEnabled && ($0.context != .selection || conversation.selection != nil) }
@@ -320,6 +335,8 @@ struct AIAssistantPanelView: View {
         catch { settingsError = error.localizedDescription }
     }
     private func configure() {
+        conversation.bookAnnotations = bookAnnotations
+        conversation.libraryAnnotations = libraryAnnotations
         guard isSourceReady else { conversation.cancel(); return }
         conversation.open(source: adapter, sourceIdentity: sourceIdentity)
         guard let launch, launchedID != launch.id else { return }

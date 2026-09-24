@@ -123,6 +123,7 @@ enum AIReadingEvidence {
         case .chapterSummary: task = "摘要目前章節在允許範圍內的內容；若提供的正文不完整，明確說明只涵蓋部分。"
         case .recap: task = "以最近已讀片段整理前情，幫助讀者接續閱讀，不聲稱涵蓋全部劇情。"
         case .custom: task = "依讀者的自訂任務分析提供的內容。"
+        case .annotationReview: task = "整理讀者在已讀範圍內的劃線與筆記：依主題、人物或情節歸類，說明每處劃線在故事裡的作用，並回應筆記中的想法。筆記是讀者的觀點，不是書中事實。"
         }
         return task + "\n" + (context.allowsBackgroundKnowledge ? "概念、典故與翻譯可使用模型知識，另以『補充解釋』標示；不得以模型記憶補寫本書情節。找不到書中事實時說明無法確認。" : "書中事實只依提供的原文。") +
             (context.boundary.wholeBook ? "" : "\n禁止揭露目前已讀原文之外的情節、身分或結局，即使你知道本書。")

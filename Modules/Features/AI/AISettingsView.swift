@@ -11,7 +11,6 @@ struct AIServiceEditorView: View {
     @State private var profileID = UUID()
     @State private var serviceName = ""
     @State private var saveError: String?
-    @ObservedObject private var embedding = AIEmbeddingModelStore.shared
 
     @State private var endpoint = AIProviderConfiguration.default.endpoint
     @State private var model = AIProviderConfiguration.default.defaultModel
@@ -307,7 +306,6 @@ struct AISettingsView: View {
     @Environment(\.dismiss) private var dismiss
     private let store = AIProviderStore.shared
     @ObservedObject private var prompts = AICustomPromptStore.shared
-    @ObservedObject private var embedding = AIEmbeddingModelStore.shared
     @State private var profiles: [AIServiceProfile] = []
     @State private var activeID: UUID?
     private struct EditorRoute: Identifiable, Hashable {
@@ -343,15 +341,6 @@ struct AISettingsView: View {
                             if !prompts.prompts.isEmpty { Text("\(prompts.prompts.count)") }
                         } label: {
                             Label(localized("自訂提示詞"), systemImage: "text.badge.plus")
-                                .foregroundStyle(DSColor.textPrimary)
-                                .labelStyle(IconConsistentLabelStyle())
-                        }
-                    }
-                    NavigationLink { AIEmbeddingSettingsView() } label: {
-                        LabeledContent {
-                            Text(embedding.isInstalled ? localized("關鍵詞 + 語意") : localized("關鍵詞"))
-                        } label: {
-                            Label(localized("語意檢索"), systemImage: "text.magnifyingglass")
                                 .foregroundStyle(DSColor.textPrimary)
                                 .labelStyle(IconConsistentLabelStyle())
                         }
@@ -447,77 +436,6 @@ struct AISettingsView: View {
         }
         catch { failure = error.localizedDescription }
     }
-}
-
-private struct AIEmbeddingSettingsView: View {
-    @ObservedObject private var embedding = AIEmbeddingModelStore.shared
-    var body: some View {
-        Form { retrievalSection }
-            .navigationTitle(localized("語意檢索"))
-            .toolbarTitleDisplayMode(.inline)
-            .themedAppSurface(for: .settings)
-    }
-    /// The opt-in vector tier.
-    ///
-    /// Keyword retrieval is the default and is not a crippled mode — exact hits on names and
-    /// terms are most of what readers ask about, which is why it is weighted above vectors
-    /// even when both are running. The model is an addition, not a requirement.
-    private var retrievalSection: some View {
-        Section {
-            LabeledContent(localized("檢索方式")) {
-                Text(embedding.isInstalled ? localized("關鍵詞 + 語意") : localized("關鍵詞"))
-                    .foregroundStyle(DSColor.textSecondary)
-            }
-            if !embedding.isInstalled {
-                LabeledContent(localized("模型下載位址")) {
-                    TextField(localized("貼上模型網址"), text: $embedding.sourceURLString)
-                        .multilineTextAlignment(.trailing)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                }
-            }
-            switch embedding.state {
-            case .absent:
-                Button(localized("下載語意檢索模型（約 258 MB）")) {
-                    Task { await embedding.download() }
-                }
-                .disabled(embedding.sourceURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            case let .downloading(fraction):
-                ProgressView(value: fraction) {
-                    Text(localized("下載中…"))
-                }
-                .accessibilityLabel(localized("下載語意檢索模型"))
-                .accessibilityValue("\(Int(fraction * 100))%")
-            case .verifying:
-                HStack(spacing: DSSpacing.sm) {
-                    ProgressView()
-                    Text(localized("驗證中…"))
-                }
-            case .installed:
-                Button(localized("驗證已安裝模型契約")) { _ = embedding.readyProvider() }
-            case .ready:
-                Button(role: .destructive) {
-                    Task { await embedding.remove() }
-                } label: {
-                    Text(localized("移除語意檢索模型"))
-                }
-            case let .failed(message):
-                Label(message, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(DSColor.destructive)
-                Button(localized("重試下載")) {
-                    Task { await embedding.download() }
-                }
-            }
-        } header: {
-            Text(localized("語意檢索"))
-        } footer: {
-            Text(localized("不下載也能用。關鍵詞檢索對人名、術語本來就更準。"))
-                .dsSectionFooter()
-        }
-        .interfaceSectionSurface()
-    }
-
 }
 
 #Preview { AISettingsView() }

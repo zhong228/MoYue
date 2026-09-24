@@ -767,8 +767,12 @@ extension OnlineChapterRef {
         isVolume || hasStrongVolumeSeparatorTitle || (!hasLoadableContentURL && hasVolumeSeparatorTitle)
     }
 
-    var hasVolumeSeparatorTitle: Bool {
-        let title = ReaderHTMLUtilities.displayText(fromHTMLFragment: self.title)
+    var hasVolumeSeparatorTitle: Bool { Self.isVolumeSeparatorTitle(title) }
+
+    /// Whether a chapter title reads as a volume heading rather than a chapter. Shared with
+    /// the AI book summaries, which group chapters by volume.
+    static func isVolumeSeparatorTitle(_ rawTitle: String) -> Bool {
+        let title = ReaderHTMLUtilities.displayText(fromHTMLFragment: rawTitle)
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
         guard !title.isEmpty else { return false }

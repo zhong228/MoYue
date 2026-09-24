@@ -86,33 +86,3 @@ enum AISpoilerSafeFilter {
         return chunks.filter { $0.progressEnd <= ceiling }
     }
 }
-
-/// Merges several rankings by rank rather than by score, so a keyword score and a cosine
-/// similarity — which are not on the same scale — can be combined at all.
-enum AIReciprocalRankFusion {
-    static func merge(
-        rankings: [[AIRetrievalHit]],
-        weights: [Double]? = nil,
-        rankConstant: Double = 60
-    ) -> [AIRetrievalHit] {
-        precondition(rankConstant > 0)
-        if let weights { precondition(weights.count == rankings.count) }
-
-        var chunks: [String: AIContentChunk] = [:]
-        var scores: [String: Double] = [:]
-        for (rankingIndex, ranking) in rankings.enumerated() {
-            let weight = weights?[rankingIndex] ?? 1
-            for (rank, hit) in ranking.enumerated() {
-                chunks[hit.id] = hit.chunk
-                scores[hit.id, default: 0] += weight / (rankConstant + Double(rank + 1))
-            }
-        }
-        return scores.compactMap { id, score in
-            chunks[id].map { AIRetrievalHit(chunk: $0, score: score) }
-        }
-        .sorted {
-            if $0.score == $1.score { return $0.chunk.ordinal < $1.chunk.ordinal }
-            return $0.score > $1.score
-        }
-    }
-}

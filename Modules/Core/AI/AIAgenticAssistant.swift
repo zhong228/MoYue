@@ -82,7 +82,6 @@ enum AIAgenticAssistant {
         userInput: String? = nil,
         index: AIBookRetrievalIndex,
         provider: any LLMProviding,
-        embedding: (any AIEmbeddingProviding)? = nil,
         scope: Double,
         boundary: AIReadingBoundary? = nil,
         seed: [AIContentChunk] = [],
@@ -196,7 +195,6 @@ enum AIAgenticAssistant {
                     query: query,
                     maximumProgress: scope,
                     limit: retrieveLimit,
-                    embedding: embedding,
                     boundary: boundary
                 )
                 for hit in hits where seenIDs.insert(hit.chunk.id).inserted {

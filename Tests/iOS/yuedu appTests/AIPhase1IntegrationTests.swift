@@ -16,12 +16,6 @@ struct AIPhase1IntegrationTests {
         .init(bookID: bookID, chunks: AIPublicationChunker(maximumCharacters: 20, overlapCharacters: 0).chunks(from: source),
             contentFingerprint: source.contentFingerprint, manifest: source.manifest, chunkerConfiguration: "20/0/0")
     }
-    struct Embedding: AIEmbeddingProviding {
-        let identifier = "fixture"
-        let dimensions: Int
-        let vector: [Float]
-        func embed(_ texts: [String]) async throws -> [[Float]] { texts.map { _ in vector } }
-    }
     enum Unexpected: Error { case build }
 
     @Test func manifestIsDeterministicAndVersioned() {
@@ -47,13 +41,13 @@ struct AIPhase1IntegrationTests {
         #expect(AITextCoordinates.citationOffset(current, sourceVersion: adapter(["edit"]).contentFingerprint, sourceText: "edit", renderedText: "edit") == nil)
     }
 
-    @Test(arguments: [false, true]) func vectorAndHybridRetrieveBeyondThirtyTwo(hybrid: Bool) async throws {
+    /// Forty unread chunks all match better than the one read chunk; the boundary has to be
+    /// applied before the 32-candidate cut or the read one never makes it into the results.
+    @Test func keywordRetrievalReachesTheReadChunkBeyondThirtyTwoCandidates() async throws {
         let source = adapter(["read answer"] + Array(repeating: "unread answer", count: 40))
         let chunks = AIPublicationChunker().chunks(from: source)
-        let vectors = Dictionary(uniqueKeysWithValues: chunks.map { ($0.id, $0.start.spineIndex == 0 ? [Float(0.5), 1] : [1, 0]) })
-        let built = AIBookRetrievalIndex(bookID: bookID, chunks: chunks, tier: .hybrid, embeddingIdentifier: "fixture", vectors: vectors, contentFingerprint: source.contentFingerprint)
-        let hits = try await built.retrieve(query: hybrid ? "answer" : "nonmatching", maximumProgress: 1,
-            embedding: Embedding(dimensions: 2, vector: [1, 0]), boundary: end(source))
+        let built = AIBookRetrievalIndex(bookID: bookID, chunks: chunks, contentFingerprint: source.contentFingerprint)
+        let hits = try await built.retrieve(query: "answer", maximumProgress: 1, boundary: end(source))
         #expect(hits.map(\.chunk.start.spineIndex) == [0])
         #expect(hits.allSatisfy { !$0.chunk.text.contains("unread") })
     }
@@ -80,29 +74,6 @@ struct AIPhase1IntegrationTests {
         #expect(AITextCoordinates.citationOffset(citation, sourceVersion: "v1", sourceText: source, renderedText: "ruby 注音不同") == nil)
         #expect(AITextCoordinates.prefix("𠮷👩🏽‍🚀x", throughUTF16: 3) == "𠮷")
         #expect(AITextCoordinates.sourceBoundaryOffset(source: source, rendered: "不同文字", renderedOffset: 4) == 0)
-    }
-
-    @Test func embeddingFailuresAreExplicitAndDistinguishContracts() async throws {
-        let source = adapter(["answer"])
-        let chunks = index(source).chunks
-        let built = AIBookRetrievalIndex(bookID: bookID, chunks: chunks, tier: .hybrid, embeddingIdentifier: "fixture", vectors: [chunks[0].id: [1, 0]], contentFingerprint: source.contentFingerprint)
-        for (dimensions, vector, reason) in [(2, [Float(1), 0, 1], "queryDocumentMismatch"), (3, [Float(1), 0], "declaredDimensionMismatch")] {
-            let trace = AIRequestTrace(feature: "embeddingTest", bookID: bookID, adapter: source, boundary: end(source), origin: .testFixture)
-            let hits = try await AIDiagnostics.$current.withValue(trace) {
-                try await built.retrieve(query: "answer", maximumProgress: 1, embedding: Embedding(dimensions: dimensions, vector: vector), boundary: end(source))
-            }
-            #expect(hits.count == 1)
-            #expect(String(decoding: try trace.export(), as: UTF8.self).contains(reason))
-        }
-        // Consistent 256-dimensional vectors can be compared; a separate 512 contract rejects them.
-        let vector = Array(repeating: Float(1), count: 256)
-        try AIEmbeddingContract.validate([vector, vector], count: 2, dimensions: 256)
-        #expect(throws: AIEmbeddingContract.Failure.declaredDimensionMismatch) {
-            try AIEmbeddingContract.validate([vector, vector], count: 2, dimensions: 512)
-        }
-        #expect(throws: AIEmbeddingContract.Failure.nonFiniteOrZero) {
-            try AIEmbeddingContract.validate([[.nan, 1]], count: 1, dimensions: 2)
-        }
     }
 
     @Test @MainActor func explicitRecapRegeneratesDespiteReusableStoredAnswer() async throws {

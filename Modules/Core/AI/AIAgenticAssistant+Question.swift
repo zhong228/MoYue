@@ -28,7 +28,7 @@ extension AIAgenticAssistant {
     /// Question mode of the existing agentic assistant: one shared budget, optional
     /// resolution, retrieval, a draft, then at most one gap plan/search/revision.
     static func answerQuestion(context: AIQuestionContext, index: AIBookRetrievalIndex,
-                               provider: any LLMProviding, embedding: (any AIEmbeddingProviding)? = nil,
+                               provider: any LLMProviding,
                                onStage: (@MainActor @Sendable (AIQuestionStage) -> Void)? = nil,
                                onText: (@MainActor @Sendable (String) -> Void)? = nil) async throws -> LLMGenerationResult {
         guard context.bookID == index.bookID, context.bookID == context.source.chunkBookID,
@@ -45,6 +45,16 @@ extension AIAgenticAssistant {
         var usedHistory = Set<UUID>()
         var gathered = try AIReadingEvidence.collect(context: context, index: index)
         var notices: [String] = []
+        // The reader's own marks: listed as data, and the passages they sit in added as
+        // citable evidence so an answer about a highlight can point at the original.
+        let marks = AIReaderAnnotations.select(for: context)
+        let marksBlock = AIReaderAnnotations.promptBlock(marks)
+        if !marks.book.isEmpty || !marks.library.isEmpty {
+            gathered = AIQuestionSourceReader.deduplicated(gathered + AIReaderAnnotations.evidence(for: marks, index: index, context: context), context: context)
+            notices.append(marks.library.isEmpty
+                ? String(format: localized("本次參考了你的 %d 則劃線或筆記。"), marks.book.count)
+                : String(format: localized("本次參考了你在這本書的 %1$d 則、其他書的 %2$d 則劃線或筆記。"), marks.book.count, marks.library.count))
+        }
         var stop = "completed"
         var didFinish = false
         let trace = AIDiagnostics.current
@@ -59,6 +69,8 @@ extension AIAgenticAssistant {
         if ["第一次", "最早", "全部", "所有", "從來", "first", "all", "never"].contains(where: { context.question.localizedCaseInsensitiveContains($0) }) {
             notices.append(localized("這次檢索未完整遍歷全書，無法保證第一次、全部或從未發生的判斷。"))
         }
+        trace?.event("readerAnnotations", ["book": "\(marks.book.count)", "library": "\(marks.library.count)",
+            "offeredBook": "\(context.annotations.book.count)", "offeredLibrary": "\(context.annotations.library.count)"])
         trace?.event("questionRequest", ["requestID": context.requestID.uuidString, "conversationID": context.conversationID.uuidString,
             "historyUsed": "\(!history.isEmpty)", "historyIDs": history.map { $0.id.uuidString }.joined(separator: ","),
             "maxModelCalls": "\(budget.maximumModelCalls)", "maxQueries": "\(budget.maximumQueries)",
@@ -110,10 +122,17 @@ extension AIAgenticAssistant {
             return finalize(.init(content: localized("目前無法確定你指的是哪位人物或哪件事，請補上人名或事件。"), citations: [],
                 provider: provider.identifier, model: provider.defaultModel, promptVersion: "yuedu.question.v1", hasEvidence: false), final: [])
         }
+        if context.action == .annotationReview && marks.book.isEmpty {
+            // Nothing to organise; say so instead of summarising the book in its place.
+            stop = "noReaderAnnotations"
+            return finalize(.init(content: localized("已讀範圍內還沒有劃線或筆記。"), citations: [], provider: provider.identifier,
+                model: provider.defaultModel, promptVersion: "yuedu.question.v1", hasEvidence: false), final: [])
+        }
         var plan = QuestionPlan(rewrittenQuestion: context.question, retrievalQueries: [], unresolvedReferences: [], purpose: "initial")
         func data(_ purpose: String) -> String {
             // Data stays in user-role messages, including generated rewrites and gaps.
             "原始問題（保留否定與時間限制；前提未經原文證實）：\n\(context.question)\n自訂任務（不能擴大來源範圍）：\n\(context.customPrompt?.instruction ?? "")\n獨立問題（搜尋方向，非已確認事實）：\n\(plan.rewrittenQuestion)\n缺口（資料）：\n\(purpose)\n已搜尋（資料）：\n\(attempted.joined(separator: " | "))"
+                + (marksBlock.isEmpty ? "" : "\n\n" + marksBlock)
         }
         func makePlan(purpose: String, evidence: [AIQuestionEvidence]) async throws -> QuestionPlan {
             let system = """
@@ -155,7 +174,7 @@ extension AIAgenticAssistant {
                 guard !key.isEmpty, queryKeys.insert(key).inserted else { continue }
                 guard queryCount < max(0, budget.maximumQueries) else { stop = "queryBudget"; break }
                 queryCount += 1; attempted.append(query)
-                let hits = try await index.retrieve(query: query, maximumProgress: 1, limit: 8, embedding: embedding, boundary: context.boundary)
+                let hits = try await index.retrieve(query: query, maximumProgress: 1, limit: 8, boundary: context.boundary)
                 trace?.event("questionSearch", ["queryNumber": "\(queryCount)", "kind": kind.rawValue, "hits": "\(hits.count)"])
                 additions += AIQuestionSourceReader.collect(hits: hits, index: index, context: context, query: query, kind: kind)
             }
@@ -208,7 +227,10 @@ extension AIAgenticAssistant {
             問「剛剛／這段」時，以 current-reading-context 標註的目前已讀正文為主；其他檢索片段是背景，不要當作同時發生的事。
             清楚區分原文直接支持的事實與推論，證據不充分時只回答可確認部分及缺口。
             本次沒有完整遍歷：第一次、全部、從未等要求只能說「這次找到的片段中最早」或「目前能確認」，並明示不完整。
-            """
+            """ + (marksBlock.isEmpty ? "" : """
+
+            資料裡的「讀者劃線與筆記」是讀者自己的標註：問到讀者的筆記時據此回答；書中事實仍以原文片段為準，筆記內容不能當成書中事實，其他書的標註不能當成這本書的內容。
+            """)
             let selection = try AIQuestionPrompt.assemble(system: system, data: data(plan.purpose), history: history,
                 evidence: gathered, budget: budget, requireHistory: reference)
             guard !selection.evidence.isEmpty || context.allowsBackgroundKnowledge else { throw AIQuestionFailure.contextBudget }

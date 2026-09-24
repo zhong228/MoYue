@@ -29,8 +29,8 @@ final class AIAssistantService: ObservableObject {
     /// Progress of a book's index build, so a long one is visible rather than a frozen screen.
     enum IndexState: Equatable {
         case idle
-        case building(completed: Int, total: Int)
-        case ready(chunkCount: Int, tier: AIRetrievalTier)
+        case building
+        case ready(chunkCount: Int)
         case failed(String)
     }
 
@@ -61,16 +61,8 @@ final class AIAssistantService: ObservableObject {
     // MARK: - Index
 
     /// The identity an index for this book should have right now.
-    ///
-    /// Reads the embedding tier at call time, so downloading or removing the model changes the
-    /// expected identity and the next request rebuilds instead of querying a mismatched index.
     private func expectedIdentifier(for adapter: AIBookContentAdapter) -> String {
-        let embedding = AIEmbeddingModelStore.shared.readyProvider()
-        return AIBookRetrievalIndex.identifier(
-            tier: embedding == nil ? .keyword : .hybrid,
-            embeddingIdentifier: embedding?.identifier,
-            contentFingerprint: adapter.contentFingerprint
-        )
+        AIBookRetrievalIndex.identifier(contentFingerprint: adapter.contentFingerprint)
     }
 
     /// Builds — or reuses — the index for an open book.
@@ -83,8 +75,7 @@ final class AIAssistantService: ObservableObject {
         if AIDiagnostics.current == nil { activate(adapter) }
         guard latestSnapshots[bookID] == adapter.contentFingerprint else { throw CancellationError() }
         let expected = expectedIdentifier(for: adapter)
-        let embedding = AIEmbeddingModelStore.shared.readyProvider()
-        indexState[bookID] = .building(completed: 0, total: 0)
+        indexState[bookID] = .building
         do {
             let index = try await store.index(for: bookID, expectedIdentifier: expected) {
                 let chunks = AIPublicationChunker(
@@ -93,52 +84,20 @@ final class AIAssistantService: ObservableObject {
                     minimumCharacters: 200
                 ).chunks(from: adapter)
                 guard !chunks.isEmpty else { throw Failure.emptyBook }
-
-                var vectors: [String: [Float]] = [:]
-                if let embedding {
-                    // Batched so a long book reports progress and stays cancellable, rather
-                    // than disappearing into one call that either finishes or does not.
-                    let batchSize = 32
-                    var completed = 0
-                    for start in stride(from: 0, to: chunks.count, by: batchSize) {
-                        try Task.checkCancellation()
-                        let slice = Array(chunks[start..<min(start + batchSize, chunks.count)])
-                        let encoded = try await embedding.embed(slice.map(\.text))
-                        try AIEmbeddingContract.validate(encoded, count: slice.count, dimensions: embedding.dimensions)
-                        for (chunk, vector) in zip(slice, encoded) {
-                            vectors[chunk.id] = vector
-                        }
-                        completed += slice.count
-                        let progressCount = completed
-                        await MainActor.run {
-                            guard self.latestSnapshots[bookID] == adapter.contentFingerprint else { return }
-                            self.indexState[bookID] = .building(
-                                completed: progressCount,
-                                total: chunks.count
-                            )
-                        }
-                    }
-                }
                 return AIBookRetrievalIndex(
                     bookID: bookID,
                     chunks: chunks,
                     sectionTitleByID: adapter.sectionTitleByID,
-                    tier: embedding == nil ? .keyword : .hybrid,
-                    embeddingIdentifier: embedding?.identifier,
-                    vectors: vectors,
                     contentFingerprint: adapter.contentFingerprint,
                     manifest: adapter.manifest
                 )
             }
             if latestSnapshots[bookID] == adapter.contentFingerprint {
                 indexedChapterCounts[bookID] = Set(index.chunks.map { $0.start.spineIndex }).count
-                indexState[bookID] = .ready(chunkCount: index.chunks.count, tier: index.tier)
+                indexState[bookID] = .ready(chunkCount: index.chunks.count)
             }
             AIDiagnostics.current?.event("indexReady", ["indexedChapters": "\(Set(index.chunks.map { $0.start.spineIndex }).count)",
-                "elapsedMs": "\(Date().timeIntervalSince(indexStarted) * 1000)",
-                "tier": index.tier.rawValue, "embedding": index.embeddingIdentifier ?? "none",
-                "embeddingDimensions": embedding.map { String($0.dimensions) } ?? "none",
-                "contract": embedding == nil ? "notApplicable" : "passed", "semanticQuality": "notEvaluated"])
+                "elapsedMs": "\(Date().timeIntervalSince(indexStarted) * 1000)"])
             return index
         } catch {
             if latestSnapshots[bookID] == adapter.contentFingerprint { indexState[bookID] = .failed(error.localizedDescription) }
@@ -188,7 +147,7 @@ final class AIAssistantService: ObservableObject {
             let provider = AITracedProvider(base: resolved)
             let index = try await index(forBook: context.bookID, adapter: context.source)
             return try await AIAgenticAssistant.answerQuestion(context: frozen, index: index, provider: provider,
-                embedding: AIEmbeddingModelStore.shared.readyProvider(), onStage: onStage, onText: onText)
+                onStage: onStage, onText: onText)
         }
     }
 
@@ -216,7 +175,7 @@ final class AIAssistantService: ObservableObject {
             let readable = index.chunks.filter { boundary.contains($0) }
             let seed = Array(readable.suffix(12))
             AIDiagnostics.current?.retrieval(total: index.chunks.count, eligible: readable.count, candidates: [seed.count],
-                hits: seed.map { .init(chunk: $0, score: 0) }, scoreType: "recentReadingOrder", degradation: nil, elapsed: Date().timeIntervalSince(selectionStarted))
+                hits: seed.map { .init(chunk: $0, score: 0) }, scoreType: "recentReadingOrder", elapsed: Date().timeIntervalSince(selectionStarted))
             guard !seed.isEmpty else { return nil }
             return try await AIRecap.generate(
                 chunks: seed,
@@ -244,7 +203,6 @@ final class AIAssistantService: ObservableObject {
                 userInput: name,
                 index: index,
                 provider: provider,
-                embedding: AIEmbeddingModelStore.shared.readyProvider(),
                 scope: boundary.wholeBook ? 1 : adapter.progress(forSpine: boundary.spineIndex, charOffset: boundary.utf16Offset),
                 boundary: boundary,
                 maxSteps: 3,

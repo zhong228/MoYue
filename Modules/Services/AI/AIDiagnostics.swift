@@ -57,20 +57,16 @@ final class AIRequestTrace: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         sensitive[category, default: []].append(contentsOf: values.map(Self.redact))
     }
-    func retrieval(total: Int, eligible: Int, candidates: [Int], hits: [AIRetrievalHit], scoreType: String, degradation: String?, elapsed: TimeInterval) {
+    func retrieval(total: Int, eligible: Int, candidates: [Int], hits: [AIRetrievalHit], scoreType: String, elapsed: TimeInterval) {
         event("retrieval", ["total": "\(total)", "eligible": "\(eligible)", "excluded": "\(total - eligible)",
             "candidateCounts": candidates.map(String.init).joined(separator: ","), "scoreType": scoreType,
-            "degradation": degradation ?? "none", "elapsedMs": "\(elapsed * 1000)"])
+            "elapsedMs": "\(elapsed * 1000)"])
         for hit in hits {
             event("evidence", ["chunkID": hit.id, "spine": "\(hit.chunk.start.spineIndex)",
                 "sourceUTF16Start": "\(hit.chunk.start.charOffset)", "sourceUTF16End": "\(hit.chunk.end.charOffset)",
                 "score": "\(hit.score)", "scoreType": scoreType])
         }
         content("evidence", hits.map { "[\($0.id)]\n\($0.chunk.text)" })
-    }
-    var retrievalDegradation: String? {
-        lock.lock(); defer { lock.unlock() }
-        return events.last(where: { $0.stage == "retrieval" })?.values["degradation"].flatMap { $0 == "none" ? nil : $0 }
     }
     func export(including categories: Set<String> = []) throws -> Data {
         lock.lock(); defer { lock.unlock() }
@@ -95,7 +91,6 @@ final class AIRequestTrace: @unchecked Sendable {
 final class AIDiagnosticStore: ObservableObject {
     static let shared = AIDiagnosticStore()
     @Published var captureNextRequestContent = false
-    @Published private(set) var retrievalDegradation: String?
     @Published private(set) var latest: AIRequestTrace?
     func begin(feature: String, bookID: UUID, adapter: AIBookContentAdapter, boundary: AIReadingBoundary, origin: AIDiagnostics.Origin = .observed, requestID: UUID = UUID()) -> AIRequestTrace {
         let trace = AIRequestTrace(feature: feature, bookID: bookID, adapter: adapter, boundary: boundary,
@@ -113,7 +108,6 @@ final class AIDiagnosticStore: ObservableObject {
         // Only the most recently started request owns the displayed/exported result.
         guard latest?.requestID == trace.requestID else { return }
         latest = trace
-        retrievalDegradation = trace.retrievalDegradation
         do {
             let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("AIDiagnostics", isDirectory: true)

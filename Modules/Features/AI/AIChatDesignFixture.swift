@@ -8,6 +8,8 @@ import SwiftUI
 /// without an AI key or an open book. Never selected in a normal launch.
 struct AIChatDesignFixture: View {
     static let launchArgument = "-ai-chat-design-fixture"
+    /// Together with `launchArgument`: shows the relationship map with a sample cast instead.
+    static let relationshipMapArgument = "-ai-relationship-map"
     private static let bookID = UUID(uuidString: "5A1F1C7E-0000-4000-8000-00000000A1C4")!
     private static let profileID = UUID(uuidString: "5A1F1C7E-0000-4000-8000-00000000A1C5")!
 
@@ -21,14 +23,27 @@ struct AIChatDesignFixture: View {
                 presented = true
             }
             .sheet(isPresented: $presented) {
-                AIAssistantPanelView(
-                    bookID: Self.bookID,
-                    bookTitle: "万古神帝",
-                    adapter: AIBookContentAdapter(bookID: Self.bookID, chapters: [], textForChapter: { _ in nil }),
-                    progress: 0.5,
-                    onOpenCitation: { _, _ in }
-                )
+                if ProcessInfo.processInfo.arguments.contains(Self.relationshipMapArgument) {
+                    NavigationStack { AIRelationshipMapView(adapter: Self.adapter, graph: .sample) }
+                } else {
+                    AIAssistantPanelView(
+                        bookID: Self.bookID,
+                        bookTitle: "万古神帝",
+                        adapter: Self.adapter,
+                        progress: 0.5,
+                        onOpenCitation: { _, _ in }
+                    )
+                }
             }
+    }
+
+    /// Two volumes, read into the second, so the summary page has volumes to list.
+    private static var adapter: AIBookContentAdapter {
+        let titles = ["第一卷 風起", "第1章 煉器戰士", "第2章 界子", "第二卷 雲湧", "第3章 青霄聖者", "第4章 無字劍譜"]
+        let texts = ["", "張若塵接到大師兄所贈的黑色鐵球。", "青霄聖者與璇璣老人談到界子。", "", "青霄聖者對此並不看好。", "璇璣老人取出一本書冊。"]
+        let chapters = titles.indices.map { BookChapter(index: $0, title: titles[$0], content: "") }
+        return AIBookContentAdapter(bookID: bookID, chapters: chapters, readingPosition: (spine: 4, utf16Offset: texts[4].utf16.count),
+                                    renderedText: texts[4]) { texts[$0] }
     }
 
     private static func seed() {

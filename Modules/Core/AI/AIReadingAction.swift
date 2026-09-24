@@ -1,7 +1,7 @@
 import Foundation
 
 enum AIReadingAction: String, Codable, CaseIterable, Sendable {
-    case question, explain, translate, chapterSummary, recap, custom
+    case question, explain, translate, chapterSummary, recap, custom, annotationReview
 
     var title: String {
         switch self {
@@ -11,6 +11,7 @@ enum AIReadingAction: String, Codable, CaseIterable, Sendable {
         case .chapterSummary: return localized("本章已讀摘要")
         case .recap: return localized("前情回顧")
         case .custom: return localized("自訂提示詞")
+        case .annotationReview: return localized("整理我的劃線")
         }
     }
 }

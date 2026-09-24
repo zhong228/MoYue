@@ -7,18 +7,12 @@ struct AIBookRetrievalIndexTests {
 
     private let bookID = UUID(uuidString: "00000000-0000-0000-0000-0000000000CC")!
 
-    /// The failure this guards: a user downloads the embedding model, and the app keeps the
-    /// keyword-only index it already had — then runs vector queries against an index with no
-    /// vectors in it. Encoding the tier in the identifier makes the mismatch visible.
-    @Test("downloading a model changes the index identity, forcing a rebuild")
-    func tierIsPartOfIndexIdentity() {
-        let keyword = AIBookRetrievalIndex.identifier(tier: .keyword, embeddingIdentifier: nil)
-        let hybrid = AIBookRetrievalIndex.identifier(tier: .hybrid, embeddingIdentifier: "distiluse-v2")
-        #expect(keyword != hybrid)
-        // A different embedding model is also a different index.
-        #expect(hybrid != AIBookRetrievalIndex.identifier(tier: .hybrid, embeddingIdentifier: "other"))
-        // So is a change to how chunks are cut.
-        #expect(keyword.contains(AIPublicationChunker.version))
+    /// Keyword indexes saved before the vector tier was removed carried this exact prefix;
+    /// keeping it means they are reused instead of every book rebuilding once after update.
+    @Test("the identity keeps the keyword prefix older saved indexes were written with")
+    func identityKeepsTheSavedKeywordPrefix() {
+        let identifier = AIBookRetrievalIndex.identifier(contentFingerprint: "fp")
+        #expect(identifier == "keyword@none@\(AIPublicationChunker.version)@800/120/200@fp")
     }
 
     /// The failure this guards, seen on a real book: the panel opened while five chapters
@@ -27,16 +21,8 @@ struct AIBookRetrievalIndexTests {
     /// not mention how much text went in.
     @Test("gathering more of the book changes the index identity")
     func contentFingerprintIsPartOfIndexIdentity() {
-        let partial = AIBookRetrievalIndex.identifier(
-            tier: .keyword,
-            embeddingIdentifier: nil,
-            contentFingerprint: "300/5/12000"
-        )
-        let whole = AIBookRetrievalIndex.identifier(
-            tier: .keyword,
-            embeddingIdentifier: nil,
-            contentFingerprint: "300/300/4200000"
-        )
+        let partial = AIBookRetrievalIndex.identifier(contentFingerprint: "300/5/12000")
+        let whole = AIBookRetrievalIndex.identifier(contentFingerprint: "300/300/4200000")
         #expect(partial != whole)
     }
 
@@ -53,9 +39,9 @@ struct AIBookRetrievalIndexTests {
         #expect(laidOutOnly.contentFingerprint != gathered.contentFingerprint)
     }
 
-    @Test("without a model the index still answers, on keywords alone")
-    func keywordTierWorksWithoutAModel() async throws {
-        let index = makeIndex(tier: .keyword)
+    @Test("the index answers on keywords")
+    func keywordRetrievalFindsTheName() async throws {
+        let index = makeIndex()
         let hits = try await index.retrieve(query: "張若塵", maximumProgress: 1.0, limit: 5)
         #expect(!hits.isEmpty)
         #expect(hits.first?.chunk.text.contains("張若塵") == true)
@@ -97,69 +83,39 @@ struct AIBookRetrievalIndexTests {
         #expect(hits.map(\.chunk.sectionID) == ["c1"])
     }
 
-    @Test("a keyword-tier index ignores an embedding provider rather than half-using it")
-    func keywordTierIgnoresEmbedding() async throws {
-        let index = makeIndex(tier: .keyword)
-        let embedding = CountingEmbedding()
-        _ = try await index.retrieve(
-            query: "張若塵",
-            maximumProgress: 1.0,
-            embedding: embedding
-        )
-        #expect(embedding.queryCount == 0)
-    }
+    /// A device that had downloaded the retired semantic-search model gets its space back,
+    /// and the leftover download address goes with it.
+    @Test("the retired embedding model and its download address are removed")
+    func retiredEmbeddingModelIsRemoved() throws {
+        let support = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: support) }
+        let installed = support.appendingPathComponent(AIRetiredEmbeddingCleanup.directoryName, isDirectory: true)
+        let model = installed.appendingPathComponent("distiluse-base-multilingual-cased-v2@1.mlmodelc", isDirectory: true)
+        try FileManager.default.createDirectory(at: model, withIntermediateDirectories: true)
+        try Data("weights".utf8).write(to: model.appendingPathComponent("weights.bin"))
+        let suite = "AIRetiredEmbeddingCleanupTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("https://example.invalid/model.zip", forKey: AIRetiredEmbeddingCleanup.sourceURLKey)
 
-    @Test("a hybrid index fuses vectors with keywords")
-    func hybridTierUsesVectors() async throws {
-        let chunks = [
-            makeChunk(ordinal: 0, text: "池瑤走出房門。"),
-            makeChunk(ordinal: 1, text: "張若塵盤膝而坐。"),
-        ]
-        let index = AIBookRetrievalIndex(
-            bookID: bookID,
-            chunks: chunks,
-            tier: .hybrid,
-            embeddingIdentifier: "fake",
-            vectors: [chunks[0].id: [1, 0], chunks[1].id: [0, 1]]
-        )
-        let embedding = CountingEmbedding(vector: [0, 1])
-        let hits = try await index.retrieve(
-            query: "張若塵",
-            maximumProgress: 1.0,
-            embedding: embedding
-        )
-        #expect(embedding.queryCount == 1)
-        #expect(hits.first?.chunk.ordinal == 1)
-    }
+        AIRetiredEmbeddingCleanup.run(applicationSupport: support, defaults: defaults)
 
-    /// A hybrid index whose vectors never got written must not silently claim to be hybrid;
-    /// it still has to answer, on keywords.
-    @Test("a hybrid index with no vectors still answers on keywords")
-    func hybridWithoutVectorsFallsBackToKeywords() async throws {
-        let index = AIBookRetrievalIndex(
-            bookID: bookID,
-            chunks: [makeChunk(ordinal: 0, text: "張若塵盤膝而坐。")],
-            tier: .hybrid,
-            embeddingIdentifier: "fake",
-            vectors: [:]
-        )
-        let embedding = CountingEmbedding()
-        let hits = try await index.retrieve(query: "張若塵", maximumProgress: 1.0, embedding: embedding)
-        #expect(!hits.isEmpty)
-        #expect(embedding.queryCount == 0)
+        #expect(!FileManager.default.fileExists(atPath: installed.path))
+        #expect(defaults.string(forKey: AIRetiredEmbeddingCleanup.sourceURLKey) == nil)
+        // A second launch finds nothing and changes nothing.
+        AIRetiredEmbeddingCleanup.run(applicationSupport: support, defaults: defaults)
+        #expect(!FileManager.default.fileExists(atPath: installed.path))
     }
 
     // MARK: - Fixtures
 
-    private func makeIndex(tier: AIRetrievalTier) -> AIBookRetrievalIndex {
+    private func makeIndex() -> AIBookRetrievalIndex {
         AIBookRetrievalIndex(
             bookID: bookID,
             chunks: [
                 makeChunk(ordinal: 0, text: "池瑤走出房門，天色已暗。"),
                 makeChunk(ordinal: 1, text: "張若塵盤膝而坐，運轉神石。"),
-            ],
-            tier: tier,
-            embeddingIdentifier: tier == .hybrid ? "fake" : nil
+            ]
         )
     }
 
@@ -179,23 +135,5 @@ struct AIBookRetrievalIndexTests {
             start: AIChunkLocation(spineIndex: 0, charOffset: ordinal * 10, progress: progressStart),
             end: AIChunkLocation(spineIndex: 0, charOffset: ordinal * 10 + 5, progress: progressEnd)
         )
-    }
-
-    private final class CountingEmbedding: AIEmbeddingProviding, @unchecked Sendable {
-        let identifier = "fake"
-        let dimensions = 2
-        private let vector: [Float]
-        private(set) var queryCount = 0
-
-        init(vector: [Float] = [1, 0]) { self.vector = vector }
-
-        func embed(_ texts: [String]) async throws -> [[Float]] {
-            texts.map { _ in vector }
-        }
-
-        func embedQuery(_ text: String) async throws -> [Float] {
-            queryCount += 1
-            return vector
-        }
     }
 }
