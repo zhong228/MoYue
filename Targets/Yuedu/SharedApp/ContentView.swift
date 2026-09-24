@@ -394,9 +394,18 @@ struct NowPlayingMiniPlayer: View {
     var barsVisible: Bool = true
 
     @StateObject private var hub = NowPlayingHub.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var offset = CGSize(width: 0, height: 0)
     @State private var dragStartOffset: CGSize?
     @State private var lastDragEndedAt = Date.distantPast
+    /// The screen side the player is tucked into, or nil while it shows in full. ✕ stops
+    /// playback, so this is the way to get the player out of the way while it keeps
+    /// playing. Reset whenever playback ends, so the next session starts in full.
+    @State private var dockedSide: DockSide?
+    @AccessibilityFocusState private var focusedControl: FocusedControl?
+
+    enum DockSide { case left, right }
+    private enum FocusedControl { case collapse, edgeHandle }
     /// Where the player sat before the bars appeared and lifted it above the toolbar.
     /// Kept so it can drop back to that spot once the bars hide again; cleared the moment
     /// the user drags it somewhere new.
@@ -435,15 +444,24 @@ struct NowPlayingMiniPlayer: View {
     var body: some View {
         GeometryReader { proxy in
             if isVisible {
-                miniPlayerView
-                    .frame(width: contentWidth)
-                    .position(position(in: proxy.size))
-                    .simultaneousGesture(dragGesture(in: proxy.size))
-                    .transition(.scale(scale: 0.92).combined(with: .opacity))
+                if let side = dockedSide {
+                    edgeHandle(side)
+                        .position(edgeHandlePosition(side, in: proxy.size))
+                        .transition(edgeHandleTransition(side))
+                } else {
+                    miniPlayerView(in: proxy.size)
+                        .frame(width: contentWidth)
+                        .position(position(in: proxy.size))
+                        .simultaneousGesture(dragGesture(in: proxy.size))
+                        .transition(.scale(scale: 0.92).combined(with: .opacity))
+                }
             }
         }
         .ignoresSafeArea(.keyboard)
         .animation(.spring(response: 0.28, dampingFraction: 0.86), value: isVisible)
+        .onChange(of: isVisible) { _, visible in
+            if !visible { dockedSide = nil }
+        }
         .onChange(of: barsVisible) { _, visible in
             withAnimation(.easeInOut(duration: 0.25)) {
                 if visible {
@@ -464,8 +482,8 @@ struct NowPlayingMiniPlayer: View {
         }
     }
 
-    private var miniPlayerView: some View {
-        HStack(spacing: 12) {
+    private func miniPlayerView(in size: CGSize) -> some View {
+        HStack(spacing: controlSpacing) {
             Button {
                 performTapAction {
                     hub.openPanel()
@@ -499,9 +517,25 @@ struct NowPlayingMiniPlayer: View {
                 Image(systemName: "xmark")
                     .font(DSFont.fixed(size: 17, weight: .semibold))
                     .foregroundColor(.secondary)
-                    .frame(width: 34, height: 48)
+                    .frame(width: trailingButtonWidth, height: 48)
             }
             .accessibilityLabel(localized("停止播放"))
+
+            // Tucks the player into the nearer side; playback keeps going. The arrow points
+            // the way it will go, so it flips as the player is dragged across.
+            Button {
+                performTapAction {
+                    collapse(to: nearestSide(in: size))
+                }
+            } label: {
+                Image(systemName: nearestSide(in: size) == .left ? "chevron.left" : "chevron.right")
+                    .font(DSFont.fixed(size: 17, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .frame(width: trailingButtonWidth, height: 48)
+                    .accessibilityHidden(true)
+            }
+            .accessibilityLabel(localized("收起"))
+            .accessibilityFocused($focusedControl, equals: .collapse)
         }
         .buttonStyle(.borderless)
         .padding(.leading, 4)
@@ -536,8 +570,90 @@ struct NowPlayingMiniPlayer: View {
         .frame(width: 56, height: 56)
     }
 
+    /// Width of the icon buttons at the player's trailing end (✕, and 收起 in the reader).
+    private let trailingButtonWidth: CGFloat = 34
+    /// Gap between the player's controls.
+    private let controlSpacing: CGFloat = 12
+
     private var contentWidth: CGFloat {
-        148
+        // Wider by exactly the 收起 button, so the leading edge rests and clamps where it
+        // did before the button existed.
+        148 + trailingButtonWidth + controlSpacing
+    }
+
+    // MARK: - Tucked to the side
+
+    /// The side the player is closer to, measured at its center — where it tucks away.
+    private func nearestSide(in size: CGSize) -> DockSide {
+        position(in: size).x < size.width / 2 ? .left : .right
+    }
+
+    private func collapse(to side: DockSide) {
+        withAnimation(reduceMotion ? nil : DSAnimation.standard) {
+            dockedSide = side
+        }
+        // The control VoiceOver was on is gone; land on the one that brings it back.
+        focusedControl = .edgeHandle
+    }
+
+    private func expand() {
+        withAnimation(reduceMotion ? nil : DSAnimation.standard) {
+            dockedSide = nil
+        }
+        focusedControl = .collapse
+    }
+
+    /// What is left of the player while it is tucked away: a thin tab on the screen edge
+    /// with an arrow pointing back in. Tapping it brings the player back where it was.
+    private func edgeHandle(_ side: DockSide) -> some View {
+        let inner = DSLayout.miniPlayerEdgeHandleWidth / 2
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: side == .right ? inner : 0,
+            bottomLeadingRadius: side == .right ? inner : 0,
+            bottomTrailingRadius: side == .left ? inner : 0,
+            topTrailingRadius: side == .left ? inner : 0
+        )
+        return Button {
+            expand()
+        } label: {
+            Image(systemName: side == .left ? "chevron.right" : "chevron.left")
+                .font(DSFont.fixed(size: 13, weight: .semibold))
+                .foregroundColor(.secondary)
+                .accessibilityHidden(true)
+                .frame(
+                    width: DSLayout.miniPlayerEdgeHandleWidth,
+                    height: DSLayout.miniPlayerEdgeHandleHeight
+                )
+                .floatingSurface(in: shape)
+                .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
+                // Thin to look at, full size to hit: the tab hugs the edge and the rest of
+                // the 44pt region reaches in over the page.
+                .frame(
+                    width: DSLayout.minimumTapTarget,
+                    height: max(DSLayout.minimumTapTarget, DSLayout.miniPlayerEdgeHandleHeight),
+                    alignment: side == .left ? .leading : .trailing
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localized("展開"))
+        .accessibilityValue(nowPlayingLabel)
+        .accessibilityFocused($focusedControl, equals: .edgeHandle)
+    }
+
+    /// Flush against its side, on the line the player was on, so it tucks away and comes
+    /// back along one line — and follows the same lift when the reader bars appear.
+    private func edgeHandlePosition(_ side: DockSide, in size: CGSize) -> CGPoint {
+        let halfHitWidth = DSLayout.minimumTapTarget / 2
+        return CGPoint(
+            x: side == .left ? halfHitWidth : size.width - halfHitWidth,
+            y: defaultCenterY(in: size) + offset.height
+        )
+    }
+
+    private func edgeHandleTransition(_ side: DockSide) -> AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .move(edge: side == .left ? .leading : .trailing).combined(with: .opacity)
     }
 
     private var contentHeight: CGFloat {
@@ -655,3 +771,15 @@ private struct SpinningCoverIcon<Face: View>: View {
     ContentView()
         .environmentObject(BookStore())
 }
+
+#if DEBUG
+#Preview("Reader mini-player") {
+    NowPlayingHub.shared.configurePreview(
+        title: "第十章 玄雅的赔礼",
+        playbackState: .playing,
+        currentSegmentIndex: 0,
+        totalSegments: 94
+    )
+    return NowPlayingMiniPlayer(placement: .reader, barsVisible: false)
+}
+#endif

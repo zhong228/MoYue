@@ -203,6 +203,12 @@ enum DSLayout {
     /// it when a control's own content is shorter than a finger — a bare menu
     /// label, an icon button — rather than relying on the row's padding.
     static let minimumTapTarget: CGFloat = 44
+    /// Visible width of the tab a tucked-away mini-player leaves on the screen edge. The
+    /// tab stays thin so it does not cover text; its hit region is `minimumTapTarget`.
+    static let miniPlayerEdgeHandleWidth: CGFloat = 20
+    /// Visible height of that edge tab — the mini-player's cover height, so the tab reads
+    /// as the same object tucked away.
+    static let miniPlayerEdgeHandleHeight: CGFloat = 56
     /// Source-login controls: visible outlines and tactile feedback over themed artwork.
     static let loginControlBorder: CGFloat = 0.5
     static let loginControlContrastBorder: CGFloat = 2
