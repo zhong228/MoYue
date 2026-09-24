@@ -193,8 +193,9 @@ struct ReaderView: View {
     @State var aiCitationTask: Task<Void, Never>?
     /// Whole-book text for the AI features, gathered from the source rather than the layout
     /// cache. Filled by `gatherAIBookText()` when an AI surface opens. See `aiBookAdapter()`.
-    @State var aiSourceContext: String?
+    @State var aiPreparedSourceIdentity: ReaderAISourceIdentity?
     @State var aiSourceAdapter: AIBookContentAdapter?
+    @State var ttsDetectedSpeakers: [String] = []
     @State var aiGatherGeneration = UUID()
     @State var aiGatherTask: Task<Void, Never>?
     @State var aiCitationError: String?
@@ -2141,7 +2142,7 @@ struct ReaderView: View {
                 renderedChapterText: effectiveScrollMode
                     ? epubRenderer.scrollEngine?.chapterText(forSpine: request.spineIndex) ?? epubRenderer.engine?.chapterText(forSpine: request.spineIndex)
                     : epubRenderer.engine?.chapterText(forSpine: request.spineIndex))
-            if let source = aiSourceAdapter, aiSourceContext == aiCurrentSourceContext { launch = launch.resolvingSelection(in: source) }
+            if let source = aiSourceAdapter, aiPreparedSourceIdentity == aiSourceIdentity { launch = launch.resolvingSelection(in: source) }
             aiLaunch = launch
             showAIAssistantPanel = true
         }
@@ -2480,7 +2481,7 @@ struct ReaderView: View {
                     onOpenCitation: { citation, boundary in openAICitation(citation, boundary: boundary) },
                     launch: aiLaunch,
                     sourceIdentity: sourceContext,
-                    isSourceReady: aiSourceAdapter != nil && aiSourceContext == aiCurrentSourceContext,
+                    isSourceReady: aiSourceAdapter != nil && aiPreparedSourceIdentity == aiSourceIdentity,
                     prepareContent: { context in
                         guard sourceContext == aiCurrentSourceContext else { throw CancellationError() }
                         let prepared = try await AIReadingContentService.prepare(context, book: sourceBook, chapters: sourceChapters,
@@ -2512,10 +2513,15 @@ struct ReaderView: View {
                     onNextChapter: { startAdjacentTTSChapter(delta: 1) },
                     onSelectChapter: { startTTSChapter($0, syncReader: true) },
                     bookID: bookId,
-                    detectedSpeakers: detectedTTSSpeakers(),
+                    detectedSpeakers: ttsDetectedSpeakers,
                     aiAdapter: aiBookAdapter(),
                     aiProgress: aiReadingProgress()
                 )
+                .task(id: ttsSpeakerDetectionKey) {
+                    // Detection may load persisted cards. Never perform it
+                    // during SwiftUI body/accessibility tree evaluation.
+                    ttsDetectedSpeakers = detectedTTSSpeakers()
+                }
                 .task { await gatherAIBookText() }
             }
         }

@@ -206,9 +206,6 @@ struct AIServiceEditorView: View {
                         .foregroundStyle(DSColor.destructive)
                 }
             }
-        } footer: {
-            Text(localized("會同時送 system 與 user 兩段訊息，和實際使用一致。"))
-                .dsSectionFooter()
         }
         .interfaceSectionSurface()
     }
@@ -309,7 +306,10 @@ struct AISettingsView: View {
     var embedded = false
     @Environment(\.dismiss) private var dismiss
     private let store = AIProviderStore.shared
+    @ObservedObject private var prompts = AICustomPromptStore.shared
+    @ObservedObject private var embedding = AIEmbeddingModelStore.shared
     @State private var profiles: [AIServiceProfile] = []
+    @State private var activeID: UUID?
     private struct EditorRoute: Identifiable, Hashable {
         let id = UUID()
         let profile: AIServiceProfile?
@@ -328,28 +328,43 @@ struct AISettingsView: View {
             List {
                 Section {
                     ForEach(profiles) { profile in
-                        Button { openEditor(profile) } label: {
-                            LabeledContent(profile.name, value: profile.configuration.defaultModel)
-                        }
-                        .contextMenu {
-                            Button(localized("設為預設"), systemImage: "checkmark") {
-                                do { try store.select(profile.id) } catch { failure = error.localizedDescription }
-                            }
-                        }
-                        .swipeActions {
-                            Button(localized("刪除"), role: .destructive) {
-                                do { try store.remove(profile.id); reload() } catch { failure = error.localizedDescription }
-                            }
-                        }
+                        serviceRow(profile)
                     }
-                    Button(localized("新增 AI 服務"), systemImage: "plus") { openEditor(nil) }
+                    Button { openEditor(nil) } label: {
+                        Label(localized("新增 AI 服務"), systemImage: "plus")
+                            .labelStyle(IconConsistentLabelStyle())
+                    }
                 } header: { Text(localized("AI 服務")) }
                 footer: { Text(localized("API Key 只保存在本機，各服務分開儲存。費用由服務商收取。")).dsSectionFooter() }
+                .interfaceSectionSurface()
                 Section {
-                    NavigationLink(localized("自訂提示詞")) { AICustomPromptListView() }
-                    NavigationLink(localized("語意檢索")) { AIEmbeddingSettingsView() }
+                    NavigationLink { AICustomPromptListView() } label: {
+                        LabeledContent {
+                            if !prompts.prompts.isEmpty { Text("\(prompts.prompts.count)") }
+                        } label: {
+                            Label(localized("自訂提示詞"), systemImage: "text.badge.plus")
+                                .foregroundStyle(DSColor.textPrimary)
+                                .labelStyle(IconConsistentLabelStyle())
+                        }
+                    }
+                    NavigationLink { AIEmbeddingSettingsView() } label: {
+                        LabeledContent {
+                            Text(embedding.isInstalled ? localized("關鍵詞 + 語意") : localized("關鍵詞"))
+                        } label: {
+                            Label(localized("語意檢索"), systemImage: "text.magnifyingglass")
+                                .foregroundStyle(DSColor.textPrimary)
+                                .labelStyle(IconConsistentLabelStyle())
+                        }
+                    }
                 }
-                if let failure { Section { Text(failure).foregroundStyle(DSColor.destructive) } }
+                .interfaceSectionSurface()
+                if let failure {
+                    Section {
+                        Label(failure, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(DSColor.destructive)
+                    }
+                    .interfaceSectionSurface()
+                }
             }
             .themedAppSurface(for: .settings)
             .navigationTitle(localized("AI 助手設定"))
@@ -370,11 +385,66 @@ struct AISettingsView: View {
                 }
             }
     }
+    /// One service: its provider's symbol, name and default model, and which one is the
+    /// default. Setting the default is a swipe or long-press away instead of hidden.
+    private func serviceRow(_ profile: AIServiceProfile) -> some View {
+        let isDefault = profile.id == activeID
+        return Button { openEditor(profile) } label: {
+            HStack(spacing: DSSpacing.sm) {
+                Label {
+                    VStack(alignment: .leading, spacing: DSSpacing.xs) {
+                        Text(profile.name)
+                            .foregroundStyle(DSColor.textPrimary)
+                        Text(profile.configuration.defaultModel)
+                            .font(DSFont.footnote)
+                            .foregroundStyle(DSColor.textSecondary)
+                    }
+                } icon: {
+                    Image(systemName: profile.configuration.preset.symbol)
+                }
+                .foregroundStyle(DSColor.textPrimary)
+                .labelStyle(IconConsistentLabelStyle())
+                Spacer(minLength: DSSpacing.sm)
+                if isDefault {
+                    Text(localized("預設"))
+                        .font(DSFont.footnote)
+                        .foregroundStyle(DSColor.textSecondary)
+                }
+                Image(systemName: "chevron.right")
+                    .font(DSFont.caption)
+                    .foregroundStyle(DSColor.textSecondary)
+                    .accessibilityHidden(true)
+            }
+        }
+        .contextMenu {
+            if !isDefault {
+                Button(localized("設為預設"), systemImage: "checkmark") { makeDefault(profile) }
+            }
+        }
+        .swipeActions {
+            Button(localized("刪除"), role: .destructive) {
+                do { try store.remove(profile.id); reload() } catch { failure = error.localizedDescription }
+            }
+            if !isDefault {
+                Button(localized("設為預設")) { makeDefault(profile) }
+                    .tint(DSColor.accent)
+            }
+        }
+    }
+    private func makeDefault(_ profile: AIServiceProfile) {
+        do { try store.select(profile.id); reload() } catch { failure = error.localizedDescription }
+    }
     private func openEditor(_ profile: AIServiceProfile?) {
         editing = EditorRoute(profile: profile)
     }
     private func reload() {
-        do { profiles = try store.profiles(); failure = nil }
+        do {
+            profiles = try store.profiles()
+            // The same fallback `AIAssistantService.freezeProvider` uses when the stored
+            // default no longer exists.
+            activeID = profiles.first { $0.id == store.activeID }?.id ?? profiles.first?.id
+            failure = nil
+        }
         catch { failure = error.localizedDescription }
     }
 }

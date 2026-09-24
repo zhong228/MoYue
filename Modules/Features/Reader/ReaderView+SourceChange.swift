@@ -1073,7 +1073,14 @@ extension ReaderView {
             .merging(AICharacterCardStore.shared.aliasMap(forBook: bookId, boundary: boundary)) { _, card in card }
     }
 
+    var ttsSpeakerDetectionKey: String {
+        let position = aiDisplayedReadingPosition()
+        return "\(bookId):\(ttsChapterIndex ?? currentChapterIndex):\(position?.spineIndex ?? 0):\(position?.charOffset ?? 0):\(aiSourceAdapter?.contentFingerprint ?? "pending")"
+    }
+
     func detectedTTSSpeakers() -> [String] {
+        let started = SourcePerfTrace.now
+        defer { SourcePerfTrace.record("reader.tts.detectSpeakers", since: started) }
         let chapterIndex = ttsChapterIndex ?? currentChapterIndex
         guard chapters.indices.contains(chapterIndex) else { return [] }
         let text = narrationForTTSChapter(chapterIndex).text
@@ -1082,8 +1089,9 @@ extension ReaderView {
         var ordered: [String] = []
         // Folded through the same alias table playback uses, so the cast screen lists the
         // characters that will actually be spoken rather than every name in the prose.
-        let aliases = AISpeakerRosterStore.shared.safeRoster(forBook: bookId, boundary: aiBookAdapter().boundary())
-            .merging(AICharacterCardStore.shared.aliasMap(forBook: bookId, boundary: aiBookAdapter().boundary())) { _, card in card }
+        let boundary = aiBookAdapter().boundary()
+        let aliases = AISpeakerRosterStore.shared.safeRoster(forBook: bookId, boundary: boundary)
+            .merging(AICharacterCardStore.shared.aliasMap(forBook: bookId, boundary: boundary)) { _, card in card }
         for attribution in TTSSpeakerAnnotator.attributions(in: text, aliases: aliases) {
             guard let speaker = attribution.speaker, seen.insert(speaker).inserted else { continue }
             // Once a roster exists, anything it left out was judged not to be a person.
@@ -1194,10 +1202,13 @@ extension ReaderView {
     }
 
     func aiBookAdapter() -> AIBookContentAdapter {
+        let started = SourcePerfTrace.now
+        defer { SourcePerfTrace.record("reader.ai.presentation", since: started, thresholdMs: 10) }
         let position = aiDisplayedReadingPosition()
         let spine = position?.spineIndex ?? currentChapterIndex
-        let snapshot = aiSourceAdapter.flatMap { $0.chunkBookID == bookId && aiSourceContext == aiCurrentSourceContext ? $0 : nil }
-            ?? AIBookContentAdapter(bookID: bookId, chapters: chapters, textForChapter: { _ in nil })
+        let snapshot = aiSourceIdentity.presentationAdapter(
+            prepared: aiSourceAdapter, identity: aiPreparedSourceIdentity
+        )
         let reading = snapshot.atReadingPosition(spine: spine, renderedOffset: position?.charOffset ?? 0,
             renderedText: effectiveScrollMode
                 ? epubRenderer.scrollEngine?.chapterText(forSpine: spine) ?? epubRenderer.engine?.chapterText(forSpine: spine)
@@ -1219,12 +1230,12 @@ extension ReaderView {
         let generation = UUID()
         aiGatherGeneration = generation
         let capturedBook = bookId
-        let capturedContext = aiCurrentSourceContext
+        let capturedIdentity = aiSourceIdentity
+        let capturedChapters = chapters
         let conversion = settings.textConversion
-        let chapterIDs = chapters.map { "\($0.index):\($0.href):\($0.title)" }
         var gathered: [Int: String] = [:]
         var statuses: [Int: AISourceManifest.Availability] = [:]
-        for index in chapters.indices {
+        for index in capturedChapters.indices {
             guard !Task.isCancelled, aiGatherGeneration == generation else { return }
             let result = await epubRenderer.localChapterText(at: index)
             // AI quotes are located again by searching the rendered text, so the source text
@@ -1232,14 +1243,25 @@ extension ReaderView {
             gathered[index] = result.text?.converted(to: conversion)
             statuses[index] = result.status
         }
-        guard !Task.isCancelled, aiGatherGeneration == generation, bookId == capturedBook, aiCurrentSourceContext == capturedContext,
-              chapters.map({ "\($0.index):\($0.href):\($0.title)" }) == chapterIDs else { return }
+        guard !Task.isCancelled, aiGatherGeneration == generation, bookId == capturedBook,
+              aiSourceIdentity == capturedIdentity else { return }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let rulesDigest = (try? encoder.encode(ReplaceRuleStore.shared.rules)).map(AISourceManifest.digest) ?? "unavailable"
-        aiSourceContext = capturedContext
-        aiSourceAdapter = AIBookContentAdapter(bookID: bookId, chapters: chapters,
-            transformationVersion: "chapterPlainText.v1@rules:" + rulesDigest + "@conversion:" + conversion.rawValue, missingStatus: statuses,
-            acquisitionMilliseconds: Date().timeIntervalSince(acquisitionStarted) * 1000) { gathered[$0] }
+        let prepared: AIBookContentAdapter
+        do {
+            prepared = try await AIBookContentAdapter.prepare(bookID: capturedBook, chapters: capturedChapters,
+                transformationVersion: "chapterPlainText.v1@rules:" + rulesDigest + "@conversion:" + conversion.rawValue,
+                missingStatus: statuses, acquisitionMilliseconds: Date().timeIntervalSince(acquisitionStarted) * 1000,
+                texts: gathered)
+        } catch is CancellationError { return }
+        catch {
+            AppLogger.error("AI source snapshot preparation failed", error: error)
+            return
+        }
+        guard !Task.isCancelled, aiGatherGeneration == generation, bookId == capturedBook,
+              aiSourceIdentity == capturedIdentity else { return }
+        aiPreparedSourceIdentity = capturedIdentity
+        aiSourceAdapter = prepared
         if let source = aiSourceAdapter { aiLaunch = aiLaunch?.resolvingSelection(in: source) }
         AIAssistantService.shared.activate(aiBookAdapter())
     }

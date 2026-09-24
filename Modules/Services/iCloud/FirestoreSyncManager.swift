@@ -4,6 +4,7 @@ import FirebaseAuth
 import FirebaseFirestore
 import Foundation
 import os
+import UIKit
 
 
 @MainActor
@@ -26,6 +27,7 @@ final class FirestoreSyncManager: ObservableObject {
     private var bookStore: BookStore?
     private var isApplyingRemote = false
     private var isSyncing = false
+    private var profileUploadTask: Task<Void, Error>?
 
     // Collections whose local shadow must be cleared when the account changes.
     private static let shadowCollections = [
@@ -91,6 +93,7 @@ final class FirestoreSyncManager: ObservableObject {
             markSynced()
         } catch {
             state = .failed(error.localizedDescription)
+            AppLogger.sync("account sync failed: \(error.localizedDescription)", level: .error)
         }
     }
 
@@ -136,37 +139,63 @@ final class FirestoreSyncManager: ObservableObject {
     // MARK: - Profile
 
     func upsertCurrentProfile(provider: String? = nil) async throws {
+        // The debounce may be cancelled by another settings edit. Keep an
+        // already-started server write serialized so an older nickname cannot
+        // finish after, and overwrite, a newer successful upload.
+        if let inFlight = profileUploadTask {
+            try await inFlight.value
+            try Task.checkCancellation()
+            return try await upsertCurrentProfile(provider: provider)
+        }
+        let task = Task { @MainActor in
+            defer { self.profileUploadTask = nil }
+            try await self.uploadProfileSnapshot(provider: provider)
+        }
+        profileUploadTask = task
+        try await task.value
+    }
+
+    private func uploadProfileSnapshot(provider: String?) async throws {
         guard let account = FirebaseAuthManager.shared.accountUser else { return }
         let uid = account.uid
         let settings = GlobalSettings.shared
         let photoURL = settings.accountPhotoURL.isEmpty ? (account.photoURL ?? "") : settings.accountPhotoURL
         let preferences = ReaderPreferences.current(settings: settings)
         let resolvedProvider = provider ?? settings.accountProvider
+        let displayName = settings.accountDisplayName
+        let email = settings.accountEmail
+        let nameEdit = AccountDisplayNameEdits().edit(for: uid)
+        let backend = AccountBackendRouter.shared.current
 
         // Skip the write entirely when nothing the profile cares about changed.
         let fingerprint = stableHash(ProfileFingerprint(
-            displayName: settings.accountDisplayName,
-            email: settings.accountEmail,
+            displayName: displayName,
+            email: email,
             provider: resolvedProvider,
             photoURL: photoURL,
             preferences: preferences
         ))
-        if UserDefaults.standard.string(forKey: "yd_firestore_profile_hash") == fingerprint {
+        if nameEdit?.needsUpload != true,
+           UserDefaults.standard.string(forKey: "yd_firestore_profile_hash") == fingerprint {
             return
         }
 
         let createdAt = try await resolveProfileCreatedAt(uid: uid)
+        try Task.checkCancellation()
+        guard FirebaseAuthManager.shared.uid == uid else { throw AccountBackendError.notAuthenticated }
         let profile = UserProfile(
             uid: uid,
-            displayName: settings.accountDisplayName,
-            email: settings.accountEmail,
+            displayName: displayName,
+            email: email,
             provider: resolvedProvider,
             photoURL: photoURL.isEmpty ? nil : photoURL,
             createdAt: createdAt,
             updatedAt: Date(),
             preferences: preferences
         )
-        try await AccountBackendRouter.shared.current.upsertProfile(profile)
+        try await backend.upsertProfile(profile)
+        guard FirebaseAuthManager.shared.uid == uid else { throw AccountBackendError.notAuthenticated }
+        AccountDisplayNameEdits().acknowledge(nameEdit, for: uid)
         UserDefaults.standard.set(fingerprint, forKey: "yd_firestore_profile_hash")
     }
 
@@ -175,6 +204,7 @@ final class FirestoreSyncManager: ObservableObject {
             return cached
         }
         let existing = try await AccountBackendRouter.shared.current.fetchProfile(uid: uid)
+        guard FirebaseAuthManager.shared.uid == uid else { throw AccountBackendError.notAuthenticated }
         let createdAt = existing?.createdAt ?? Date()
         UserDefaults.standard.set(createdAt, forKey: "yd_firestore_profile_created_at")
         return createdAt
@@ -219,6 +249,13 @@ final class FirestoreSyncManager: ObservableObject {
     // MARK: - Store observation
 
     private func observeSharedStores() {
+        NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                guard AccountDisplayNameEdits().pendingName(for: GlobalSettings.shared.accountUserIdentifier) != nil else { return }
+                self?.schedulePush("profile") { try await self?.upsertCurrentProfile() }
+            }
+            .store(in: &cancellables)
+
         BookSourceStore.shared.$sources
             .dropFirst()
             .sink { [weak self] _ in
@@ -259,14 +296,20 @@ final class FirestoreSyncManager: ObservableObject {
         // Data sync is off (data lives in iCloud); only the account profile syncs.
         guard Self.dataSyncEnabled || key == "profile" else { return }
         pushWorkItems[key]?.cancel()
+        if key == "profile", AccountDisplayNameEdits().pendingName(for: GlobalSettings.shared.accountUserIdentifier) != nil {
+            state = .syncing
+        }
         pushWorkItems[key] = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             guard !Task.isCancelled else { return }
             do {
                 try await operation()
+                guard !Task.isCancelled else { return }
                 self?.markSynced()
             } catch {
+                guard !Task.isCancelled else { return }
                 self?.state = .failed(error.localizedDescription)
+                AppLogger.sync("push \(key) failed: \(error.localizedDescription)", level: .error)
             }
         }
     }
@@ -275,13 +318,20 @@ final class FirestoreSyncManager: ObservableObject {
 
     private func pullAll() async throws {
         guard let uid = FirebaseAuthManager.shared.uid else { return }
+        // Do not suppress local edits while a network request is in flight.
+        let nameEdit = AccountDisplayNameEdits().edit(for: uid)
+        let profile = try await AccountBackendRouter.shared.current.fetchProfile(uid: uid)
+        guard FirebaseAuthManager.shared.uid == uid else { throw AccountBackendError.notAuthenticated }
         isApplyingRemote = true
         defer { isApplyingRemote = false }
 
         let userRef = userDocument(uid)
-
-        if let profile = try? await AccountBackendRouter.shared.current.fetchProfile(uid: uid) {
-            GlobalSettings.shared.applyFirebaseProfile(profile)
+        if let profile {
+            guard profile.uid == uid else { throw AccountBackendError.invalidResponse }
+            GlobalSettings.shared.applyFirebaseProfile(
+                profile,
+                preservingDisplayName: nameEdit != AccountDisplayNameEdits().edit(for: uid)
+            )
             UserDefaults.standard.set(profile.createdAt, forKey: "yd_firestore_profile_created_at")
         }
 
@@ -546,6 +596,10 @@ final class FirestoreSyncManager: ObservableObject {
     }
 
     private func markSynced() {
+        guard AccountDisplayNameEdits().pendingName(for: GlobalSettings.shared.accountUserIdentifier) == nil else {
+            state = .syncing
+            return
+        }
         let date = Date()
         UserDefaults.standard.set(date, forKey: "yd_firestore_last_sync_at")
         state = .synced(date)

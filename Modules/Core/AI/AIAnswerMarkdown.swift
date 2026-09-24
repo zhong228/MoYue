@@ -4,6 +4,22 @@ import Foundation
 enum AIAnswerMarkdown {
     enum Kind: Equatable { case paragraph, heading, quote, list, code, table }
     struct Block: Equatable { let kind: Kind; let text: String }
+    /// One `.list` block split into what is drawn: nesting depth, marker and item text.
+    struct ListItem: Equatable { let depth: Int; let marker: String; let text: String }
+
+    /// Unordered markers (`-`, `*`, `+`) become a bullet; ordered markers keep their number.
+    /// Two spaces or one tab of indentation is one nesting level.
+    static func listItem(_ line: String) -> ListItem {
+        let body = line.drop { $0 == " " || $0 == "\t" }
+        let indentWidth = line.prefix { $0 == " " || $0 == "\t" }.reduce(0) { $0 + ($1 == "\t" ? 2 : 1) }
+        guard let range = body.range(of: #"^(?:[-*+]|\d+[.)])\s+"#, options: .regularExpression) else {
+            return ListItem(depth: indentWidth / 2, marker: "•", text: String(body))
+        }
+        let rawMarker = body[range].trimmingCharacters(in: .whitespaces)
+        return ListItem(depth: indentWidth / 2,
+                        marker: rawMarker.first?.isNumber == true ? rawMarker : "•",
+                        text: String(body[range.upperBound...]))
+    }
 
     static func blocks(_ text: String) -> [Block] {
         var result: [Block] = []

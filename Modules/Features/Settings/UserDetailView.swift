@@ -55,9 +55,11 @@ struct UserDetailView: View {
                     VStack(spacing: 8) {
                         HStack(spacing: 4) {
                             Image(systemName: syncStatusIcon)
+                                .accessibilityHidden(true)
                             Text(gs.isLoggedIn ? firestoreSync.statusTitle : localized("登入後可同步進度"))
                                 .font(DSFont.fixed(size: 12, weight: .semibold))
                         }
+                        .accessibilityElement(children: .combine)
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .background(syncStatusColor.opacity(0.1))
                         .foregroundColor(syncStatusColor)
@@ -317,13 +319,10 @@ struct UserDetailView: View {
             TextField(localized("用戶名"), text: $draftDisplayName)
             Button(localized("儲存")) {
                 gs.updateAccountDisplayName(draftDisplayName)
-                Task {
-                    try? await firestoreSync.upsertCurrentProfile()
-                }
             }
             Button(localized("取消"), role: .cancel) {}
         } message: {
-            Text(localized("這個名稱只會顯示在此裝置上。"))
+            Text(localized("名稱會先儲存在此裝置，並同步至帳號；同步失敗時仍會保留。"))
         }
         .alert(localized("確認刪除帳號"), isPresented: $showDeletePasswordAlert) {
             SecureField(localized("請輸入密碼"), text: $deletePassword)

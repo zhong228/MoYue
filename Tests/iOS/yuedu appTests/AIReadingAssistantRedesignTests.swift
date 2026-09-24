@@ -397,6 +397,14 @@ struct AIReadingAssistantRedesignTests {
         #expect(blocks.last?.text == "let text = \"**literal**\"")
     }
 
+    @Test func markdownListItemsDrawBulletsAndKeepOrderedNumbersAndDepth() {
+        #expect(AIAnswerMarkdown.listItem("- One") == .init(depth: 0, marker: "•", text: "One"))
+        #expect(AIAnswerMarkdown.listItem("  * Nested **bold**") == .init(depth: 1, marker: "•", text: "Nested **bold**"))
+        #expect(AIAnswerMarkdown.listItem("\t+ Tabbed") == .init(depth: 1, marker: "•", text: "Tabbed"))
+        #expect(AIAnswerMarkdown.listItem("12) Twelve") == .init(depth: 0, marker: "12)", text: "Twelve"))
+        #expect(AIAnswerMarkdown.listItem("3. 第三點") == .init(depth: 0, marker: "3.", text: "第三點"))
+    }
+
     private actor StreamingGateProvider: LLMProviding {
         let identifier = "streaming-fixture"
         let defaultModel = "fixture"

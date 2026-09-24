@@ -3473,7 +3473,13 @@ class GlobalSettings: ObservableObject {
         }
         let email = user.email
         let displayName = user.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        accountDisplayName = !displayName.isEmpty ? displayName : (email.isEmpty ? localized("已登入") : email)
+        // Auth snapshots contain the provider's name, not necessarily the edited
+        // profile name. Refreshing credentials must not undo a local rename.
+        let name = AccountDisplayNameEdits().pendingName(for: user.uid)
+            ?? (accountUserIdentifier == user.uid && !accountDisplayName.isEmpty
+                ? accountDisplayName
+                : (!displayName.isEmpty ? displayName : (email.isEmpty ? localized("已登入") : email)))
+        if accountDisplayName != name { accountDisplayName = name }
         accountEmail = email
         accountProvider = providerOverride ?? user.providerDisplayName
         accountUserIdentifier = user.uid
@@ -3484,10 +3490,14 @@ class GlobalSettings: ObservableObject {
     }
 
     @MainActor
-    func applyFirebaseProfile(_ profile: UserProfile) {
+    func applyFirebaseProfile(_ profile: UserProfile, preservingDisplayName: Bool = false) {
+        guard accountUserIdentifier.isEmpty || accountUserIdentifier == profile.uid else { return }
         var updates = SettingsUpdateBatch(self, reason: "firebaseProfile")
         defer { updates.finish() }
-        updates.set(\.accountDisplayName, profile.displayName, field: "accountDisplayName")
+        if !preservingDisplayName {
+            let name = AccountDisplayNameEdits().pendingName(for: profile.uid) ?? profile.displayName
+            updates.set(\.accountDisplayName, name, field: "accountDisplayName")
+        }
         updates.set(\.accountEmail, profile.email, field: "accountEmail")
         updates.set(\.accountProvider, profile.provider, field: "accountProvider")
         updates.set(\.accountUserIdentifier, profile.uid, field: "accountUserIdentifier")
@@ -3502,7 +3512,8 @@ class GlobalSettings: ObservableObject {
 
     func updateAccountDisplayName(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty, trimmed != accountDisplayName else { return }
+        AccountDisplayNameEdits().save(trimmed, for: accountUserIdentifier)
         accountDisplayName = trimmed
     }
 

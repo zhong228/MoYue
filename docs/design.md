@@ -346,6 +346,17 @@ Text("\(localized("當前速度"))：\(speechRateText)")
 | **詳情 Detail** | 書籍資訊、章節目錄、開始閱讀 | 大標 + 後設資料 + 主 CTA |
 | **匯入 Import** | 清楚處理本地檔案 / URL / Legado 書源 / 剪貼簿 | `fileImporter`、分流選單、進度與結果 |
 | **TTS / 聽書** | 朗讀控制、語音源/離線語音、章節、睡眠定時 | 控制列、`Slider`、語音選單 |
+| **AI 助手 Assistant** | 針對這本書的問答：答案好讀、依據可查、模型與範圍隨手切換 | `Modules/Features/AI/AIChatComponents.swift` 的對話元件（見 §10.1） |
+
+### 10.1 AI 對話介面
+
+閱讀助手的對話畫面參考 OpenMinis 的聊天版面，元件集中在 `AIChatComponents.swift`，新的 AI 對話畫面沿用這一套，不另刻：
+
+- **只有讀者的提問用氣泡**（`AIChatUserBubble`，靠尾端）；AI 回答是頁面上的內文，前面一行「✦ AI 助手」標頭（VoiceOver 標題），不包卡片。
+- **次要資訊收進一個控制項**：回答下方只有「複製」與一個「回答範圍／未附書中引用」按鈕，點開才顯示說明卡；不要在每則回答下堆多行提示。
+- **輸入框是唯一的浮動層**（`AIChatComposer`）：以 `safeAreaInset(edge: .bottom)` 浮在對話上，內含模型選單、閱讀範圍選單與送出鈕；表面用 `floatingSurfaceBackground`（iOS 26 為 Liquid Glass），**不帶光暈**——光暈在玻璃後面會把整個輸入框染成主色，看起來像已聚焦、也壓低 placeholder 對比。
+- 選單裡的單選一律用 `Picker`（附勾選）。選單不會顯示 inline `Picker` 的 label，也不會顯示包住它的 `Section` 標題（iOS 27 實測），所以需要分組名稱時改用 `.menu` 樣式的子選單：模型選單只有一個服務時 inline 列出模型，多個服務時每個服務一個以服務名稱命名的子選單。
+- `DisclosureGroup` 只用在 `List`/`Form` 裡。放在一般 `VStack` 時，展開內容的多行 `Text` 會置中排列成倒三角形。
 
 ---
 

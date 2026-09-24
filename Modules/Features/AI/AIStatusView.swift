@@ -6,7 +6,6 @@ struct AIStatusView: View {
     @ObservedObject private var service = AIAssistantService.shared
     @ObservedObject private var diagnostics = AIDiagnosticStore.shared
     @ObservedObject private var embedding = AIEmbeddingModelStore.shared
-    @Environment(\.dismiss) private var dismiss
     @State private var includeMessages = false
     @State private var includeEvidence = false
     @State private var includeResponse = false
@@ -14,39 +13,47 @@ struct AIStatusView: View {
     @State private var exporting = false
     @State private var exportError: String?
 
+    private var missingChapters: [AISourceManifest.Chapter] {
+        adapter.manifest.chapters.filter { $0.status != .available }
+    }
+
     var body: some View {
         Form {
             Section {
                 LabeledContent(localized("章節目錄"), value: "\(adapter.manifest.chapters.count)")
-                LabeledContent(localized("本機可用正文"), value: "\(adapter.manifest.chapters.filter { $0.status == .available }.count) / \(adapter.manifest.chapters.count)")
+                LabeledContent(localized("本機可用正文"), value: "\(adapter.manifest.chapters.count - missingChapters.count) / \(adapter.manifest.chapters.count)")
                 LabeledContent(localized("已索引章節"), value: "\(service.indexedChapterCounts[adapter.chunkBookID] ?? 0)")
                 LabeledContent(localized("檢索索引"), value: indexDescription)
-                NavigationLink(localized("逐批人物建檔")) { AICharacterMemoryView(adapter: adapter) }
-                ForEach(adapter.manifest.chapters.filter { $0.status != .available }, id: \.order) { chapter in
-                    LabeledContent(String(format: localized("第 %d 章"), chapter.order + 1), value: availability(chapter.status))
-                }
-            } footer: {
-                Text(localized("未下載或抽取失敗的章節不在搜尋範圍；不會自動下載正文。提要僅涵蓋最近最多 12 個已讀片段。"))
-                    .dsSectionFooter()
-                Text(localized("位置使用來源 UTF-16；正文與排版不同且無法驗證時，排除當章未確認範圍並停止引用跳轉。"))
-                    .dsSectionFooter()
-            }
-            Section {
                 LabeledContent(localized("語意檢索"), value: embeddingDescription)
                 if let reason = diagnostics.retrievalDegradation {
                     LabeledContent(localized("本次已降級關鍵字檢索"), value: AIEmbeddingContract.Failure(rawValue: reason)?.localizedDescription ?? localized("語意模型目前不可用"))
                 }
+                if !missingChapters.isEmpty {
+                    DisclosureGroup {
+                        ForEach(missingChapters, id: \.order) { chapter in
+                            LabeledContent(String(format: localized("第 %d 章"), chapter.order + 1), value: availability(chapter.status))
+                        }
+                    } label: {
+                        LabeledContent(localized("缺少正文的章節"), value: "\(missingChapters.count)")
+                    }
+                }
+            } header: {
+                Text(localized("本書內容"))
             } footer: {
-                Text(localized("契約驗證與語意品質不同；尚未評測語意品質。模型不可用時仍可使用關鍵字檢索。"))
+                Text(localized("未下載或抽取失敗的章節不在搜尋範圍，也不會自動下載。"))
                     .dsSectionFooter()
             }
+            .interfaceSectionSurface()
             Section {
                 LabeledContent(localized("每題模型呼叫上限"), value: "\(AIQuestionBudget().maximumModelCalls)")
                 LabeledContent(localized("每題搜尋詞上限"), value: "\(AIQuestionBudget().maximumQueries)")
+            } header: {
+                Text(localized("問答預算"))
             } footer: {
-                Text(localized("追問釐清與補查共用每題預算，最多補查及修訂一次；每次模型呼叫可能由供應商計費。"))
+                Text(localized("每次模型呼叫都可能由服務商計費。"))
                     .dsSectionFooter()
             }
+            .interfaceSectionSurface()
             Section {
                 Toggle(localized("下一次請求保留敏感診斷內容"), isOn: $diagnostics.captureNextRequestContent)
                 Toggle(localized("匯出 messages 與讀者輸入"), isOn: $includeMessages)
@@ -57,15 +64,21 @@ struct AIStatusView: View {
                 }
                 Button(localized("匯出本機診斷")) { export() }
                     .disabled(diagnostics.latest?.bookID != adapter.chunkBookID)
-                if let exportError { Text(exportError).foregroundStyle(DSColor.destructive) }
+                if let exportError {
+                    Label(exportError, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(DSColor.destructive)
+                }
+            } header: {
+                Text(localized("診斷匯出"))
             } footer: {
-                Text(localized("預設僅保存 metadata。開啟保留後，下一次請求的輸入、messages、檢索原文與回覆暫存記憶體；匯出只包含勾選內容，會遮蔽憑證、帳號與網址，不會自動上傳。"))
+                Text(localized("預設只保存 metadata；匯出只含勾選內容並遮蔽憑證、帳號與網址，不會自動上傳。"))
                     .dsSectionFooter()
             }
+            .interfaceSectionSurface()
         }
+        .themedAppSurface(for: .settings)
         .navigationTitle(localized("AI 狀態與診斷"))
         .toolbarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .confirmationAction) { Button(localized("完成")) { dismiss() } } }
         .fileExporter(isPresented: $exporting, document: document, contentType: .json, defaultFilename: "Yuedu-AI-diagnostics") { result in
             if case .failure = result { exportError = localized("診斷匯出失敗") }
         }

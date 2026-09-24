@@ -209,6 +209,10 @@ enum DSLayout {
     /// Visible height of that edge tab — the mini-player's cover height, so the tab reads
     /// as the same object tucked away.
     static let miniPlayerEdgeHandleHeight: CGFloat = 56
+    /// How far the reading assistant keeps the reader's own turn from the leading edge.
+    /// The answer uses the full width as plain prose; the question stays a narrower
+    /// bubble on the trailing side, so the two never read as the same kind of text.
+    static let aiChatBubbleLeadingInset: CGFloat = 48
     /// Source-login controls: visible outlines and tactile feedback over themed artwork.
     static let loginControlBorder: CGFloat = 0.5
     static let loginControlContrastBorder: CGFloat = 2

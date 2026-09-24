@@ -120,14 +120,18 @@ struct TTSPanelView: View {
                             Spacer()
                         }
                     }
-                    NavigationLink(
-                        destination: TTSRoleCastView(
-                            bookID: bookID,
-                            detectedSpeakers: detectedSpeakers,
-                            adapter: aiAdapter,
-                            progress: aiProgress
-                        )
-                    ) {
+                    NavigationLink {
+                        if aiAdapter.isPrepared {
+                            TTSRoleCastView(
+                                bookID: bookID,
+                                detectedSpeakers: detectedSpeakers,
+                                adapter: aiAdapter,
+                                progress: aiProgress
+                            )
+                        } else {
+                            ProgressView(localized("載入中…"))
+                        }
+                    } label: {
                         HStack {
                             Image(systemName: "person.2.wave.2")
                                 .foregroundColor(DSColor.accent)

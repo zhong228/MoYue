@@ -1265,6 +1265,32 @@ struct BookRow: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        if isEditing {
+            // Let List retain its native multi-selection accessibility actions.
+            content
+        } else {
+            content
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(BookshelfAccessibility.description(for: book))
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { openBook() }
+                .accessibilityActions {
+                    if let onShowDetail {
+                        Button(localized("書籍詳情")) { onShowDetail() }
+                    }
+                    Button(localized("編輯書籍資訊")) { onEdit() }
+                    Button(localized("刪除書籍"), role: .destructive) { onDelete() }
+                }
+        }
+    }
+
+    private func openBook() {
+        onTap(liveCoverFrame.isEmpty ? nil : ReaderCardGeometry(
+            frame: liveCoverFrame, cornerRadius: BookshelfCoverStyle.cornerRadius
+        ))
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 // In edit mode the row is plain content so the List's native selection circle handles
@@ -1272,16 +1298,7 @@ struct BookRow: View {
                 if isEditing {
                     rowContent
                 } else {
-                    Button(action: {
-                        onTap(
-                            liveCoverFrame.isEmpty
-                                ? nil
-                                : ReaderCardGeometry(
-                                    frame: liveCoverFrame,
-                                    cornerRadius: BookshelfCoverStyle.cornerRadius
-                                )
-                        )
-                    }) { rowContent }
+                    Button(action: openBook) { rowContent }
                         .buttonStyle(.plain)
 
                     VStack {
@@ -1471,29 +1488,6 @@ struct BookGridCell: View {
             : ReaderCardGeometry(frame: liveCoverFrame, cornerRadius: BookshelfCoverStyle.cornerRadius)
     }
 
-    /// Everything the cell shows, spoken as one phrase. The cell is a single
-    /// VoiceOver element, so the cover button, title, author and overflow menu
-    /// must not be reachable separately — swiping through a grid of books
-    /// otherwise costs four stops per book instead of one, unlike the list.
-    private var accessibilityDescription: String {
-        var parts: [String] = [book.title]
-        if !book.author.isEmpty {
-            parts.append(book.author)
-        }
-        if book.resolvedPipelineKind == .audio {
-            parts.append(localized("有聲書"))
-        }
-        if book.hasNewChapterUpdate {
-            parts.append(localized("有新章節"))
-        }
-        if book.currentPosition >= 0.99 {
-            parts.append(localized("已讀完"))
-        } else if book.currentPosition > 0.01 {
-            parts.append(String(format: localized("已讀 %d%%"), Int(book.currentPosition * 100)))
-        }
-        return parts.joined(separator: "，")
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button(action: {
@@ -1565,7 +1559,7 @@ struct BookGridCell: View {
             if !frame.isEmpty { onCoverFrameChange?(frame) }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityDescription)
+        .accessibilityLabel(BookshelfAccessibility.description(for: book))
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onOpen(readerCardGeometry) }
         // The overflow menu is no longer its own element, so its items become the

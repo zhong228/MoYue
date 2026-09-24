@@ -66,6 +66,101 @@ final class DetailReaderBackSwipeUITests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testClassicReaderControlsFromExploreAreAccessible() throws {
+        continueAfterFailure = false
+        try configureStoreKit()
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+                               "-yd_root_tab_visible_ids", "(explore, settings)",
+                               "-discover.selectedSourceId", "C5DED179-61D0-49C4-BDB7-93A7B3DAD8F4",
+                               "-yd_appearance_reader_interface", "classic",
+                               "-yd_page_turn_style", "滑動", "-yd_scroll_mode", "NO"]
+        app.launch()
+        let book = app.staticTexts["Navigation Swipe Fixture"].firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 20), app.debugDescription)
+        book.tap()
+        let read = app.buttons.matching(NSPredicate(format: "label IN %@", ["Read Now", "Continue Reading"])).firstMatch
+        XCTAssertTrue(read.waitForExistence(timeout: 15), app.debugDescription)
+        read.tap()
+        let content = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Reserved edge navigation")).firstMatch
+        XCTAssertTrue(content.waitForExistence(timeout: 30), app.debugDescription)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(app.buttons["reader_back_button"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.textFields["Enter URL or search"].exists, "The covered browser must leave the accessibility tree")
+        for label in ["Contents", "Settings", "Next"] {
+            let button = app.buttons[label].firstMatch
+            XCTAssertTrue(button.exists, app.debugDescription)
+            XCTAssertTrue(button.isHittable, app.debugDescription)
+        }
+        app.buttons["Contents"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Chapter 2"].firstMatch.waitForExistence(timeout: 5), app.debugDescription)
+    }
+
+    @MainActor
+    func testShelfListExposesOneBookButtonAndOpensReader() throws {
+        continueAfterFailure = false
+        try configureStoreKit()
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+                               "-yd_root_tab_visible_ids", "(explore, settings)",
+                               "-discover.selectedSourceId", "C5DED179-61D0-49C4-BDB7-93A7B3DAD8F4"]
+        app.launch()
+        let discovered = app.staticTexts["Navigation Swipe Fixture"].firstMatch
+        XCTAssertTrue(discovered.waitForExistence(timeout: 20), app.debugDescription)
+        discovered.tap()
+        let remove = app.buttons["Remove from Library"]
+        let add = app.buttons["Bookmarked"]
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label IN %@", ["Bookmarked", "Remove from Library"])).firstMatch.waitForExistence(timeout: 15))
+        if add.exists {
+            let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: add)
+            XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 15), .completed)
+            add.tap()
+            XCTAssertTrue(remove.waitForExistence(timeout: 10), app.debugDescription)
+        }
+        app.terminate()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+                               "-yd_root_tab_visible_ids", "(bookshelf, settings)",
+                               "-bookLayoutIsGrid", "NO", "-yd_appearance_reader_interface", "classic"]
+        app.launch()
+        let book = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Navigation Swipe Fixture，Regression"))
+        XCTAssertTrue(book.firstMatch.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertEqual(book.count, 1, "A list book must expose one combined activation target")
+        book.firstMatch.tap()
+        let content = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Reserved edge navigation")).firstMatch
+        XCTAssertTrue(content.waitForExistence(timeout: 30), app.debugDescription)
+    }
+
+    @MainActor
+    func testTTSPanelAndRoleDestinationLoad() throws {
+        continueAfterFailure = false
+        try configureStoreKit()
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+                               "-yd_root_tab_visible_ids", "(explore, settings)",
+                               "-discover.selectedSourceId", "C5DED179-61D0-49C4-BDB7-93A7B3DAD8F4",
+                               "-yd_appearance_reader_interface", "classic"]
+        app.launch()
+        let book = app.staticTexts["Navigation Swipe Fixture"].firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 20), app.debugDescription)
+        book.tap()
+        let read = app.buttons.matching(NSPredicate(format: "label IN %@", ["Read Now", "Continue Reading"])).firstMatch
+        XCTAssertTrue(read.waitForExistence(timeout: 15), app.debugDescription)
+        read.tap()
+        let content = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Reserved edge navigation")).firstMatch
+        XCTAssertTrue(content.waitForExistence(timeout: 30), app.debugDescription)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let listen = app.buttons["Audiobook"].firstMatch
+        XCTAssertTrue(listen.waitForExistence(timeout: 5), app.debugDescription)
+        listen.tap()
+        let roles = app.buttons["Multi-voice narration"].firstMatch
+        XCTAssertTrue(roles.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(roles.isHittable)
+        roles.tap()
+        XCTAssertTrue(app.navigationBars["Multi-voice narration"].waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(app.buttons["Reset"].firstMatch.exists, app.debugDescription)
+    }
+
     @MainActor func testSlideEdgeBack() throws { try exerciseReader(style: "滑動") }
     @MainActor func testCoverEdgeBack() throws { try exerciseReader(style: "覆蓋翻頁") }
     @MainActor func testCurlEdgeBack() throws { try exerciseReader(style: "仿真翻書") }

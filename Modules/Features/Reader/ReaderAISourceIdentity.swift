@@ -13,6 +13,13 @@ struct ReaderAISourceIdentity: Equatable {
             + chapters.map { "\($0.index):\($0.href):\($0.title)" }.joined(separator: "\n")
     }
 
+    func presentationAdapter(prepared: AIBookContentAdapter?, identity: Self?) -> AIBookContentAdapter {
+        guard let prepared, prepared.chunkBookID == bookID, identity == self else {
+            return .pending(bookID: bookID)
+        }
+        return prepared
+    }
+
     static func == (lhs: Self, rhs: Self) -> Bool {
         guard lhs.bookID == rhs.bookID, lhs.sourceID == rhs.sourceID,
               lhs.source == rhs.source, lhs.chapters.count == rhs.chapters.count else { return false }

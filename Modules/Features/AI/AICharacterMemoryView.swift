@@ -25,6 +25,19 @@ struct AICharacterMemoryView: View {
     @State private var operation: Task<Void, Never>?
     @State private var selected: Selection?
     private struct Selection: Identifiable { let id: String }
+    private enum ViewScope: Hashable { case reading, chapter, wholeBook }
+    private var viewScope: ViewScope { viewingWholeBook ? .wholeBook : chapterView ? .chapter : .reading }
+    /// Later chapters are a spoiler, so 查看後文 asks first and only takes effect once confirmed.
+    private var viewScopeBinding: Binding<ViewScope> {
+        Binding(get: { viewScope }, set: { value in
+            selected = nil
+            switch value {
+            case .wholeBook: confirmView = true
+            case .chapter: viewingWholeBook = false; allowFutureView = false; chapterView = true
+            case .reading: viewingWholeBook = false; allowFutureView = false; chapterView = false
+            }
+        })
+    }
     private var job: AIMemoryJob? { service.jobs[adapter.chunkBookID] }
     private var coverage: AIMemoryCoverage? { service.coverages[adapter.chunkBookID] }
     private var boundary: AIReadingBoundary {
@@ -63,24 +76,22 @@ struct AICharacterMemoryView: View {
                 Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(DSColor.destructive) }
             }
             Section {
-                Toggle(localized("查看後文人物資料"), isOn: Binding(get: { viewingWholeBook }, set: { value in
-                    selected = nil
-                    if value { confirmView = true } else { viewingWholeBook = false; allowFutureView = false; chapterView = false }
-                }))
-                Toggle(localized("按章節進度查看"), isOn: $chapterView).disabled(viewingWholeBook)
-                if chapterView && !viewingWholeBook {
+                Picker(localized("查看範圍"), selection: viewScopeBinding) {
+                    Text(localized("截至目前閱讀位置")).tag(ViewScope.reading)
+                    Text(localized("按章節進度查看")).tag(ViewScope.chapter)
+                    Text(localized("查看後文人物資料")).tag(ViewScope.wholeBook)
+                }
+                if viewScope == .chapter {
                     Stepper(String(format: localized("查看到第 %d 章"), viewChapter + 1), value: $viewChapter, in: 0...maximumViewChapter)
                 }
                 LabeledContent(localized("目前範圍人物數"), value: "\(visible.count)")
-            } footer: {
-                Text(localized("建檔範圍與查看範圍分開；卡片只使用目前範圍允許的提及、事實與身分關係。"))
-                    .dsSectionFooter()
             }
             Section {
                 if loadedKey != viewKey {
                     ProgressView(localized("載入中…"))
                 } else if visible.cards.isEmpty {
                     ContentUnavailableView(localized("此範圍尚無人物資料"), systemImage: "person.text.rectangle")
+                        .listRowBackground(Color.clear)
                 }
                 ForEach(visible.page(query: query, offset: page * 40)) { card in
                     Button { selected = Selection(id: card.id) } label: {
@@ -90,17 +101,20 @@ struct AICharacterMemoryView: View {
                 if page > 0 { Button(localized("上一頁")) { page -= 1 } }
                 if !visible.page(query: query, offset: (page + 1) * 40).isEmpty { Button(localized("下一頁")) { page += 1 } }
             } footer: {
-                Text(localized("這是模型抽取的結構化記錄，不代表人物或事實全部正確；每項保留原文供核對。新別名不會自動送入問答或朗讀。"))
-                    .dsSectionFooter()
+                // About the cards themselves, so only once there are some.
+                if !visible.cards.isEmpty {
+                    Text(localized("這是模型抽取的結構化記錄，不代表人物或事實全部正確；每項保留原文供核對。新別名不會自動送入問答或朗讀。"))
+                        .dsSectionFooter()
+                }
             }
             Section {
-                NavigationLink(localized("AI 狀態與診斷")) { AIStatusView(adapter: adapter) }
                 Button(localized("清除本書人物建檔資料"), role: .destructive) { confirmClear = true }
             } footer: {
-                Text(localized("人物記錄保存在本機；清除不會刪除正文、聊天或人工角色聲音設定。離開功能或退到背景會暫停。"))
+                Text(localized("清除不會刪除正文、聊天或人工角色聲音設定。"))
                     .dsSectionFooter()
             }
         }
+        .themedAppSurface(for: .settings)
         .navigationTitle(localized("書中人物整理"))
         .toolbarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: localized("搜尋目前範圍的人物"))
@@ -162,17 +176,12 @@ struct AICharacterMemoryView: View {
     private func jobSection(_ job: AIMemoryJob) -> some View {
         Section {
             LabeledContent(localized("建檔狀態"), value: state(job.state))
-            LabeledContent(localized("生成模型"), value: job.model)
-            LabeledContent(localized("模型呼叫"), value: "\(job.calls) / \(job.budget.maximumCalls)")
-            if let coverage {
-                LabeledContent(localized("目錄目標章節"), value: "\(job.targetChapters)")
-                LabeledContent(localized("可分析章節／已分析章節"), value: "\(coverage.availableChapters) / \(coverage.analyzedChapters)")
-                LabeledContent(localized("已保存批次"), value: "\(coverage.committedUnits) / \(coverage.plannedUnits)")
-                LabeledContent(localized("已保存主要正文 UTF-16"), value: "\(coverage.committedUTF16) / \(coverage.plannedUTF16)")
-                ForEach(coverage.missing, id: \.order) { chapter in
-                    LabeledContent(String(format: localized("第 %d 章"), chapter.order + 1), value: missing(chapter.status))
+            if let coverage, coverage.plannedUnits > 0 {
+                ProgressView(value: Double(coverage.committedUnits), total: Double(coverage.plannedUnits)) {
+                    LabeledContent(localized("已保存批次"), value: "\(coverage.committedUnits) / \(coverage.plannedUnits)")
                 }
             }
+            LabeledContent(localized("模型呼叫"), value: "\(job.calls) / \(job.budget.maximumCalls)")
             if let failure = job.failure {
                 Text(failure == "length" ? localized("抽取輸出被截斷，可分拆該批後再確認續跑。") :
                     AIMemoryFailure(rawValue: failure)?.localizedDescription ?? localized("該批抽取失敗，未保存為成功。"))
@@ -188,8 +197,19 @@ struct AICharacterMemoryView: View {
                     } }
                 }
             }
+            DisclosureGroup(localized("詳細資料")) {
+                LabeledContent(localized("生成模型"), value: job.model)
+                if let coverage {
+                    LabeledContent(localized("目錄目標章節"), value: "\(job.targetChapters)")
+                    LabeledContent(localized("可分析章節／已分析章節"), value: "\(coverage.availableChapters) / \(coverage.analyzedChapters)")
+                    LabeledContent(localized("已保存主要正文 UTF-16"), value: "\(coverage.committedUTF16) / \(coverage.plannedUTF16)")
+                    ForEach(coverage.missing, id: \.order) { chapter in
+                        LabeledContent(String(format: localized("第 %d 章"), chapter.order + 1), value: missing(chapter.status))
+                    }
+                }
+            }
         } footer: {
-            Text(localized("完成表示已分析本機可用且允許的正文；缺失章節與未保存批次不算完成，也不保證沒有漏抽人物。"))
+            Text(localized("離開此頁或退到背景會暫停建檔。缺少正文的章節不算完成，也不保證沒有漏抽人物。"))
                 .dsSectionFooter()
         }
     }
@@ -202,12 +222,14 @@ struct AICharacterMemoryView: View {
                     LabeledContent(localized("建檔範圍"), value: job.boundary.wholeBook ? localized("本機可用全書正文") : localized("截至目前閱讀位置"))
                     LabeledContent(localized("初始批次數"), value: "\(job.units.count)")
                     LabeledContent(localized("總模型呼叫上限"), value: "\(job.budget.maximumCalls)")
-                    LabeledContent(localized("每批輸出 token 上限"), value: "\(job.budget.outputTokens)")
-                    if let info = proposalCoverage {
-                        LabeledContent(localized("可分析字元／UTF-16／bytes"), value: "\(info.characters) / \(info.plannedUTF16) / \(info.bytes)")
-                        LabeledContent(localized("可重用已保存批次"), value: "\(info.committedUnits)")
-                    }
                     LabeledContent(localized("token 數與金額估算"), value: localized("未知"))
+                    DisclosureGroup(localized("詳細資料")) {
+                        LabeledContent(localized("每批輸出 token 上限"), value: "\(job.budget.outputTokens)")
+                        if let info = proposalCoverage {
+                            LabeledContent(localized("可分析字元／UTF-16／bytes"), value: "\(info.characters) / \(info.plannedUTF16) / \(info.bytes)")
+                            LabeledContent(localized("可重用已保存批次"), value: "\(info.committedUnits)")
+                        }
+                    }
                 } footer: {
                     Text(localized("這會逐批傳送正文，不只是問答命中的少數片段。全書範圍可能包含後文；模型服務可能收費，沒有價格或 tokenizer 資料時不估價。"))
                         .dsSectionFooter()
@@ -220,6 +242,7 @@ struct AICharacterMemoryView: View {
                     }.disabled(job.units.isEmpty)
                 }
             }
+            .themedAppSurface(for: .settings)
             .navigationTitle(localized("確認人物建檔"))
             .toolbarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button { proposal = nil } label: { Image(systemName: "xmark").accessibilityHidden(true) }.accessibilityLabel(localized("取消")) } }
@@ -280,7 +303,14 @@ struct AIMemoryCardView: View {
                     }
                     if page > 0 { Button(localized("上一頁")) { page -= 1 } }
                     if (page + 1) * 30 < card.facts.count { Button(localized("下一頁")) { page += 1 } }
-                } header: { Text(localized("經歷與關係（原文揭露順序）")) }
+                } header: {
+                    Text(localized("經歷與關係（原文揭露順序）"))
+                } footer: {
+                    if onOpenCitation == nil {
+                        Text(localized("此入口無法精準跳轉，請依章節與引文核對。"))
+                            .dsSectionFooter()
+                    }
+                }
                 ForEach(card.aliases) { alias in
                     Section {
                         let otherIDs = [alias.first, alias.second]
@@ -300,6 +330,7 @@ struct AIMemoryCardView: View {
             else { ContentUnavailableView(localized("此範圍尚無人物資料"), systemImage: "person.crop.circle") }
             if let error { Text(error).foregroundStyle(DSColor.destructive) }
         }
+        .themedAppSurface(for: .settings)
         .navigationTitle(localized("人物經歷與證據"))
         .toolbarTitleDisplayMode(.inline)
         .toolbar { if showsDone { ToolbarItem(placement: .confirmationAction) { Button { dismiss() } label: { Image(systemName: "checkmark").accessibilityHidden(true) }.accessibilityLabel(localized("完成")) } } }
@@ -312,11 +343,15 @@ struct AIMemoryCardView: View {
     @ViewBuilder private func evidence(_ proof: AIMemoryEvidence) -> some View {
         Text(String(format: localized("第 %d 章"), proof.span.spine + 1)).font(DSFont.caption).foregroundStyle(DSColor.textSecondary)
         Text(proof.quote).font(DSFont.callout).textSelection(.enabled)
-        if let citation = proof.citation(source: source), let onOpenCitation {
-            Button(localized("跳到原文")) { dismiss(); onOpenCitation(citation) }
-        } else {
-            Text(localized("此入口無法精準跳轉，請依章節與引文核對。"))
-                .font(DSFont.footnote).foregroundStyle(DSColor.textSecondary)
+        // Without a jump handler the section footer says so once; here only a quote that
+        // cannot be located, among ones that can, needs its own note.
+        if let onOpenCitation {
+            if let citation = proof.citation(source: source) {
+                Button(localized("跳到原文")) { dismiss(); onOpenCitation(citation) }
+            } else {
+                Text(localized("此入口無法精準跳轉，請依章節與引文核對。"))
+                    .font(DSFont.footnote).foregroundStyle(DSColor.textSecondary)
+            }
         }
     }
     private func kind(_ kind: AIMemoryFact.Kind) -> String {

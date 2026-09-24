@@ -3134,6 +3134,20 @@
 "服務名稱" = "Service name";
 
 "未附書中引用" = "No book citation";
+"捲到最新" = "Scroll to Latest";
+"還沒有自訂提示詞" = "No custom prompts yet";
+"常用的問法存成提示詞，就會出現在 AI 對話的快捷按鈕裡。" = "Save questions you ask often as prompts, and they appear as shortcuts in the AI chat.";
+"本書內容" = "This book";
+"缺少正文的章節" = "Chapters without text";
+"未下載或抽取失敗的章節不在搜尋範圍，也不會自動下載。" = "Missing or unextractable chapters are not searched, and nothing is downloaded automatically.";
+"問答預算" = "Question budget";
+"每次模型呼叫都可能由服務商計費。" = "Your provider may charge for each model call.";
+"診斷匯出" = "Diagnostic export";
+"預設只保存 metadata；匯出只含勾選內容並遮蔽憑證、帳號與網址，不會自動上傳。" = "Only metadata is kept by default. Exports contain only what you check, mask credentials, accounts and URLs, and are never uploaded automatically.";
+"查看範圍" = "View scope";
+"清除不會刪除正文、聊天或人工角色聲音設定。" = "Clearing preserves book text, chats, and manually assigned voices.";
+"詳細資料" = "Details";
+"離開此頁或退到背景會暫停建檔。缺少正文的章節不算完成，也不保證沒有漏抽人物。" = "Leaving this screen or backgrounding pauses analysis. Missing chapters don't count as done, and some characters may still be missed.";
 
 "本書問答" = "Book questions";
 
@@ -3172,3 +3186,5 @@
 "人物記錄保存在本機；清除不會刪除正文、聊天或人工角色聲音設定。離開功能或退到背景會暫停。" = "Character records stay on this device. Clearing them preserves book text, chats, and manually assigned voices. Leaving this screen or backgrounding pauses analysis.";
 
 "引用超出目前閱讀範圍。" = "This citation is outside the current reading scope.";
+
+"名稱會先儲存在此裝置，並同步至帳號；同步失敗時仍會保留。" = "Your name is saved on this device and synced to your account. It is kept if syncing fails.";

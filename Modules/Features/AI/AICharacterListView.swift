@@ -16,7 +16,7 @@ struct AICharacterListView: View {
     /// at the reader's progress: a character who has not appeared yet is a spoiler, and
     /// seeing their name in a list is enough to be one. Scanning the whole book is a
     /// deliberate, one-tap choice.
-    private enum Scope: Equatable {
+    private enum Scope: Hashable {
         case read
         case wholeBook
     }
@@ -39,19 +39,6 @@ struct AICharacterListView: View {
     var body: some View {
         List {
             scopeSection
-            Section {
-                NavigationLink(localized("用 AI 建立人物表")) { AICharacterMemoryView(adapter: adapter) }
-            }
-            Section {
-                NavigationLink(localized("AI 狀態與診斷")) { AIStatusView(adapter: adapter) }
-            } footer: {
-                Text(localized("人物由 AI 直接閱讀正文辨識，包含沒有對白的角色。"))
-                    .dsSectionFooter()
-                if scope == .read, store.profiles(forBook: bookID).count > profiles.count {
-                    Text(localized("部分卡片來源或範圍未驗證，已在安全模式隱藏；自訂設定仍保留。"))
-                        .dsSectionFooter()
-                }
-            }
             if let errorMessage { errorSection(errorMessage) }
             if profiles.isEmpty, buildingName == nil {
                 emptySection
@@ -81,22 +68,17 @@ struct AICharacterListView: View {
         }
     }
 
-    /// Selects the evidence scope for manually requested character cards.
+    /// Selects the evidence scope for manually requested character cards. Whole book asks
+    /// first; the control stays on 已讀 until the reader confirms.
     private var scopeSection: some View {
         Section {
-            if scope == .read {
-                Button {
-                    confirmWholeBook = true
-                } label: {
-                    Label(localized("使用全書模式"), systemImage: "books.vertical")
-                }
-            } else {
-                Button {
-                    scope = .read
-                } label: {
-                    Label(localized("只看讀過的部分"), systemImage: "bookmark")
-                }
+            Picker(localized("範圍"), selection: Binding(get: { scope }, set: { value in
+                if value == .wholeBook { confirmWholeBook = true } else { scope = .read }
+            })) {
+                Text(localized("已讀")).tag(Scope.read)
+                Text(localized("全書")).tag(Scope.wholeBook)
             }
+            .pickerStyle(.segmented)
         } footer: {
             Text(
                 scope == .read
@@ -107,6 +89,10 @@ struct AICharacterListView: View {
                     : localized("包含你還沒讀到的角色。")
             )
             .dsSectionFooter()
+            if scope == .read, store.profiles(forBook: bookID).count > profiles.count {
+                Text(localized("部分卡片來源或範圍未驗證，已在安全模式隱藏；自訂設定仍保留。"))
+                    .dsSectionFooter()
+            }
         }
         .listRowBackground(Color.clear)
     }
@@ -137,7 +123,8 @@ struct AICharacterListView: View {
             Text(localized("人物卡依目前範圍整理；全書及舊版未驗證卡片不會用於安全模式的別名或朗讀。"))
                 .dsSectionFooter()
         }
-        .listRowBackground(Color.clear)
+        // An input on the bare page reads as a caption; the card makes it a field.
+        .interfaceSectionSurface()
     }
 
     private var emptySection: some View {

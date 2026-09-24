@@ -26,7 +26,10 @@ final class FirebaseAccountBackend: AccountBackend {
     }
 
     func upsertProfile(_ profile: UserProfile) async throws {
-        try userDocument(profile.uid).setData(from: profile, merge: true)
+        let data = try Firestore.Encoder().encode(profile)
+        // Await the server acknowledgement; enqueueing a local Firestore write
+        // is not confirmation that a pending nickname has reached the server.
+        try await userDocument(profile.uid).setData(data, merge: true)
     }
 
     func uploadAvatar(data: Data) async throws -> URL {

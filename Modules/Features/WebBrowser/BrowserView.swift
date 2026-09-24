@@ -723,27 +723,30 @@ struct BrowserView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            VStack(spacing: 0) {
-                addressBar
-                if browser.isLoading {
-                    ProgressView().progressViewStyle(.linear).frame(height: 2)
-                }
-                if addressFocused {
-                    engineShortcuts
-                }
-                Divider()
-                ZStack(alignment: .bottomTrailing) {
-                    WebViewRepresentable(webView: browser.webView)
-                    if browser.hasPage && browser.hasEnoughContent && !browser.isLoading {
-                        extractFAB
-                    }
-                }
-            }
-
             if showHome {
                 ExploreHomeView(onNavigate: navigateFromExplore)
                     .environmentObject(store)
                     .transition(.opacity)
+            } else {
+                // BrowserState owns the WKWebView and preserves the page. Only
+                // the foreground surface belongs in the hit/accessibility tree;
+                // a covered WKWebView can claim the reader's bottom controls.
+                VStack(spacing: 0) {
+                    addressBar
+                    if browser.isLoading {
+                        ProgressView().progressViewStyle(.linear).frame(height: 2)
+                    }
+                    if addressFocused {
+                        engineShortcuts
+                    }
+                    Divider()
+                    ZStack(alignment: .bottomTrailing) {
+                        WebViewRepresentable(webView: browser.webView)
+                        if browser.hasPage && browser.hasEnoughContent && !browser.isLoading {
+                            extractFAB
+                        }
+                    }
+                }
             }
         }
         .ignoresSafeArea(edges: .bottom)
@@ -1109,4 +1112,10 @@ struct WebTOCSheet: View {
             }
         }
     }
+}
+
+#Preview("Explore and browser") {
+    BrowserView()
+        .environmentObject(BookStore())
+        .environmentObject(SubscriptionStore.shared)
 }

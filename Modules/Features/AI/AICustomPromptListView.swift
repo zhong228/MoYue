@@ -8,23 +8,38 @@ struct AICustomPromptListView: View {
     var body: some View {
         List {
             if let failure = error ?? store.failure {
-                Text(failure).foregroundStyle(DSColor.destructive)
+                Label(failure, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(DSColor.destructive)
             }
-            ForEach(store.prompts) { prompt in
-                Button { editing = prompt } label: {
-                    LabeledContent(prompt.title, value: prompt.isEnabled ? prompt.context.title : localized("停用"))
+            if store.prompts.isEmpty {
+                ContentUnavailableView {
+                    Label(localized("還沒有自訂提示詞"), systemImage: "text.badge.plus")
+                } description: {
+                    Text(localized("常用的問法存成提示詞，就會出現在 AI 對話的快捷按鈕裡。"))
+                } actions: {
+                    Button(localized("新增提示詞")) { editing = .init(title: "", instruction: "") }
                 }
-            }
-            .onDelete { indices in update { $0.remove(atOffsets: indices) } }
-            .onMove { source, destination in update { $0.move(fromOffsets: source, toOffset: destination) } }
-            Button(localized("新增提示詞"), systemImage: "plus") {
-                editing = .init(title: "", instruction: "")
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(store.prompts) { prompt in
+                    Button { editing = prompt } label: { row(prompt) }
+                }
+                .onDelete { indices in update { $0.remove(atOffsets: indices) } }
+                .onMove { source, destination in update { $0.move(fromOffsets: source, toOffset: destination) } }
             }
         }
         .navigationTitle(localized("自訂提示詞"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)
-        .toolbar { EditButton() }
+        .toolbar {
+            if !store.prompts.isEmpty {
+                ToolbarItem(placement: .primaryAction) { EditButton() }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { editing = .init(title: "", instruction: "") } label: { Image(systemName: "plus") }
+                    .accessibilityLabel(localized("新增提示詞"))
+            }
+        }
         .sheet(item: $editing) { prompt in
             AICustomPromptEditor(prompt: prompt) { value in
                 var values = store.prompts
@@ -32,6 +47,18 @@ struct AICustomPromptListView: View {
                 else { values.append(value) }
                 try store.save(values)
             }
+        }
+    }
+
+    /// Name, then where it shows up — or that it is off — and the start of the instruction.
+    private func row(_ prompt: AICustomPrompt) -> some View {
+        VStack(alignment: .leading, spacing: DSSpacing.xs) {
+            Text(prompt.title)
+                .foregroundStyle(prompt.isEnabled ? DSColor.textPrimary : DSColor.textSecondary)
+            Text(verbatim: "\(prompt.isEnabled ? prompt.context.title : localized("停用")) · \(prompt.instruction)")
+                .font(DSFont.footnote)
+                .foregroundStyle(DSColor.textSecondary)
+                .lineLimit(1)
         }
     }
 

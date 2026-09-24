@@ -5,6 +5,7 @@ struct AIBookContentAdapter: AIChunkableContent {
     let chunkBookID: UUID
     let chunkSections: [AIChunkableSection]
     let manifest: AISourceManifest
+    let isPrepared: Bool
     private(set) var readingPositionVerified = false
     private(set) var readingBoundary: AIReadingBoundary?
     let contentFingerprint: String
@@ -22,6 +23,7 @@ struct AIBookContentAdapter: AIChunkableContent {
          renderedText: String? = nil,
          textForChapter: (Int) -> String?) {
         chunkBookID = bookID
+        isPrepared = true
         self.acquisitionMilliseconds = acquisitionMilliseconds
         var sections: [AIChunkableSection] = []
         var entries: [AISourceManifest.Chapter] = []
@@ -53,6 +55,42 @@ struct AIBookContentAdapter: AIChunkableContent {
                     source: sections[position.spine].text, rendered: renderedText, renderedOffset: position.utf16Offset))
             readingPositionVerified = renderedText == sections[position.spine].text || (readingBoundary?.utf16Offset ?? 0) > 0
         } else { readingBoundary = nil }
+    }
+
+    /// A presentation state, not source evidence. Before acquisition finishes,
+    /// constructing this must never traverse the TOC or hash chapter metadata.
+    static func pending(bookID: UUID) -> Self { Self(pendingBookID: bookID) }
+
+    private init(pendingBookID: UUID) {
+        chunkBookID = pendingBookID
+        isPrepared = false
+        chunkSections = []
+        manifest = .init(transformationVersion: "pending", chapters: [])
+        contentFingerprint = "pending:\(pendingBookID)"
+        acquisitionMilliseconds = nil
+        sectionLengths = []
+        sectionOffsets = []
+        totalLength = 0
+    }
+
+    /// Build the one immutable snapshot off the UI actor. Callers still own
+    /// source/generation validation before publishing it into reader state.
+    static func prepare(bookID: UUID, chapters: [BookChapter], transformationVersion: String,
+                        missingStatus: [Int: AISourceManifest.Availability],
+                        acquisitionMilliseconds: Double, texts: [Int: String]) async throws -> Self {
+        let worker = Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
+            return SourcePerfTrace.span("reader.ai.snapshot", "chapters=\(chapters.count) main=\(Thread.isMainThread)", thresholdMs: 0) {
+                Self(bookID: bookID, chapters: chapters, transformationVersion: transformationVersion,
+                     missingStatus: missingStatus, acquisitionMilliseconds: acquisitionMilliseconds,
+                     textForChapter: { texts[$0] })
+            }
+        }
+        return try await withTaskCancellationHandler {
+            let snapshot = try await worker.value
+            try Task.checkCancellation()
+            return snapshot
+        } onCancel: { worker.cancel() }
     }
 
     func atReadingPosition(spine: Int, renderedOffset: Int, renderedText: String?) -> Self {

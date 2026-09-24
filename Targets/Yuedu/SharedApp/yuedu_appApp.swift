@@ -98,6 +98,8 @@ struct yuedu_appApp: App {
                 #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("-continuous-scroll-gesture-test") {
                     ContinuousScrollGestureFixture()
+                } else if ProcessInfo.processInfo.arguments.contains(AIChatDesignFixture.launchArgument) {
+                    AIChatDesignFixture()
                 } else {
                     ContentView()
                 }
