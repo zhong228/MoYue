@@ -49,9 +49,11 @@ struct AICharacterMemoryView: View {
                     Text(localized("截至目前閱讀位置")).tag(false)
                     Text(localized("本機可用全書正文")).tag(true)
                 }
+                DisclosureGroup(localized("進階設定")) {
                 Stepper(String(format: localized("總呼叫上限：%d"), budget.maximumCalls), value: $budget.maximumCalls, in: 1...100_000)
                 Toggle(localized("截斷時允許自動分拆一次"), isOn: Binding(get: { budget.automaticSplitDepth > 0 }, set: { budget.automaticSplitDepth = $0 ? 1 : 0 }))
-                Button(localized("規劃人物建檔")) { prepare() }.disabled(job?.state == .running)
+                }
+                Button(buildWholeBook ? localized("規劃人物建檔") : localized("整理已讀人物")) { prepare() }.disabled(job?.state == .running)
             } footer: {
                 Text(localized("建檔會逐批傳送允許範圍內的本機正文到你的生成服務；開始前會再次列明模型與預算。"))
                     .dsSectionFooter()
@@ -95,11 +97,11 @@ struct AICharacterMemoryView: View {
                 NavigationLink(localized("AI 狀態與診斷")) { AIStatusView(adapter: adapter) }
                 Button(localized("清除本書人物建檔資料"), role: .destructive) { confirmClear = true }
             } footer: {
-                Text(localized("人物記錄與工作進度保存在本機 Application Support/AICharacterMemory；清除不會刪除正文、聊天或人工角色聲音設定。離開功能或退到背景會暫停。"))
+                Text(localized("人物記錄保存在本機；清除不會刪除正文、聊天或人工角色聲音設定。離開功能或退到背景會暫停。"))
                     .dsSectionFooter()
             }
         }
-        .navigationTitle(localized("逐批人物建檔"))
+        .navigationTitle(localized("書中人物整理"))
         .toolbarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: localized("搜尋目前範圍的人物"))
         .onChange(of: query) { _, _ in page = 0 }
@@ -244,11 +246,12 @@ struct AICharacterMemoryView: View {
     }
 }
 
-private struct AIMemoryCardView: View {
+struct AIMemoryCardView: View {
     let entityID: String
     let source: AIBookContentAdapter
     let boundary: AIReadingBoundary
     let onOpenCitation: ((LLMCitation) -> Void)?
+    var showsDone = true
     @ObservedObject private var service = AICharacterMemoryService.shared
     @Environment(\.dismiss) private var dismiss
     @State private var view = AIMemoryView(cards: [], aliases: [], approvedAliasIDs: [])
@@ -299,7 +302,7 @@ private struct AIMemoryCardView: View {
         }
         .navigationTitle(localized("人物經歷與證據"))
         .toolbarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .confirmationAction) { Button { dismiss() } label: { Image(systemName: "checkmark").accessibilityHidden(true) }.accessibilityLabel(localized("完成")) } }
+        .toolbar { if showsDone { ToolbarItem(placement: .confirmationAction) { Button { dismiss() } label: { Image(systemName: "checkmark").accessibilityHidden(true) }.accessibilityLabel(localized("完成")) } } }
         .task(id: service.revisions[source.chunkBookID]) {
             loading = true
             do { view = try await service.view(source: source, boundary: boundary) } catch { self.error = error.localizedDescription }

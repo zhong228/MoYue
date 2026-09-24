@@ -44,6 +44,13 @@ struct AIQuestionContext: Sendable {
     let boundary: AIReadingBoundary
     let history: [AIChatMessage]
     var budget = AIQuestionBudget()
+    var action: AIReadingAction = .question
+    var selection: AIReadingSelection?
+    var customPrompt: AICustomPrompt?
+    var serviceID: UUID?
+    var model: String?
+    var provider: (any LLMProviding)?
+    var allowsBackgroundKnowledge = false
 
     init(requestID: UUID = UUID(), bookID: UUID, conversationID: UUID = UUID(), question: String,
          source: AIBookContentAdapter, boundary: AIReadingBoundary, history: [AIChatMessage] = [],

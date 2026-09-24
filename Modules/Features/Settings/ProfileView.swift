@@ -325,7 +325,7 @@ struct SettingsView: View {
     /// Says whether AI is usable at a glance. A reader who has not set it up should not have
     /// to open the screen to find that out.
     private var aiAssistantDetail: String {
-        AIAPIKeyStore.hasKey ? localized("已啟用") : localized("未設定")
+        AIProviderStore.shared.hasConfiguredProfile ? localized("已啟用") : localized("未設定")
     }
 
     @ViewBuilder func AccountRowContent() -> some View {

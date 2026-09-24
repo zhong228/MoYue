@@ -160,13 +160,35 @@ final class AIAssistantService: ObservableObject {
         return try await answer(context: .init(bookID: bookID, question: question, source: adapter, boundary: boundary))
     }
 
+    /// Resolves configuration and credentials before an asynchronous request starts.
+    func freezeProvider(in context: AIQuestionContext) throws -> AIQuestionContext {
+        var frozen = context
+        if context.provider != nil { return context }
+        if let injectedProvider { frozen.provider = injectedProvider; return frozen }
+        let profiles = try AIProviderStore.shared.profiles()
+        let profile: AIServiceProfile?
+        if let id = context.serviceID { profile = profiles.first { $0.id == id } }
+        else { profile = profiles.first { $0.id == AIProviderStore.shared.activeID } ?? profiles.first }
+        guard let profile else { throw Failure.unavailable(.notConfigured) }
+        frozen.serviceID = profile.id
+        frozen.model = context.model ?? profile.configuration.defaultModel
+        switch AIProviderAssembly.makeProvider(profile: profile, model: frozen.model) {
+        case .success(let provider): frozen.provider = provider
+        case .failure(let reason): throw Failure.unavailable(reason)
+        }
+        return frozen
+    }
+
     func answer(context: AIQuestionContext,
-                onStage: (@MainActor @Sendable (AIQuestionStage) -> Void)? = nil) async throws -> LLMGenerationResult {
+                onStage: (@MainActor @Sendable (AIQuestionStage) -> Void)? = nil,
+                onText: (@MainActor @Sendable (String) -> Void)? = nil) async throws -> LLMGenerationResult {
         try await traced("answer", adapter: context.source, boundary: context.boundary, requestID: context.requestID) {
-            let provider = try resolveProvider()
+            let frozen = try freezeProvider(in: context)
+            guard let resolved = frozen.provider else { throw Failure.unavailable(.notConfigured) }
+            let provider = AITracedProvider(base: resolved)
             let index = try await index(forBook: context.bookID, adapter: context.source)
-            return try await AIAgenticAssistant.answerQuestion(context: context, index: index, provider: provider,
-                embedding: AIEmbeddingModelStore.shared.readyProvider(), onStage: onStage)
+            return try await AIAgenticAssistant.answerQuestion(context: frozen, index: index, provider: provider,
+                embedding: AIEmbeddingModelStore.shared.readyProvider(), onStage: onStage, onText: onText)
         }
     }
 
@@ -252,8 +274,7 @@ final class AIAssistantService: ObservableObject {
     // MARK: - Availability
 
     var isConfigured: Bool {
-        if case .success = AIProviderAssembly.makeProvider() { return true }
-        return false
+        injectedProvider != nil || AIProviderStore.shared.hasConfiguredProfile
     }
 
     private func traced<T>(_ feature: String, adapter: AIBookContentAdapter, boundary: AIReadingBoundary, requestID: UUID = UUID(), operation: () async throws -> T) async throws -> T {
@@ -282,5 +303,20 @@ final class AIAssistantService: ObservableObject {
         case let .success(provider): return AITracedProvider(base: provider)
         case let .failure(reason): throw Failure.unavailable(reason)
         }
+    }
+}
+
+
+struct AIBookCharactersSnapshot {
+    var memory = AIMemoryView(cards: [], aliases: [], approvedAliasIDs: [])
+    var profiles: [AICharacterProfile] = []
+}
+
+extension AIAssistantService {
+    func characters(source: AIBookContentAdapter) async throws -> AIBookCharactersSnapshot {
+        cards.loadIfNeeded(forBook: source.chunkBookID)
+        try await AICharacterMemoryService.shared.load(source: source)
+        let memory = try await AICharacterMemoryService.shared.view(source: source, boundary: source.boundary())
+        return .init(memory: memory, profiles: cards.profiles(forBook: source.chunkBookID).filter { $0.isSafe(at: source.boundary()) })
     }
 }

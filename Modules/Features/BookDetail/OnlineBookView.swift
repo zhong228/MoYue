@@ -16,7 +16,9 @@ struct OnlineBookView: View {
 
     @State private var currentBook: OnlineBook
     @EnvironmentObject var bookStore: BookStore
-    @Environment(\.dismiss) private var dismiss
+    // DismissAction is repeatedly replaced by iOS 17 while a reader is pushed
+    // above this detail. Its stable binding avoids a navigation layout loop.
+    @Environment(\.presentationMode) private var presentationMode
     @Environment(\.appDependencies) private var dependencies
     @State private var readerRoute: DetailReaderRoute?
     @State private var pendingChapterSelection: Int?
@@ -887,7 +889,7 @@ struct OnlineBookView: View {
         if let onRemoveFromShelf {
             onRemoveFromShelf()
         } else {
-            dismiss()
+            presentationMode.wrappedValue.dismiss()
         }
         bookStore.delete(bookId: bookId)
         addedBookId = nil

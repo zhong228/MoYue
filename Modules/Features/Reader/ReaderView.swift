@@ -189,6 +189,8 @@ struct ReaderView: View {
 
     @State var showTTSPanel = false
     @State var showAIAssistantPanel = false
+    @State var aiLaunch: AIReadingLaunch?
+    @State var aiCitationTask: Task<Void, Never>?
     /// Whole-book text for the AI features, gathered from the source rather than the layout
     /// cache. Filled by `gatherAIBookText()` when an AI surface opens. See `aiBookAdapter()`.
     @State var aiSourceContext: String?
@@ -2132,6 +2134,17 @@ struct ReaderView: View {
             readerSearchSelection = text
             showReaderSearch = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .coreTextAISelectionRequested)) { notification in
+            guard let request = notification.userInfo?["request"] as? CoreTextAISelectionRequest else { return }
+            var launch = AIReadingLaunch(action: request.action,
+                selection: .init(bookID: bookId, spineIndex: request.spineIndex, range: request.range, text: request.text),
+                renderedChapterText: effectiveScrollMode
+                    ? epubRenderer.scrollEngine?.chapterText(forSpine: request.spineIndex) ?? epubRenderer.engine?.chapterText(forSpine: request.spineIndex)
+                    : epubRenderer.engine?.chapterText(forSpine: request.spineIndex))
+            if let source = aiSourceAdapter, aiSourceContext == aiCurrentSourceContext { launch = launch.resolvingSelection(in: source) }
+            aiLaunch = launch
+            showAIAssistantPanel = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: .coreTextTranslateSelectionRequested)) { notification in
             guard let text = notification.userInfo?["text"] as? String else { return }
             readerTranslationSelection = text
@@ -2453,14 +2466,32 @@ struct ReaderView: View {
         } message: { _ in
             Text(localized("標註可以保留下來，或是連同筆記一起刪除。"))
         }
-        .sheet(isPresented: $showAIAssistantPanel) {
+        .sheet(isPresented: $showAIAssistantPanel, onDismiss: { aiLaunch = nil }) {
+            let sourceContext = aiCurrentSourceContext
+            let sourceBook = book
+            let sourceChapters = chapters
+            let sourceConversion = settings.textConversion
             AdaptiveSheetContainer(maxWidth: DSLayout.readableListWidth) {
                 AIAssistantPanelView(
                     bookID: bookId,
                     bookTitle: book?.title ?? currentChapterTitle,
                     adapter: aiBookAdapter(),
                     progress: aiReadingProgress(),
-                    onOpenCitation: { citation in openAICitation(citation) }
+                    onOpenCitation: { citation, boundary in openAICitation(citation, boundary: boundary) },
+                    launch: aiLaunch,
+                    sourceIdentity: sourceContext,
+                    isSourceReady: aiSourceAdapter != nil && aiSourceContext == aiCurrentSourceContext,
+                    prepareContent: { context in
+                        guard sourceContext == aiCurrentSourceContext else { throw CancellationError() }
+                        let prepared = try await AIReadingContentService.prepare(context, book: sourceBook, chapters: sourceChapters,
+                            renderer: epubRenderer, store: store, conversion: sourceConversion)
+                        guard sourceContext == aiCurrentSourceContext else { throw CancellationError() }
+                        return prepared
+                    },
+                    onSourcePrepared: { source in
+                        guard source.chunkBookID == bookId, sourceContext == aiCurrentSourceContext else { return }
+                        aiSourceAdapter = source
+                    }
                 )
                 .task { await gatherAIBookText() }
                 .alert(localized("引用定位未驗證"), isPresented: Binding(get: { aiCitationError != nil }, set: { if !$0 { aiCitationError = nil } })) {

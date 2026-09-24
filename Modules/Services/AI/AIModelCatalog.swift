@@ -3,7 +3,7 @@ import Foundation
 
 /// Asks a provider what models it has.
 ///
-/// Every OpenAI-compatible service exposes `GET /models`, which is how the open-source agents
+/// OpenAI-compatible services commonly expose `GET /models`, which is how the open-source agents
 /// do it too — hard-coding a model list would be stale the week it shipped, and a reader on a
 /// provider that added a model yesterday would have to type its id from memory.
 ///
@@ -17,7 +17,7 @@ final class AIModelCatalog: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var lastFailure: String?
 
-    /// Keyed by base URL, so switching providers back and forth does not re-fetch.
+    /// Scoped to endpoint and credential digest; accounts on one URL may see different models.
     private var cache: [String: [String]] = [:]
     private var task: Task<Void, Never>?
 
@@ -30,13 +30,17 @@ final class AIModelCatalog: ObservableObject {
 
     /// Loads the list for `baseURL`, from cache when it is already known.
     func load(baseURL: String, apiKey: String, forceRefresh: Bool = false) {
+        task?.cancel()
+        isLoading = false
+        models = []
         let base = AIEndpoint.normalizedBase(baseURL)
+        let scope = AISourceManifest.digest(base + "|" + apiKey)
         guard !base.isEmpty else {
             models = []
             lastFailure = nil
             return
         }
-        if !forceRefresh, let cached = cache[base] {
+        if !forceRefresh, let cached = cache[scope] {
             models = cached
             lastFailure = nil
             return
@@ -64,7 +68,7 @@ final class AIModelCatalog: ObservableObject {
                 let (data, response) = try await URLSession.shared.data(for: request)
                 try Task.checkCancellation()
                 guard let http = response as? HTTPURLResponse else {
-                    self?.finish(base: base, failure: localized("非 HTTP 回應"))
+                    self?.finish(base: scope, failure: localized("非 HTTP 回應"))
                     return
                 }
                 guard (200...299).contains(http.statusCode) else {
@@ -72,21 +76,22 @@ final class AIModelCatalog: ObservableObject {
                     // the key back.
                     let message = OpenAICompatibleProvider.extractErrorMessage(from: data)
                         ?? "HTTP \(http.statusCode)"
-                    self?.finish(base: base, failure: message)
+                    self?.finish(base: scope, failure: message)
                     return
                 }
                 let decoded = try JSONDecoder().decode(ModelList.self, from: data)
                 let ids = (decoded.data ?? decoded.models ?? []).map(\.id)
                     .filter { !$0.isEmpty }
                 guard !ids.isEmpty else {
-                    self?.finish(base: base, failure: localized("這個服務沒有回報任何模型"))
+                    self?.finish(base: scope, failure: localized("這個服務沒有回報任何模型"))
                     return
                 }
-                self?.finish(base: base, models: Self.sorted(ids))
+                self?.finish(base: scope, models: Self.sorted(ids))
             } catch is CancellationError {
                 // Superseded by a newer request.
             } catch {
-                self?.finish(base: base, failure: error.localizedDescription)
+                guard !Task.isCancelled else { return }
+                self?.finish(base: scope, failure: error.localizedDescription)
             }
         }
     }

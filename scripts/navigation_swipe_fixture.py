@@ -47,7 +47,9 @@ def prepare(simulator):
     source = {
         "id": SOURCE_ID, "bookSourceName": "Navigation Swipe Fixture", "bookSourceUrl": BASE,
         "enabled": True, "enabledExplore": True,
+        "searchUrl": BASE + "/catalog.html?key={{key}}",
         "exploreUrl": json.dumps([{"title": "Navigation Test", "url": BASE + "/catalog.html"}]),
+        "ruleSearch": {"bookList": ".book", "name": "h2@text", "author": ".author@text", "bookUrl": "a@href"},
         "ruleExplore": {"bookList": ".book", "name": "h2@text", "author": ".author@text", "bookUrl": "a@href"},
         "ruleBookInfo": {"name": "h1@text", "author": ".author@text", "intro": ".intro@text", "tocUrl": ".toc@href"},
         "ruleToc": {"chapterList": "a.chapter", "chapterName": "text", "chapterUrl": "href"},

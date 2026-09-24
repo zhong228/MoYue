@@ -35,8 +35,9 @@ final class AICharacterMemoryService: ObservableObject {
         let result = AIProviderAssembly.makeProvider()
         switch result {
         case let .success(provider):
-            guard let configuration = try AIProviderStore.shared.load() else { throw AIMemoryFailure.providerChanged }
-            return (provider, AISourceManifest.digest(configuration.baseURL), configuration.preset.displayName)
+            let profiles = try AIProviderStore.shared.profiles()
+            guard let profile = profiles.first(where: { $0.id == AIProviderStore.shared.activeID }) ?? profiles.first else { throw AIMemoryFailure.providerChanged }
+            return (provider, AISourceManifest.digest(profile.id.uuidString + profile.configuration.baseURL), profile.name)
         case let .failure(reason): throw AIAssistantService.Failure.unavailable(reason)
         }
     }

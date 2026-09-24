@@ -1,3 +1,4 @@
+import Combine
 import Testing
 import UIKit
 import SwiftUI
@@ -28,6 +29,7 @@ private final class DetailTestNavigationController: UINavigationController {
 @MainActor
 struct ReaderDetailNavigationTests {
     private func openedReader(
+        owner: UUID? = nil,
         onClosed: @escaping () -> Void = {}
     ) -> (ReaderNavigationCoordinator, DetailTestNavigationController, UIViewController, UUID) {
         let root = UIViewController()
@@ -35,7 +37,7 @@ struct ReaderDetailNavigationTests {
         let reader = UIViewController()
         let id = UUID()
         let coordinator = ReaderNavigationCoordinator()
-        coordinator.attach(to: nav)
+        coordinator.attach(to: nav, owner: owner)
         coordinator.open(bookID: id, destination: { reader }, onReaderClosed: onClosed)
         nav.settle()
         coordinator.navigationTransitionDidSettle()
@@ -195,5 +197,66 @@ struct ReaderDetailNavigationTests {
         coordinator.navigationTransitionDidSettle()
         #expect(closedCount == 1)
         #expect(!coordinator.shouldIgnoreOpenRequest())
+    }
+
+    @Test("probe teardown never publishes or releases a reader during SwiftUI's graph update")
+    func teardownPublishesOutsideDismantle() async throws {
+        let owner = UUID()
+        var closedCount = 0
+        let (coordinator, nav, _, id) = openedReader(owner: owner) { closedCount += 1 }
+        var changes = 0
+        let subscription = coordinator.objectWillChange.sink { changes += 1 }
+        defer { subscription.cancel(); coordinator.detachNavigationController() }
+
+        let cleanup = try #require(coordinator.detachNavigationController(afterDismantling: owner))
+        // The caller has not yielded: it is still inside dismantleUIView.
+        #expect(changes == 0)
+        #expect(closedCount == 0)
+        #expect(coordinator.readerBookID == id)
+        await cleanup.value
+        #expect(!coordinator.isReaderPresented)
+        #expect(coordinator.readerBookID == nil)
+        #expect(closedCount == 1)
+        #expect(changes == 2)
+        #expect(!(nav.delegate is ReaderNavigationTransitionDriver))
+        coordinator.detachNavigationController()
+        #expect(closedCount == 1)
+        #expect(changes == 2, "Idle teardown must not invalidate SwiftUI again")
+    }
+
+    @Test("replacement attachment cancels cleanup queued by the previous probe")
+    func replacementCancelsPendingTeardown() async throws {
+        let owner = UUID()
+        let replacement = UUID()
+        var closedCount = 0
+        let (coordinator, nav, _, id) = openedReader(owner: owner) { closedCount += 1 }
+        defer { coordinator.detachNavigationController() }
+        let cleanup = try #require(coordinator.detachNavigationController(afterDismantling: owner))
+        coordinator.attach(to: nav, owner: replacement)
+        await cleanup.value
+        #expect(coordinator.isReaderPresented)
+        #expect(coordinator.readerBookID == id)
+        #expect(closedCount == 0)
+        #expect(nav.delegate is ReaderNavigationTransitionDriver)
+        #expect(coordinator.detachNavigationController(afterDismantling: owner) == nil)
+        let replacementCleanup = try #require(coordinator.detachNavigationController(afterDismantling: replacement))
+        await replacementCleanup.value
+        #expect(closedCount == 1)
+    }
+
+    @Test("an idle shelf probe can disappear while another tab pushes a reader without publishing")
+    func idleShelfTeardownDoesNotPublish() async throws {
+        let nav = DetailTestNavigationController(rootViewController: UIViewController())
+        let coordinator = ReaderNavigationCoordinator()
+        let owner = UUID()
+        coordinator.attach(to: nav, owner: owner)
+        var changes = 0
+        let subscription = coordinator.objectWillChange.sink { changes += 1 }
+        defer { subscription.cancel(); coordinator.detachNavigationController() }
+        let cleanup = try #require(coordinator.detachNavigationController(afterDismantling: owner))
+        #expect(changes == 0)
+        await cleanup.value
+        #expect(changes == 0)
+        #expect(!(nav.delegate is ReaderNavigationTransitionDriver))
     }
 }

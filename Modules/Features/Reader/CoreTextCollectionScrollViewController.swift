@@ -411,7 +411,27 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
                 self?.requestNoteEdit()
             }
         ))
+        for action in [AIReadingAction.question, .explain, .translate] {
+            actions.append(UIAction(title: action.title, image: UIImage(systemName: "sparkles")) { [weak self] _ in
+                guard let self, let spine = selectionChapter, let range = currentSelectionRange,
+                      let text = selectedText, range.length == text.utf16.count else { return }
+                pendingAISelection = .init(spineIndex: spine, range: range, text: text, action: action)
+                editMenuInteraction.dismissMenu()
+            })
+        }
         return UIMenu(children: actions)
+    }
+
+    private var pendingAISelection: CoreTextAISelectionRequest?
+
+    func editMenuInteraction(_ interaction: UIEditMenuInteraction, willDismissMenuFor configuration: UIEditMenuConfiguration,
+                             animator: any UIEditMenuInteractionAnimating) {
+        animator.addCompletion { [weak self] in
+            guard let self, let request = pendingAISelection else { return }
+            pendingAISelection = nil
+            clearSelection()
+            NotificationCenter.default.post(name: .coreTextAISelectionRequested, object: self, userInfo: ["request": request])
+        }
     }
 
     private func presentSelectionEditMenu(at sourcePoint: CGPoint) {

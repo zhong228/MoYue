@@ -108,6 +108,8 @@ final class ReaderNavigationCoordinator: ObservableObject {
     private var openingStallStartupBlock: CFTimeInterval = 0
 
     private let transitionDriver: ReaderNavigationTransitionDriver
+    private var navigationAttachmentOwner: UUID?
+    private var pendingNavigationDetach: Task<Void, Never>?
     private var pendingDestinationFactory: (@MainActor () -> UIViewController)?
     private var pendingDestinationViewController: UIViewController?
     /// The reader controller currently pushed (or being pushed). Held weakly so
@@ -425,12 +427,18 @@ final class ReaderNavigationCoordinator: ObservableObject {
     /// transition that is still mid-flight.
     private func reconcileIfReaderDetached() {
         guard isReaderPresented,
-              let reader = presentedReaderController,
+              pendingDestinationFactory == nil,
+              pendingDestinationViewController == nil,
               !transitionDriver.isTransitionActive,
               !isProgrammaticPopPending,
-              !transitionDriver.isInteractivePopInFlight,
-              !transitionDriver.stackContains(reader)
+              !transitionDriver.isInteractivePopInFlight
         else { return }
+        // UIKit on iOS 17 can release an externally removed controller before
+        // didShow. A cleared weak reference also means the reader has left;
+        // requiring a live controller would strand its session forever.
+        if let reader = presentedReaderController, transitionDriver.stackContains(reader) {
+            return
+        }
 
         AppLogger.info("⟐ coordinator reconcile: reader controller popped externally; resetting state")
         endOpeningTransition(committed: false)
@@ -538,12 +546,37 @@ final class ReaderNavigationCoordinator: ObservableObject {
 
     // MARK: UIKit navigation bridge
 
-    func attach(to navigationController: UINavigationController) {
+    func attach(to navigationController: UINavigationController, owner: UUID? = nil) {
+        pendingNavigationDetach?.cancel()
+        pendingNavigationDetach = nil
+        navigationAttachmentOwner = owner
         transitionDriver.attach(to: navigationController)
         beginPendingPushIfPossible()
     }
 
+    /// SwiftUI calls dismantle while mutating its graph. Publishing from that
+    /// callback re-enters GraphHost.asyncTransaction and traps with a fatal
+    /// access conflict (Crashlytics d2f57a721428ec4bc8d57431aa99d3da, including
+    /// iOS 17). Schedule model cleanup outside that synchronous graph update.
+    /// This is a lifecycle boundary, not a timed retry. An attachment owner
+    /// prevents an old probe's teardown from clearing a replacement's reader.
+    @discardableResult
+    func detachNavigationController(afterDismantling owner: UUID) -> Task<Void, Never>? {
+        guard navigationAttachmentOwner == owner else { return nil }
+        if let pendingNavigationDetach { return pendingNavigationDetach }
+        let task = Task { @MainActor [weak self] in
+            guard !Task.isCancelled, let self,
+                  self.navigationAttachmentOwner == owner else { return }
+            self.detachNavigationController()
+        }
+        pendingNavigationDetach = task
+        return task
+    }
+
     func detachNavigationController() {
+        pendingNavigationDetach?.cancel()
+        pendingNavigationDetach = nil
+        navigationAttachmentOwner = nil
         // `detach()` drops the driver's pending operation without delivering a
         // completion, so nothing else would ever reopen the gate. Release it
         // here or a parked preload leaks its continuation with the shelf.
@@ -551,8 +584,8 @@ final class ReaderNavigationCoordinator: ObservableObject {
         transitionDriver.detach()
         pendingPushRetryTask?.cancel()
         pendingPushRetryTask = nil
-        isReaderPresented = false
-        readerBookID = nil
+        if isReaderPresented { isReaderPresented = false }
+        if readerBookID != nil { readerBookID = nil }
         source = nil
         presentedReaderController = nil
         pendingDestinationFactory = nil

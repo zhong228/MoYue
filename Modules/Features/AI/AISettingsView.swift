@@ -5,8 +5,12 @@ import SwiftUI
 /// BYOK by design: there is no Yuedu-operated backend, the key is the user's, and it is
 /// billed to them. The screen says so, because a reader who does not know that will not
 /// understand why anything costs money.
-struct AISettingsView: View {
-    @Environment(\.dismiss) private var dismiss
+struct AIServiceEditorView: View {
+    let profile: AIServiceProfile?
+    let onSaved: () -> Void
+    @State private var profileID = UUID()
+    @State private var serviceName = ""
+    @State private var saveError: String?
     @ObservedObject private var embedding = AIEmbeddingModelStore.shared
 
     @State private var endpoint = AIProviderConfiguration.default.endpoint
@@ -17,34 +21,26 @@ struct AISettingsView: View {
     @State private var testResult: AIConnectionTest.Outcome?
     @State private var loadFailed = false
     @State private var showClearKeyConfirmation = false
-    @ObservedObject private var catalog = AIModelCatalog.shared
+    @StateObject private var catalog = AIModelCatalog()
 
-    var body: some View {
-        NavigationStack {
+    var body: some View { editorContent }
+
+    private var editorContent: some View {
             Form {
+                Section { TextField(localized("服務名稱"), text: $serviceName).accessibilityIdentifier("ai.service.name") }
                 serviceSection
                 keySection
                 testSection
-                retrievalSection
                 if hasStoredKey { removeSection }
             }
             .themedAppSurface(for: .settings)
-            .navigationTitle(localized("AI 助手設定"))
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle(localized("AI 服務"))
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .accessibilityHidden(true)
-                    }
-                    .accessibilityLabel(localized("關閉"))
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        save()
-                        dismiss()
+                        if save() { onSaved() }
                     } label: {
                         Image(systemName: "checkmark")
                             .accessibilityHidden(true)
@@ -54,6 +50,9 @@ struct AISettingsView: View {
                 }
             }
             .onAppear(perform: load)
+            .alert(localized("無法儲存"), isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
+                Button(localized("確定"), role: .cancel) { saveError = nil }
+            } message: { Text(saveError ?? "") }
             .confirmationDialog(
                 localized("移除 API Key？"),
                 isPresented: $showClearKeyConfirmation,
@@ -64,7 +63,6 @@ struct AISettingsView: View {
             } message: {
                 Text(localized("移除後 AI 功能會停用，閱讀與聽書不受影響。"))
             }
-        }
     }
 
     // MARK: - Sections
@@ -74,6 +72,7 @@ struct AISettingsView: View {
             providerRow
             LabeledContent(localized("Base URL")) {
                 TextField(AIProviderConfiguration.default.endpoint, text: $endpoint)
+                    .accessibilityIdentifier("ai.service.endpoint")
                     .multilineTextAlignment(.trailing)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -129,6 +128,7 @@ struct AISettingsView: View {
         LabeledContent(localized("模型")) {
             HStack(spacing: DSSpacing.sm) {
                 TextField(localized("模型名稱"), text: $model)
+                    .accessibilityIdentifier("ai.service.model")
                     .multilineTextAlignment(.trailing)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -213,6 +213,180 @@ struct AISettingsView: View {
         .interfaceSectionSurface()
     }
 
+    private var removeSection: some View {
+        Section {
+            Button(role: .destructive) {
+                showClearKeyConfirmation = true
+            } label: {
+                Text(localized("移除 API Key"))
+            }
+        }
+        .interfaceSectionSurface()
+    }
+
+    // MARK: - State
+
+    private var canSave: Bool {
+        AIProviderConfiguration(endpoint: endpoint, defaultModel: model).endpointURL != nil
+            && !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var canTest: Bool {
+        canSave && (hasStoredKey || !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    /// Applies a preset without clobbering a model the reader already chose deliberately —
+    /// only a model that belonged to the previous preset is replaced.
+    private func select(_ preset: AIProviderPreset) {
+        let previous = AIProviderPreset.matching(baseURL: endpoint)
+        guard preset != previous else { return }
+        if model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model == previous.suggestedModel {
+            model = preset.suggestedModel
+        }
+        endpoint = preset.baseURL
+        catalog.clear()
+        refreshModels(force: false)
+    }
+
+    private func refreshModels(force: Bool) {
+        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        catalog.load(
+            baseURL: endpoint,
+            apiKey: key.isEmpty ? (AIAPIKeyStore.load(providerID: profileID) ?? "") : key,
+            forceRefresh: force
+        )
+    }
+
+    private func load() {
+        guard let profile else { return }
+        profileID = profile.id
+        serviceName = profile.name
+        endpoint = profile.configuration.endpoint
+        model = profile.configuration.defaultModel
+        hasStoredKey = AIAPIKeyStore.load(providerID: profileID)?.isEmpty == false
+        refreshModels(force: false)
+    }
+
+    @discardableResult
+    private func save() -> Bool {
+        endpoint = AIEndpoint.normalizedBase(endpoint)
+        let configuration = AIProviderConfiguration(endpoint: endpoint, defaultModel: model.trimmingCharacters(in: .whitespacesAndNewlines))
+        let name = serviceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = AIServiceProfile(id: profileID, name: name.isEmpty ? configuration.preset.displayName : name,
+            configuration: configuration, models: Array(Set((profile?.models ?? []) + catalog.models + [configuration.defaultModel])).sorted())
+        do {
+            try AIProviderStore.shared.upsert(value, apiKey: apiKey.trimmingCharacters(in: .whitespacesAndNewlines))
+            return true
+        } catch { saveError = error.localizedDescription; return false }
+    }
+
+    private func clearKey() {
+        AIAPIKeyStore.clear(providerID: profileID)
+        hasStoredKey = false
+        apiKey = ""
+        testResult = nil
+    }
+
+    private func runTest() {
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = trimmedKey.isEmpty ? (AIAPIKeyStore.load(providerID: profileID) ?? "") : trimmedKey
+        isTesting = true
+        testResult = nil
+        Task {
+            let outcome = await AIConnectionTest.run(endpoint: endpoint, apiKey: key, model: model)
+            await MainActor.run {
+                testResult = outcome
+                isTesting = false
+                // Testing a draft does not save it; Done is the commit boundary.
+            }
+        }
+    }
+}
+
+#Preview { NavigationStack { AIServiceEditorView(profile: nil, onSaved: {}) } }
+
+struct AISettingsView: View {
+    var embedded = false
+    @Environment(\.dismiss) private var dismiss
+    private let store = AIProviderStore.shared
+    @State private var profiles: [AIServiceProfile] = []
+    private struct EditorRoute: Identifiable, Hashable {
+        let id = UUID()
+        let profile: AIServiceProfile?
+        static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
+        func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    }
+    @State private var editing: EditorRoute?
+    @State private var failure: String?
+
+    @ViewBuilder var body: some View {
+        if embedded { settingsContent }
+        else { NavigationStack { settingsContent } }
+    }
+
+    private var settingsContent: some View {
+            List {
+                Section {
+                    ForEach(profiles) { profile in
+                        Button { openEditor(profile) } label: {
+                            LabeledContent(profile.name, value: profile.configuration.defaultModel)
+                        }
+                        .contextMenu {
+                            Button(localized("設為預設"), systemImage: "checkmark") {
+                                do { try store.select(profile.id) } catch { failure = error.localizedDescription }
+                            }
+                        }
+                        .swipeActions {
+                            Button(localized("刪除"), role: .destructive) {
+                                do { try store.remove(profile.id); reload() } catch { failure = error.localizedDescription }
+                            }
+                        }
+                    }
+                    Button(localized("新增 AI 服務"), systemImage: "plus") { openEditor(nil) }
+                } header: { Text(localized("AI 服務")) }
+                footer: { Text(localized("API Key 只保存在本機，各服務分開儲存。費用由服務商收取。")).dsSectionFooter() }
+                Section {
+                    NavigationLink(localized("自訂提示詞")) { AICustomPromptListView() }
+                    NavigationLink(localized("語意檢索")) { AIEmbeddingSettingsView() }
+                }
+                if let failure { Section { Text(failure).foregroundStyle(DSColor.destructive) } }
+            }
+            .themedAppSurface(for: .settings)
+            .navigationTitle(localized("AI 助手設定"))
+            .toolbarTitleDisplayMode(.inline)
+            .toolbar {
+                if !embedded {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel(localized("關閉"))
+                }
+                }
+            }
+            .onAppear(perform: reload)
+            .navigationDestination(item: $editing) { route in
+                AIServiceEditorView(profile: route.profile) {
+                    // The owner clears the same binding that presented the editor.
+                    editing = nil
+                }
+            }
+    }
+    private func openEditor(_ profile: AIServiceProfile?) {
+        editing = EditorRoute(profile: profile)
+    }
+    private func reload() {
+        do { profiles = try store.profiles(); failure = nil }
+        catch { failure = error.localizedDescription }
+    }
+}
+
+private struct AIEmbeddingSettingsView: View {
+    @ObservedObject private var embedding = AIEmbeddingModelStore.shared
+    var body: some View {
+        Form { retrievalSection }
+            .navigationTitle(localized("語意檢索"))
+            .toolbarTitleDisplayMode(.inline)
+            .themedAppSurface(for: .settings)
+    }
     /// The opt-in vector tier.
     ///
     /// Keyword retrieval is the default and is not a crippled mode — exact hits on names and
@@ -274,107 +448,6 @@ struct AISettingsView: View {
         .interfaceSectionSurface()
     }
 
-    private var removeSection: some View {
-        Section {
-            Button(role: .destructive) {
-                showClearKeyConfirmation = true
-            } label: {
-                Text(localized("移除 API Key"))
-            }
-        }
-        .interfaceSectionSurface()
-    }
-
-    // MARK: - State
-
-    private var canSave: Bool {
-        AIProviderConfiguration(endpoint: endpoint, defaultModel: model).endpointURL != nil
-            && !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var canTest: Bool {
-        canSave && (hasStoredKey || !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-    }
-
-    /// Applies a preset without clobbering a model the reader already chose deliberately —
-    /// only a model that belonged to the previous preset is replaced.
-    private func select(_ preset: AIProviderPreset) {
-        let previous = AIProviderPreset.matching(baseURL: endpoint)
-        guard preset != previous else { return }
-        if model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model == previous.suggestedModel {
-            model = preset.suggestedModel
-        }
-        endpoint = preset.baseURL
-        catalog.clear()
-        refreshModels(force: false)
-    }
-
-    private func refreshModels(force: Bool) {
-        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        catalog.load(
-            baseURL: endpoint,
-            apiKey: key.isEmpty ? (AIAPIKeyStore.load() ?? "") : key,
-            forceRefresh: force
-        )
-    }
-
-    private func load() {
-        hasStoredKey = AIAPIKeyStore.hasKey
-        do {
-            guard let stored = try AIProviderStore.shared.load() else { return }
-            endpoint = stored.endpoint
-            model = stored.defaultModel
-            refreshModels(force: false)
-        } catch {
-            // Never fall back to the default endpoint silently: that would send the user's
-            // book text to a service they did not choose.
-            loadFailed = true
-        }
-    }
-
-    private func save() {
-        // Normalised on the way in, so a pasted completions URL becomes a base once rather
-        // than being re-derived at every call site.
-        endpoint = AIEndpoint.normalizedBase(endpoint)
-        AIProviderStore.shared.save(
-            AIProviderConfiguration(
-                endpoint: endpoint,
-                defaultModel: model.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        )
-        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedKey.isEmpty {
-            _ = AIAPIKeyStore.save(trimmedKey)
-            hasStoredKey = true
-            apiKey = ""
-        }
-    }
-
-    private func clearKey() {
-        AIAPIKeyStore.clear()
-        hasStoredKey = false
-        apiKey = ""
-        testResult = nil
-    }
-
-    private func runTest() {
-        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = trimmedKey.isEmpty ? (AIAPIKeyStore.load() ?? "") : trimmedKey
-        isTesting = true
-        testResult = nil
-        Task {
-            let outcome = await AIConnectionTest.run(endpoint: endpoint, apiKey: key, model: model)
-            await MainActor.run {
-                testResult = outcome
-                isTesting = false
-                // Only a working configuration is written, so a failed edit cannot replace a
-                // working one the user still depends on.
-                if case .success = outcome { save() }
-            }
-        }
-    }
 }
 
-#Preview {
-    AISettingsView()
-}
+#Preview { AISettingsView() }

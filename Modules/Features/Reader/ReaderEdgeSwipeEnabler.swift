@@ -29,14 +29,15 @@ struct ReaderEdgeSwipeEnabler: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: NavigationProbeView, coordinator: Coordinator) {
-        coordinator.navigator?.detachNavigationController()
         uiView.onHierarchyChanged = nil
+        coordinator.navigator?.detachNavigationController(afterDismantling: coordinator.attachmentOwner)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     @MainActor
     final class Coordinator {
+        let attachmentOwner = UUID()
         weak var navigator: ReaderNavigationCoordinator?
         private weak var attachedNavigationController: UINavigationController?
         private var remainingResolutionAttempts = 8
@@ -55,7 +56,7 @@ struct ReaderEdgeSwipeEnabler: UIViewRepresentable {
             remainingResolutionAttempts = 8
             guard attachedNavigationController !== navigationController else { return }
             attachedNavigationController = navigationController
-            navigator?.attach(to: navigationController)
+            navigator?.attach(to: navigationController, owner: attachmentOwner)
         }
 
         private func findNavigationController(from view: UIView) -> UINavigationController? {

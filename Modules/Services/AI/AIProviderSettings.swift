@@ -4,6 +4,7 @@
 // See NOTICE at the repository root.
 //
 import Foundation
+import Combine
 
 /// Everything about the AI backend that is *not* a secret: where to send requests and which
 /// model to ask for. The API key lives only in the Keychain.
@@ -47,7 +48,8 @@ enum AIAPIKeyAccount {
 /// a provider for a user action, and a shared mutable singleton has to be isolated to
 /// something under Swift 6 strict concurrency.
 @MainActor
-final class AIProviderStore {
+final class AIProviderStore: ObservableObject {
+    @Published private(set) var revision = 0
     enum LoadError: Error, Equatable {
         case corruptedConfiguration
     }
@@ -91,9 +93,12 @@ final class AIProviderStore {
 /// `WhenUnlockedThisDeviceOnly` + `synchronizable: false` — a BYOK key is billed to the user
 /// personally, so it must not ride iCloud Keychain to devices they did not put it on.
 enum AIAPIKeyStore {
-    static func save(_ key: String) -> Bool {
+    static func account(for providerID: UUID?) -> String {
+        providerID.map { "aiApiKey.\($0.uuidString)" } ?? AIAPIKeyAccount.name
+    }
+    static func save(_ key: String, providerID: UUID? = nil) -> Bool {
         KeychainHelper.save(
-            account: AIAPIKeyAccount.name,
+            account: account(for: providerID),
             data: key,
             service: KeychainHelper.aiService,
             accessibility: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
@@ -101,9 +106,9 @@ enum AIAPIKeyStore {
         )
     }
 
-    static func load() -> String? {
+    static func load(providerID: UUID? = nil) -> String? {
         KeychainHelper.load(
-            account: AIAPIKeyAccount.name,
+            account: account(for: providerID),
             service: KeychainHelper.aiService,
             accessibility: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             synchronizable: false
@@ -111,9 +116,9 @@ enum AIAPIKeyStore {
     }
 
     @discardableResult
-    static func clear() -> Bool {
+    static func clear(providerID: UUID? = nil) -> Bool {
         KeychainHelper.delete(
-            account: AIAPIKeyAccount.name,
+            account: account(for: providerID),
             service: KeychainHelper.aiService,
             synchronizable: false
         )
@@ -147,7 +152,17 @@ enum AIProviderAssembly {
     static func makeProvider() -> Result<any LLMProviding, Unavailable> {
         // Spelled out rather than given as default arguments: a default argument is
         // evaluated in a nonisolated context, where a main-actor `shared` is off limits.
-        makeProvider(store: .shared, apiKey: AIAPIKeyStore.load())
+        do {
+            let profiles = try AIProviderStore.shared.profiles()
+            guard let profile = profiles.first(where: { $0.id == AIProviderStore.shared.activeID }) ?? profiles.first else { return .failure(.notConfigured) }
+            return makeProvider(profile: profile)
+        } catch { return .failure(.corruptedConfiguration) }
+    }
+
+    static func makeProvider(profile: AIServiceProfile, model: String? = nil) -> Result<any LLMProviding, Unavailable> {
+        guard let key = AIAPIKeyStore.load(providerID: profile.id), !key.isEmpty else { return .failure(.noAPIKey) }
+        guard let url = profile.configuration.endpointURL else { return .failure(.invalidEndpoint) }
+        return .success(OpenAICompatibleProvider(endpoint: url, apiKey: key, defaultModel: model ?? profile.configuration.defaultModel))
     }
 
     static func makeProvider(
@@ -170,5 +185,86 @@ enum AIProviderAssembly {
                 defaultModel: configuration.defaultModel
             )
         )
+    }
+}
+
+
+struct AIServiceProfile: Identifiable, Codable, Equatable, Sendable {
+    let id: UUID
+    var name: String
+    var configuration: AIProviderConfiguration
+    var models: [String]
+
+    init(id: UUID = UUID(), name: String, configuration: AIProviderConfiguration, models: [String] = []) {
+        self.id = id; self.name = name; self.configuration = configuration; self.models = models
+    }
+}
+
+extension AIProviderStore {
+    enum PersistenceFailure: LocalizedError {
+        case keychain
+        var errorDescription: String? { localized("無法儲存 API Key，原設定未變更。") }
+    }
+
+    var hasConfiguredProfile: Bool {
+        guard let data = defaults.data(forKey: key + ".profiles") else { return AIAPIKeyStore.hasKey }
+        guard let profiles = try? JSONDecoder().decode([AIServiceProfile].self, from: data) else { return false }
+        return profiles.contains { AIAPIKeyStore.load(providerID: $0.id)?.isEmpty == false }
+    }
+
+    var activeID: UUID? {
+        defaults.string(forKey: key + ".active").flatMap(UUID.init(uuidString:))
+    }
+
+    /// Old configuration and key remain available until the new record and key both verify.
+    /// This migration can be removed after legacy single-provider installs are unsupported.
+    func profiles(readKey: (UUID?) -> String? = { AIAPIKeyStore.load(providerID: $0) },
+                  writeKey: (String, UUID) -> Bool = { AIAPIKeyStore.save($0, providerID: $1) }) throws -> [AIServiceProfile] {
+        if let data = defaults.data(forKey: key + ".profiles") {
+            return try JSONDecoder().decode([AIServiceProfile].self, from: data)
+        }
+        let legacyKey = readKey(nil)
+        // The old provider also worked with its default configuration and only a saved key.
+        guard let legacy = try load() ?? (legacyKey?.isEmpty == false ? .default : nil) else { return [] }
+        let id = UUID(uuidString: "BF250A8F-6C43-4C5E-9A80-60A5DB483384")!
+        let profile = AIServiceProfile(id: id, name: legacy.preset.displayName, configuration: legacy)
+        if let secret = legacyKey, !secret.isEmpty {
+            guard writeKey(secret, id), readKey(id) == secret else { throw PersistenceFailure.keychain }
+        }
+        try writeProfiles([profile])
+        defaults.set(id.uuidString, forKey: key + ".active")
+        return [profile]
+    }
+
+    func select(_ id: UUID) throws {
+        guard try profiles().contains(where: { $0.id == id }) else { throw LoadError.corruptedConfiguration }
+        defaults.set(id.uuidString, forKey: key + ".active")
+        revision += 1
+    }
+
+    func upsert(_ profile: AIServiceProfile, apiKey: String? = nil) throws {
+        var values = try profiles()
+        if let apiKey, !apiKey.isEmpty {
+            guard AIAPIKeyStore.save(apiKey, providerID: profile.id), AIAPIKeyStore.load(providerID: profile.id) == apiKey else {
+                throw PersistenceFailure.keychain
+            }
+        }
+        if let index = values.firstIndex(where: { $0.id == profile.id }) { values[index] = profile }
+        else { values.append(profile) }
+        try writeProfiles(values)
+        if activeID == nil { defaults.set(profile.id.uuidString, forKey: key + ".active") }
+    }
+
+    func remove(_ id: UUID) throws {
+        let values = try profiles().filter { $0.id != id }
+        // Persist the removal first: a failed settings write must not destroy a usable key.
+        try writeProfiles(values)
+        _ = AIAPIKeyStore.clear(providerID: id)
+        if activeID == id { defaults.set(values.first?.id.uuidString, forKey: key + ".active") }
+    }
+
+    private func writeProfiles(_ values: [AIServiceProfile]) throws {
+        defaults.set(try JSONEncoder().encode(values), forKey: key + ".profiles")
+        revision += 1
     }
 }

@@ -13,8 +13,9 @@ import Foundation
 /// Not persisted: it is rebuilt from the stored chunks when a book's index loads, which costs
 /// far less than keeping a second on-disk structure in sync with the first.
 ///
-/// Tokenisation is `NLTokenizer` at word level — the system's own CJK word segmentation, with
-/// no jieba or SQLite FTS dependency to ship. This is also the tier that works with **no model
+/// Tokenisation combines system word segmentation with overlapping Han character pairs,
+/// so names remain searchable when their surrounding sentences change segmentation.
+/// There is no jieba or SQLite FTS dependency. This tier works with **no model
 /// downloaded at all**: exact hits on names, places and terms are what Chinese readers
 /// actually ask about, which is why keyword weight is set above vector weight when both run.
 struct AIBM25Index: Sendable {
@@ -89,24 +90,43 @@ struct AIBM25Index: Sendable {
 
     /// Retrieval-only normalization; evidence and UTF-16 coordinates retain the original text.
     static func searchText(_ text: String) -> String {
-        text.applyingTransform(StringTransform("Traditional-Simplified"), reverse: false)?.lowercased() ?? text.lowercased()
+        let normalized = text.precomposedStringWithCompatibilityMapping
+        return (normalized.applyingTransform(StringTransform("Traditional-Simplified"), reverse: false) ?? normalized).lowercased()
     }
 
     static func tokenize(_ input: String) -> [String] {
         let text = searchText(input)
-        #if canImport(NaturalLanguage)
         var tokens: [String] = []
+        #if canImport(NaturalLanguage)
         let tokenizer = NLTokenizer(unit: .word)
         tokenizer.string = text
         tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
             tokens.append(String(text[range]).lowercased())
             return true
         }
-        return tokens
         #else
-        return text.lowercased()
+        tokens = text
             .split(whereSeparator: { $0.isWhitespace || $0.isPunctuation })
             .map(String.init)
         #endif
+        // A two-character word is already represented by its pair. Keep longer words
+        // and single-character words without doubling the same occurrence's frequency.
+        tokens.removeAll { $0.count == 2 && $0.allSatisfy(isHan) }
+        var previous: Character?
+        for character in text {
+            guard isHan(character) else { previous = nil; continue }
+            if let previous { tokens.append(String(previous) + String(character)) }
+            previous = character
+        }
+        return tokens
+    }
+
+    private static func isHan(_ character: Character) -> Bool {
+        guard let scalar = character.unicodeScalars.first else { return false }
+        switch scalar.value {
+        case 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF,
+             0x20000...0x2FA1F, 0x30000...0x323AF: return true
+        default: return false
+        }
     }
 }

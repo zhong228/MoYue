@@ -1,17 +1,81 @@
 import XCTest
+import StoreKitTest
 
 /// Prepare with scripts/navigation_swipe_fixture.py and serve localhost:18765.
 /// These tests deliver actual touches to the production Explore/detail/reader.
 final class DetailReaderBackSwipeUITests: XCTestCase {
-    @MainActor func testSlideEdgeBack() { exerciseReader(style: "滑動") }
-    @MainActor func testCoverEdgeBack() { exerciseReader(style: "覆蓋翻頁") }
-    @MainActor func testCurlEdgeBack() { exerciseReader(style: "仿真翻書") }
-    @MainActor func testInstantEdgeBack() { exerciseReader(style: "無動畫") }
-    @MainActor func testScrollEdgeBack() { exerciseReader(style: "滑動", scroll: true) }
+    private var storeKitSession: SKTestSession?
 
     @MainActor
-    private func exerciseReader(style: String, scroll: Bool = false) {
+    private func configureStoreKit() throws {
+        let configuration = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Configuration/YueduPro.storekit")
+        let session = try SKTestSession(contentsOf: configuration)
+        session.resetToDefaultState()
+        session.disableDialogs = true
+        session.clearTransactions()
+        storeKitSession = session
+    }
+
+    @MainActor
+    func testDetailReaderLoadsAndReturns() throws {
+        try exerciseNativeEntry(fromSearch: false)
+    }
+
+    @MainActor
+    func testSearchDetailReaderLoadsAndReturns() throws {
+        try exerciseNativeEntry(fromSearch: true)
+    }
+
+    @MainActor
+    private func exerciseNativeEntry(fromSearch: Bool) throws {
         continueAfterFailure = false
+        try configureStoreKit()
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+                               "-yd_root_tab_visible_ids", "(explore, settings)",
+                               "-discover.selectedSourceId", "C5DED179-61D0-49C4-BDB7-93A7B3DAD8F4",
+                               "-yd_page_turn_style", "滑動", "-yd_scroll_mode", "NO"]
+        app.launch()
+        if fromSearch {
+            let search = app.searchFields.firstMatch
+            XCTAssertTrue(search.waitForExistence(timeout: 15), app.debugDescription)
+            search.tap()
+            search.typeText("navigation\n")
+        }
+        let book = app.staticTexts["Navigation Swipe Fixture"].firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 20), app.debugDescription)
+        book.tap()
+        let read = app.buttons.matching(NSPredicate(format: "label IN %@", ["Read Now", "Continue Reading"])).firstMatch
+        XCTAssertTrue(read.waitForExistence(timeout: 15), app.debugDescription)
+        for _ in 0..<2 {
+            read.tap()
+            let content = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Reserved edge navigation")).firstMatch
+            XCTAssertTrue(content.waitForExistence(timeout: 30), "The reader must finish loading after a detail push.\n\(app.debugDescription)")
+            XCTAssertFalse(read.exists, "Opening must stay in the reader")
+            // iOS 17 uses UIKit's narrow physical-edge recognizer; the 30 pt
+            // content-pop reservation is available starting with iOS 26.
+            let start = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 1, dy: app.frame.height * 0.5))
+            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
+            start.press(forDuration: 0.05, thenDragTo: end)
+            XCTAssertTrue(read.waitForExistence(timeout: 8), app.debugDescription)
+            XCTAssertFalse(content.exists)
+        }
+    }
+
+    @MainActor func testSlideEdgeBack() throws { try exerciseReader(style: "滑動") }
+    @MainActor func testCoverEdgeBack() throws { try exerciseReader(style: "覆蓋翻頁") }
+    @MainActor func testCurlEdgeBack() throws { try exerciseReader(style: "仿真翻書") }
+    @MainActor func testInstantEdgeBack() throws { try exerciseReader(style: "無動畫") }
+    @MainActor func testScrollEdgeBack() throws { try exerciseReader(style: "滑動", scroll: true) }
+
+    @MainActor
+    private func exerciseReader(style: String, scroll: Bool = false) throws {
+        continueAfterFailure = false
+        try configureStoreKit()
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US",
                                "-yd_root_tab_visible_ids", "(explore, settings)",

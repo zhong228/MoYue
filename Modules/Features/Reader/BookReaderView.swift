@@ -7,7 +7,10 @@ struct BookReaderView: View {
     @EnvironmentObject var store: BookStore
     @Environment(\.appDependencies) private var dependencies
     @Environment(\.readerNavigator) private var readerNavigator
-    @Environment(\.dismiss) private var dismiss
+    // iOS 17 repeatedly invalidates DismissAction during a detail-to-reader
+    // push, feeding navigation layout back into this entire reader hierarchy.
+    // Use the same stable presentation binding as ReaderView itself.
+    @Environment(\.presentationMode) private var presentationMode
     @State private var resourceOwnerID = UUID()
     @State private var remoteReady = false
     @State private var remoteError: String?
@@ -96,7 +99,7 @@ struct BookReaderView: View {
         } else {
             // Pushed library readers and modal readers use their owning SwiftUI
             // presentation. Closing also cancels the view's preparation task.
-            dismiss()
+            presentationMode.wrappedValue.dismiss()
         }
     }
 

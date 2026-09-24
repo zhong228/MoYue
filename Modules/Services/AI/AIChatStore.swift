@@ -2,9 +2,8 @@ import Foundation
 
 /// Keeps each book's conversations.
 ///
-/// A chat the reader paid for should still be there when they reopen the book, and opening
-/// the assistant starts a fresh thread rather than resuming a stale one — so this stores a
-/// list, newest first, not a single transcript.
+/// A chat the reader paid for should still be there when they reopen the book.
+/// Conversations are ordered by their most recent use; the first one is restored.
 final class AIChatStore {
     static let shared = AIChatStore()
 
@@ -37,7 +36,14 @@ final class AIChatStore {
             // A turn still pending when the app died is not an answer; it must not come
             // back as a bubble that spins forever.
             trimmed.messages = Array(
-                session.messages.filter { !$0.isPending }.suffix(Self.maximumMessagesPerSession)
+                session.messages.map { message in
+                    guard message.isPending else { return message }
+                    var interrupted = message
+                    interrupted.isPending = false
+                    interrupted.errorMessage = localized("回覆已中止")
+                    interrupted.provenance?.status = .cancelled
+                    return interrupted
+                }.suffix(Self.maximumMessagesPerSession)
             )
             if !trimmed.isEmpty { all.insert(trimmed, at: 0) }
         }

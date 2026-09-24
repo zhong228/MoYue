@@ -3084,3 +3084,95 @@
 "兩種頁面可選不同組件，邊距與共用樣式一致。" = "Choose different components for each page type. Margins and shared styles apply to both.";
 
 "頁眉上邊距與頁腳下邊距從畫面邊緣計算，另一側控制與正文的間距。" = "Header top and footer bottom margins start at the screen edges. The opposite margins separate the bars from the body text.";
+
+"AI 翻譯" = "AI Translation";
+
+"AI 解釋" = "AI Explanation";
+
+"API Key 只保存在本機，各服務分開儲存。費用由服務商收取。" = "API keys stay on this device, separately for each service. Your provider bills you directly.";
+
+"一起讀懂這本書" = "Explore this book together";
+
+"人物卡與朗讀別稱" = "Character cards and narration aliases";
+
+"人物經歷" = "Character history";
+
+"使用情境" = "Context";
+
+"來源已變更，無法驗證引用位置。" = "The source changed. This citation can no longer be verified.";
+
+"全書模式可能包含尚未讀到的情節。" = "Whole-book mode may reveal events you have not read yet.";
+
+"前情回顧" = "Recap";
+
+"原文引用" = "Source passage";
+
+"問 AI" = "Ask AI";
+
+"回答範圍" = "Answer scope";
+
+"回覆已中止" = "Response stopped";
+
+"填入自己的 API 服務，即可開始閱讀問答。" = "Add your AI service to start asking about your reading.";
+
+"尚無人物資料" = "No characters yet";
+
+"已保存人物卡" = "Saved character cards";
+
+"已讀" = "Read so far";
+
+"提示詞內容" = "Instructions";
+
+"整理已讀人物" = "Organize characters read so far";
+
+"整理已讀內容，查看人物與原文依據。" = "Organize what you have read to explore characters and their source passages.";
+
+"新增 AI 服務" = "Add AI service";
+
+"新增提示詞" = "Add prompt";
+
+"書中人物" = "Characters";
+
+"書中人物整理" = "Organize characters";
+
+"服務名稱" = "Service name";
+
+"未附書中引用" = "No book citation";
+
+"本書問答" = "Book questions";
+
+"本次內容較長，回答只涵蓋已附上的原文片段。" = "This content is long. The answer covers only the included passages.";
+
+"本章已讀摘要" = "Summarize chapter so far";
+
+"準備閱讀內容…" = "Preparing reading context…";
+
+"無法儲存" = "Unable to save";
+
+"無法儲存 API Key，原設定未變更。" = "Could not save the API key. Your previous settings are unchanged.";
+
+"無法載入引用章節。" = "Unable to load the cited chapter.";
+
+"目前章節" = "Current chapter";
+
+"移除選文" = "Remove selected passage";
+
+"章節已取得，但無法讀取可驗證的正文。" = "The chapter was downloaded, but its source text could not be verified.";
+
+"自訂提示詞" = "Custom prompts";
+
+"進階設定" = "Advanced settings";
+
+"選取原文來解釋或翻譯，也可以直接提問。" = "Select a passage to explain or translate, or ask a question.";
+
+"選文已變更或超出目前閱讀範圍，請重新選取。" = "This selection changed or exceeds the reading scope. Please select it again.";
+
+"選文與閱讀內容會自動帶入，仍受對話的已讀範圍限制。" = "Reading context is attached automatically and respects the conversation’s reading scope.";
+
+"閱讀範圍" = "Reading scope";
+
+"設為預設" = "Set as Default";
+
+"人物記錄保存在本機；清除不會刪除正文、聊天或人工角色聲音設定。離開功能或退到背景會暫停。" = "Character records stay on this device. Clearing them preserves book text, chats, and manually assigned voices. Leaving this screen or backgrounding pauses analysis.";
+
+"引用超出目前閱讀範圍。" = "This citation is outside the current reading scope.";

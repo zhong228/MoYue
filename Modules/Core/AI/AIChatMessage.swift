@@ -23,9 +23,12 @@ struct AIChatMessage: Identifiable, Equatable, Codable, Sendable {
     let createdAt: Date
     var provenance: AIChatProvenance? = nil
     var notices: [String]? = nil
+    var action: AIReadingAction? = nil
+    var selection: AIReadingSelection? = nil
+    var customPrompt: AICustomPrompt? = nil
 
     private enum CodingKeys: String, CodingKey {
-        case id, role, text, citations, isPending, errorMessage, hasEvidence, createdAt, provenance, notices
+        case id, role, text, citations, isPending, errorMessage, hasEvidence, createdAt, provenance, notices, action, selection, customPrompt
     }
 
     init(from decoder: Decoder) throws {
@@ -38,6 +41,9 @@ struct AIChatMessage: Identifiable, Equatable, Codable, Sendable {
         errorMessage = try values.decodeIfPresent(String.self, forKey: .errorMessage)
         hasEvidence = try values.decodeIfPresent(Bool.self, forKey: .hasEvidence) ?? false
         createdAt = try values.decode(Date.self, forKey: .createdAt)
+        action = try? values.decodeIfPresent(AIReadingAction.self, forKey: .action)
+        selection = try? values.decodeIfPresent(AIReadingSelection.self, forKey: .selection)
+        customPrompt = try? values.decodeIfPresent(AICustomPrompt.self, forKey: .customPrompt)
         // Incomplete provenance means unknown scope, not a reason to delete old prose.
         // This compatibility path is removable once legacy chats are no longer supported.
         do { provenance = try values.decodeIfPresent(AIChatProvenance.self, forKey: .provenance) }
@@ -69,12 +75,14 @@ struct AIChatMessage: Identifiable, Equatable, Codable, Sendable {
 
 /// One conversation about a book.
 ///
-/// Opening the assistant starts a new one, the way a chat app does — the previous thread is
-/// not lost, it moves into the list. Carrying on yesterday's conversation about a chapter you
-/// have since read past is rarely what anyone wants.
+/// Reopening resumes the most recently used conversation. An explicit new conversation
+/// resets its scope to already-read content.
 struct AIChatSession: Identifiable, Equatable, Codable, Sendable {
     let id: UUID
     var messages: [AIChatMessage]
+    var wholeBook: Bool? = nil
+    var serviceID: UUID? = nil
+    var model: String? = nil
     let createdAt: Date
 
     init(id: UUID = UUID(), messages: [AIChatMessage] = [], createdAt: Date = Date()) {

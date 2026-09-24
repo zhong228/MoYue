@@ -162,6 +162,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             "[RenderTrace] pageView.configure spine=\(layout.spineIndex) local=\(pageIndex)"
                 + " \(range) pages=\(layout.pageRanges.count) len=\(layout.attributedString.length)"
         )
+        pendingAISelection = nil
         self.layout = layout
         self.localPageIndex = pageIndex
         clearSelection()
@@ -385,7 +386,29 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             }
         ))
 
+        for action in [AIReadingAction.question, .explain, .translate] {
+            actions.append(UIAction(title: action.title, image: UIImage(systemName: "sparkles")) { [weak self] _ in
+                guard let self, let layout, let range = interactor.selectionManager.selectedRange,
+                      range.location >= 0, NSMaxRange(range) <= layout.attributedString.length else { return }
+                let request = CoreTextAISelectionRequest(spineIndex: layout.spineIndex, range: range,
+                    text: (layout.attributedString.string as NSString).substring(with: range), action: action)
+                pendingAISelection = request
+                editMenuInteraction.dismissMenu()
+            })
+        }
         return UIMenu(children: actions)
+    }
+
+    private var pendingAISelection: CoreTextAISelectionRequest?
+
+    func editMenuInteraction(_ interaction: UIEditMenuInteraction, willDismissMenuFor configuration: UIEditMenuConfiguration,
+                             animator: any UIEditMenuInteractionAnimating) {
+        animator.addCompletion { [weak self] in
+            guard let self, let request = pendingAISelection else { return }
+            pendingAISelection = nil
+            clearSelection()
+            NotificationCenter.default.post(name: .coreTextAISelectionRequested, object: self, userInfo: ["request": request])
+        }
     }
 
     private func presentSelectionEditMenu(at sourcePoint: CGPoint) {

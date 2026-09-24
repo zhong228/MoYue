@@ -128,6 +128,33 @@ struct AITracedProvider: LLMProviding {
     let base: any LLMProviding
     var identifier: String { base.identifier }
     var defaultModel: String { base.defaultModel }
+    func stream(_ request: LLMGenerationRequest, model: String?) -> AsyncThrowingStream<String, Error> {
+        let trace = AIDiagnostics.current
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                let start = Date()
+                var content = ""
+                trace?.event("streamStarted", ["provider": identifier, "model": AIRequestTrace.redact(model ?? defaultModel),
+                    "messages": "\(request.messages.count)"])
+                trace?.content("messages", request.messages.map { "\($0.role.rawValue):\n\($0.content)" })
+                do {
+                    for try await delta in base.stream(request, model: model) {
+                        try Task.checkCancellation()
+                        content += delta
+                        continuation.yield(delta)
+                    }
+                    trace?.event("streamCompleted", ["characters": "\(content.count)", "elapsedMs": "\(Date().timeIntervalSince(start) * 1000)"])
+                    trace?.content("response", [content])
+                    continuation.finish()
+                } catch {
+                    trace?.event("streamFailed", ["kind": String(describing: type(of: error)), "characters": "\(content.count)"])
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     func generate(_ request: LLMGenerationRequest, model: String?) async throws -> LLMRawResponse {
         let trace = AIDiagnostics.current
         let start = Date()

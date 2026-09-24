@@ -1183,13 +1183,34 @@ extension ReaderView {
         aiSourceIdentity.context
     }
 
+    /// Use the same visible anchor as the reader bars. The paged anchor remains stale
+    /// while scrolling and must never become the AI reading ceiling.
+    func aiDisplayedReadingPosition() -> CoreTextReadingPosition? {
+        if let engine = epubRenderer.engine, usesCoreTextEPUB {
+            let position = displayedCoreTextPosition(in: engine)
+            return .init(spineIndex: position.spineIndex, charOffset: position.charOffset)
+        }
+        return currentPagedReadingPositionForModeSwitch()
+    }
+
     func aiBookAdapter() -> AIBookContentAdapter {
-        let position = currentPagedReadingPositionForModeSwitch()
+        let position = aiDisplayedReadingPosition()
         let spine = position?.spineIndex ?? currentChapterIndex
         let snapshot = aiSourceAdapter.flatMap { $0.chunkBookID == bookId && aiSourceContext == aiCurrentSourceContext ? $0 : nil }
             ?? AIBookContentAdapter(bookID: bookId, chapters: chapters, textForChapter: { _ in nil })
-        return snapshot.atReadingPosition(spine: spine, renderedOffset: position?.charOffset ?? 0,
-            renderedText: epubRenderer.engine?.chapterText(forSpine: spine))
+        let reading = snapshot.atReadingPosition(spine: spine, renderedOffset: position?.charOffset ?? 0,
+            renderedText: effectiveScrollMode
+                ? epubRenderer.scrollEngine?.chapterText(forSpine: spine) ?? epubRenderer.engine?.chapterText(forSpine: spine)
+                : epubRenderer.engine?.chapterText(forSpine: spine))
+        // Explicitly selected visible text is part of this request's reading context. It may
+        // end after the page's leading reading anchor, but it does not authorize later text.
+        if let selected = aiLaunch?.selection, snapshot.chunkSections.indices.contains(selected.spineIndex),
+           selected.validated(in: reading, boundary: reading.boundary(wholeBook: true)),
+           selected.spineIndex > reading.boundary().spineIndex || (selected.spineIndex == reading.boundary().spineIndex && NSMaxRange(selected.range) > reading.boundary().utf16Offset) {
+            return reading.atReadingPosition(spine: selected.spineIndex, renderedOffset: NSMaxRange(selected.range),
+                renderedText: snapshot.chunkSections[selected.spineIndex].text)
+        }
+        return reading
     }
 
     /// Refreshes local source text only. One publish per snapshot; an obsolete gather cannot win.
@@ -1219,6 +1240,7 @@ extension ReaderView {
         aiSourceAdapter = AIBookContentAdapter(bookID: bookId, chapters: chapters,
             transformationVersion: "chapterPlainText.v1@rules:" + rulesDigest + "@conversion:" + conversion.rawValue, missingStatus: statuses,
             acquisitionMilliseconds: Date().timeIntervalSince(acquisitionStarted) * 1000) { gathered[$0] }
+        if let source = aiSourceAdapter { aiLaunch = aiLaunch?.resolvingSelection(in: source) }
         AIAssistantService.shared.activate(aiBookAdapter())
     }
 
@@ -1229,18 +1251,23 @@ extension ReaderView {
         aiGatherTask = Task { await gatherAIBookText() }
     }
 
-    func openAICitation(_ citation: LLMCitation) {
-        let adapter = aiBookAdapter()
-        guard adapter.chunkSections.indices.contains(citation.spineIndex),
-              let rendered = epubRenderer.engine?.chapterText(forSpine: citation.spineIndex),
-              let offset = AITextCoordinates.citationOffset(citation, sourceVersion: adapter.contentFingerprint,
-                  sourceText: adapter.chunkSections[citation.spineIndex].text, renderedText: rendered)
-        else {
-            aiCitationError = localized("來源已變更或尚無可驗證的排版定位，請先開啟該章並重新整理引用。")
-            return
+    func openAICitation(_ citation: LLMCitation, boundary: AIReadingBoundary) {
+        aiCitationTask?.cancel()
+        let source = aiSourceAdapter ?? aiBookAdapter()
+        let capturedBook = bookId
+        let capturedContext = aiCurrentSourceContext
+        aiCitationTask = Task {
+            do {
+                let offset = try await AIReadingContentService.citationOffset(citation, source: source, boundary: boundary, renderer: epubRenderer)
+                guard !Task.isCancelled, bookId == capturedBook, aiCurrentSourceContext == capturedContext else { return }
+                showAIAssistantPanel = false
+                jumpToChapter(citation.spineIndex, charOffset: offset)
+            } catch is CancellationError { }
+            catch {
+                guard bookId == capturedBook, aiCurrentSourceContext == capturedContext else { return }
+                aiCitationError = error.localizedDescription
+            }
         }
-        showAIAssistantPanel = false
-        jumpToChapter(citation.spineIndex, charOffset: offset)
     }
 
     /// How far the reader has got, on the same scale the chunks carry.
@@ -1249,7 +1276,7 @@ extension ReaderView {
     /// rather than from chapter index — a 200-character preface followed by a 40,000-character
     /// chapter would otherwise read as 50% after the preface.
     func aiReadingProgress() -> Double {
-        let position = currentPagedReadingPositionForModeSwitch()
+        let position = aiDisplayedReadingPosition()
         return aiBookAdapter().progress(
             forSpine: position?.spineIndex ?? currentChapterIndex,
             charOffset: position?.charOffset ?? 0

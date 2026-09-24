@@ -142,6 +142,7 @@ struct CoreTextNoteDeleteRequest {
 
 extension Notification.Name {
     static let coreTextSearchSelectionRequested = Notification.Name("coreTextSearchSelectionRequested")
+    static let coreTextAISelectionRequested = Notification.Name("coreTextAISelectionRequested")
     static let coreTextTranslateSelectionRequested = Notification.Name("coreTextTranslateSelectionRequested")
     static let coreTextUnderlineSelectionRequested = Notification.Name("coreTextUnderlineSelectionRequested")
     static let coreTextReplaceSelectionRequested = Notification.Name("coreTextReplaceSelectionRequested")
@@ -182,4 +183,12 @@ extension Bookmark {
             note: note.isEmpty ? nil : note
         )
     }
+}
+
+
+struct CoreTextAISelectionRequest {
+    let spineIndex: Int
+    let range: NSRange
+    let text: String
+    let action: AIReadingAction
 }

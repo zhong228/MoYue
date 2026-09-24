@@ -1,757 +1,415 @@
 import SwiftUI
 
-/// Ask the assistant about the book you are reading.
-///
-/// A plain chat: the reader asks, the assistant answers from passages it retrieved, and the
-/// thread is the record. 前情提要 was a tab of its own until it became obvious it is just one
-/// of the questions — it lives in the suggestion row now.
-///
-/// 人物卡 is not here either. Its output is the alias table 多角色朗讀 casts voices against, so
-/// it sits with 聽書 where it is used.
 struct AIAssistantPanelView: View {
     let bookID: UUID
     let bookTitle: String
     let adapter: AIBookContentAdapter
-    /// How far the reader has got, on the same 0…1 scale the chunks use.
     let progress: Double
-    let onOpenCitation: (LLMCitation) -> Void
+    let onOpenCitation: (LLMCitation, AIReadingBoundary) -> Void
+    var launch: AIReadingLaunch? = nil
+    var sourceIdentity: String? = nil
+    var isSourceReady = true
+    var prepareContent: AIReadingConversation.Prepare = { $0 }
+    var onSourcePrepared: (AIBookContentAdapter) -> Void = { _ in }
 
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var gs = GlobalSettings.shared
-
-    @State private var session = AIChatSession()
-    @State private var history: [AIChatSession] = []
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @StateObject private var conversation = AIReadingConversation()
+    @ObservedObject private var prompts = AICustomPromptStore.shared
     @State private var draft = ""
-    @State private var isConfigured = false
-    @State private var showSettings = false
+    private enum SecondaryScreen: Hashable {
+        case characters, settings, prompts, status
+    }
+    @State private var showMore = false
+    @State private var pendingScreen: SecondaryScreen?
+    @State private var navigationPath: [SecondaryScreen] = []
     @State private var showHistory = false
-    @State private var showStatus = false
-    @GestureState(resetTransaction: Transaction(animation: DSAnimation.standard))
-    private var drag = DrawerDrag()
-    @State private var task: Task<Void, Never>?
-    @State private var requestOwner: AIChatRequestOwner?
-    @State private var questionStage: AIQuestionStage = .searching
+    @State private var selectedCitation: LLMCitation?
+    @State private var profiles: [AIServiceProfile] = []
+    @State private var settingsError: String?
+    @State private var launchedID: UUID?
+    @State private var detent: PresentationDetent = .medium
+    @State private var followsLatest = true
     @FocusState private var inputFocused: Bool
 
-    private var messages: [AIChatMessage] { session.messages }
-    private var isBusy: Bool { messages.last?.isPending == true }
-    /// The ceiling retrieval is allowed to reach.
-    private var effectiveProgress: Double { gs.aiSpoilerSafe ? progress : 1.0 }
-
-    private var currentBoundary: AIReadingBoundary { adapter.boundary(wholeBook: !gs.aiSpoilerSafe) }
-
     var body: some View {
-        // The conversation list is the layer underneath; the chat sits on top of it and
-        // slides aside to reveal it. Putting the list on top as a drawer was the wrong way
-        // round — the chat is the thing you are in, not the thing being covered.
-        ZStack(alignment: .leading) {
-            AIChatHistoryView(
-                sessions: history,
-                currentID: session.id,
-                onSelect: { open($0) },
-                onDelete: { delete($0) },
-                onNew: { startNewConversation() }
-            )
-            .frame(width: Self.drawerWidth, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            foreground
-                .offset(x: drawerOffset)
-                .gesture(historyDrag)
-        }
-        .background(DSColor.groupedBackground.ignoresSafeArea())
-    }
-
-    /// The axis is decided once, on the first movement of each drag, and held for the rest
-    /// of it — otherwise a scroll that wanders sideways starts dragging the chat open
-    /// halfway down the gesture.
-    struct DrawerDrag: Equatable {
-        var width: CGFloat = 0
-        var isHorizontal: Bool?
-    }
-
-    /// Dragging right opens the list, dragging left closes it — both directions, from
-    /// anywhere on the chat, tracking the finger the whole way.
-    private var historyDrag: some Gesture {
-        DragGesture(minimumDistance: 12)
-            .updating($drag) { value, state, _ in
-                if state.isHorizontal == nil {
-                    let dx = abs(value.translation.width)
-                    let dy = abs(value.translation.height)
-                    guard dx > 0 || dy > 0 else { return }
-                    state.isHorizontal = dx > dy
-                }
-                guard state.isHorizontal == true else { return }
-                state.width = value.translation.width
-            }
-            .onEnded { value in
-                guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                // Flick or travel: a fast swipe commits on its own, a slow one has to cross
-                // half the drawer.
-                // `predictedEndTranslation` already contains the travel so far, plus the
-                // momentum projection — it is where the finger was heading, not an extra.
-                let travelled = value.predictedEndTranslation.width
-                let opened = showHistory
-                    ? travelled > -Self.drawerWidth / 2
-                    : travelled > Self.drawerWidth / 2
-                withAnimation(DSAnimation.standard) { showHistory = opened }
-            }
-    }
-
-    /// Where the chat actually sits: its resting place plus however far the finger has
-    /// carried it, never past either edge.
-    private var drawerOffset: CGFloat {
-        let resting = showHistory ? Self.drawerWidth : 0
-        return min(max(resting + drag.width, 0), Self.drawerWidth)
-    }
-
-    private var drawerProgress: Double { Double(drawerOffset / Self.drawerWidth) }
-
-    private var foreground: some View {
-        NavigationStack {
-            Group {
-                if isConfigured {
-                    chat
+        NavigationStack(path: $navigationPath) {
+            VStack(spacing: 0) {
+                if profiles.isEmpty {
+                    ContentUnavailableView {
+                        Label(localized("尚未設定 AI 服務"), systemImage: "sparkles")
+                    } description: {
+                        Text(settingsError ?? localized("填入自己的 API 服務，即可開始閱讀問答。"))
+                    } actions: {
+                        Button(localized("前往設定")) { openScreen(.settings) }
+                    }
                 } else {
-                    notConfigured
+                    transcript
+                    composer
                 }
             }
             .themedAppSurface(for: .settings)
-            .navigationTitle(localized("AI 助手"))
+            .navigationTitle(bookTitle)
             .toolbarTitleDisplayMode(.inline)
-            .toolbar { toolbarContent }
-            .sheet(isPresented: $showStatus) { NavigationStack { AIStatusView(adapter: adapter) } }
-            .onChange(of: adapter.contentFingerprint) { _, _ in
-                cancel()
-                AIAssistantService.shared.activate(adapter)
-            }
-            .onChange(of: currentBoundary) { _, boundary in
-                if let owner = requestOwner, !boundary.contains(owner.boundary) { cancel() }
-            }
-            .onChange(of: bookID) { _, _ in cancel(); start() }
-            .onAppear(perform: start)
-            .onDisappear {
-                cancel()
-                persist()
-            }
-            .sheet(isPresented: $showSettings, onDismiss: {
-                isConfigured = AIAssistantService.shared.isConfigured
+            .toolbar { toolbar }
+            // The chooser finishes dismissing before the shared navigation path changes.
+            .sheet(isPresented: $showMore, onDismiss: {
+                if let pendingScreen { openScreen(pendingScreen) }
+                pendingScreen = nil
             }) {
-                AISettingsView()
+                DismissalSequencedActionChooser(title: localized("更多"), actions: [
+                    .init(route: SecondaryScreen.characters, title: localized("書中人物"), systemImage: "person.2"),
+                    .init(route: .settings, title: localized("AI 助手設定"), systemImage: "gearshape"),
+                    .init(route: .prompts, title: localized("自訂提示詞"), systemImage: "text.badge.plus"),
+                    .init(route: .status, title: localized("AI 狀態與診斷"), systemImage: "info.circle")
+                ], onSelect: { pendingScreen = $0 })
             }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: DSRadius.xxl * drawerProgress))
-        .shadow(color: .black.opacity(0.18 * drawerProgress), radius: 16, x: -4)
-        // Tapping the chat while the list is showing brings it back, the way it does in a
-        // chat app — without this the only way back is the toolbar button.
-        .overlay {
-            if showHistory {
-                Color.black.opacity(0.001)
-                    .onTapGesture { withAnimation(DSAnimation.standard) { showHistory = false } }
-                    .accessibilityLabel(localized("回到對話"))
-                    .accessibilityAddTraits(.isButton)
-            }
-        }
-    }
-
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "chevron.down")
-                    .accessibilityHidden(true)
-            }
-            .accessibilityLabel(localized("關閉"))
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button { showStatus = true } label: {
-                Image(systemName: "info.circle").accessibilityHidden(true)
-            }.accessibilityLabel(localized("AI 狀態與診斷"))
-        }
-        if isConfigured {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    AICharacterMemoryView(adapter: adapter, onOpenCitation: onOpenCitation)
-                } label: { Image(systemName: "person.text.rectangle").accessibilityHidden(true) }
-                .accessibilityLabel(localized("逐批人物建檔"))
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    withAnimation(DSAnimation.standard) { showHistory.toggle() }
-                } label: {
-                    Image(systemName: "list.bullet")
-                        .accessibilityHidden(true)
+            .navigationDestination(for: SecondaryScreen.self) { screen in
+                switch screen {
+                case .settings: AISettingsView(embedded: true)
+                case .characters: AIBookCharactersView(adapter: currentSource, progress: progress, onOpenCitation: { onOpenCitation($0, currentSource.boundary()) })
+                case .prompts: AICustomPromptListView()
+                case .status: AIStatusView(adapter: currentSource)
                 }
-                .accessibilityLabel(localized("對話列表"))
             }
-        }
-    }
-
-    private static let drawerWidth: CGFloat = 300
-
-    // MARK: - Chat
-
-    private var chat: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: DSSpacing.lg) {
-                        if messages.isEmpty { emptyState }
-                        ForEach(messages) { message in
-                            bubble(message).id(message.id)
+            .sheet(isPresented: $showHistory) {
+                NavigationStack {
+                    AIChatHistoryView(sessions: conversation.history, currentID: conversation.session.id,
+                        onSelect: { conversation.select($0); showHistory = false },
+                        onDelete: { conversation.delete($0) },
+                        onNew: { conversation.startNew(); showHistory = false })
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button { showHistory = false } label: { Image(systemName: "xmark") }
+                                .accessibilityLabel(localized("關閉"))
                         }
-                        Color.clear.frame(height: 1).id(Self.bottomAnchor)
-                    }
-                    .padding(.horizontal, DSSpacing.lg)
-                    .padding(.vertical, DSSpacing.lg)
-                }
-                .softScrollEdges()
-                .scrollDismissesKeyboard(.interactively)
-                .onChange(of: messages) { _, _ in
-                    withAnimation(DSAnimation.fast) {
-                        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                     }
                 }
             }
-            inputBar
+            .sheet(isPresented: Binding(get: { selectedCitation != nil }, set: { if !$0 { selectedCitation = nil } })) {
+                if let citation = selectedCitation { citationPreview(citation) }
+            }
         }
+        // Reader chrome uses the book's ink color; assistant controls follow app UI colors.
+        .tint(DSColor.accent)
+        .presentationDetents(sizeClass == .regular ? [.large] : [.medium, .large], selection: $detent)
+        .presentationDragIndicator(.visible)
+        .onChange(of: inputFocused) { _, focused in if focused { detent = .large } }
+        .onAppear {
+            if sizeClass == .regular || dynamicTypeSize.isAccessibilitySize { detent = .large }
+            reloadProfiles(); configure()
+        }
+        .onChange(of: navigationPath) { _, path in
+            if path.isEmpty { reloadProfiles() }
+        }
+        .onChange(of: bookID) { _, _ in configure() }
+        .onChange(of: sourceIdentity) { _, _ in configure() }
+        .onChange(of: adapter.contentFingerprint) { _, _ in configure() }
+        .onChange(of: adapter.boundary()) { _, _ in configure() }
+        .onChange(of: isSourceReady) { _, _ in configure() }
+        .onChange(of: conversation.source?.contentFingerprint) { _, _ in
+            if let source = conversation.source { onSourcePrepared(source) }
+        }
+        .onDisappear { conversation.cancel() }
     }
 
-    private static let bottomAnchor = "ai.chat.bottom"
-
-    private var emptyState: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.sm) {
-            Text(String(format: localized("關於《%@》"), bookTitle))
-                .font(DSFont.headline)
-                .foregroundStyle(DSColor.textPrimary)
-            Text(
-                gs.aiSpoilerSafe
-                    ? String(
-                        format: localized("只讀你讀到 %d%% 為止的內容。搜不到東西時，把「防劇透」關掉。"),
-                        Int((progress * 100).rounded())
-                    )
-                    : localized("會搜尋整本書，可能劇透。")
-            )
-            .font(DSFont.subheadline)
-            .foregroundStyle(DSColor.textSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.bottom, DSSpacing.sm)
+    private func openScreen(_ screen: SecondaryScreen) {
+        // Settings and reference lists need the full readable height, including when
+        // returning from a service editor that displayed the keyboard.
+        detent = .large
+        navigationPath.append(screen)
     }
 
-    @ViewBuilder
-    private func bubble(_ message: AIChatMessage) -> some View {
-        if message.role == .user {
-            userBubble(message)
-        } else {
-            assistantBubble(message)
-        }
-    }
+    private var currentSource: AIBookContentAdapter { conversation.source ?? adapter }
 
-    private func userBubble(_ message: AIChatMessage) -> some View {
-        HStack {
-            Spacer(minLength: DSSpacing.xl)
-            Text(message.text)
-                .font(DSFont.body)
-                .foregroundStyle(DSColor.textPrimary)
-                .padding(.horizontal, DSSpacing.md)
-                .padding(.vertical, DSSpacing.sm)
-                .background(DSColor.surfaceTertiary, in: RoundedRectangle(cornerRadius: DSRadius.lg))
-                .textSelection(.enabled)
+    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button { dismiss() } label: { Image(systemName: "xmark") }
+                .accessibilityLabel(localized("關閉"))
         }
-    }
-
-    @ViewBuilder
-    private func assistantBubble(_ message: AIChatMessage) -> some View {
-        VStack(alignment: .leading, spacing: DSSpacing.sm) {
-            if let provenance = message.provenance, !currentBoundary.contains(provenance.boundary) {
-                Text(localized("此回覆超出目前可確認的來源或閱讀範圍，已暫時隱藏。"))
-                    .font(DSFont.footnote).foregroundStyle(DSColor.textSecondary)
-            } else if message.isPending, message.text.isEmpty {
-                thinkingIndicator
-            } else if let error = message.errorMessage {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .font(DSFont.subheadline)
-                    .foregroundStyle(DSColor.destructive)
-                if message.id == messages.last?.id, message.provenance != nil {
-                    Button(localized("重試這個問題")) { retry(message) }.disabled(isBusy)
-                }
-            } else if message.text.isEmpty {
-                // An answer that came back empty is a failure, not a blank bubble with a
-                // red warning under it.
-                Label(localized("這次沒有回應，再試一次。"), systemImage: "exclamationmark.triangle")
-                    .font(DSFont.subheadline)
-                    .foregroundStyle(DSColor.destructive)
+        ToolbarItem(placement: .primaryAction) {
+            Button { showHistory = true } label: { Image(systemName: "clock.arrow.circlepath") }
+                .accessibilityLabel(localized("對話列表"))
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button { conversation.startNew(); draft = "" } label: { Image(systemName: "square.and.pencil") }
+                .accessibilityLabel(localized("新對話"))
+        }
+        ToolbarItem(placement: .primaryAction) {
+            if #available(iOS 18.0, *) {
+                Menu {
+                    Button(localized("書中人物"), systemImage: "person.2") { openScreen(.characters) }
+                    Button(localized("AI 助手設定"), systemImage: "gearshape") { openScreen(.settings) }
+                    Button(localized("自訂提示詞"), systemImage: "text.badge.plus") { openScreen(.prompts) }
+                    Button(localized("AI 狀態與診斷"), systemImage: "info.circle") { openScreen(.status) }
+                } label: { Image(systemName: "ellipsis.circle") }
+                .accessibilityLabel(localized("更多"))
             } else {
-                answerBody(message)
+                Button { showMore = true } label: { Image(systemName: "ellipsis.circle") }
+                    .accessibilityLabel(localized("更多"))
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Markdown, with line breaks kept — the default parser collapses them, which turns a
-    /// numbered list into one paragraph.
-    static func formatted(_ text: String) -> AttributedString {
-        (try? AttributedString(
-            markdown: text,
-            options: AttributedString.MarkdownParsingOptions(
-                interpretedSyntax: .inlineOnlyPreservingWhitespace
-            )
-        )) ?? AttributedString(text)
-    }
-
-    private var thinkingIndicator: some View {
-        HStack(spacing: DSSpacing.sm) {
-            ProgressView()
-            Text(questionStage.label)
-                .font(DSFont.subheadline)
-                .foregroundStyle(DSColor.textSecondary)
-        }
-    }
-
-    @ViewBuilder
-    private func answerBody(_ message: AIChatMessage) -> some View {
-        // Models answer in Markdown whether or not they were asked to — `**粗體**` and
-        // numbered lists came through as literal asterisks.
-        Text(Self.formatted(message.text))
-            .font(DSFont.body)
-            .foregroundStyle(DSColor.textPrimary)
-            .textSelection(.enabled)
-        if !message.hasEvidence {
-            // An answer citing nothing is not sourced, whatever it asserts.
-            Text(localized("這個回答沒有引用到書裡的片段，請當成參考而不是書中內容。"))
-                .font(DSFont.footnote)
-                .foregroundStyle(DSColor.destructive)
-        }
-        ForEach(message.notices ?? [], id: \.self) { notice in
-            Text(notice).font(DSFont.footnote).foregroundStyle(DSColor.textSecondary)
-        }
-        ForEach(message.citations, id: \.chunkID) { citation in
-            citationRow(citation)
-        }
-    }
-
-    private func citationRow(_ citation: LLMCitation) -> some View {
-        Button {
-            onOpenCitation(citation)
-        } label: {
-            HStack(alignment: .top, spacing: DSSpacing.sm) {
-                Image(systemName: "quote.opening")
-                    .font(DSFont.caption)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(citation.sectionTitle ?? String(format: localized("第 %d 章"), citation.spineIndex + 1))
-                        .font(DSFont.caption)
-                        .foregroundStyle(DSColor.textSecondary)
-                    if citation.sourceVersion != adapter.contentFingerprint {
-                        Text(localized("來源已變更，需重新整理引用"))
-                            .font(DSFont.caption).foregroundStyle(DSColor.textSecondary)
+    private var transcript: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: DSSpacing.lg) {
+                    if conversation.session.isEmpty {
+                        ContentUnavailableView(localized("一起讀懂這本書"), systemImage: "text.bubble",
+                            description: Text(localized("選取原文來解釋或翻譯，也可以直接提問。")))
                     }
-                    Text(Self.quoteText(citation))
-                        .font(DSFont.footnote)
-                        .foregroundStyle(DSColor.textSecondary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
+                    ForEach(conversation.session.messages) { message in
+                        messageView(message).id(message.id)
+                    }
+                    Color.clear.frame(height: 1).id("bottom")
+                        .onAppear { followsLatest = true }
+                        .onDisappear { followsLatest = false }
                 }
+                .padding(DSSpacing.lg)
             }
-            .padding(.horizontal, DSSpacing.sm)
-            .padding(.vertical, DSSpacing.xs)
-            .background(DSColor.surface, in: RoundedRectangle(cornerRadius: DSRadius.sm))
+            .accessibilityIdentifier("ai.chat.transcript")
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: conversation.session.messages.count) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
+            .onChange(of: conversation.session.messages.last?.text) { _, _ in
+                if followsLatest { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            .onChange(of: conversation.isBusy) { _, busy in
+                if !busy && followsLatest { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(
-            citation.sourceVersion != adapter.contentFingerprint ? localized("來源已變更，需重新整理引用") :
-                (citation.sectionTitle.map { String(format: localized("跳到 %@"), $0) } ?? localized("跳到原文"))
-        )
-        .accessibilityHint(citation.quote)
-        .disabled(citation.sourceVersion != adapter.contentFingerprint)
-
     }
 
-    /// The excerpt, minus a leading copy of the chapter title — a chunk that starts a
-    /// chapter contains it, so the card printed `Preface` twice.
-    static func quoteText(_ citation: LLMCitation) -> String {
-        var quote = citation.quote.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let title = citation.sectionTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !title.isEmpty,
-           quote.hasPrefix(title) {
-            quote = String(quote.dropFirst(title.count))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return quote
-    }
-
-    // MARK: - Input
-
-    /// One glass container: the question on top, the chips inside it below, and the send
-    /// button on the right edge of the same surface.
-    private var inputBar: some View {
-        HStack(alignment: .bottom, spacing: DSSpacing.sm) {
+    @ViewBuilder private func messageView(_ message: AIChatMessage) -> some View {
+        if message.role == .user {
+            HStack {
+                Spacer(minLength: DSSpacing.xl)
+                VStack(alignment: .leading, spacing: DSSpacing.xs) {
+                    if let selection = message.selection {
+                        Text(selection.displayText).font(DSFont.footnote).foregroundStyle(DSColor.textSecondary).lineLimit(3)
+                    }
+                    Text(message.text).textSelection(.enabled)
+                }
+                .padding(DSSpacing.md)
+                .background(DSColor.surfaceTertiary, in: RoundedRectangle(cornerRadius: DSRadius.md))
+            }
+        } else {
             VStack(alignment: .leading, spacing: DSSpacing.sm) {
-                TextField(localized("問一個問題"), text: $draft, axis: .vertical)
-                    .lineLimit(1...5)
-                    .focused($inputFocused)
-                    .frame(minHeight: Self.inputMinHeight, alignment: .leading)
-                suggestionRow
-            }
-            sendButton
-        }
-        .padding(.horizontal, DSSpacing.md)
-        .padding(.vertical, DSSpacing.md)
-        .floatingSurface(in: RoundedRectangle(cornerRadius: DSRadius.xxl))
-        .padding(.horizontal, DSSpacing.md)
-        .padding(.bottom, DSSpacing.sm)
-    }
-
-    /// One empty line of the field is still a finger-sized target.
-    private static let inputMinHeight: CGFloat = 40
-
-    private var sendButton: some View {
-        Button {
-            if isBusy { cancel() } else { send(draft) }
-        } label: {
-            Image(systemName: isBusy ? "stop.fill" : "arrow.up")
-                .font(DSFont.body.weight(.semibold))
-                .foregroundStyle(DSColor.textOnAccent)
-                .frame(width: 34, height: 34)
-                .background(canSend || isBusy ? DSColor.accent : DSColor.textDisabled, in: Circle())
-                .accessibilityHidden(true)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(isBusy ? localized("停止") : localized("送出"))
-        .disabled(!isBusy && !canSend)
-    }
-
-    private var canSend: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var suggestionRow: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: DSSpacing.sm) {
-                spoilerToggle
-                ForEach(AIChatSuggestion.all) { suggestion in
-                    Button {
-                        run(suggestion)
-                    } label: {
-                        chip(localized(suggestion.title), systemImage: suggestion.symbol, active: false)
+                if let metadata = message.provenance, let boundary = conversation.boundary, !boundary.contains(metadata.boundary) {
+                    Text(localized("此回覆超出目前可確認的來源或閱讀範圍，已暫時隱藏。"))
+                        .font(DSFont.footnote).foregroundStyle(DSColor.textSecondary)
+                } else {
+                    if !message.text.isEmpty { AIAnswerMarkdownView(text: message.text) }
+                    if message.isPending {
+                        HStack { ProgressView(); Text(conversation.stage.label).font(DSFont.footnote) }
+                            .accessibilityElement(children: .combine)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(isBusy)
+                    if let error = message.errorMessage {
+                        Label(error, systemImage: "exclamationmark.circle").font(DSFont.footnote).foregroundStyle(DSColor.textSecondary)
+                        if message.id == conversation.session.messages.last?.id {
+                            Button(localized("重試這個問題")) { conversation.retry(prepare: prepareContent) }.disabled(conversation.isBusy)
+                        }
+                    }
+                    if !message.citations.isEmpty {
+                        ScrollView(.horizontal) {
+                            HStack {
+                                ForEach(Array(message.citations.enumerated()), id: \.element.chunkID) { index, citation in
+                                    Button { selectedCitation = citation } label: {
+                                        Label("\(index + 1) · \(citation.sectionTitle ?? localized("原文"))", systemImage: "quote.opening")
+                                            .font(DSFont.footnote)
+                                    }.buttonStyle(.bordered).accessibilityIdentifier("ai.citation.\(index)")
+                                }
+                            }
+                        }
+                        .scrollIndicators(.hidden)
+                    }
+                    if !message.isPending && !message.text.isEmpty {
+                        HStack {
+                            Button { UIPasteboard.general.string = message.text } label: { Label(localized("複製"), systemImage: "doc.on.doc") }
+                            if !message.hasEvidence { Text(localized("未附書中引用")).foregroundStyle(DSColor.textSecondary) }
+                        }.font(DSFont.footnote)
+                        if let notices = message.notices, !notices.isEmpty {
+                            DisclosureGroup(localized("回答範圍")) {
+                                ForEach(notices, id: \.self) { Text($0).font(DSFont.footnote).foregroundStyle(DSColor.textSecondary) }
+                            }.font(DSFont.footnote)
+                        }
+                    }
                 }
             }
-            .padding(.horizontal, 1)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .scrollIndicators(.hidden)
     }
 
-    private func chip(_ title: String, systemImage: String, active: Bool) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(DSFont.subheadline)
-            .foregroundStyle(active ? DSColor.accent : DSColor.textPrimary)
-            .padding(.horizontal, DSSpacing.md)
-            .padding(.vertical, DSSpacing.xs)
-            .overlay(
-                Capsule().stroke(
-                    active ? DSColor.accent.opacity(0.55) : DSColor.border,
-                    lineWidth: 1
-                )
-            )
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: DSSpacing.sm) {
+            if let selection = conversation.selection {
+                HStack(alignment: .top) {
+                    Label(selection.displayText, systemImage: "text.quote").font(DSFont.footnote).lineLimit(3)
+                    Spacer()
+                    Button { conversation.selection = nil } label: { Image(systemName: "xmark.circle.fill") }
+                        .frame(minWidth: DSLayout.minimumTapTarget, minHeight: DSLayout.minimumTapTarget)
+                        .accessibilityLabel(localized("移除選文"))
+                }
+            }
+            HStack {
+                modelMenu
+                Spacer()
+                Picker(localized("閱讀範圍"), selection: Binding(get: { conversation.wholeBook }, set: { conversation.setWholeBook($0) })) {
+                    Text(localized("已讀")).tag(false)
+                    Text(localized("全書")).tag(true)
+                }.pickerStyle(.menu)
+            }.font(DSFont.footnote)
+            if conversation.wholeBook {
+                Text(localized("全書模式可能包含尚未讀到的情節。")).font(DSFont.footnote).foregroundStyle(DSColor.textSecondary)
+            }
+            ScrollView(.horizontal) {
+                HStack(spacing: DSSpacing.sm) {
+                    ForEach(conversation.selection == nil ? [AIReadingAction.chapterSummary, .recap] : [.explain, .translate], id: \.self) { action in
+                        Button(action.title) { sendAction(action) }.buttonStyle(.bordered)
+                    }
+                    ForEach(prompts.prompts.filter { $0.isEnabled && ($0.context != .selection || conversation.selection != nil) }) { prompt in
+                        Button(prompt.title) { conversation.send(prompt.title, action: .custom, custom: prompt, prepare: prepareContent) }
+                            .buttonStyle(.bordered)
+                    }
+                }.disabled(conversation.isBusy || !isSourceReady)
+            }.scrollIndicators(.hidden)
+            HStack(alignment: .bottom) {
+                TextField(localized("問一個問題"), text: $draft, axis: .vertical)
+                    .accessibilityIdentifier("ai.chat.input")
+                    .lineLimit(1...5).focused($inputFocused)
+                    .frame(minHeight: DSLayout.minimumTapTarget)
+                Button {
+                    if conversation.isBusy { conversation.cancel() }
+                    else {
+                        let question = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !question.isEmpty else { return }
+                        conversation.send(question, prepare: prepareContent)
+                        draft = ""
+                        if dynamicTypeSize.isAccessibilitySize { inputFocused = false }
+                    }
+                } label: {
+                    Image(systemName: conversation.isBusy ? "stop.circle.fill" : "arrow.up.circle.fill")
+                        .font(DSFont.title2)
+                        .frame(minWidth: DSLayout.minimumTapTarget, minHeight: DSLayout.minimumTapTarget)
+                }
+                .accessibilityLabel(conversation.isBusy ? localized("停止") : localized("送出"))
+                .disabled(!conversation.isBusy && (!isSourceReady || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+            }
+            if !isSourceReady { ProgressView(localized("準備閱讀內容…")).font(DSFont.footnote) }
+        }
+        .padding(DSSpacing.md)
+        .background(DSColor.surface)
     }
 
-    /// Reading-range limit, where the question is asked rather than in settings.
-    private var spoilerToggle: some View {
-        Button {
-            gs.aiSpoilerSafe.toggle()
+    private var modelMenu: some View {
+        Menu {
+            ForEach(profiles) { profile in
+                Section(profile.name) {
+                    ForEach(Array(Set(profile.models + [profile.configuration.defaultModel])).sorted(), id: \.self) { model in
+                        Button(model) { conversation.setModel(profile: profile, model: model) }
+                    }
+                }
+            }
         } label: {
-            chip(
-                gs.aiSpoilerSafe
-                    ? String(format: localized("讀到 %d%%"), Int((progress * 100).rounded()))
-                    : localized("全書"),
-                systemImage: gs.aiSpoilerSafe ? "eyeglasses" : "chevron.left.forwardslash.chevron.right",
-                active: gs.aiSpoilerSafe
-            )
+            Label(conversation.session.model ?? profiles.first(where: { $0.id == AIProviderStore.shared.activeID })?.configuration.defaultModel ?? profiles.first?.configuration.defaultModel ?? localized("選擇模型"), systemImage: "cpu")
+                .lineLimit(1)
+                .frame(minHeight: DSLayout.minimumTapTarget, alignment: .leading)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(localized("防劇透"))
-        .accessibilityValue(gs.aiSpoilerSafe ? localized("開") : localized("關"))
-        .accessibilityHint(localized("關掉就會搜尋整本書"))
+        .accessibilityLabel(localized("選擇模型"))
     }
 
-    private var notConfigured: some View {
-        ContentUnavailableView {
-            Label(localized("尚未設定 AI 服務"), systemImage: "sparkles")
-        } description: {
-            Text(localized("填入你自己的 API 位址與金鑰後，就能問書、產生前情提要、整理人物卡。"))
-        } actions: {
-            Button(localized("前往設定")) { showSettings = true }
-                .buttonStyle(.borderedProminent)
-        }
-    }
-
-    // MARK: - Sessions
-
-    private func start() {
-        isConfigured = AIAssistantService.shared.isConfigured
-        history = AIChatStore.shared.sessions(forBook: bookID)
-        // A fresh thread each time the panel opens. Resuming yesterday's conversation about
-        // a chapter the reader has since passed is rarely what they meant.
-        session = AIChatSession()
-    }
-
-    private func startNewConversation() {
-        cancel()
-        persist()
-        session = AIChatSession()
-        withAnimation(DSAnimation.standard) { showHistory = false }
-    }
-
-    private func open(_ selected: AIChatSession) {
-        cancel()
-        persist()
-        session = selected
-        withAnimation(DSAnimation.standard) { showHistory = false }
-    }
-
-    private func delete(_ id: UUID) {
-        AIChatStore.shared.delete(sessionID: id, forBook: bookID)
-        history = AIChatStore.shared.sessions(forBook: bookID)
-        if session.id == id { cancel(); session = AIChatSession() }
-    }
-
-    private func persist() {
-        AIChatStore.shared.save(session, forBook: bookID)
-        history = AIChatStore.shared.sessions(forBook: bookID)
-    }
-
-    // MARK: - Actions
-
-    private func run(_ suggestion: AIChatSuggestion) {
-        switch suggestion.kind {
-        case .recap:
-            askRecap()
-        case let .prompt(text):
-            send(text)
-        }
-    }
-
-    private func retry(_ message: AIChatMessage) {
-        guard let i = messages.firstIndex(where: { $0.id == message.id }), i > 0,
-              messages[i - 1].role == .user else { return }
-        let user = messages[i - 1]
-        send(user.text, existingUserID: user.id)
-    }
-
-    private func send(_ text: String, existingUserID: UUID? = nil) {
-        let question = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty, !isBusy else { return }
-        draft = ""
-        inputFocused = false
-        let context = AIQuestionContext(bookID: bookID, conversationID: session.id, question: question,
-            source: adapter, boundary: currentBoundary, history: messages.filter { $0.id != existingUserID })
-        let owner = AIChatRequestOwner(requestID: context.requestID, conversationID: session.id, bookID: bookID, boundary: currentBoundary)
-        let metadata = AIChatProvenance(requestID: context.requestID, bookID: bookID, conversationID: session.id,
-            boundary: currentBoundary, status: .pending)
-        guard let turn = session.prepareQuestion(question, metadata: metadata, retrying: existingUserID) else { return }
-        let userID = turn.user
-        let pendingID = turn.assistant
-        persist()
-        task?.cancel()
-        requestOwner = owner
-        questionStage = .searching
-        task = Task {
-            do {
-                let result = try await AIAssistantService.shared.answer(context: context) { stage in
-                    if requestOwner == owner { questionStage = stage }
+    private func citationPreview(_ citation: LLMCitation) -> some View {
+        NavigationStack {
+            List {
+                Section { Text(citation.quote).textSelection(.enabled) } header: { Text(citation.sectionTitle ?? localized("原文")) }
+            }
+            .navigationTitle(localized("原文引用"))
+            .toolbarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(localized("跳到原文"), systemImage: "arrow.turn.down.right") {
+                        selectedCitation = nil
+                        onOpenCitation(citation, currentSource.boundary(wholeBook: conversation.wholeBook))
+                    }
                 }
-                guard !Task.isCancelled, owns(owner) else { return }
-                if let i = session.messages.firstIndex(where: { $0.id == userID }) { session.messages[i].provenance = result.provenance }
-                resolve(pendingID, text: result.content, citations: result.citations, hasEvidence: result.hasEvidence,
-                    provenance: result.provenance, notices: result.notices)
-                AIDiagnosticStore.shared.recordPresentation(requestID: owner.requestID, status: "displayed")
-                requestOwner = nil
-            } catch {
-                guard !Task.isCancelled, owns(owner) else { return }
-                var failed = metadata; failed.status = error is CancellationError ? .cancelled : .failed
-                if let i = session.messages.firstIndex(where: { $0.id == userID }) { session.messages[i].provenance = failed }
-                resolve(pendingID, error: error.localizedDescription, provenance: failed)
-                AIDiagnosticStore.shared.recordPresentation(requestID: owner.requestID, status: "failed")
-                requestOwner = nil
-            }
-        }
-    }
-
-    private func owns(_ owner: AIChatRequestOwner) -> Bool {
-        owner.canPublish(requestID: requestOwner?.requestID, conversationID: session.id, bookID: bookID, boundary: currentBoundary)
-    }
-
-    /// 前情提要 does not go through retrieval: it is seeded from the most recent already-read
-    /// passages, so it reads forwards instead of answering a query.
-    private func askRecap() {
-        guard !isBusy else { return }
-        let snapshot = adapter
-        let boundary = currentBoundary
-        let owner = AIChatRequestOwner(requestID: UUID(), conversationID: session.id, bookID: bookID, boundary: boundary)
-        requestOwner = owner
-        questionStage = .answering
-        append(AIChatMessage(role: .user, text: localized("最近已讀片段提要")))
-        let pending = AIChatMessage(role: .assistant, text: "", isPending: true)
-        append(pending)
-
-        task?.cancel()
-        task = Task {
-            do {
-                let stored = AIRecapStore.shared.recap(forBook: bookID)
-                let recap = try await AIAssistantService.shared.recap(
-                    bookID: bookID,
-                    bookTitle: bookTitle,
-                    adapter: snapshot,
-                    progress: effectiveProgress,
-                    stored: stored,
-                    boundary: boundary
-                )
-                guard !Task.isCancelled, owns(owner) else { return }
-                guard let recap else {
-                    resolve(pending.id, error: localized("已讀範圍還太少，無法產生提要。"))
-                    return
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { selectedCitation = nil } label: { Image(systemName: "xmark") }.accessibilityLabel(localized("關閉"))
                 }
-                AIRecapStore.shared.save(recap, forBook: bookID)
-                resolve(pending.id, text: recap.text, citations: [], hasEvidence: true,
-                    provenance: .init(requestID: owner.requestID, bookID: bookID, conversationID: owner.conversationID, boundary: boundary, status: .completed))
-                requestOwner = nil
-            } catch is CancellationError {
-                if owns(owner) { remove(pending.id) }
-            } catch {
-                guard !Task.isCancelled, owns(owner) else { return }
-                resolve(pending.id, error: error.localizedDescription)
             }
         }
     }
 
-    private func cancel() {
-        task?.cancel()
-        if let owner = requestOwner { AIDiagnosticStore.shared.recordPresentation(requestID: owner.requestID, status: "cancelledOrScopeChanged") }
-        requestOwner = nil
-        if let last = messages.last, last.isPending {
-            if let i = session.messages.indices.last {
-                session.messages[i].isPending = false
-                session.messages[i].errorMessage = localized("已停止本次問答。")
-                session.messages[i].provenance?.status = .cancelled
-            }
-            persist()
-        }
+    private func reloadProfiles() {
+        do { profiles = try AIProviderStore.shared.profiles(); settingsError = nil }
+        catch { settingsError = error.localizedDescription }
     }
-
-    // MARK: - Message bookkeeping
-
-    private func append(_ message: AIChatMessage) {
-        session.messages.append(message)
-        persist()
+    private func configure() {
+        guard isSourceReady else { conversation.cancel(); return }
+        conversation.open(source: adapter, sourceIdentity: sourceIdentity)
+        guard let launch, launchedID != launch.id else { return }
+        launchedID = launch.id
+        conversation.selection = launch.selection
+        if launch.action != .question { sendAction(launch.action) }
     }
+    private func sendAction(_ action: AIReadingAction) { conversation.send(action.title, action: action, prepare: prepareContent) }
 
-    private func resolve(
-        _ id: UUID,
-        text: String = "",
-        citations: [LLMCitation] = [],
-        hasEvidence: Bool = true,
-        error: String? = nil,
-        provenance: AIChatProvenance? = nil,
-        notices: [String] = []
-    ) {
-        guard let index = session.messages.firstIndex(where: { $0.id == id }) else { return }
-        session.messages[index].isPending = false
-        session.messages[index].text = text
-        session.messages[index].citations = citations
-        session.messages[index].hasEvidence = hasEvidence
-        session.messages[index].errorMessage = error
-        session.messages[index].provenance = provenance
-        session.messages[index].notices = notices
-        persist()
+    static func formatted(_ text: String) -> AttributedString {
+        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
     }
-
-    private func remove(_ id: UUID) {
-        session.messages.removeAll { $0.id == id }
-        persist()
-    }
+    static func quoteText(_ citation: LLMCitation) -> String { citation.quote }
 }
 
-/// The conversation list that slides over the chat.
 struct AIChatHistoryView: View {
     let sessions: [AIChatSession]
     let currentID: UUID
     let onSelect: (AIChatSession) -> Void
     let onDelete: (UUID) -> Void
     let onNew: () -> Void
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(localized("對話列表"))
-                    .font(DSFont.headline)
-                    .foregroundStyle(DSColor.textPrimary)
-                Spacer()
-                Button(action: onNew) {
-                    Image(systemName: "square.and.pencil")
-                        .accessibilityHidden(true)
-                }
-                .accessibilityLabel(localized("新對話"))
-            }
-            .padding(.horizontal, DSSpacing.lg)
-            .padding(.vertical, DSSpacing.md)
-
-            if sessions.isEmpty {
-                Text(localized("還沒有紀錄"))
-                    .font(DSFont.subheadline)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .padding(.horizontal, DSSpacing.lg)
-                Spacer()
-            } else {
-                List {
-                    ForEach(sessions) { item in
-                        Button {
-                            onSelect(item)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.title)
-                                    .font(DSFont.body)
-                                    .foregroundStyle(DSColor.textPrimary)
-                                    .lineLimit(2)
-                                Text(item.createdAt, style: .date)
-                                    .font(DSFont.caption)
-                                    .foregroundStyle(DSColor.textSecondary)
-                            }
-                        }
-                        .listRowBackground(
-                            item.id == currentID ? DSColor.surfaceTertiary : Color.clear
-                        )
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
-                                onDelete(item.id)
-                            } label: {
-                                Label(localized("刪除"), systemImage: "trash")
-                            }
-                        }
+        List {
+            Button(localized("新對話"), systemImage: "square.and.pencil", action: onNew)
+            ForEach(sessions) { session in
+                Button { onSelect(session) } label: {
+                    LabeledContent(session.title) {
+                        if session.id == currentID { Image(systemName: "checkmark").accessibilityLabel(localized("已選取")) }
                     }
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
+                .swipeActions { Button(localized("刪除"), role: .destructive) { onDelete(session.id) } }
             }
         }
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(DSColor.groupedBackground)
-        .ignoresSafeArea(edges: .bottom)
+        .navigationTitle(localized("對話列表"))
+        .toolbarTitleDisplayMode(.inline)
+    }
+}
+
+private struct AIAnswerMarkdownView: View {
+    let text: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: DSSpacing.sm) {
+            ForEach(Array(AIAnswerMarkdown.blocks(text).enumerated()), id: \.offset) { _, block in
+                switch block.kind {
+                case .heading:
+                    Text(AIAssistantPanelView.formatted(block.text)).font(DSFont.headline).accessibilityAddTraits(.isHeader)
+                case .code, .table:
+                    ScrollView(.horizontal) {
+                        Text(block.text).font(DSFont.body.monospaced()).fixedSize(horizontal: true, vertical: false)
+                            .padding(DSSpacing.sm)
+                    }.background(DSColor.surfaceTertiary, in: RoundedRectangle(cornerRadius: DSRadius.sm))
+                case .quote:
+                    HStack(alignment: .top, spacing: DSSpacing.sm) {
+                        Image(systemName: "quote.opening").foregroundStyle(DSColor.textSecondary).accessibilityHidden(true)
+                        Text(AIAssistantPanelView.formatted(block.text)).font(DSFont.body)
+                    }
+                case .paragraph, .list:
+                    Text(AIAssistantPanelView.formatted(block.text)).font(DSFont.body)
+                }
+            }
+        }.textSelection(.enabled)
     }
 }
 
 #Preview {
-    AIAssistantPanelView(
-        bookID: UUID(),
-        bookTitle: "我師兄實在太穩健了",
-        adapter: AIBookContentAdapter(bookID: UUID(), chapters: [], textForChapter: { _ in nil }),
-        progress: 0.42,
-        onOpenCitation: { _ in }
-    )
+    AIAssistantPanelView(bookID: UUID(), bookTitle: "閱讀中的書", adapter: .init(bookID: UUID(), chapters: [], textForChapter: { _ in nil }), progress: 0.4, onOpenCitation: { _, _ in })
 }

@@ -47,19 +47,12 @@ enum AIQuestionSourceReader {
         ["剛剛", "刚刚", "這一段", "这一段", "這段", "这段", "目前這", "目前这", "current passage", "just read", "what just happened"].contains { query.localizedCaseInsensitiveContains($0) }
     }
 
-    /// Local phrase signal supplements NLTokenizer when a proper name is split differently.
-    /// It authorizes no alias equivalence, and only examines already eligible source text.
+    /// The boundary-crossing prefix is request-local and cannot enter the persisted index.
+    /// Score it with the same terms as indexed retrieval, without scanning the whole book.
     static func literalScore(_ input: String, text original: String) -> Double {
         let query = AIBM25Index.searchText(input)
         let text = AIBM25Index.searchText(original)
-        var terms = Set(AIBM25Index.tokenize(query).filter { $0.count >= 2 })
-        let chars = Array(query)
-        if chars.count >= 2 {
-            for i in 0..<(chars.count - 1) {
-                let pair = String(chars[i...i + 1])
-                if pair.unicodeScalars.allSatisfy({ (0x3400...0x9FFF).contains($0.value) }) { terms.insert(pair) }
-            }
-        }
+        let terms = Set(AIBM25Index.tokenize(query).filter { $0.count >= 2 })
         return Double(terms.filter { text.range(of: $0, options: [.caseInsensitive, .literal]) != nil }.count)
     }
 

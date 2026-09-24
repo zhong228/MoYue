@@ -239,6 +239,15 @@ final class BrowserTextInteractionController: NSObject, @preconcurrency UIEditMe
                 guard let text = selection.selectedTextForCopy else { return }; afterMenuDismissal { [weak self] in self?.onTranslate?(text) }
             })
         }
+        for action in [AIReadingAction.question, .explain, .translate] {
+            actions.append(UIAction(title: action.title, image: UIImage(systemName: "sparkles")) { [weak self] _ in
+                guard let self, acceptsMenuAction(generation: generation), let range = selection.selectedRange else { return }
+                let request = CoreTextAISelectionRequest(spineIndex: spineIndex, range: range, text: excerpt(range), action: action)
+                afterMenuDismissal {
+                    NotificationCenter.default.post(name: .coreTextAISelectionRequested, object: nil, userInfo: ["request": request])
+                }
+            })
+        }
         actions.append(UIAction(title: localized("替換")) { [weak self] _ in
             guard let self, acceptsMenuAction(generation: generation) else { return }
             guard let text = selection.selectedTextForCopy else { return }
