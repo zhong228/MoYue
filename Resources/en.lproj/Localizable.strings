@@ -2609,9 +2609,6 @@
 "書籍正在閱讀中，請關閉閱讀器後再從 Calibre 刪除" = "This book is in use. Close its reader before removing it from Calibre.";
 "Calibre 網頁進度回傳失敗：%@" = "Failed to send the Calibre web reading position: %@";
 "Calibre 桌面獨立閱讀器與 Calibre-Web 不支援此續讀方式。" = "The standalone Calibre desktop viewer and Calibre-Web do not support this continuation method.";
-"直連 Firebase" = "Direct to Firebase";
-"中轉服務" = "Relay service";
-"帳號連線方式" = "Account connection";
 "連線方式會在下次登入時生效。中轉服務透過自有伺服器連接原本的 Firebase 帳號。" = "The connection method takes effect on the next sign-in. The relay reaches the existing Firebase account through our own server.";
 "此版本未設定中轉服務" = "This build has no relay service configured.";
 "目前無法連線中轉服務，請檢查網路後再試" = "Can't reach the relay service right now. Check your connection and try again.";
@@ -2833,7 +2830,6 @@
 "記下每一次翻頁與解析步驟。關閉時仍會記錄錯誤。" = "Records every page turn and parse step. Errors are logged either way.";
 "只影響自動生成的封面，你匯入的封面圖不受影響。" = "Only affects generated covers; your own cover images are untouched.";
 "無法復原。本機的內容檔不會被刪除。" = "Cannot be undone. Files stored on this device are kept.";
-"下次登入時生效。" = "Takes effect at your next sign-in.";
 "記下每一次請求與回應。規則比對量太大，預設不收。" = "Records every request and response. Rule matches are too numerous and are skipped.";
 "自定義規則排在內置規則之後，可以覆蓋它們。" = "Custom rules run after the built-in ones and can override them.";
 "只取用顏色、邊距與皮膚圖，文字仍照閱讀字級排版。" = "Takes only colours, insets and skin images; text still uses your reading size.";

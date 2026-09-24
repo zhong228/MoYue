@@ -662,14 +662,6 @@ class GlobalSettings: ObservableObject {
         didSet { UserDefaults.standard.set(accountPhotoURL, forKey: "yd_account_photo_url") }
     }
 
-    /// Which route account traffic takes. `.automatic` remembers the last
-    /// successful route and otherwise uses a region hint; it never depends on
-    /// Remote Config, which itself needs Firebase.
-    @Published var authRouteMode: AuthRouteMode {
-        didSet { UserDefaults.standard.set(authRouteMode.rawValue, forKey: Self.authRouteModeKey) }
-    }
-    static let authRouteModeKey = "yd_auth_route_mode"
-
     /// Subtitle shown under the account name. Prefers a real email, otherwise falls
     /// back to a provider description so we never display an opaque identifier.
     var accountSubtitle: String {
@@ -1673,8 +1665,6 @@ class GlobalSettings: ObservableObject {
         accountProvider = UserDefaults.standard.string(forKey: "yd_account_provider") ?? ""
         accountUserIdentifier = UserDefaults.standard.string(forKey: "yd_account_user_identifier") ?? ""
         accountPhotoURL = UserDefaults.standard.string(forKey: "yd_account_photo_url") ?? ""
-        authRouteMode = UserDefaults.standard.string(forKey: Self.authRouteModeKey)
-            .flatMap(AuthRouteMode.init(rawValue:)) ?? .automatic
         accountAvatarData = UserDefaults.standard.data(forKey: "yd_account_avatar_data")
         let rawConv = UserDefaults.standard.string(forKey: "yd_text_conv") ?? ""
         textConversion = TextConversion(rawValue: rawConv) ?? .original

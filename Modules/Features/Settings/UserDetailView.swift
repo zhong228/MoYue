@@ -146,26 +146,6 @@ struct UserDetailView: View {
             }
             .interfaceSectionSurface()
 
-            Section {
-                Picker(localized("帳號連線方式"), selection: $gs.authRouteMode) {
-                    ForEach(AuthRouteMode.allCases) { mode in
-                        Text(localized(mode.titleKey)).tag(mode)
-                    }
-                }
-            } header: {
-                Text(localized("帳號連線方式"))
-            } footer: {
-                VStack(alignment: .leading, spacing: DSSpacing.xs) {
-                    Text(localized("下次登入時生效。"))
-                        .dsSectionFooter()
-                    if !GatewayConfiguration.isConfigured {
-                        Text(localized("此版本未設定中轉服務"))
-                            .dsSectionFooter(color: DSColor.warning)
-                    }
-                }
-            }
-            .interfaceSectionSurface()
-
             Section(header: Text(localized("閱讀工具"))) {
                 Button {
                     showReadingStats = true

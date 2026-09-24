@@ -202,7 +202,7 @@ final class FirebaseAuthManager: ObservableObject {
 
     /// Links a Google identity to the currently signed-in account (same uid).
     func linkGoogle() async throws {
-        let route = activeRoute ?? resolveRoute()
+        let route = sessionRoute
         do {
             switch route {
             case .direct:
@@ -242,7 +242,7 @@ final class FirebaseAuthManager: ObservableObject {
             throw AuthFlowError.missingAppleIDToken
         }
 
-        let route = activeRoute ?? resolveRoute()
+        let route = sessionRoute
         do {
             switch route {
             case .direct:
@@ -272,7 +272,7 @@ final class FirebaseAuthManager: ObservableObject {
 
     /// Links an email/password identity to the currently signed-in account (same uid).
     func linkEmail(email: String, password: String) async throws {
-        let route = activeRoute ?? resolveRoute()
+        let route = sessionRoute
         do {
             switch route {
             case .direct:
@@ -321,7 +321,7 @@ final class FirebaseAuthManager: ObservableObject {
 
     /// Removes one sign-in method from the current account (same uid, one fewer provider).
     func unlink(providerID: String) async throws {
-        let route = activeRoute ?? resolveRoute()
+        let route = sessionRoute
         switch route {
         case .direct:
             guard let user = Auth.auth().currentUser else { throw AuthFlowError.missingFirebaseUser }
@@ -509,21 +509,30 @@ final class FirebaseAuthManager: ObservableObject {
 
     // MARK: - Routing
 
-    /// Resolves the route from persisted mode + memory + a regional hint. Never
-    /// from Remote Config: that would require the very connection being fixed.
-    /// A DEBUG-only launch argument can pin the route for integration builds.
-    func resolveRoute() -> AuthRoute {
+    /// Link / unlink act on the account behind the current session, so they follow
+    /// its route. Signed out there is no session on either route, and `.direct`
+    /// reports that as `missingFirebaseUser`.
+    private var sessionRoute: AuthRoute {
+        activeRoute ?? .direct
+    }
+
+    /// Resolves the route for a new sign-in from memory, a regional hint and a
+    /// short direct-reachability probe. Never from Remote Config: that would
+    /// require the very connection being fixed. A DEBUG-only launch argument can
+    /// pin the route for integration builds.
+    private func resolveRoute() async -> AuthRoute {
         #if DEBUG
         if let forced = AuthRouteOverride.forcedRoute() {
             return forced
         }
         #endif
-        let decision = AuthRoutePolicy.decide(
-            mode: GlobalSettings.shared.authRouteMode,
+        let decision = await AuthRoutePolicy.decide(
             gatewayConfigured: GatewayConfiguration.isConfigured,
             lastSuccessfulRoute: AuthRouteMemory.lastSuccessfulRoute,
-            regionHintIsMainland: AuthRoutePolicy.regionHintIsMainland()
+            regionHintIsMainland: AuthRoutePolicy.regionHintIsMainland(),
+            directReachable: { await DirectAuthReachability.probe() }
         )
+        AppLogger.network("auth route decision: \(decision.decision)")
         return decision.route
     }
 
@@ -544,11 +553,11 @@ final class FirebaseAuthManager: ObservableObject {
             return user
         }
         #endif
-        // Release: only email may use the Gateway. Apple/Google keep the
-        // verified direct behavior even when the automatic policy would pick
-        // the Gateway by region or memory.
+        // Google keeps the direct route even when the automatic policy would
+        // pick the Gateway: where Firebase is blocked, Google's own sign-in page
+        // is too, so relaying the token exchange cannot help.
         let route: AuthRoute = AuthRouteFallbackPolicy.isGatewayEligible(operation: operation)
-            ? resolveRoute()
+            ? await resolveRoute()
             : .direct
         AppLogger.network("auth route selected: \(route.rawValue)")
         do {

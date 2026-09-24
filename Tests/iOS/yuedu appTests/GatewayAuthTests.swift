@@ -5,79 +5,104 @@ import Testing
 
 @Suite("Auth route policy")
 struct AuthRoutePolicyTests {
-    @Test("forced modes win over memory and region")
-    func forcedModesWin() {
-        let memory = AuthRoute.gateway
-        #expect(AuthRoutePolicy.decide(
-            mode: .direct,
-            gatewayConfigured: true,
-            lastSuccessfulRoute: memory,
-            regionHintIsMainland: true
-        ).route == .direct)
-        #expect(AuthRoutePolicy.decide(
-            mode: .gateway,
-            gatewayConfigured: true,
-            lastSuccessfulRoute: .direct,
-            regionHintIsMainland: false
-        ).route == .gateway)
+    /// Records whether the policy asked for a probe, so tests can prove the
+    /// remembered / hinted paths add no network round trip.
+    private final class ProbeSpy: @unchecked Sendable {
+        let answer: Bool
+        private(set) var calls = 0
+        init(answer: Bool) { self.answer = answer }
+        func probe() async -> Bool {
+            calls += 1
+            return answer
+        }
     }
 
-    @Test("gateway mode falls back to direct when no gateway URL is configured")
-    func gatewayUnavailableFallsBack() {
-        let decision = AuthRoutePolicy.decide(
-            mode: .gateway,
-            gatewayConfigured: false,
-            lastSuccessfulRoute: nil,
-            regionHintIsMainland: true
-        )
-        #expect(decision.route == .direct)
-        #expect(decision.decision == .unavailableGatewayFallback)
-    }
-
-    @Test("automatic remembers the last successful route before hinting")
-    func automaticPrefersMemory() {
-        let decision = AuthRoutePolicy.decide(
-            mode: .automatic,
-            gatewayConfigured: true,
-            lastSuccessfulRoute: .direct,
-            regionHintIsMainland: true
-        )
-        #expect(decision.route == .direct)
-        #expect(decision.decision == .remembered(.direct))
-    }
-
-    @Test("a remembered gateway route never wins when this build has no relay entry")
-    func rememberedGatewayUnavailable() {
-        let decision = AuthRoutePolicy.decide(
-            mode: .automatic,
+    @Test("without a relay entry point every sign-in goes direct, even with a remembered gateway")
+    func gatewayUnavailable() async {
+        let spy = ProbeSpy(answer: false)
+        let decision = await AuthRoutePolicy.decide(
             gatewayConfigured: false,
             lastSuccessfulRoute: .gateway,
-            regionHintIsMainland: true
+            regionHintIsMainland: true,
+            directReachable: spy.probe
         )
         #expect(decision.route == .direct)
         #expect(decision.decision == .unavailableGatewayFallback)
+        #expect(spy.calls == 0)
     }
 
-    @Test("automatic without memory uses the region only as a hint")
-    func automaticUsesRegionHint() {
-        #expect(AuthRoutePolicy.decide(
-            mode: .automatic,
+    @Test("a remembered gateway is used at once, without probing")
+    func rememberedGatewaySkipsProbe() async {
+        let spy = ProbeSpy(answer: true)
+        let decision = await AuthRoutePolicy.decide(
+            gatewayConfigured: true,
+            lastSuccessfulRoute: .gateway,
+            regionHintIsMainland: false,
+            directReachable: spy.probe
+        )
+        #expect(decision.route == .gateway)
+        #expect(decision.decision == .remembered(.gateway))
+        #expect(spy.calls == 0)
+    }
+
+    @Test("a mainland hint with no memory goes to the gateway without probing")
+    func mainlandHintSkipsProbe() async {
+        let spy = ProbeSpy(answer: true)
+        let decision = await AuthRoutePolicy.decide(
             gatewayConfigured: true,
             lastSuccessfulRoute: nil,
-            regionHintIsMainland: true
+            regionHintIsMainland: true,
+            directReachable: spy.probe
+        )
+        #expect(decision.route == .gateway)
+        #expect(decision.decision == .regionHint(.gateway))
+        #expect(spy.calls == 0)
+    }
+
+    @Test("a remembered direct route is re-probed: a VPN or overseas success must not stall a blocked network")
+    func rememberedDirectIsProbed() async {
+        let blocked = ProbeSpy(answer: false)
+        let blockedDecision = await AuthRoutePolicy.decide(
+            gatewayConfigured: true,
+            lastSuccessfulRoute: .direct,
+            regionHintIsMainland: true,
+            directReachable: blocked.probe
+        )
+        #expect(blockedDecision.route == .gateway)
+        #expect(blockedDecision.decision == .probed(.gateway))
+        #expect(blocked.calls == 1)
+
+        let open = ProbeSpy(answer: true)
+        let openDecision = await AuthRoutePolicy.decide(
+            gatewayConfigured: true,
+            lastSuccessfulRoute: .direct,
+            regionHintIsMainland: false,
+            directReachable: open.probe
+        )
+        #expect(openDecision.route == .direct)
+        #expect(openDecision.decision == .probed(.direct))
+    }
+
+    @Test("no memory and no mainland hint follows the probe")
+    func unhintedFollowsProbe() async {
+        #expect(await AuthRoutePolicy.decide(
+            gatewayConfigured: true,
+            lastSuccessfulRoute: nil,
+            regionHintIsMainland: false,
+            directReachable: { false }
         ).route == .gateway)
-        #expect(AuthRoutePolicy.decide(
-            mode: .automatic,
+        #expect(await AuthRoutePolicy.decide(
             gatewayConfigured: true,
             lastSuccessfulRoute: nil,
-            regionHintIsMainland: false
+            regionHintIsMainland: false,
+            directReachable: { true }
         ).route == .direct)
     }
 
-    @Test("only an idempotent email sign-in may switch routes automatically")
+    @Test("only idempotent email and Apple sign-ins may switch routes automatically")
     func fallbackPolicy() {
         #expect(AuthRouteFallbackPolicy.allowsAutomaticRouteSwitch(operation: .signInWithEmail))
-        #expect(!AuthRouteFallbackPolicy.allowsAutomaticRouteSwitch(operation: .signInWithApple))
+        #expect(AuthRouteFallbackPolicy.allowsAutomaticRouteSwitch(operation: .signInWithApple))
         #expect(!AuthRouteFallbackPolicy.allowsAutomaticRouteSwitch(operation: .signInWithGoogle))
         #expect(!AuthRouteFallbackPolicy.allowsAutomaticRouteSwitch(operation: .signUpWithEmail))
         #expect(!AuthRouteFallbackPolicy.allowsAutomaticRouteSwitch(operation: .link))
@@ -85,11 +110,11 @@ struct AuthRoutePolicyTests {
         #expect(!AuthRouteFallbackPolicy.allowsAutomaticRouteSwitch(operation: .bindPurchase))
     }
 
-    @Test("only email may resolve to the Gateway in a Release build")
+    @Test("email and Apple may resolve to the Gateway; Google never does")
     func gatewayEligibility() {
         #expect(AuthRouteFallbackPolicy.isGatewayEligible(operation: .signInWithEmail))
         #expect(AuthRouteFallbackPolicy.isGatewayEligible(operation: .signUpWithEmail))
-        #expect(!AuthRouteFallbackPolicy.isGatewayEligible(operation: .signInWithApple))
+        #expect(AuthRouteFallbackPolicy.isGatewayEligible(operation: .signInWithApple))
         #expect(!AuthRouteFallbackPolicy.isGatewayEligible(operation: .signInWithGoogle))
         #expect(!AuthRouteFallbackPolicy.isGatewayEligible(operation: .link))
         #expect(!AuthRouteFallbackPolicy.isGatewayEligible(operation: .unlink))
@@ -481,5 +506,32 @@ struct GatewaySessionStoreTests {
         )
         #expect(response.user.uid == "uid-1")
         #expect(GatewayMockURLProtocol.refreshCount == 1)
+    }
+}
+
+@Suite("Direct auth reachability probe", .serialized)
+struct DirectAuthReachabilityTests {
+    @Test("the real Firebase Auth host answers the probe")
+    func reachableHost() async {
+        #expect(await DirectAuthReachability.probe())
+    }
+
+    @Test("a blackholed host fails within the probe timeout instead of the SDK's 60 s")
+    func blackholedHostFailsFast() async {
+        // 10.255.255.1 is a non-routable address: packets are dropped, which is
+        // how a blocked googleapis.com behaves from the mainland.
+        let started = Date()
+        var request = URLRequest(url: URL(string: "https://10.255.255.1/")!)
+        request.timeoutInterval = DirectAuthReachability.timeout
+        let reachable: Bool
+        do {
+            _ = try await DirectAuthReachability.probeSession.data(for: request)
+            reachable = true
+        } catch {
+            reachable = false
+        }
+        let elapsed = Date().timeIntervalSince(started)
+        #expect(!reachable)
+        #expect(elapsed < DirectAuthReachability.timeout + 2)
     }
 }

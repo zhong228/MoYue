@@ -123,7 +123,7 @@ struct AIChatSuggestion: Identifiable, Equatable {
 
     static let all: [AIChatSuggestion] = [
         AIChatSuggestion(
-            id: "recap",
+            id: "recap",    
             title: "前情提要",
             symbol: "text.book.closed",
             kind: .recap
