@@ -178,6 +178,9 @@ enum ReaderDialogueSegmentation {
     }
 
     private static func isConnective(_ text: String) -> Bool {
-        text.unicodeScalars.allSatisfy(connectors.contains)
+        // An explicit closure, not `connectors.contains` passed as a function value: Swift 6.4
+        // at -O miscompiled that form in `TTSTextChunker` (true for every character, Release
+        // builds only). Not reproduced here, but the same shape is not worth the risk.
+        text.unicodeScalars.allSatisfy { connectors.contains($0) }
     }
 }

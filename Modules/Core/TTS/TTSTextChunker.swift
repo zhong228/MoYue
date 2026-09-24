@@ -15,7 +15,6 @@ enum TTSTextChunker {
     static func splitWithRanges(_ text: String, targetChunkLength: Int) -> [TTSChunkRange] {
         var result: [TTSChunkRange] = []
         var bufferCount = 0
-        let newlines = CharacterSet.newlines
         var bufferStart = text.startIndex
 
         var index = text.startIndex
@@ -23,7 +22,11 @@ enum TTSTextChunker {
             let nextIndex = text.index(after: index)
             let character = text[index]
             bufferCount += 1
-            let isParagraphBreak = character.unicodeScalars.contains(where: newlines.contains)
+            // `Character` properties, never `CharacterSet.contains` passed as a function value.
+            // Swift 6.4 at -O miscompiled `unicodeScalars.contains(where: newlines.contains)` in
+            // this loop to true for every character, so Release/TestFlight builds narrated one
+            // character per segment while Debug was fine. Same rule in `appendChunk`.
+            let isParagraphBreak = character.isNewline
             let shouldBreak = isParagraphBreak || bufferCount >= targetChunkLength
             if shouldBreak {
                 appendChunk(in: bufferStart..<nextIndex, source: text, to: &result)
@@ -46,12 +49,12 @@ enum TTSTextChunker {
 
         var start = range.lowerBound
         var end = range.upperBound
-        while start < end, source[start].unicodeScalars.allSatisfy(CharacterSet.whitespacesAndNewlines.contains) {
+        while start < end, source[start].isWhitespace {
             start = source.index(after: start)
         }
         while start < end {
             let previous = source.index(before: end)
-            guard source[previous].unicodeScalars.allSatisfy(CharacterSet.whitespacesAndNewlines.contains) else {
+            guard source[previous].isWhitespace else {
                 break
             }
             end = previous
@@ -67,7 +70,7 @@ enum TTSTextChunker {
                 let gapStart = String.Index(utf16Offset: NSMaxRange(last.sourceRange), in: source)
                 // A symbol-only paragraph is a visual separator, not spoken text.
                 // Keep punctuation split by the length cap within its original paragraph.
-                guard !source[gapStart..<start].unicodeScalars.contains(where: CharacterSet.newlines.contains) else {
+                guard !source[gapStart..<start].contains(where: \.isNewline) else {
                     return
                 }
                 let unionStart = min(last.sourceRange.location, sourceRange.location)
