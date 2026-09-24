@@ -226,6 +226,10 @@ struct ReaderView: View {
     /// Chapter the narration is blocked on at a chapter boundary, while the engine holds the
     /// audio session open. Non-nil only between `beginWaitingForTTSChapter` and its resolution.
     @State var ttsPendingChapterIndex: Int? = nil
+    /// A start waiting for the paged engine to lay its chapter out (scroll mode lays chapters
+    /// out in the scroll engine only). Non-nil only while that layout is in flight; clearing it
+    /// cancels the start.
+    @State var ttsStartLayoutRequest: UUID? = nil
     @State var showTTSJumpPrompt = false
     @State var ttsJumpPromptChapterIndex: Int? = nil
     @State var ttsPlaybackAnchor: CoreTextReadingPosition?
@@ -1972,6 +1976,7 @@ struct ReaderView: View {
                 ttsChapterIndex = nil
                 ttsNarrationOffsets = nil
                 ttsPendingChapterIndex = nil
+                ttsStartLayoutRequest = nil
                 ttsPlaybackAnchor = nil
                 showTTSJumpPrompt = false
                 ttsJumpPromptChapterIndex = nil

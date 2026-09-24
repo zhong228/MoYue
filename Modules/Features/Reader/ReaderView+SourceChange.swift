@@ -548,6 +548,8 @@ extension ReaderView {
     func handleTTSPlayPause() {
         switch ttsCoordinator.playbackState {
         case .playing:
+            // A chapter switch still waiting on its layout must not resume what was paused.
+            ttsStartLayoutRequest = nil
             ttsCoordinator.pause()
         case .paused:
             ttsCoordinator.resume()
@@ -614,9 +616,85 @@ extension ReaderView {
         }
     }
 
+    /// What starting narration at a chapter has to do before it can speak.
+    enum TTSChapterStartPlan: Equatable {
+        /// The chapter's text is in hand.
+        case speak
+        /// The paged engine can lay the chapter out but has not yet: start once it has.
+        case awaitLayout
+        /// Nothing will produce text for this chapter now.
+        case unavailable
+    }
+
+    /// No narration text is not the same as no text. Narration reads the paged engine,
+    /// and a chapter that engine has not laid out yet is unmeasured, not empty — scroll
+    /// mode lays its chapters out in the scroll engine only, so the chapter on screen is
+    /// routinely in that state. Only the layout pass is waited on, and only once: a
+    /// chapter still empty after it (`layoutAwaited`) is empty for real.
+    static func ttsChapterStartPlan(
+        hasNarration: Bool,
+        isLaidOut: Bool,
+        canLayOut: Bool,
+        layoutAwaited: Bool
+    ) -> TTSChapterStartPlan {
+        if hasNarration { return .speak }
+        if !isLaidOut, canLayOut, !layoutAwaited { return .awaitLayout }
+        return .unavailable
+    }
+
+    /// Whether the paged engine can lay `chapterIndex` out right now. A local book always
+    /// can; an online chapter only once its content is cached — until then the start keeps
+    /// its `ensureChapterReady` request, which is all it can do.
+    private func canLayOutTTSChapter(_ chapterIndex: Int) -> Bool {
+        guard epubRenderer.engine != nil, usesCoreTextEPUB else { return false }
+        return book?.isOnline != true || isChapterContentAvailable(at: chapterIndex)
+    }
+
+    /// Lays `chapterIndex` out in the paged engine, then starts narration there.
+    ///
+    /// Scroll mode relied on a side effect for this: the paged-mode restore used to lay out
+    /// the chapter the book opened on, and narration found its text there. The scroll-mode
+    /// restore no longer touches the paged engine, so 聽書 found nothing and did nothing.
+    /// The layout task's completion is the readiness signal — no polling, no delay — and a
+    /// newer start, a pause or a stop (each clears `ttsStartLayoutRequest`) wins over a
+    /// layout still in flight.
+    private func startTTSChapterOnceLaidOut(_ chapterIndex: Int, syncReader: Bool, startCharOffset: Int) {
+        guard let engine = epubRenderer.engine else { return }
+        let request = UUID()
+        ttsStartLayoutRequest = request
+        let requestedAt = ProcessInfo.processInfo.systemUptime
+        ttsLog("[TTS][Reader] start waits for layout chapter=\(chapterIndex)")
+        Task { @MainActor in
+            let outcome = await engine.preloadChapter(at: chapterIndex)
+            SourcePerfTrace.record(
+                "tts.start.awaitLayout",
+                "spine=\(chapterIndex) outcome=\(outcome.rawValue)",
+                since: requestedAt,
+                thresholdMs: 0
+            )
+            guard ttsStartLayoutRequest == request else {
+                ttsLog("[TTS][Reader] start for chapter=\(chapterIndex) superseded during layout")
+                return
+            }
+            startTTSChapter(
+                chapterIndex,
+                syncReader: syncReader,
+                startCharOffset: startCharOffset,
+                layoutAwaited: true
+            )
+        }
+    }
+
     @discardableResult
-    func startTTSChapter(_ chapterIndex: Int, syncReader: Bool, startCharOffset: Int = 0) -> Bool {
+    func startTTSChapter(
+        _ chapterIndex: Int,
+        syncReader: Bool,
+        startCharOffset: Int = 0,
+        layoutAwaited: Bool = false
+    ) -> Bool {
         guard chapters.indices.contains(chapterIndex) else { return false }
+        // Whatever this call does, it replaces a start still waiting on a layout.
+        ttsStartLayoutRequest = nil
         // Starting on a volume separator (the reader is parked on one, or the user picked one
         // in the TOC) has nothing to read: begin at the next real chapter instead of failing
         // silently. The offset belongs to the separator, so it is dropped.
@@ -633,18 +711,29 @@ extension ReaderView {
         var text = narration.text
         var hints = narration.pronunciationHints
         var offsets = narration.sourceOffsets
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let plan = Self.ttsChapterStartPlan(
+            hasNarration: !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            isLaidOut: epubRenderer.engine?.chapterPagination(forSpine: chapterIndex, charOffset: 0) != nil,
+            canLayOut: canLayOutTTSChapter(chapterIndex),
+            layoutAwaited: layoutAwaited
+        )
+        if plan == .awaitLayout {
+            startTTSChapterOnceLaidOut(chapterIndex, syncReader: syncReader, startCharOffset: startCharOffset)
+            return true
+        }
+        guard plan == .speak else {
             // The moment listening stops. Previously a `notice` buried among thousands:
             // a real user's export had seven of these and nothing marking them as the
-            // reason the audio went silent. `narrationForTTSChapter` asks the
-            // engine for the chapter's text first, so this fires when a layout was
-            // discarded out from under playback and no fallback had the text.
+            // reason the audio went silent. An unmeasured chapter no longer lands here
+            // (it is laid out first), so this is a chapter still empty after its own
+            // layout pass, or an online chapter whose content has not arrived.
             AppLogger.anomaly(
                 localized("聽書取不到章節文字而停止"),
                 category: .tts,
                 detail: [
                     "chapter=\(chapterIndex)",
                     "hasLayout=\(epubRenderer.engine?.chapterPagination(forSpine: chapterIndex, charOffset: 0) != nil)",
+                    "layoutAwaited=\(layoutAwaited)",
                     "usesCoreText=\(usesCoreTextEPUB)",
                     "pagesForChapter=\(allPages.filter { $0.chapterIndex == chapterIndex }.count)",
                 ].joined(separator: "\n")
