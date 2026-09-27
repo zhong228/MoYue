@@ -1,10 +1,12 @@
 import Foundation
 
 /// A book-scoped action offered by the reader chrome — refresh the chapter, change
-/// source, download, start narration. Which ones apply depends on the book (a local
-/// EPUB only gets playback), so `ReaderView.readerSecondaryActions` builds the list
-/// once and every interface renders that same list: Apple Books shows them in its
-/// pop-up menu, 現代 in the book card behind the cover thumbnail.
+/// source, download, start narration, AI 助手, 翻譯. Which ones apply depends on the book
+/// (a local EPUB gets no download), so `ReaderView.readerSecondaryActions` builds the list
+/// once and every interface renders from it: 現代 shows them all in the book card behind
+/// the cover thumbnail; Apple Books makes AI 助手 a row of its pop-up menu and puts the
+/// rest in the action row under it; 經典 floats the non-AI ones as circles and keeps
+/// AI 助手 and 翻譯 in its top 三橫線 menu.
 struct ReaderSecondaryAction: Identifiable {
     enum ID: String {
         case playback
@@ -18,7 +20,18 @@ struct ReaderSecondaryAction: Identifiable {
     let id: ID
     let icon: String
     let label: String
+    /// Needs Yuedu Pro the reader does not have (AI 助手, 翻譯): shown marked, and `action`
+    /// opens the paywall instead.
+    let isLocked: Bool
     let action: () -> Void
+
+    init(id: ID, icon: String, label: String, isLocked: Bool = false, action: @escaping () -> Void) {
+        self.id = id
+        self.icon = icon
+        self.label = label
+        self.isLocked = isLocked
+        self.action = action
+    }
 }
 
 /// What the 現代 book-card popover was asked to open.
@@ -41,4 +54,6 @@ enum ReaderModernBookCardRoute: Hashable {
 /// `Technotes/iOS17MenuModalPresentation.md`.
 enum ReaderQuickPanelRoute: Hashable {
     case settings
+    /// A locked control in the panel (導入圖片背景 without Pro).
+    case paywall(PremiumFeature)
 }

@@ -49,6 +49,126 @@ struct ReaderTranslationLayoutTests {
         #expect(ReaderTranslationText.storageKey("他笑了。").count == 32)
     }
 
+    // MARK: - Look
+
+    private let body = UIFont.systemFont(ofSize: 18)
+
+    private func translationAttributes(_ spliced: (display: NSAttributedString, layout: ReaderTranslationLayout),
+                                       block: Int) -> [NSAttributedString.Key: Any] {
+        spliced.display.attributes(at: spliced.layout.blocks[block].translation.location, effectiveRange: nil)
+    }
+
+    @Test("a heading drawn white on an inline box keeps its box; the text after it keeps its own look")
+    func inlineBoxHeading() throws {
+        // 诡秘之主: <p class="bt1"><span class="look">关于穿越后：</span></p>, white on orange.
+        let box = HTMLAttributedStringBuilder.InlineBorderBoxStyle(
+            borderColor: .orange, borderWidth: 1, cornerRadius: 3, fillColor: .orange,
+            paddingHorizontal: 8, paddingVertical: 6)
+        let chapter = NSMutableAttributedString(string: "关于穿越后：", attributes: [
+            .font: UIFont.systemFont(ofSize: 11), .foregroundColor: UIColor.white,
+            HTMLAttributedStringBuilder.cssSpecifiedForegroundColorAttribute: UIColor.white,
+            HTMLAttributedStringBuilder.inlineBorderBoxAttribute: box,
+        ])
+        chapter.append(NSAttributedString(string: "\n原主多年专注读书。", attributes: [.font: body, .foregroundColor: UIColor.black]))
+        let table = ["关于穿越后：": "After crossing over:", "原主多年专注读书。": "He had long buried himself in books."]
+        for mode in [ReaderTranslationPresentation.Mode.bilingual, .translationOnly] {
+            let spliced = try #require(ReaderTranslationLayout.splice(chapter, mode: mode) { table[$0] })
+            let heading = translationAttributes(spliced, block: 0)
+            #expect(heading[HTMLAttributedStringBuilder.inlineBorderBoxAttribute] as? HTMLAttributedStringBuilder.InlineBorderBoxStyle != nil)
+            #expect(heading[.foregroundColor] as? UIColor == .white)
+            #expect(heading[HTMLAttributedStringBuilder.cssSpecifiedForegroundColorAttribute] as? UIColor == .white)
+            let text = translationAttributes(spliced, block: 1)
+            #expect(text[HTMLAttributedStringBuilder.inlineBorderBoxAttribute] == nil)
+            #expect(text[.foregroundColor] as? UIColor == .black)
+        }
+    }
+
+    @Test("a translation takes the look of most of its paragraph, not a bold lead-in or a hidden quote mark")
+    func mainTextLook() throws {
+        let hidden: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 0.01), .foregroundColor: UIColor.clear]
+        let chapter = NSMutableAttributedString(string: "周明瑞：", attributes: [.font: UIFont.boldSystemFont(ofSize: 18)])
+        chapter.append(NSAttributedString(string: "眸子深棕，黑发较短。\n", attributes: [.font: body, .foregroundColor: UIColor.darkGray]))
+        chapter.append(NSAttributedString(string: "“", attributes: hidden))
+        chapter.append(NSAttributedString(string: "好。", attributes: [.font: body, .foregroundColor: UIColor.blue]))
+        chapter.append(NSAttributedString(string: "”", attributes: hidden))
+        let table = ["周明瑞：眸子深棕，黑发较短。": "Zhou Mingrui: dark brown eyes, short black hair.", "“好。”": "“Fine.”"]
+        let spliced = try #require(ReaderTranslationLayout.splice(chapter, mode: .bilingual) { table[$0] })
+        let described = translationAttributes(spliced, block: 0)
+        #expect(described[.font] as? UIFont == body)
+        #expect(described[.foregroundColor] as? UIColor == .darkGray)
+        let spoken = translationAttributes(spliced, block: 1)
+        #expect(spoken[.font] as? UIFont == body)
+        #expect(spoken[.foregroundColor] as? UIColor == .blue)
+    }
+
+    @Test("a designed chapter title is left as drawn")
+    func designedTitle() throws {
+        // What ChapterTitleAttributedBuilder.compileDesignBlock emits: clear placeholder
+        // characters the render plan is drawn over.
+        let chapter = NSMutableAttributedString(string: "第一章 初入江湖\n", attributes: [
+            .font: UIFont.systemFont(ofSize: 1), .foregroundColor: UIColor.clear,
+            ChapterTitleAttributedBuilder.designRenderPlanAttribute: NSObject(),
+        ])
+        chapter.append(NSAttributedString(string: "他走进了城门。", attributes: [.font: body]))
+        let table = ["第一章 初入江湖": "Chapter One", "他走进了城门。": "He walked through the gate."]
+        for mode in [ReaderTranslationPresentation.Mode.bilingual, .translationOnly] {
+            let spliced = try #require(ReaderTranslationLayout.splice(chapter, mode: mode) { table[$0] })
+            #expect(spliced.layout.blocks.count == 1)
+            #expect(spliced.display.string.hasPrefix("第一章 初入江湖\n"))
+        }
+    }
+
+    @Test("a translation is drawn inside its paragraph's block and container boxes")
+    func blockBoxes() throws {
+        let chapter = NSAttributedString(string: "人物形象", attributes: [
+            .font: body, .foregroundColor: UIColor.white,
+            HTMLAttributedStringBuilder.blockBackgroundColorAttribute: UIColor.brown,
+            HTMLAttributedStringBuilder.blockRenderIDAttribute: "heading",
+            HTMLAttributedStringBuilder.containerBlockRenderIDAttribute: "container-aside",
+        ])
+        for mode in [ReaderTranslationPresentation.Mode.bilingual, .translationOnly] {
+            let spliced = try #require(ReaderTranslationLayout.splice(chapter, mode: mode) { _ in "Appearance" })
+            let translation = translationAttributes(spliced, block: 0)
+            #expect(translation[HTMLAttributedStringBuilder.blockRenderIDAttribute] as? String == "heading")
+            #expect(translation[HTMLAttributedStringBuilder.containerBlockRenderIDAttribute] as? String == "container-aside")
+            #expect(translation[HTMLAttributedStringBuilder.blockBackgroundColorAttribute] as? UIColor == .brown)
+            #expect(translation[.foregroundColor] as? UIColor == .white)
+        }
+    }
+
+    @Test("a highlighted paragraph's translation takes the book's own colour, not the highlight's")
+    func highlightedParagraph() throws {
+        let chapter = NSMutableAttributedString(string: "“走吧，天快黑了。”他说。", attributes: [.font: body, .foregroundColor: UIColor.black])
+        DialogueHighlighter.apply(textColor: .red, boxColor: .yellow, to: chapter)
+        #expect(chapter.attribute(.foregroundColor, at: 1, effectiveRange: nil) as? UIColor != .black)
+        let spliced = try #require(ReaderTranslationLayout.splice(chapter, mode: .bilingual) { _ in "“Let's go,” he said." })
+        let translation = translationAttributes(spliced, block: 0)
+        #expect(translation[.foregroundColor] as? UIColor == .black)
+        #expect(translation[RegexHighlightEngine.decorationAttributeKey] == nil)
+    }
+
+    @Test("a translation of a dialogue bubble is a bubble of its own, fitted to its own text")
+    func dialogueBubble() throws {
+        let chapter = NSMutableAttributedString(string: "“好。”\n他点点头。", attributes: [.font: body, .foregroundColor: UIColor.black])
+        ReaderDialogueBubbleMarker.apply(style: ReaderDialogueBubbleStyle(isEnabled: true), columnWidth: 320,
+                                         bodyFontSize: 18, to: chapter)
+        let key = ReaderDialogueBubbleMarker.attributeKey
+        let source = try #require(chapter.attribute(key, at: 1, effectiveRange: nil) as? ReaderDialogueBubbleMark)
+        let spliced = try #require(ReaderTranslationLayout.splice(chapter, mode: .bilingual) { key in
+            key.hasPrefix("“") ? "“All right, then — let's do it your way.”" : nil
+        })
+        let block = try #require(spliced.layout.blocks.first)
+        let bubble = try #require(spliced.display.attribute(key, at: block.translation.location, effectiveRange: nil) as? ReaderDialogueBubbleMark)
+        #expect(bubble !== source)
+        #expect(bubble.side == source.side)
+
+        func textWidth(at location: Int, in string: NSAttributedString) throws -> CGFloat {
+            let style = try #require(string.attribute(.paragraphStyle, at: location, effectiveRange: nil) as? NSParagraphStyle)
+            return source.metrics.columnWidth - style.headIndent + style.tailIndent
+        }
+        #expect(try textWidth(at: block.translation.location, in: spliced.display) > textWidth(at: 1, in: chapter))
+    }
+
     // MARK: - Positions
 
     @Test("every display offset maps to a position that maps straight back", arguments: [

@@ -129,8 +129,9 @@ struct ReaderTranslationLayout: Equatable, Sendable {
         for paragraph in ReaderTranslationText.paragraphs(in: text) {
             guard let raw = translation(paragraph.key) else { continue }
             let translated = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !translated.isEmpty else { continue }
-            let attributes = translationAttributes(from: source, paragraph: paragraph.range)
+            guard !translated.isEmpty, let look = look(of: paragraph.range, in: source) else { continue }
+            let attributes = look.attributes
+            let block: Block
             switch mode {
             case .off:
                 return nil
@@ -141,28 +142,32 @@ struct ReaderTranslationLayout: Equatable, Sendable {
                     let separator = (text as NSString).substring(with: terminator)
                     display.append(NSAttributedString(string: translated, attributes: attributes))
                     display.append(NSAttributedString(string: separator, attributes: attributes))
-                    blocks.append(Block(source: paragraph.range, anchor: terminator.location,
-                                        inserted: NSRange(location: start, length: display.length - start),
-                                        translation: NSRange(location: start, length: (translated as NSString).length)))
+                    block = Block(source: paragraph.range, anchor: terminator.location,
+                                  inserted: NSRange(location: start, length: display.length - start),
+                                  translation: NSRange(location: start, length: (translated as NSString).length))
                 } else {
                     // The chapter's last paragraph: the translation needs a line break of its own.
                     copy(upTo: NSMaxRange(paragraph.range))
                     let start = display.length
                     display.append(NSAttributedString(string: "\n", attributes: attributes))
                     display.append(NSAttributedString(string: translated, attributes: attributes))
-                    blocks.append(Block(source: paragraph.range, anchor: NSMaxRange(paragraph.range) - 1,
-                                        inserted: NSRange(location: start, length: display.length - start),
-                                        translation: NSRange(location: start + 1, length: (translated as NSString).length)))
+                    block = Block(source: paragraph.range, anchor: NSMaxRange(paragraph.range) - 1,
+                                  inserted: NSRange(location: start, length: display.length - start),
+                                  translation: NSRange(location: start + 1, length: (translated as NSString).length))
                 }
             case .translationOnly:
                 copy(upTo: paragraph.range.location)
                 let start = display.length
                 display.append(NSAttributedString(string: translated, attributes: attributes))
-                blocks.append(Block(source: paragraph.range, anchor: paragraph.range.location,
-                                    inserted: NSRange(location: start, length: display.length - start),
-                                    translation: NSRange(location: start, length: display.length - start)))
+                block = Block(source: paragraph.range, anchor: paragraph.range.location,
+                              inserted: NSRange(location: start, length: display.length - start),
+                              translation: NSRange(location: start, length: display.length - start))
                 cursor = NSMaxRange(paragraph.range)
             }
+            if let bubble = look.bubble {
+                ReaderDialogueBubbleMarker.markAdded(block.translation, like: bubble, in: display)
+            }
+            blocks.append(block)
         }
         guard !blocks.isEmpty else { return nil }
         copy(upTo: source.length)
@@ -171,26 +176,109 @@ struct ReaderTranslationLayout: Equatable, Sendable {
         return (display, layout)
     }
 
-    /// The source paragraph's look for its translation: font, paragraph style, color and
-    /// spacing, taken from its first real character — never an attachment's run delegate,
-    /// link or decoration, which would turn the translation into something it is not.
-    private static func translationAttributes(from source: NSAttributedString, paragraph: NSRange) -> [NSAttributedString.Key: Any] {
-        let string = source.string as NSString
-        var index = paragraph.location
-        while index < NSMaxRange(paragraph), [0xFFFC, 0x20, 0x3000, 0x09].contains(string.character(at: index)) { index += 1 }
-        if index >= NSMaxRange(paragraph) { index = paragraph.location }
-        let all = index < source.length ? source.attributes(at: index, effectiveRange: nil) : [:]
-        var attributes: [NSAttributedString.Key: Any] = [attribute: true]
-        for key in copiedKeys { if let value = all[key] { attributes[key] = value } }
-        return attributes
+    // MARK: - Look
+
+    private struct Look {
+        let attributes: [NSAttributedString.Key: Any]
+        /// The 對話氣泡 the paragraph is drawn in; its translation gets a bubble of its own.
+        let bubble: ReaderDialogueBubbleMark?
     }
 
-    /// Not the language attribute: it would tell CoreText to break an English translation
-    /// like the Chinese it came from. Not kern either: letter spacing set for Chinese pulls
-    /// English words apart (seen in 诡秘之主's spaced verse lines).
-    private static let copiedKeys: [NSAttributedString.Key] = [
-        .font, .paragraphStyle, .foregroundColor, .ligature,
+    /// What a paragraph's translation looks like: the paragraph's main text — the style
+    /// covering most of its visible characters, not its first character, which may be a bold
+    /// lead-in (`<b>周明瑞：</b>…`) or a quote mark 對話氣泡 has hidden — as the book set it:
+    /// a regex highlight is the reader's own decoration, laid over the laid-out text again on
+    /// every appearance change.
+    ///
+    /// The translation also takes every box that text's colour was chosen against. 诡秘之主's
+    /// `<span class="look">` headings are white on an orange inline box; a translation with
+    /// the white and without the box was invisible on the page. So it keeps the inline box,
+    /// joins the paragraph's block and container boxes, and gets a bubble of its own.
+    ///
+    /// Nil when none of the paragraph is visible text of its own — a designed chapter title is
+    /// drawn from its render plan over clear placeholder characters — so nothing on the page
+    /// could carry a translation.
+    private static func look(of paragraph: NSRange, in source: NSAttributedString) -> Look? {
+        let text = NSMutableAttributedString(attributedString: source.attributedSubstring(from: paragraph))
+        do {
+            // Restores what the highlight overwrote; a disabled configuration evaluates nothing.
+            try RegexHighlightEngine.apply(configuration: .disabled, appearance: .light, to: text)
+        } catch {
+            AppLogger.render("regex highlight restore failed while styling a translation",
+                             context: ["error": String(describing: error)])
+        }
+        let string = text.string as NSString
+        var weights: [Signature: Int] = [:]
+        var main: (signature: Signature, attributes: [NSAttributedString.Key: Any])?
+        text.enumerateAttributes(in: NSRange(location: 0, length: text.length), options: []) { attributes, range, _ in
+            guard isVisible(attributes) else { return }
+            var visible = 0
+            for index in range.location..<NSMaxRange(range) where !ReaderTranslationText.isPadding(string.character(at: index)) {
+                visible += 1
+            }
+            guard visible > 0 else { return }
+            let signature = Signature(attributes)
+            weights[signature, default: 0] += visible
+            // Ties go to the earlier style.
+            if let current = main, current.signature == signature || weights[current.signature, default: 0] >= weights[signature, default: 0] {
+                return
+            }
+            main = (signature, attributes)
+        }
+        guard let main else { return nil }
+        var attributes: [NSAttributedString.Key: Any] = [attribute: true]
+        for key in lookKeys + boxKeys { if let value = main.attributes[key] { attributes[key] = value } }
+        return Look(attributes: attributes, bubble: main.attributes[ReaderDialogueBubbleMarker.attributeKey] as? ReaderDialogueBubbleMark)
+    }
+
+    /// Runs styled alike, for finding the paragraph's main text.
+    private struct Signature: Hashable {
+        let font: UIFont?
+        let color: UIColor?
+        let boxed: Bool
+
+        init(_ attributes: [NSAttributedString.Key: Any]) {
+            font = attributes[.font] as? UIFont
+            color = attributes[.foregroundColor] as? UIColor
+            boxed = attributes[HTMLAttributedStringBuilder.inlineBorderBoxAttribute] != nil
+        }
+    }
+
+    /// Whether text with these attributes shows on the page as itself. Clear text does not:
+    /// the quote marks 對話氣泡 hides in place, a designed title's placeholder characters —
+    /// unless it is outlined, drawn by its stroke alone.
+    private static func isVisible(_ attributes: [NSAttributedString.Key: Any]) -> Bool {
+        guard attributes[ChapterTitleAttributedBuilder.designRenderPlanAttribute] == nil else { return false }
+        if ((attributes[.foregroundColor] as? UIColor)?.cgColor.alpha ?? 1) > 0.01 { return true }
+        guard let width = attributes[.strokeWidth] as? NSNumber, width.doubleValue != 0 else { return false }
+        return ((attributes[.strokeColor] as? UIColor)?.cgColor.alpha ?? 0) > 0.01
+    }
+
+    /// The text's look: font (a synthesized italic lives in its matrix, a synthesized bold in
+    /// the stroke), paragraph style, colour, and the marks that keep an authored colour
+    /// through a theme change. Not the language attribute: it would tell CoreText to break an
+    /// English translation like the Chinese it came from. Not kern either: letter spacing set
+    /// for Chinese pulls English words apart (seen in 诡秘之主's spaced verse lines). Never a
+    /// link, anchor or attachment, which would turn the translation into something it is not.
+    private static let lookKeys: [NSAttributedString.Key] = [
+        .font, .paragraphStyle, .foregroundColor, .ligature, .strokeWidth, .strokeColor,
         NSAttributedString.Key(kCTVerticalFormsAttributeName as String),
+        HTMLAttributedStringBuilder.cssSpecifiedForegroundColorAttribute,
+        HTMLAttributedStringBuilder.cssSpecifiedDarkForegroundColorAttribute,
+    ]
+
+    /// The boxes the text's colour was chosen against. Block boxes are drawn around every
+    /// line carrying their id, so the translation is drawn inside its paragraph's box.
+    private static let boxKeys: [NSAttributedString.Key] = [
+        HTMLAttributedStringBuilder.inlineBorderBoxAttribute,
+        HTMLAttributedStringBuilder.blockBackgroundColorAttribute,
+        HTMLAttributedStringBuilder.blockDarkBackgroundColorAttribute,
+        HTMLAttributedStringBuilder.blockRenderStyleAttribute,
+        HTMLAttributedStringBuilder.blockRenderIDAttribute,
+        HTMLAttributedStringBuilder.containerBlockRenderStyleAttribute,
+        HTMLAttributedStringBuilder.containerBlockRenderIDAttribute,
+        HTMLAttributedStringBuilder.outerContainerBlockRenderStyleAttribute,
+        HTMLAttributedStringBuilder.outerContainerBlockRenderIDAttribute,
     ]
 
     // MARK: - Positions

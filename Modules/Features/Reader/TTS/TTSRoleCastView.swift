@@ -24,6 +24,7 @@ struct TTSRoleCastView: View {
     @State private var showAISettings = false
     @State private var showResetConfirmation = false
     @ObservedObject private var rosters = AISpeakerRosterStore.shared
+    @ObservedObject private var subscription = SubscriptionStore.shared
     /// Resolved on appear: `isConfigured` reads the Keychain, and `body` runs often.
     @State private var aiConfigured = false
 
@@ -44,7 +45,11 @@ struct TTSRoleCastView: View {
             // before a second voice exists — they are a reading aid in their own right, and
             // the aliases have to be there the moment the reader does import one. Hiding
             // them behind the toggle made them unreachable for anyone on a single source.
-            aliasSection
+            // Character cards are made by AI, which needs Pro; cards made earlier keep
+            // working either way.
+            if ReaderPremiumVisibilityPolicy(isProActive: subscription.isProActive).allowsAI {
+                aliasSection
+            }
             if supportsMultiRole {
                 detectedSection
                 if !castElsewhere.isEmpty { elsewhereSection }

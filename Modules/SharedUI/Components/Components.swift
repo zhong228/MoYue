@@ -34,6 +34,9 @@ struct DSSettingsRow: View {
     let icon: String
     let title: String
     var detail: String? = nil
+    /// Needs Pro the user does not have: the chevron becomes a lock, as on 外觀's 啟動圖
+    /// row, and `action` is expected to open the paywall.
+    var isLocked = false
     let action: () -> Void
 
     var body: some View {
@@ -48,9 +51,16 @@ struct DSSettingsRow: View {
                         .font(DSFont.caption)
                         .foregroundColor(DSColor.textSecondary)
                 }
-                Image(systemName: "chevron.right")
-                    .font(DSFont.caption)
-                    .foregroundColor(DSColor.textSecondary)
+                if isLocked {
+                    Image(systemName: "lock.fill")
+                        .font(DSFont.caption)
+                        .foregroundColor(DSColor.textSecondary)
+                        .accessibilityHidden(true)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(DSFont.caption)
+                        .foregroundColor(DSColor.textSecondary)
+                }
             }
         }
     }

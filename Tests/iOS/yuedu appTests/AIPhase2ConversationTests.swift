@@ -87,6 +87,29 @@ struct AIPhase2ConversationTests {
         #expect(!request.messages.last!.content.contains("UNREAD_FUTURE"))
     }
 
+    /// The reported failure: sent as plain reading context, the selection was indistinguishable
+    /// from its neighbours, and the model answered 「本次未見明確標示的「選取文字」」.
+    @Test(arguments: [AIReadingAction.translate, .explain])
+    func selectionIsSentMarkedAsTheSelection(action: AIReadingAction) async throws {
+        let text = "李长寿在宝珠所收集的残魂中看到了许多记忆片段。他顺势了解到了这伙人的目的和全程布局。其后众人散去。"
+        let selected = "他顺势了解到了这伙人的目的和全程布局。"
+        let source = source([text])
+        var request = context(source, action.title)
+        request.action = action
+        request.selection = .init(bookID: book, spineIndex: 0,
+                                  range: NSRange(try #require(text.range(of: selected)), in: text), text: selected)
+        let provider = Provider([.answer()])
+        _ = try await run(request, provider)
+        let sent = try #require(await provider.requests.first)
+        let body = try #require(sent.messages.last?.content)
+        #expect(body.contains("<selected-text>\n[S1]\n\(selected)\n</selected-text>"))
+        #expect(!body.contains("<current-reading-context>\n[S1]"))
+        #expect(sent.messages[0].content.contains("讀者選取的文字在 selected-text 標記裡"))
+        if action == .translate {
+            #expect(sent.messages[0].content.contains("翻譯成\(AIAnswerLanguage.current.promptName)"))
+        }
+    }
+
     @Test func shortCitationAliasesRestoreExactFragmentCoordinatesAndRejectInventedIDs() throws {
         let source = source(["柳青站在橋邊，沒有走進後文。"], offset: "柳青站在橋邊，".utf16.count)
         let context = context(source, "剛剛發生什麼？")

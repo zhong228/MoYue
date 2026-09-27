@@ -61,7 +61,7 @@ enum PaywallPresentationState: Equatable {
     case upgradeFromMonthly
     /// Lifetime owned, or Pro arriving from the Yuedu account / iCloud mirror
     /// with no local transaction to identify the plan. Either way there is
-    /// nothing left to sell, so showing a paywall would be wrong.
+    /// nothing left to sell, so the paywall shows its member page, not an offer.
     case alreadyPro
 }
 
@@ -81,33 +81,23 @@ enum PaywallPresentationPolicy {
         if purchasedProductIDs.contains(monthlyProductID) { return .upgradeFromMonthly }
         return isProActive ? .alreadyPro : .offer
     }
-}
 
-/// Where the 「閱讀Pro」 row in Settings leads.
-enum ProEntryDestination: Equatable {
-    /// The paywall, for someone it would make an offer to.
-    case paywall
-    /// `YueduProView`: status, restore, subscription management, and the
-    /// lifetime upgrade a monthly subscriber can still buy.
-    case statusPage
-}
-
-enum ProEntryPolicy {
-    /// Derived from the paywall state rather than `isProActive` alone, so the row
-    /// and the paywall always agree on who has something to manage. When the row
-    /// opened the paywall unconditionally, the status page was unreachable and a
-    /// monthly subscriber had no way to manage the subscription from the app.
-    static func destination(for state: PaywallPresentationState) -> ProEntryDestination {
-        switch state {
-        case .offer:
-            return .paywall
-        case .upgradeFromMonthly, .alreadyPro:
-            return .statusPage
-        }
+    /// The plan the member page names as theirs: lifetime whenever it is owned — a
+    /// monthly plan still held beside it is billing to cancel, not their plan — then
+    /// monthly. Nil for Pro from the Yuedu account or the iCloud mirror, which has no
+    /// transaction on this Apple Account to name a plan by.
+    static func ownedPlanID(
+        purchasedProductIDs: Set<String>,
+        lifetimeProductID: String,
+        monthlyProductID: String
+    ) -> String? {
+        if purchasedProductIDs.contains(lifetimeProductID) { return lifetimeProductID }
+        if purchasedProductIDs.contains(monthlyProductID) { return monthlyProductID }
+        return nil
     }
 }
 
-/// What the Pro status page offers for Apple's subscription management.
+/// What the paywall's member page offers for Apple's subscription management.
 enum ProSubscriptionManagement: Equatable {
     /// No monthly plan on this Apple Account: lifetime only, or Pro granted by the
     /// Yuedu account or the iCloud mirror. Apple's subscription list has nothing
@@ -116,8 +106,8 @@ enum ProSubscriptionManagement: Equatable {
     /// A monthly subscription the user may want to cancel.
     case monthly
     /// Monthly still held next to lifetime. Buying a non-consumable never ends a
-    /// subscription, so the link keeps the cancellation reminder that
-    /// `PurchaseSuccessView` shows only once, right after the upgrade.
+    /// subscription, so the link keeps the cancellation reminder that the
+    /// thank-you page shows once, right after the upgrade.
     case monthlyAlongsideLifetime
 }
 

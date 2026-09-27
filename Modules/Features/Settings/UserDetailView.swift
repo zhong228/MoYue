@@ -16,7 +16,6 @@ struct UserDetailView: View {
     @State private var deleteAccountErrorMessage: String?
     @State private var showReadingStats = false
     @State private var showPaywall = false
-    @State private var showProStatus = false
     @State private var showRenameAlert = false
     @State private var draftDisplayName = ""
     @State private var showDeletePasswordAlert = false
@@ -109,25 +108,17 @@ struct UserDetailView: View {
 
             Section {
                 Button {
-                    switch ProEntryPolicy.destination(for: subscriptionStore.paywallPresentationState) {
-                    case .paywall:
-                        showPaywall = true
-                    case .statusPage:
-                        showProStatus = true
-                    }
+                    // The one Pro page: the offer without Pro, the member page with it
+                    // (plan, subscription management, the lifetime upgrade, restore).
+                    showPaywall = true
                 } label: {
                     HStack(spacing: DSSpacing.md) {
-                        Image(systemName: "crown.fill")
-                            .font(DSFont.fixed(size: 17, weight: .medium))
-                            .frame(width: 28, height: 28)
-                            .foregroundStyle(DSColor.accent)
-                            .accessibilityHidden(true)
+                        // The app's own icon, as on the Pro page it opens: Pro is this app.
+                        AppIconImage(size: DSLayout.settingsRowIconSize)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(localized("閱讀Pro"))
                                 .foregroundColor(.primary)
-                            Text(subscriptionStore.isProActive
-                                 ? localized("已訂閱，感謝支持")
-                                 : localized("解鎖高級個人化"))
+                            Text(proRowSubtitle)
                                 .font(DSFont.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -306,10 +297,6 @@ struct UserDetailView: View {
             PaywallView()
                 .environmentObject(subscriptionStore)
         }
-        .navigationDestination(isPresented: $showProStatus) {
-            YueduProView()
-                .environmentObject(subscriptionStore)
-        }
         .fullScreenCover(isPresented: $showLogin) {
             LoginView {
                 showLogin = false
@@ -458,6 +445,18 @@ struct UserDetailView: View {
                 linkErrorMessage = AuthErrorReporter.describe(error)
             }
             isLinking = false
+        }
+    }
+
+    /// Under 閱讀Pro: what Pro unlocks, led by AI — or the plan they hold. Lifetime is not
+    /// a subscription, and Pro from the Yuedu account or the iCloud mirror names no plan
+    /// on this Apple Account, so each gets its own line.
+    private var proRowSubtitle: String {
+        guard subscriptionStore.isProActive else { return localized("解鎖 AI 閱讀助手與高級個人化") }
+        switch subscriptionStore.ownedPlan {
+        case .lifetime?: return localized("永久會員，感謝支持")
+        case .monthly?: return localized("已訂閱，感謝支持")
+        case nil: return localized("感謝你的支持")
         }
     }
 

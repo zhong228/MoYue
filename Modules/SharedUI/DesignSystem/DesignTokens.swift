@@ -110,6 +110,15 @@ enum DSColor {
     /// Selected highlight
     static let highlight = Color.accentColor.opacity(0.15)
 
+    /// Shadow under an app icon shown in the app.
+    static let appIconShadow = Color.black.opacity(0.12)
+
+    /// Confetti for the moment Pro unlocks: the accent leads, system colors around it,
+    /// so it follows the app theme and reads in light and dark.
+    static let celebration: [Color] = [
+        Color.accentColor, Color.pink, Color.orange, Color.yellow, Color.green, Color.teal, Color.purple,
+    ]
+
     // ── Book Cover Gradient Palette ──
     static let coverGradients: [[Color]] = [
         [Color(red: 0.2, green: 0.3, blue: 0.7), Color(red: 0.1, green: 0.6, blue: 0.8)],
@@ -284,6 +293,31 @@ enum DSLayout {
     static let readerAppleBooksControlSize: CGFloat = 44
     /// Width of each action; four actions plus three gaps exactly fill the panel.
     static let readerAppleBooksActionWidth: CGFloat = 57
+    /// Actions the row shows at once; past this it scrolls.
+    static let readerAppleBooksVisibleActions = 4
+    /// The paywall's picture of a pillar (`PaywallShowcase`).
+    static let paywallShowcaseHeight: CGFloat = 150
+    /// One reading page in the showcase's fan of themes.
+    static let paywallShowcasePageWidth: CGFloat = 96
+    /// The tap-zone grid in the showcase.
+    static let paywallShowcaseGridWidth: CGFloat = 136
+    /// How far the outer pages of the fan lean.
+    static let paywallShowcaseTiltDegrees: Double = 6
+    /// Symbol column of a paywall benefit row, so the titles line up.
+    static let paywallBenefitIconWidth: CGFloat = 24
+    /// The app icon heading the Pro member page; the unlock celebration's rings start
+    /// from its outline.
+    static let paywallAppIconSize: CGFloat = 96
+    /// An icon leading a settings row, as `IconConsistentLabelStyle` sizes its symbols.
+    static let settingsRowIconSize: CGFloat = 28
+    /// Corner radius over side length of the home-screen icon mask; with `.continuous`
+    /// corners a rounded rectangle matches the icon's own shape.
+    static let appIconCornerRatio: CGFloat = 0.2237
+    /// Lift under an app icon shown in the app, as on the About page.
+    static let appIconShadowRadius: CGFloat = 10
+    static let appIconShadowY: CGFloat = 4
+    /// How many pieces one unlock celebration throws.
+    static let celebrationConfettiCount = 72
     /// Height of each compact action below the Apple Books reader menu.
     static let readerAppleBooksActionHeight: CGFloat = 44
     /// Height of each Apple Books reader-menu capsule row.
@@ -393,6 +427,16 @@ enum DSAnimation {
     static let readerBookCancellationSettleDuration: TimeInterval = 0.20
     /// Reduced-motion reader transition duration (opacity only).
     static let readerBookReducedMotionDuration: TimeInterval = 0.18
+    /// The app icon popping in when Pro unlocks: overshoots a little, then settles.
+    /// Callers must skip it under Reduce Motion.
+    static let celebrationPop = Animation.spring(response: 0.45, dampingFraction: 0.55)
+    /// One ring spreading out from the icon and fading. Callers must skip it under
+    /// Reduce Motion.
+    static let celebrationRing = Animation.easeOut(duration: 1.1)
+    /// Delay before the second ring, so the two read as a pulse rather than one ring.
+    static let celebrationRingStagger: TimeInterval = 0.25
+    /// Frame spacing of the confetti's own timeline, which stops with the last piece.
+    static let celebrationFrameInterval: TimeInterval = 1.0 / 60
 }
 
 // MARK: - View Extensions

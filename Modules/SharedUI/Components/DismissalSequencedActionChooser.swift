@@ -9,19 +9,23 @@ struct DismissalSequencedAction<Route: Hashable>: Identifiable {
     /// it from `Button(role: .destructive)`; this list draws it itself so an
     /// iOS 17 user isn't offered a delete that looks like every other row.
     let isDestructive: Bool
+    /// A second line under the title — a menu row's subtitle, e.g. 「需要 Pro」.
+    let subtitle: String?
 
     init(
         route: Route,
         title: String,
         systemImage: String,
         isEnabled: Bool = true,
-        isDestructive: Bool = false
+        isDestructive: Bool = false,
+        subtitle: String? = nil
     ) {
         self.route = route
         self.title = title
         self.systemImage = systemImage
         self.isEnabled = isEnabled
         self.isDestructive = isDestructive
+        self.subtitle = subtitle
     }
 
     var id: Route { route }
@@ -43,10 +47,21 @@ struct DismissalSequencedActionChooser<Route: Hashable>: View {
                     onSelect(action.route)
                     dismiss()
                 } label: {
-                    Label(action.title, systemImage: action.systemImage)
-                        .foregroundStyle(
-                            action.isDestructive ? DSColor.destructive : DSColor.textPrimary
-                        )
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(action.title)
+                            if let subtitle = action.subtitle {
+                                Text(subtitle)
+                                    .font(DSFont.caption)
+                                    .foregroundStyle(DSColor.textSecondary)
+                            }
+                        }
+                    } icon: {
+                        Image(systemName: action.systemImage)
+                    }
+                    .foregroundStyle(
+                        action.isDestructive ? DSColor.destructive : DSColor.textPrimary
+                    )
                 }
                 .disabled(!action.isEnabled)
             }

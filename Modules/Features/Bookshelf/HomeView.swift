@@ -78,6 +78,8 @@ struct HomeView: View {
     @State private var showAddToGroupSheet = false
     /// Pushed rather than presented: a sheet asked for from a menu action can be dropped on iOS 17.
     @State private var showBookshelfOrganizer = false
+    @State private var showAIPaywall = false
+    @ObservedObject private var subscription = SubscriptionStore.shared
     @AppStorage("bookLayoutIsGrid") private var isGridMode = false
     @AppStorage("bookSortOrder") private var sortOrder = BookSortOrder.manual.rawValue
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -466,6 +468,10 @@ struct HomeView: View {
             .navigationDestination(isPresented: $showBookshelfOrganizer) {
                 AIBookshelfOrganizerView().environmentObject(store)
             }
+            .sheet(isPresented: $showAIPaywall) {
+                PaywallView(highlightedFeature: .aiReading)
+                    .environmentObject(subscription)
+            }
             .navigationDestination(item: $selectedOnlineBookDetail) { book in
                 if BookSourceStore.shared.isAudiobook(book) {
                     AudiobookDetailView(book: book, onRemoveFromShelf: {
@@ -633,6 +639,27 @@ struct HomeView: View {
         }
     }
 
+    /// Without Pro: marked, and opens the paywall. On iOS 17 a menu cannot open a sheet
+    /// (Technotes/iOS17MenuModalPresentation.md), so there it pushes the organizer, whose
+    /// 開始整理 opens the paywall instead.
+    private var organizerMenuItem: some View {
+        let locked = !ReaderPremiumVisibilityPolicy(isProActive: subscription.isProActive).allowsAI
+        return Button {
+            if locked, !MenuModalPresentationPolicy.requiresDismissalSequencedChooser {
+                showAIPaywall = true
+            } else {
+                showBookshelfOrganizer = true
+            }
+        } label: {
+            // Two `Text`s: the second is the menu row's subtitle.
+            Text(localized("AI 整理書架"))
+            if locked {
+                Text(localized("需要 Pro"))
+            }
+            Image(systemName: locked ? "lock.fill" : "sparkles")
+        }
+    }
+
     private var bookshelfOptionsMenu: some View {
         Menu {
             Button {
@@ -640,11 +667,7 @@ struct HomeView: View {
             } label: {
                 Label(localized("選取"), systemImage: "checkmark.circle")
             }
-            Button {
-                showBookshelfOrganizer = true
-            } label: {
-                Label(localized("AI 整理書架"), systemImage: "sparkles")
-            }
+            organizerMenuItem
 
             Divider()
 

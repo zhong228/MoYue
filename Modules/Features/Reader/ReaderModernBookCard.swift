@@ -119,6 +119,16 @@ struct ReaderModernBookCard: View {
                 Button(action: action.action) {
                     VStack(spacing: 5) {
                         actionGlyph(for: ReaderChromeActionItem(action.id), fallback: action.icon)
+                            // Needs Pro: a lock on the icon, and the tap opens the paywall.
+                            .overlay(alignment: .topTrailing) {
+                                if action.isLocked {
+                                    Image(systemName: "lock.fill")
+                                        .font(DSFont.caption2)
+                                        .foregroundStyle(DSColor.accent)
+                                        .offset(x: DSSpacing.xs, y: -DSSpacing.xs)
+                                        .accessibilityHidden(true)
+                                }
+                            }
                         Text(action.label)
                             .font(DSFont.caption2)
                             .lineLimit(1)
@@ -128,6 +138,7 @@ struct ReaderModernBookCard: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(action.label)
+                .accessibilityValue(action.isLocked ? localized("需要 Pro") : "")
             }
         }
         .padding(.horizontal, DSSpacing.sm)
@@ -168,7 +179,8 @@ struct ReaderModernBookCard: View {
                 action: {}
             ),
             ReaderSecondaryAction(id: .download, icon: "arrow.down.circle", label: "下載", action: {}),
-            ReaderSecondaryAction(id: .playback, icon: "headphones", label: "聽書", action: {})
+            ReaderSecondaryAction(id: .playback, icon: "headphones", label: "聽書", action: {}),
+            ReaderSecondaryAction(id: .aiAssistant, icon: "sparkles", label: "AI 助手", isLocked: true, action: {})
         ],
         palette: ReaderChromePalette(interface: .modern, theme: .sepia, settings: .shared),
         onOpenDetail: {}

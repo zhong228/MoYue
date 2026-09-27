@@ -41,6 +41,9 @@ struct ReaderQuickThemePanelView: View {
     /// once running, the footer pill is the single route to the speed and the exit.
     let onStartAutoRead: () -> Void
     let onCustomize: () -> Void
+    /// A locked control asked for the paywall. The reader closes this sheet and presents
+    /// it from its own `onDismiss`, as it does for 自訂 — never a sheet on top of this one.
+    var onOpenPaywall: ((PremiumFeature) -> Void)? = nil
 
     @ObservedObject private var settings = GlobalSettings.shared
     @Environment(\.colorScheme) private var colorScheme
@@ -111,7 +114,8 @@ struct ReaderQuickThemePanelView: View {
                     color: $customBackgroundColor,
                     onImageImported: {
                         showCustomBackgroundOptions = false
-                    }
+                    },
+                    onRequestPaywall: { onOpenPaywall?($0) }
                 )
             }
         }
@@ -496,6 +500,7 @@ private struct ReaderCustomBackgroundImportAlert: Identifiable {
 private struct ReaderCustomBackgroundOptionsView: View {
     @Binding var color: Color
     let onImageImported: () -> Void
+    let onRequestPaywall: (PremiumFeature) -> Void
 
     @ObservedObject private var settings = GlobalSettings.shared
     @ObservedObject private var subscriptionStore = SubscriptionStore.shared
@@ -525,6 +530,25 @@ private struct ReaderCustomBackgroundOptionsView: View {
                         Label(localized("導入圖片背景"), systemImage: "photo")
                             .font(DSFont.body)
                             .foregroundStyle(DSColor.textPrimary)
+                    }
+                } else {
+                    // Seen without Pro, locked: the paywall opens once this sheet is gone.
+                    Button {
+                        onRequestPaywall(.readerBackgroundImport)
+                    } label: {
+                        HStack {
+                            Label(localized("導入圖片背景"), systemImage: "photo")
+                                .font(DSFont.body)
+                                .foregroundStyle(DSColor.textPrimary)
+                            Spacer(minLength: DSSpacing.md)
+                            Text(localized("需要 Pro"))
+                                .font(DSFont.body)
+                                .foregroundStyle(DSColor.textSecondary)
+                            Image(systemName: "lock.fill")
+                                .font(DSFont.caption)
+                                .foregroundStyle(DSColor.textSecondary)
+                                .accessibilityHidden(true)
+                        }
                     }
                 }
             } footer: {

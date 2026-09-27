@@ -15,11 +15,11 @@ struct AppearanceThemeView: View {
     @EnvironmentObject private var subscriptionStore: SubscriptionStore
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var showPaywall = false
+    /// The paywall, opened on the feature the locked control belongs to.
+    @State private var paywallFeature: PremiumFeature?
     @State private var showCustomizer = false
     @State private var editingCustomThemeID: String?
     @State private var showLaunchImageSettings = false
-    @State private var showLaunchImagePaywall = false
 
     // 頁面背景 editor state.
     @State private var pageBackgroundScope: AppearancePageBackgroundScope = .global
@@ -110,8 +110,8 @@ struct AppearanceThemeView: View {
         // the environment value directly is the reliable path; `AudiobookView`
         // uses the same technique for its scoped dark page.
         .environment(\.colorScheme, editingScheme)
-        .sheet(isPresented: $showPaywall) {
-            PaywallView()
+        .sheet(item: $paywallFeature) { feature in
+            PaywallView(highlightedFeature: feature)
                 .environmentObject(subscriptionStore)
         }
         .navigationDestination(isPresented: $showCustomizer) {
@@ -126,10 +126,6 @@ struct AppearanceThemeView: View {
         }
         .navigationDestination(isPresented: $showLaunchImageSettings) {
             LaunchImageSettingsView()
-        }
-        .sheet(isPresented: $showLaunchImagePaywall) {
-            PaywallView(highlightedFeature: .launchScreen)
-                .environmentObject(subscriptionStore)
         }
         // One alert modifier for the whole screen. Stacking several `.alert`s on
         // the same view is how one of them silently stops presenting — they all
@@ -219,9 +215,8 @@ struct AppearanceThemeView: View {
     private var interfaceSettingsSection: some View {
         Section {
             interfaceEffectsRow
-            if ReaderPremiumVisibilityPolicy(isProActive: subscriptionStore.isProActive).showsBottomTabCustomization {
-                rootTabRow
-            }
+            // In view without Pro too, locked (2026-09-27).
+            rootTabRow
         } header: {
             Text(localized("介面設定"))
         }
@@ -364,7 +359,7 @@ struct AppearanceThemeView: View {
         let displayed = preset.palette(for: editingScheme)
         return Button {
             guard !locked else {
-                showPaywall = true
+                paywallFeature = .readerThemePacks
                 return
             }
             if preset.isCustom, selected {
@@ -455,7 +450,7 @@ struct AppearanceThemeView: View {
     private var newThemeButton: some View {
         Button {
             guard subscriptionStore.hasAccess(.readerThemePacks) else {
-                showPaywall = true
+                paywallFeature = .readerThemePacks
                 return
             }
             // Copies the whole theme — both appearances — and lands in the slot
@@ -630,7 +625,7 @@ struct AppearanceThemeView: View {
             if subscriptionStore.hasAccess(.launchScreen) {
                 showLaunchImageSettings = true
             } else {
-                showLaunchImagePaywall = true
+                paywallFeature = .launchScreen
             }
         } label: {
             HStack {
@@ -657,19 +652,42 @@ struct AppearanceThemeView: View {
         return settings.launchImageEnabled ? localized("已開啟") : localized("已關閉")
     }
 
+    @ViewBuilder
     private var rootTabRow: some View {
-        NavigationLink {
-            RootTabCustomizationView()
-        } label: {
-            HStack {
-                Text(localized("底部 Tab"))
-                    .font(DSFont.body)
-                    .foregroundStyle(DSColor.textPrimary)
-                Spacer(minLength: DSSpacing.md)
-                Text(subscriptionStore.hasAccess(.bottomBarCustomization) ? localized("自定義") : localized("需要 Pro"))
-                    .font(DSFont.body)
-                    .foregroundStyle(DSColor.textSecondary)
+        if ReaderPremiumVisibilityPolicy(isProActive: subscriptionStore.isProActive).showsBottomTabCustomization {
+            NavigationLink {
+                RootTabCustomizationView()
+            } label: {
+                HStack {
+                    Text(localized("底部 Tab"))
+                        .font(DSFont.body)
+                        .foregroundStyle(DSColor.textPrimary)
+                    Spacer(minLength: DSSpacing.md)
+                    Text(localized("自定義"))
+                        .font(DSFont.body)
+                        .foregroundStyle(DSColor.textSecondary)
+                }
             }
+        } else {
+            // Same shape as 啟動圖's locked row: the paywall, not the editor.
+            Button {
+                paywallFeature = .bottomBarCustomization
+            } label: {
+                HStack {
+                    Text(localized("底部 Tab"))
+                        .font(DSFont.body)
+                        .foregroundStyle(DSColor.textPrimary)
+                    Spacer(minLength: DSSpacing.md)
+                    Text(localized("需要 Pro"))
+                        .font(DSFont.body)
+                        .foregroundStyle(DSColor.textSecondary)
+                    Image(systemName: "lock.fill")
+                        .font(DSFont.subheadline)
+                        .foregroundStyle(DSColor.textSecondary)
+                        .accessibilityHidden(true)
+                }
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -1046,7 +1064,7 @@ struct AppearanceThemeView: View {
     /// Free-user entry: same row shape as the Pro editor's rows.
     private var pageBackgroundLockedRow: some View {
         Button {
-            showPaywall = true
+            paywallFeature = .readerThemePacks
         } label: {
             HStack {
                 Text(localized("頁面背景"))
@@ -1164,13 +1182,11 @@ struct AppearanceThemeView: View {
     /// Free-user upsell row; hidden entirely once Pro is active.
     private var customizationRow: some View {
         Button {
-            showPaywall = true
+            paywallFeature = .readerThemePacks
         } label: {
             HStack(spacing: DSSpacing.md) {
-                Image(systemName: "crown.fill")
-                    .font(DSFont.headline)
-                    .foregroundStyle(activeTheme.accentColor)
-                    .accessibilityHidden(true)
+                // Pro is marked with the app's own icon, as on the 閱讀Pro row and page.
+                AppIconImage(size: DSLayout.settingsRowIconSize)
                 Text(localized("主題自定義"))
                     .font(DSFont.body)
                     .foregroundStyle(DSColor.textPrimary)
@@ -1418,7 +1434,7 @@ private struct AppearanceReaderInterfaceView: View {
                         .overlay(Circle().stroke(palette.topIcon.opacity(0.25), lineWidth: 0.5))
                 } else {
                     Image(systemName: "bookmark")
-                    Image(systemName: "ellipsis")
+                    Image(systemName: "line.3.horizontal")
                 }
             }
             .font(DSFont.fixed(size: 13, weight: .medium))
@@ -1435,7 +1451,7 @@ private struct AppearanceReaderInterfaceView: View {
                 if interface == .classic {
                     HStack(spacing: 6) {
                         Spacer(minLength: 0)
-                        ForEach(visiblePreviewActions, id: \.self) { item in
+                        ForEach(visiblePreviewActions.filter(\.isClassicCircle), id: \.self) { item in
                             previewActionGlyph(item, palette: palette)
                         }
                     }

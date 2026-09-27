@@ -3,7 +3,9 @@ import UniformTypeIdentifiers
 
 struct GlobalFontSettingsView: View {
     @ObservedObject private var settings = GlobalSettings.shared
+    @ObservedObject private var subscription = SubscriptionStore.shared
     @State private var showingImporter = false
+    @State private var showsPaywall = false
     @State private var importError: GlobalFontImportError?
     @State private var fontToDelete: UserFontInfo?
 
@@ -49,10 +51,19 @@ struct GlobalFontSettingsView: View {
             .interfaceSectionSurface()
 
             Section {
+                // Pro: the entry locks, fonts imported earlier stay usable.
+                let locked = !ReaderPremiumVisibilityPolicy(isProActive: subscription.isProActive).allowsFontImport
                 Button {
-                    showingImporter = true
+                    if locked { showsPaywall = true } else { showingImporter = true }
                 } label: {
-                    Label(localized("匯入字體..."), systemImage: "plus")
+                    HStack {
+                        Label(localized("匯入字體..."), systemImage: locked ? "lock.fill" : "plus")
+                        if locked {
+                            Spacer(minLength: DSSpacing.md)
+                            Text(localized("需要 Pro"))
+                                .foregroundStyle(DSColor.textSecondary)
+                        }
+                    }
                 }
             } footer: {
                 Text(localized("匯入後，字體會同時出現在全局字體與閱讀設定。"))
@@ -63,6 +74,10 @@ struct GlobalFontSettingsView: View {
         .navigationTitle(localized("全局字體"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)
+        .sheet(isPresented: $showsPaywall) {
+            PaywallView(highlightedFeature: .customFonts)
+                .environmentObject(subscription)
+        }
         .fileImporter(
             isPresented: $showingImporter,
             allowedContentTypes: Self.fontContentTypes,

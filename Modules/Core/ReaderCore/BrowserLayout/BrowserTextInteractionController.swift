@@ -225,7 +225,8 @@ final class BrowserTextInteractionController: NSObject, @preconcurrency UIEditMe
             guard let self, acceptsMenuAction(generation: generation) else { return }
             self.requestAnnotation(style: .underline, color: .yellow)
         }]))
-        actions.append(UIAction(title: localized("筆記"), image: UIImage(systemName: ReaderPremiumVisibilityPolicy(isProActive: SubscriptionStore.shared.isProActive).allowsParagraphNoteEditing ? "note.text" : "lock.fill")) { [weak self] _ in
+        let premium = ReaderPremiumVisibilityPolicy(isProActive: SubscriptionStore.shared.isProActive)
+        actions.append(UIAction(title: localized("筆記"), image: UIImage(systemName: premium.allowsParagraphNoteEditing ? "note.text" : "lock.fill")) { [weak self] _ in
             guard let self, acceptsMenuAction(generation: generation) else { return }
             self.requestNote(self.selection.tappedAnnotation)
         })
@@ -239,7 +240,8 @@ final class BrowserTextInteractionController: NSObject, @preconcurrency UIEditMe
                 guard let text = selection.selectedTextForCopy else { return }; afterMenuDismissal { [weak self] in self?.onTranslate?(text) }
             })
         }
-        for action in AIReadingAction.selectionMenu(for: selection.selectedTextForCopy ?? "") {
+        // AI items only with Pro (`ReaderPremiumVisibilityPolicy.showsAISelectionActions`).
+        for action in premium.showsAISelectionActions ? AIReadingAction.selectionMenu(for: selection.selectedTextForCopy ?? "") : [] {
             actions.append(UIAction(title: action.title, image: UIImage(systemName: "sparkles")) { [weak self] _ in
                 guard let self, acceptsMenuAction(generation: generation), let range = selection.selectedRange else { return }
                 let request = CoreTextAISelectionRequest(spineIndex: spineIndex, range: range, text: excerpt(range), action: action)

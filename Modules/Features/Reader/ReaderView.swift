@@ -11,6 +11,8 @@ private enum ReaderSettingsDeferredPresentationRoute {
     /// 匯入閱讀設定 / 匯入正則高亮 — same first-level-presenter handoff as the font
     /// importer, because those controls also live inside the settings sheet.
     case styleImporter(ReaderStyleImportRoute)
+    /// A locked control inside settings (匯入字體 without Pro) asked for the paywall.
+    case paywall(PremiumFeature)
 }
 
 private struct ReaderFontImportPresentationError: Identifiable {
@@ -2131,6 +2133,7 @@ struct ReaderView: View {
                 .onChanged(of: readerTranslation) { old, new in
                     readerTranslationDidChange(from: old, to: new)
                 }
+                .onChanged(of: readerPremiumVisibility.allowsAI) { _ in aiAccessDidChange() }
                 .onReceive(AIChapterTranslationService.shared.updates) { chapter in
                     applyTranslationUpdate(chapter)
                 }
@@ -2318,7 +2321,9 @@ struct ReaderView: View {
                         showBars = false
                         showTouchZoneEditor = true
                     },
-                    onOpenStyleImporter: requestFirstLevelReaderStyleImporter
+                    onOpenStyleImporter: requestFirstLevelReaderStyleImporter,
+                    onOpenPaywall: ReaderSettingsPresentationPolicy.requiresFirstLevelImporter
+                        ? requestFirstLevelReaderPaywall : nil
                 )
             }
         }
@@ -2348,6 +2353,10 @@ struct ReaderView: View {
                     quickPanelDeferredRoute = .settings
                     showQuickThemePanel = false
                 },
+                onOpenPaywall: { feature in
+                    quickPanelDeferredRoute = .paywall(feature)
+                    showQuickThemePanel = false
+                }
             )
         }
         .sheet(isPresented: $showReaderSearch, onDismiss: { readerSearchSelection = "" }) {
@@ -2709,6 +2718,11 @@ struct ReaderView: View {
         showSettings = false
     }
 
+    private func requestFirstLevelReaderPaywall(_ feature: PremiumFeature) {
+        readerSettingsDeferredPresentation.select(.paywall(feature))
+        showSettings = false
+    }
+
     private func requestFirstLevelReaderStyleImporter(_ route: ReaderStyleImportRoute) {
         guard ReaderSettingsPresentationPolicy.requiresFirstLevelImporter else {
             readerStyleImportRoute = route
@@ -2725,6 +2739,8 @@ struct ReaderView: View {
         switch route {
         case .settings:
             showSettings = true
+        case .paywall(let feature):
+            paywallFeature = feature
         }
     }
 
@@ -2737,6 +2753,8 @@ struct ReaderView: View {
             showReaderFontImporter = true
         case .styleImporter(let styleRoute):
             readerStyleImportRoute = styleRoute
+        case .paywall(let feature):
+            paywallFeature = feature
         }
     }
 

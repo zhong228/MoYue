@@ -137,7 +137,7 @@ struct SubscriptionAccessPolicyTests {
         #expect(paywallState(purchased: [Self.monthlyID], isProActive: true) == .upgradeFromMonthly)
     }
 
-    @Test("Pro without a local transaction still hides the paywall")
+    @Test("Pro without a local transaction gets the member page, not the offer")
     func accountGrantedProHidesPaywall() {
         // Pro arriving from the Yuedu account or the iCloud mirror — bought on
         // another Apple Account — leaves no local transaction to name the plan,
@@ -150,24 +150,22 @@ struct SubscriptionAccessPolicyTests {
         #expect(paywallState(purchased: [], isProActive: false) == .offer)
     }
 
-    @Test("a free user's Pro row opens the paywall")
-    func freeUserProRowOpensPaywall() {
-        #expect(ProEntryPolicy.destination(for: paywallState(purchased: [], isProActive: false)) == .paywall)
+    private func ownedPlanID(purchased: Set<String>) -> String? {
+        PaywallPresentationPolicy.ownedPlanID(
+            purchasedProductIDs: purchased,
+            lifetimeProductID: Self.lifetimeID,
+            monthlyProductID: Self.monthlyID
+        )
     }
 
-    @Test("anyone who owns Pro reaches the status page instead of the paywall")
-    func ownerProRowOpensStatusPage() {
-        // A monthly subscriber must reach the only page that links to subscription management.
-        #expect(
-            ProEntryPolicy.destination(for: paywallState(purchased: [Self.monthlyID], isProActive: true))
-                == .statusPage
-        )
-        #expect(
-            ProEntryPolicy.destination(for: paywallState(purchased: [Self.lifetimeID], isProActive: true))
-                == .statusPage
-        )
-        // Pro from the Yuedu account or the iCloud mirror, bought on another Apple Account.
-        #expect(ProEntryPolicy.destination(for: paywallState(purchased: [], isProActive: true)) == .statusPage)
+    @Test("the member page names lifetime whenever it is owned, then monthly")
+    func memberPageNamesTheOwnedPlan() {
+        #expect(ownedPlanID(purchased: [Self.lifetimeID]) == Self.lifetimeID)
+        #expect(ownedPlanID(purchased: [Self.monthlyID]) == Self.monthlyID)
+        // A monthly plan still held next to lifetime is billing to cancel, not their plan.
+        #expect(ownedPlanID(purchased: [Self.monthlyID, Self.lifetimeID]) == Self.lifetimeID)
+        // Pro from the Yuedu account or the iCloud mirror names no plan on this Apple Account.
+        #expect(ownedPlanID(purchased: []) == nil)
     }
 
     private func subscriptionManagement(purchased: Set<String>) -> ProSubscriptionManagement {
@@ -178,7 +176,7 @@ struct SubscriptionAccessPolicyTests {
         )
     }
 
-    @Test("the status page links to Apple's subscription management only for a monthly plan")
+    @Test("the member page links to Apple's subscription management only for a monthly plan")
     func subscriptionManagementNeedsMonthly() {
         #expect(subscriptionManagement(purchased: [Self.monthlyID]) == .monthly)
         // Lifetime is not a subscription, and Pro granted by the account or the
@@ -190,7 +188,7 @@ struct SubscriptionAccessPolicyTests {
     @Test("monthly held next to lifetime keeps the cancellation reminder")
     func monthlyAlongsideLifetimeRemindsToCancel() {
         // Buying lifetime never ends the monthly subscription. Without the reminder
-        // it keeps billing once the one-time success page is gone.
+        // it keeps billing once the one-time thank-you page is gone.
         #expect(
             subscriptionManagement(purchased: [Self.monthlyID, Self.lifetimeID])
                 == .monthlyAlongsideLifetime

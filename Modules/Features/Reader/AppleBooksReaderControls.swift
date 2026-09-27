@@ -29,6 +29,8 @@ struct AppleBooksReaderControls: View {
     let applyProgress: (Double) -> Void
     let progressDescription: (Double) -> String
     let secondaryActions: [ReaderSecondaryAction]
+    /// The fifth menu row, under 主題與設定; marked when it needs Pro.
+    var aiAssistant: ReaderSecondaryAction? = nil
     let onOpenTOC: () -> Void
     let onOpenBookmarks: () -> Void
     let onOpenSearch: () -> Void
@@ -107,38 +109,69 @@ struct AppleBooksReaderControls: View {
                 menuRow(localized("Themes & Settings"), icon: "textformat.size") {
                     performPanelAction(onOpenSettings)
                 }
-            }
 
-            if !secondaryActions.isEmpty {
-                HStack(spacing: 0) {
-                    Spacer(minLength: 0)
-
-                    HStack(spacing: DSSpacing.sm) {
-                        ForEach(Array(secondaryActions.reversed())) { item in
-                            Button {
-                                performPanelAction(item.action)
-                            } label: {
-                                Image(systemName: item.icon)
-                                    .font(DSFont.toolbarIconLarge)
-                                    .foregroundStyle(DSColor.textPrimary)
-                                    .frame(
-                                        width: DSLayout.readerAppleBooksActionWidth,
-                                        height: DSLayout.readerAppleBooksActionHeight
-                                    )
-                                    .floatingSurface(in: Capsule())
-                                    // Same trap the 經典 bar hit: an unhidden SF Symbol stays
-                                    // its own element and reads out as "arrow.left.and.right"
-                                    // instead of 「換源」. docs/design.md §7.1.
-                                    .accessibilityHidden(true)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(item.label)
-                        }
+                if let aiAssistant {
+                    menuRow(aiAssistant.label, icon: aiAssistant.icon, isLocked: aiAssistant.isLocked) {
+                        performPanelAction(aiAssistant.action)
                     }
                 }
             }
+
+            if !secondaryActions.isEmpty {
+                actionRow
+            }
         }
         .frame(width: DSLayout.readerAppleBooksPanelWidth)
+    }
+
+    /// Four capsules fill the panel's width exactly. A fifth used to stick out past its
+    /// left edge, so beyond four the row scrolls, four at a time, starting from the
+    /// trailing end where 聽書 sits.
+    @ViewBuilder
+    private var actionRow: some View {
+        let items = Array(secondaryActions.reversed())
+        let buttons = HStack(spacing: DSSpacing.sm) {
+            ForEach(items) { item in
+                actionButton(item)
+            }
+        }
+        if items.count > DSLayout.readerAppleBooksVisibleActions {
+            // The scroll view clips to its bounds; the vertical room keeps the capsules'
+            // floating shadow, and the row still sits where the unscrolled one does.
+            ScrollView(.horizontal, showsIndicators: false) {
+                buttons
+                    .padding(.vertical, DSSpacing.md)
+            }
+            .defaultScrollAnchor(.trailing)
+            .frame(width: DSLayout.readerAppleBooksPanelWidth)
+            .padding(.vertical, -DSSpacing.md)
+        } else {
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                buttons
+            }
+        }
+    }
+
+    private func actionButton(_ item: ReaderSecondaryAction) -> some View {
+        Button {
+            performPanelAction(item.action)
+        } label: {
+            Image(systemName: item.icon)
+                .font(DSFont.toolbarIconLarge)
+                .foregroundStyle(DSColor.textPrimary)
+                .frame(
+                    width: DSLayout.readerAppleBooksActionWidth,
+                    height: DSLayout.readerAppleBooksActionHeight
+                )
+                .floatingSurface(in: Capsule())
+                // Same trap the 經典 bar hit: an unhidden SF Symbol stays
+                // its own element and reads out as "arrow.left.and.right"
+                // instead of 「換源」. docs/design.md §7.1.
+                .accessibilityHidden(true)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(item.label)
     }
 
     private var progressMenuRow: some View {
@@ -227,9 +260,12 @@ struct AppleBooksReaderControls: View {
             .padding(.leading, DSSpacing.lg)
     }
 
+    /// `isLocked`: the row needs Pro — the badge takes the icon's place and the action
+    /// opens the paywall.
     private func menuRow(
         _ title: String,
         icon: String,
+        isLocked: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -240,8 +276,13 @@ struct AppleBooksReaderControls: View {
 
                 Spacer(minLength: DSSpacing.sm)
 
-                Image(systemName: icon)
-                    .font(DSFont.toolbarIconLarge)
+                if isLocked {
+                    ProLockBadge()
+                } else {
+                    Image(systemName: icon)
+                        .font(DSFont.toolbarIconLarge)
+                        .accessibilityHidden(true)
+                }
             }
             .foregroundStyle(DSColor.textPrimary)
             .padding(.horizontal, DSSpacing.lg)
@@ -249,6 +290,10 @@ struct AppleBooksReaderControls: View {
             .floatingSurface(in: Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(isLocked ? localized("需要 Pro") : "")
+        .accessibilityAddTraits(.isButton)
     }
 
     private func formattedPercent(_ value: Double) -> String {

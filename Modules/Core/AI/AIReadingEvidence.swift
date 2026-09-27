@@ -1,11 +1,16 @@
 import Foundation
 
 enum AIReadingEvidence {
+    /// Marks the reader's own selection among the evidence. The prompt puts it in
+    /// `<selected-text>`: sent as plain reading context, a model asked to translate 「選取文字」
+    /// could not tell which passage that was, said so, and explained the whole context instead.
+    static let selectionIDPrefix = "selection:"
+
     static func collect(context: AIQuestionContext, index: AIBookRetrievalIndex) throws -> [AIQuestionEvidence] {
         if let selection = context.selection {
             guard selection.validated(in: context.source, boundary: context.boundary) else { throw LLMError.providerError(localized("選文已變更或超出目前閱讀範圍，請重新選取。")) }
             let section = context.source.chunkSections[selection.spineIndex]
-            var chunk = AIContentChunk(id: "selection:\(selection.spineIndex):\(selection.range.location):\(selection.range.length)",
+            var chunk = AIContentChunk(id: selectionIDPrefix + "\(selection.spineIndex):\(selection.range.location):\(selection.range.length)",
                 bookID: context.bookID, sectionID: section.id, ordinal: 0, text: selection.text,
                 start: .init(spineIndex: selection.spineIndex, charOffset: selection.range.location, progress: 0),
                 end: .init(spineIndex: selection.spineIndex, charOffset: NSMaxRange(selection.range), progress: 0))
@@ -119,13 +124,16 @@ enum AIReadingEvidence {
         switch context.action {
         case .question: task = "回答讀者的問題，延續安全的對話背景。"
         case .explain, .lookup: task = "解釋選取文字在原文中的意思、指代及必要背景，先給簡潔說明。"
-        case .translate: task = "將選取文字翻譯成繁體中文；已是中文時以白話解釋。保留段落和語氣，必要譯註另外列出。"
+        case .translate:
+            let language = AIAnswerLanguage.current.promptName
+            task = "把選取文字翻譯成\(language)，保留段落和語氣，必要譯註另外列出。原文已經是\(language)時：文言、古文譯成現代白話；否則說明它已是\(language)，再用白話解釋難懂的地方。"
         case .chapterSummary: task = "摘要目前章節在允許範圍內的內容；若提供的正文不完整，明確說明只涵蓋部分。"
         case .recap: task = "以最近已讀片段整理前情，幫助讀者接續閱讀，不聲稱涵蓋全部劇情。"
         case .custom: task = "依讀者的自訂任務分析提供的內容。"
         case .annotationReview: task = "整理讀者在已讀範圍內的劃線與筆記：依主題、人物或情節歸類，說明每處劃線在故事裡的作用，並回應筆記中的想法。筆記是讀者的觀點，不是書中事實。"
         }
-        return task + "\n" + (context.allowsBackgroundKnowledge ? "概念、典故與翻譯可使用模型知識，另以『補充解釋』標示；不得以模型記憶補寫本書情節。找不到書中事實時說明無法確認。" : "書中事實只依提供的原文。") +
+        let selection = context.selection == nil ? "" : "讀者選取的文字在 selected-text 標記裡，只有它是「選取文字」；其他片段是它前後的上下文。\n"
+        return task + "\n" + selection + "回答裡不要提到 selected-text、current-reading-context 這些資料標記。\n" + (context.allowsBackgroundKnowledge ? "概念、典故與翻譯可使用模型知識，另以『補充解釋』標示；不得以模型記憶補寫本書情節。找不到書中事實時說明無法確認。" : "書中事實只依提供的原文。") +
             (context.boundary.wholeBook ? "" : "\n禁止揭露目前已讀原文之外的情節、身分或結局，即使你知道本書。")
     }
 }
@@ -144,7 +152,7 @@ struct AIAnswerStreamDisplay {
             pending = String(pending[start...])
             guard let end = pending.firstIndex(of: "]") else { return output }
             let marker = String(pending[pending.index(after: pending.startIndex)..<end])
-            if marker.range(of: #"^S[0-9]*$"#, options: .regularExpression) == nil && !marker.hasPrefix("fragment:") && !marker.hasPrefix("selection:") {
+            if marker.range(of: #"^S[0-9]*$"#, options: .regularExpression) == nil && !marker.hasPrefix("fragment:") && !marker.hasPrefix(AIReadingEvidence.selectionIDPrefix) {
                 output += pending[...end]
             }
             pending = String(pending[pending.index(after: end)...])

@@ -164,6 +164,16 @@ final class SubscriptionStore: ObservableObject {
 
     /// Tests can exercise publication without starting StoreKit/network observers.
     init(observeTransactions: Bool = true) {
+        #if DEBUG
+        // `-debug-force-pro`: a simulator launch has no StoreKit configuration, so this is
+        // the only way to look at Pro-only screens there (e.g. Apple Books' action row with
+        // AI 翻譯 in it). Debug builds only.
+        if ProcessInfo.processInfo.arguments.contains("-debug-force-pro") {
+            debugForceProActive = true
+            // An initializer's own assignment skips `didSet`.
+            recomputeEntitlement()
+        }
+        #endif
         guard observeTransactions else { return }
         // Start listening for transactions BEFORE any purchase so we never miss
         // an update delivered while the app was backgrounded or during a
@@ -192,9 +202,9 @@ final class SubscriptionStore: ObservableObject {
         isProActive
     }
 
-    /// What the paywall shows right now. The paywall, the Settings row that
-    /// chooses between the paywall and the status page, and the status page's
-    /// plan action all read this one value, so they cannot disagree.
+    /// What the paywall shows right now: the offer, or its member page and whether
+    /// that page still sells the lifetime upgrade. The paywall is the only Pro page —
+    /// Settings' 「閱讀Pro」 row always opens it — so there is nothing to disagree with.
     var paywallPresentationState: PaywallPresentationState {
         PaywallPresentationPolicy.state(
             purchasedProductIDs: purchasedProductIDs,
@@ -204,7 +214,17 @@ final class SubscriptionStore: ObservableObject {
         )
     }
 
-    /// Whether the status page links to Apple's subscription management.
+    /// The plan the member page names, lifetime first; nil for Pro granted by the
+    /// Yuedu account or the iCloud mirror.
+    var ownedPlan: ProProduct? {
+        PaywallPresentationPolicy.ownedPlanID(
+            purchasedProductIDs: purchasedProductIDs,
+            lifetimeProductID: ProProduct.lifetime.rawValue,
+            monthlyProductID: ProProduct.monthly.rawValue
+        ).flatMap(ProProduct.init(rawValue:))
+    }
+
+    /// Whether the member page links to Apple's subscription management.
     var subscriptionManagement: ProSubscriptionManagement {
         ProStatusPagePolicy.subscriptionManagement(
             purchasedProductIDs: purchasedProductIDs,

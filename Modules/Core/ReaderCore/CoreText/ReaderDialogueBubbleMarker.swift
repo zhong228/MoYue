@@ -262,6 +262,31 @@ enum ReaderDialogueBubbleMarker {
         }
     }
 
+    /// Makes `range` — text added to a chapter after it was marked, such as a
+    /// paragraph's 整章翻譯 — a bubble of its own beside `mark`'s: same side and
+    /// skin, its paragraph fitted to its own width the way `mark` fits a bubble.
+    /// The text keeps the typography it was given; `range` is one paragraph.
+    static func markAdded(
+        _ range: NSRange,
+        like mark: ReaderDialogueBubbleMark,
+        in attr: NSMutableAttributedString
+    ) {
+        guard range.length > 0, NSMaxRange(range) <= attr.length else { return }
+        attr.addAttribute(
+            attributeKey,
+            value: ReaderDialogueBubbleMark(side: mark.side, style: mark.style, metrics: mark.metrics),
+            range: range
+        )
+        applyParagraphStyle(
+            side: mark.side,
+            sideStyle: mark.style,
+            metrics: mark.metrics,
+            textWidth: measuredWidth(of: range, in: attr, metrics: mark.metrics),
+            to: attr,
+            in: range
+        )
+    }
+
     /// The break carries the attributes of the character it follows, so the
     /// narration it ends keeps its own typography instead of inheriting the
     /// bubble's.

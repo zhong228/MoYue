@@ -3,6 +3,12 @@ import SwiftUI
 /// 整章翻譯 in the reader: what to translate, and laying chapters out again as their
 /// translations arrive.
 extension ReaderView {
+    /// What the reader lays out: the book's 整章翻譯 setting, or nothing without Pro. The
+    /// setting itself is kept for when Pro returns (`ReaderPremiumVisibilityPolicy.allowsAI`).
+    var effectiveReaderTranslation: ReaderTranslationPresentation {
+        readerPremiumVisibility.allowsAI ? readerTranslation : .off
+    }
+
     /// The chapter on screen and where in it the reader is, in the chapter's own text.
     var translationReadingPosition: (spineIndex: Int, charOffset: Int)? {
         guard let engine = epubRenderer.engine else { return nil }
@@ -21,7 +27,7 @@ extension ReaderView {
     /// reader may have reached such a chapter; cheap when there is nothing to do. A failed
     /// run is left for the reader to retry from the sheet rather than retried on every turn.
     func translateVisibleChapterIfNeeded() {
-        guard readerTranslation.isActive, let position = translationReadingPosition else { return }
+        guard effectiveReaderTranslation.isActive, let position = translationReadingPosition else { return }
         translateChapter(position.spineIndex, readingOffset: position.charOffset, force: false)
     }
 
@@ -36,7 +42,7 @@ extension ReaderView {
     /// A batch of a chapter's translations landed: lay the chapter out again with them. Once
     /// the chapter on screen is done, the next one is translated ahead of the reader.
     func applyTranslationUpdate(_ chapter: AIChapterTranslationService.Chapter) {
-        guard chapter.book == bookId, readerTranslation.isActive, chapter.language == readerTranslation.language else { return }
+        guard chapter.book == bookId, effectiveReaderTranslation.isActive, chapter.language == readerTranslation.language else { return }
         if effectiveScrollMode {
             if chapter.spine == translationReadingPosition?.spineIndex {
                 let request = chapterContentRefreshRequest(chapterIndex: chapter.spine)
@@ -61,13 +67,23 @@ extension ReaderView {
     /// The reader reached another chapter: in scroll mode, bring in translations that
     /// arrived while it was off screen, then ask for what it still lacks.
     func translationChapterDidChange() {
-        guard readerTranslation.isActive else { return }
+        guard effectiveReaderTranslation.isActive else { return }
         if effectiveScrollMode, let spine = translationReadingPosition?.spineIndex, staleTranslatedChapters.remove(spine) != nil {
             let request = chapterContentRefreshRequest(chapterIndex: spine)
             let renderer = epubRenderer
             Task { @MainActor in _ = await renderer.refresh(request) }
         }
         translateVisibleChapterIfNeeded()
+    }
+
+    /// Pro started or lapsed. The layout follows by itself (`effectiveReaderTranslation` is
+    /// part of the render settings); runs have to be stopped or asked for.
+    func aiAccessDidChange() {
+        if readerPremiumVisibility.allowsAI {
+            translateVisibleChapterIfNeeded()
+        } else {
+            AIChapterTranslationService.shared.cancel(book: bookId)
+        }
     }
 
     /// The book's setting changed in the sheet: keep it, and stop paying for a language or

@@ -7,6 +7,8 @@ import Foundation
 /// UI can render per-feature rows, and so a future tiered plan can map features
 /// to different entitlements without touching call sites.
 enum PremiumFeature: String, CaseIterable, Identifiable, Hashable {
+    /// Every AI feature: 助手, 整章翻譯, 選字的問 AI／解釋／查詞／翻譯, AI 整理書架.
+    case aiReading
     case paragraphNote
     case customFonts
     case touchZoneEditor
@@ -21,10 +23,11 @@ enum PremiumFeature: String, CaseIterable, Identifiable, Hashable {
     var id: String { rawValue }
 
     /// Features that are implemented and may be advertised in Pro surfaces.
-    /// Theme packs and alternate app icons remain internal capability keys, but
-    /// neither product currently ships and they must not reappear as marketing.
+    /// Alternate app icons remain an internal capability key that does not ship and must
+    /// not appear as marketing. `readerThemePacks` does ship — it gates 外觀主題's custom
+    /// palettes and page backgrounds — and was missing from the paywall until 2026-09-27.
     static func marketedFeatures(highlighting highlightedFeature: PremiumFeature? = nil) -> [PremiumFeature] {
-        let unavailable: Set<PremiumFeature> = [.readerThemePacks, .alternateAppIcons]
+        let unavailable: Set<PremiumFeature> = [.alternateAppIcons]
         let available = allCases.filter { !unavailable.contains($0) }
         guard let highlightedFeature, available.contains(highlightedFeature) else {
             return available
@@ -35,8 +38,9 @@ enum PremiumFeature: String, CaseIterable, Identifiable, Hashable {
     /// SF Symbol used in the Pro settings feature list and paywall.
     var iconName: String {
         switch self {
+        case .aiReading: return "sparkles"
         case .paragraphNote: return "note.text"
-        case .customFonts: return "textformat"
+        case .customFonts: return "f.cursive"
         case .touchZoneEditor: return "hand.tap"
         case .dialogueHighlight: return "text.bubble"
         case .layoutPresetImport: return "slider.horizontal.3"
@@ -48,35 +52,38 @@ enum PremiumFeature: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// Localization key for the short feature title.
+    /// Localization key for the short feature title. Same words as the paywall's benefit
+    /// rows (`PremiumPillar`), so a feature is called one thing everywhere Pro is sold.
     var titleKey: String {
         switch self {
+        case .aiReading: return "AI 閱讀助手"
         case .paragraphNote: return "段落筆記"
-        case .customFonts: return "字體導入"
-        case .touchZoneEditor: return "翻頁區塊編輯"
-        case .dialogueHighlight: return "正則高亮"
-        case .layoutPresetImport: return "排版參數導入"
-        case .readerBackgroundImport: return "閱讀背景導入"
-        case .bottomBarCustomization: return "底部導覽列自訂"
-        case .readerThemePacks: return "外觀自定義"
+        case .customFonts: return "字體匯入"
+        case .touchZoneEditor: return "翻頁區塊"
+        case .dialogueHighlight: return "對話氣泡與高亮"
+        case .layoutPresetImport: return "排版備份"
+        case .readerBackgroundImport: return "自訂閱讀背景"
+        case .bottomBarCustomization: return "底部分頁"
+        case .readerThemePacks: return "外觀主題"
         case .alternateAppIcons: return "桌面圖標切換"
         case .launchScreen: return "啟動圖"
         }
     }
 
-    /// Localization key for the one-line feature description.
+    /// Localization key for the one-line feature description: what the reader gets.
     var subtitleKey: String {
         switch self {
-        case .paragraphNote: return "在劃線的段落上寫筆記，隨時回頭查看"
-        case .customFonts: return "匯入並切換自訂字體"
-        case .touchZoneEditor: return "自訂 3×3 翻頁點擊區塊"
-        case .dialogueHighlight: return "使用自訂正則、文字樣式與背景效果標示閱讀內容"
-        case .layoutPresetImport: return "匯入排版參數 preset 一鍵套用"
-        case .readerBackgroundImport: return "匯入圖片作為閱讀背景"
-        case .bottomBarCustomization: return "自訂底部 Tab 頁面、大小與圖標"
-        case .readerThemePacks: return "自訂應用配色、閱讀配色與頁面背景"
+        case .aiReading: return "問書、整章翻譯、查詞與整理書架"
+        case .paragraphNote: return "在劃線旁寫下想法，筆記跟著原文走"
+        case .customFonts: return "匯入喜歡的字體，閱讀和介面都能用"
+        case .touchZoneEditor: return "畫面分成 3×3，每一格點了做什麼由你決定"
+        case .dialogueHighlight: return "對白排成聊天氣泡，重點按規則自動上色"
+        case .layoutPresetImport: return "整套排版匯出匯入，也能讀 Legado 的設定檔"
+        case .readerBackgroundImport: return "用自己的圖片當書頁背景"
+        case .bottomBarCustomization: return "自訂底部 Tab 的頁面、大小與圖示"
+        case .readerThemePacks: return "App 與閱讀配色、頁面背景，都能自己調"
         case .alternateAppIcons: return "切換預置的桌面圖標"
-        case .launchScreen: return "自訂 App 開屏畫面"
+        case .launchScreen: return "換上你自己的開屏畫面"
         }
     }
 

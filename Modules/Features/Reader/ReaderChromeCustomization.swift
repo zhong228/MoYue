@@ -160,8 +160,14 @@ enum ReaderChromeActionItem: String, CaseIterable, Codable, Hashable, Identifiab
         case .download: return "下載"
         case .playback: return "聽書"
         case .aiAssistant: return "AI 助手"
-        case .translation: return "翻譯"
+        case .translation: return "AI 翻譯"
         }
+    }
+
+    /// 經典 draws only these as floating circles; AI 助手 and AI 翻譯 sit in its top
+    /// 三橫線 menu instead. 現代's book card shows every action.
+    var isClassicCircle: Bool {
+        self != .aiAssistant && self != .translation
     }
 
     var defaultSystemImage: String {

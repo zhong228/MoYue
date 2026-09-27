@@ -17,6 +17,7 @@ struct SettingsView: View {
     @State private var showTTSSettings = false
     @State private var showNetworkSettings = false
     @State private var showAISettings = false
+    @State private var showAIPaywall = false
     #if DEBUG
     @State private var autoOpenDiagnostics = false
     #endif
@@ -161,8 +162,11 @@ struct SettingsView: View {
                             // Named for what it is — the reader's panel is also called
                             // 「AI 助手」, and someone looking for 人物卡 went here first.
                             title: localized("AI 助手設定"),
-                            detail: aiAssistantDetail,
-                            action: { showAISettings = true }
+                            detail: isAILocked ? localized("需要 Pro") : aiAssistantDetail,
+                            isLocked: isAILocked,
+                            action: {
+                                if isAILocked { showAIPaywall = true } else { showAISettings = true }
+                            }
                         )
                         
                         DSSettingsRow(
@@ -277,6 +281,10 @@ struct SettingsView: View {
             .sheet(isPresented: $showAISettings) {
                 AISettingsView()
             }
+            .sheet(isPresented: $showAIPaywall) {
+                PaywallView(highlightedFeature: .aiReading)
+                    .environmentObject(subscriptionStore)
+            }
             .sheet(isPresented: $showReplaceRules) {
                 ReplaceRuleListView()
             }
@@ -320,6 +328,11 @@ struct SettingsView: View {
 
     private var downloadedBooksCount: Int {
         store.books.filter { $0.isOnline && $0.offlineDownloadState == .available }.count
+    }
+
+    /// AI is Pro, its settings included (`ReaderPremiumVisibilityPolicy.allowsAI`).
+    private var isAILocked: Bool {
+        !ReaderPremiumVisibilityPolicy(isProActive: subscriptionStore.isProActive).allowsAI
     }
 
     /// Says whether AI is usable at a glance. A reader who has not set it up should not have

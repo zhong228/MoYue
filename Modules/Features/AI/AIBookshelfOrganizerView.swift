@@ -5,7 +5,9 @@ import SwiftUI
 struct AIBookshelfOrganizerView: View {
     @EnvironmentObject private var store: BookStore
     @StateObject private var model: AIBookshelfOrganizerModel
+    @ObservedObject private var subscription = SubscriptionStore.shared
     @Environment(\.dismiss) private var dismiss
+    @State private var showsPaywall = false
     @State private var scope: AIBookshelfOrganizer.Scope = .ungrouped
     @State private var shelf: [AIBookshelfOrganizer.Book]?
 
@@ -42,11 +44,35 @@ struct AIBookshelfOrganizerView: View {
         }
         .task { if shelf == nil { shelf = await AIBookshelfOrganizerModel.shelfBooks(store: store) } }
         .onDisappear { model.cancel() }
+        .sheet(isPresented: $showsPaywall) {
+            PaywallView(highlightedFeature: .aiReading)
+                .environmentObject(subscription)
+        }
     }
 
     // MARK: - Setup
 
     @ViewBuilder private var setup: some View {
+        if !ReaderPremiumVisibilityPolicy(isProActive: subscription.isProActive).allowsAI {
+            // Reached without Pro only on iOS 17, where the bookshelf menu pushes this page
+            // instead of opening the paywall straight from the menu. No service details and
+            // no way into AI 助手設定, which is Pro as well.
+            ContentUnavailableView {
+                Label(localized("需要 Pro"), systemImage: "lock.fill")
+            } description: {
+                Text(localized("問書、整章翻譯、查詞與整理書架"))
+            } actions: {
+                Button(localized("升級")) { showsPaywall = true }
+                    .buttonStyle(.borderedProminent)
+            }
+            .listRowBackground(Color.clear)
+        } else {
+            scopePicker
+            proSetup
+        }
+    }
+
+    private var scopePicker: some View {
         Section {
             Picker(localized("範圍"), selection: $scope) {
                 Text(localized("未分組的書")).tag(AIBookshelfOrganizer.Scope.ungrouped)
@@ -60,6 +86,9 @@ struct AIBookshelfOrganizerView: View {
                     .dsSectionFooter()
             }
         }
+    }
+
+    @ViewBuilder private var proSetup: some View {
         if shelf == nil {
             Section { ProgressView(localized("載入中…")) }
                 .interfaceSectionSurface()

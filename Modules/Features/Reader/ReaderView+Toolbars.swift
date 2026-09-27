@@ -99,11 +99,16 @@ extension ReaderView {
                     )
                 }
             },
+            menuActions: readerSecondaryActions.filter { Self.readerAIActionIDs.contains($0.id) },
             onOpenBookDetail: onlineBookDetail == nil ? nil : {
                 openOnlineBookDetail()
             }
         )
     }
+
+    /// The actions 經典 and Apple Books move out of their action rows: 經典 keeps them in
+    /// the top 三橫線 menu, Apple Books makes AI 助手 a menu row.
+    static let readerAIActionIDs: Set<ReaderSecondaryAction.ID> = [.aiAssistant, .translation]
 
     // MARK: - Bottom Bar
     var bottomBar: some View {
@@ -130,8 +135,6 @@ extension ReaderView {
             onOpenChangeSource: { showChangeSourceSheet = true },
             onDownloadAction: { handleDownloadAction() },
             onOpenTTS: { openPlaybackPanel() },
-            onOpenAIAssistant: { showAIAssistantPanel = true },
-            onOpenTranslation: isFixedLayoutEPUB ? nil : { showTranslationSheet = true },
             onOpenTOC: { showTOC = true },
             onOpenBookmarks: { showBookmarkList = true },
             onOpenSettings: { showQuickThemePanel = true }
@@ -325,7 +328,7 @@ extension ReaderView {
                 // is why running the action in the same turn as `showModernBookCard = false`
                 // left 聽書 dead: the card slid back into the thumbnail and no panel came up.
                 // Retain the route and let the popover's real dismissal run it.
-                ReaderSecondaryAction(id: action.id, icon: action.icon, label: action.label) {
+                ReaderSecondaryAction(id: action.id, icon: action.icon, label: action.label, isLocked: action.isLocked) {
                     modernBookCardPresentation.select(.secondary(action.id))
                     showModernBookCard = false
                 }
@@ -389,7 +392,10 @@ extension ReaderView {
             progressValue: { chapterSliderProgressValue() },
             applyProgress: { applyChapterSliderProgress($0) },
             progressDescription: { chapterTitle(forProgress: $0).converted(to: settings.textConversion) },
-            secondaryActions: readerSecondaryActions,
+            // AI 助手 is a menu row there; the action row drops what needs Pro the reader
+            // does not have (翻譯) — without Pro, the rows keep AI's one marked entry.
+            secondaryActions: readerSecondaryActions.filter { $0.id != .aiAssistant && !$0.isLocked },
+            aiAssistant: readerSecondaryActions.first { $0.id == .aiAssistant },
             onOpenTOC: { showTOC = true },
             onOpenBookmarks: { showBookmarkList = true },
             onOpenSearch: { showReaderSearch = true },
@@ -432,13 +438,15 @@ extension ReaderView {
 
         // Shown whatever the AI settings are: hiding it when unconfigured would leave a
         // reader with no way to discover the feature exists. The panel itself explains what
-        // to fill in.
+        // to fill in. Without Pro both are marked and open the paywall.
+        let aiLocked = !readerPremiumVisibility.allowsAI
         actions.append(
             ReaderSecondaryAction(
                 id: .aiAssistant,
                 icon: "sparkles",
                 label: localized("AI 助手"),
-                action: { showAIAssistantPanel = true }
+                isLocked: aiLocked,
+                action: { openAIAssistant() }
             )
         )
 
@@ -448,8 +456,9 @@ extension ReaderView {
                 ReaderSecondaryAction(
                     id: .translation,
                     icon: "translate",
-                    label: localized("翻譯"),
-                    action: { showTranslationSheet = true }
+                    label: localized("AI 翻譯"),
+                    isLocked: aiLocked,
+                    action: { openTranslationSheet() }
                 )
             )
         }
@@ -466,6 +475,24 @@ extension ReaderView {
         }
 
         return actions
+    }
+
+    /// AI 助手, or the paywall without Pro.
+    func openAIAssistant() {
+        guard readerPremiumVisibility.allowsAI else {
+            paywallFeature = .aiReading
+            return
+        }
+        showAIAssistantPanel = true
+    }
+
+    /// 整章翻譯's sheet, or the paywall without Pro.
+    func openTranslationSheet() {
+        guard readerPremiumVisibility.allowsAI else {
+            paywallFeature = .aiReading
+            return
+        }
+        showTranslationSheet = true
     }
 
     func toggleAppleBooksPanel(_ target: AppleBooksReaderControlPanel) {

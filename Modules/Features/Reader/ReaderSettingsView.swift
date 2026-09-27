@@ -19,12 +19,17 @@ struct ReaderSettingsView: View {
     /// Hands a style/layout import to the reader's first-level presenter. Nil in
     /// contexts that already are one; see `ReaderSettingsPresentationPolicy`.
     var onOpenStyleImporter: ((ReaderStyleImportRoute) -> Void)?
+    /// iOS 17: hands the paywall to the reader's first-level presenter, as the importers
+    /// above do — a sheet asked for from inside this sheet can be dropped there. Nil where
+    /// this view presents it itself.
+    var onOpenPaywall: ((PremiumFeature) -> Void)?
 
     @StateObject private var readerConfig = ReaderConfig.shared
     @ObservedObject private var settings = GlobalSettings.shared
     @ObservedObject private var subscriptionStore = SubscriptionStore.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showingFontImporter = false
+    @State private var paywallFeature: PremiumFeature?
     @State private var fontImportError: FontImportError?
     @State private var layoutImportAlert: LayoutImportAlert?
     @State private var customLayoutEnabled = true
@@ -84,15 +89,13 @@ struct ReaderSettingsView: View {
                         headerFooterSection
                     }
 
-                    if premiumVisibility.showsReaderDecoration {
-                        readerDecorationSection
-                    }
+                    // Pro sections stay in view without Pro, locked: a reader has to see a
+                    // feature where it would be used to want it (2026-09-27).
+                    readerDecorationSection
 
                     brightnessSection
 
-                    if premiumVisibility.showsLayoutPresetImport {
-                        readerSettingsBackupSection
-                    }
+                    readerSettingsBackupSection
                 }
             }
             .themedAppSurface(for: .settings)
@@ -123,6 +126,10 @@ struct ReaderSettingsView: View {
             allowsMultipleSelection: false
         ) { result in
             handleFontImport(result)
+        }
+        .sheet(item: $paywallFeature) { feature in
+            PaywallView(highlightedFeature: feature)
+                .environmentObject(subscriptionStore)
         }
         .readerStyleImportPresentation(route: $styleImportRoute) { _ in
             customLayoutEnabled = hasCustomLayoutOverrides
@@ -208,13 +215,16 @@ struct ReaderSettingsView: View {
                 isOn: $settings.readerSwipeUpToExit
             )
 
-            if premiumVisibility.showsTouchZoneEditor,
-               let onOpenTouchZoneEditor {
-                Button {
-                    dismiss()
-                    DispatchQueue.main.async { onOpenTouchZoneEditor() }
-                } label: {
-                    Label(localized("翻頁區塊編輯"), systemImage: "hand.tap")
+            if let onOpenTouchZoneEditor {
+                if premiumVisibility.showsTouchZoneEditor {
+                    Button {
+                        dismiss()
+                        DispatchQueue.main.async { onOpenTouchZoneEditor() }
+                    } label: {
+                        Label(localized("翻頁區塊編輯"), systemImage: "hand.tap")
+                    }
+                } else {
+                    lockedRow("翻頁區塊編輯", systemImage: "hand.tap", feature: .touchZoneEditor)
                 }
             }
         } header: {
@@ -258,17 +268,22 @@ struct ReaderSettingsView: View {
     /// reading setup to the new phone" file.
     private var readerSettingsBackupSection: some View {
         Section {
-            ShareLink(
-                item: ReaderSettingsExportPayload(inputs: ReaderSettingsExportSnapshot.make()),
-                preview: SharePreview(localized("閱讀設定"))
-            ) {
-                Label(localized("匯出閱讀設定"), systemImage: "square.and.arrow.up")
-            }
+            if premiumVisibility.showsLayoutPresetImport {
+                ShareLink(
+                    item: ReaderSettingsExportPayload(inputs: ReaderSettingsExportSnapshot.make()),
+                    preview: SharePreview(localized("閱讀設定"))
+                ) {
+                    Label(localized("匯出閱讀設定"), systemImage: "square.and.arrow.up")
+                }
 
-            Button {
-                requestStyleImporter(.readerSettings)
-            } label: {
-                Label(localized("匯入閱讀設定"), systemImage: "square.and.arrow.down")
+                Button {
+                    requestStyleImporter(.readerSettings)
+                } label: {
+                    Label(localized("匯入閱讀設定"), systemImage: "square.and.arrow.down")
+                }
+            } else {
+                lockedRow("匯出閱讀設定", systemImage: "square.and.arrow.up", feature: .layoutPresetImport)
+                lockedRow("匯入閱讀設定", systemImage: "square.and.arrow.down", feature: .layoutPresetImport)
             }
         } header: {
             Text(localized("閱讀設定備份"))
@@ -277,6 +292,36 @@ struct ReaderSettingsView: View {
                 .dsSectionFooter()
         }
         .interfaceSectionSurface()
+    }
+
+    /// A locked control's paywall: from this sheet on iOS 18, from the reader on iOS 17
+    /// (`onOpenPaywall`), where a sheet asked for from inside this one can be dropped.
+    private func requestPaywall(_ feature: PremiumFeature) {
+        if let onOpenPaywall {
+            onOpenPaywall(feature)
+        } else {
+            paywallFeature = feature
+        }
+    }
+
+    /// A Pro control shown without Pro: its name, 需要 Pro and a lock, opening the paywall
+    /// on the feature it belongs to.
+    private func lockedRow(_ titleKey: String, systemImage: String, feature: PremiumFeature) -> some View {
+        Button {
+            requestPaywall(feature)
+        } label: {
+            HStack {
+                Label(localized(titleKey), systemImage: systemImage)
+                    .foregroundStyle(DSColor.textPrimary)
+                Spacer(minLength: DSSpacing.md)
+                Text(localized("需要 Pro"))
+                    .foregroundStyle(DSColor.textSecondary)
+                Image(systemName: "lock.fill")
+                    .font(DSFont.caption)
+                    .foregroundStyle(DSColor.textSecondary)
+                    .accessibilityHidden(true)
+            }
+        }
     }
 
     /// iOS 17 cannot present a document picker from this sheet — hand it to the
@@ -552,10 +597,21 @@ struct ReaderSettingsView: View {
 
                 if !ReaderSettingsPresentationPolicy.requiresFirstLevelImporter {
                     Divider()
-                    Button {
-                        showingFontImporter = true
-                    } label: {
-                        Label(localized("匯入字體..."), systemImage: "plus")
+                    if premiumVisibility.allowsFontImport {
+                        Button {
+                            showingFontImporter = true
+                        } label: {
+                            Label(localized("匯入字體..."), systemImage: "plus")
+                        }
+                    } else {
+                        // Locked: the second `Text` is the menu row's subtitle.
+                        Button {
+                            requestPaywall(.customFonts)
+                        } label: {
+                            Text(localized("匯入字體..."))
+                            Text(localized("需要 Pro"))
+                            Image(systemName: "lock.fill")
+                        }
                     }
                 }
             } label: {
@@ -573,12 +629,18 @@ struct ReaderSettingsView: View {
             .buttonStyle(.plain)
 
             if ReaderSettingsPresentationPolicy.requiresFirstLevelImporter {
+                let locked = !premiumVisibility.allowsFontImport
                 Button {
-                    onOpenFontImporter()
+                    if locked {
+                        requestPaywall(.customFonts)
+                    } else {
+                        onOpenFontImporter()
+                    }
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: locked ? "lock.fill" : "plus")
                 }
                 .accessibilityLabel(localized("匯入字體..."))
+                .accessibilityValue(locked ? localized("需要 Pro") : "")
             }
         }
     }
@@ -627,73 +689,87 @@ struct ReaderSettingsView: View {
 
     private var readerDecorationSection: some View {
         Section(header: Text(localized("閱讀裝飾"))) {
-            if showsCommentBubbleSettings {
-                NavigationLink {
-                    ReaderCommentBubbleSettingsView()
-                } label: {
-                    Label(localized("氣泡設定"), systemImage: "text.bubble")
+            if premiumVisibility.showsReaderDecoration {
+                readerDecorationRows
+            } else {
+                if hasParagraphReviews {
+                    lockedRow("氣泡設定", systemImage: "text.bubble", feature: .dialogueHighlight)
                 }
-            }
-
-            ToggleRow(
-                title: localized("文字底線"),
-                subtitle: localized("在每行水平正文下方顯示淡底線。"),
-                isOn: readerTextUnderlineDecorationBinding
-            )
-
-            if settings.readerTextUnderlineDecorationEnabled {
-                ColorPicker(
-                    localized("底線顏色"),
-                    selection: readerTextUnderlineDecorationColorBinding,
-                    supportsOpacity: false
-                )
-                Picker(
-                    localized("底線樣式"),
-                    selection: readerTextUnderlineStyleBinding
-                ) {
-                    ForEach(ReaderTextUnderlineStyle.allCases, id: \.self) { style in
-                        Label(style.localizedTitle, systemImage: style.systemImageName)
-                            .tag(style)
-                    }
-                }
-                ValueSliderRow(
-                    title: localized("粗細"),
-                    valueText: String(format: "%.1f pt", settings.readerTextUnderlineThickness),
-                    value: readerTextUnderlineThicknessBinding,
-                    range: GlobalSettings.readerUnderlineThicknessRange,
-                    step: 0.1
-                )
-
-                ValueSliderRow(
-                    title: localized("偏移"),
-                    valueText: String(format: "%.1f pt", settings.readerTextUnderlineOffset),
-                    value: readerTextUnderlineOffsetBinding,
-                    range: GlobalSettings.readerUnderlineOffsetRange,
-                    step: 0.5
-                )
-            }
-
-            NavigationLink {
-                RegexHighlightSettingsView(
-                    configuration: settings.regexHighlightConfiguration,
-                    onOpenImporter: { requestStyleImporter(.regexHighlights) },
-                    onChange: { settings.regexHighlightConfiguration = $0 }
-                )
-            } label: {
-                Label(localized("正則高亮"), systemImage: "text.magnifyingglass")
-            }
-
-            NavigationLink {
-                ReaderDialogueBubbleSettingsView(
-                    style: settings.dialogueBubbleStyle,
-                    onOpenImporter: { requestStyleImporter(.dialogueBubble) },
-                    onChange: { settings.dialogueBubbleStyle = $0 }
-                )
-            } label: {
-                Label(localized("對話氣泡"), systemImage: "bubble.left.and.bubble.right")
+                lockedRow("文字底線", systemImage: "underline", feature: .dialogueHighlight)
+                lockedRow("正則高亮", systemImage: "text.magnifyingglass", feature: .dialogueHighlight)
+                lockedRow("對話氣泡", systemImage: "bubble.left.and.bubble.right", feature: .dialogueHighlight)
             }
         }
         .interfaceSectionSurface()
+    }
+
+    @ViewBuilder
+    private var readerDecorationRows: some View {
+        if showsCommentBubbleSettings {
+            NavigationLink {
+                ReaderCommentBubbleSettingsView()
+            } label: {
+                Label(localized("氣泡設定"), systemImage: "text.bubble")
+            }
+        }
+
+        ToggleRow(
+            title: localized("文字底線"),
+            subtitle: localized("在每行水平正文下方顯示淡底線。"),
+            isOn: readerTextUnderlineDecorationBinding
+        )
+
+        if settings.readerTextUnderlineDecorationEnabled {
+            ColorPicker(
+                localized("底線顏色"),
+                selection: readerTextUnderlineDecorationColorBinding,
+                supportsOpacity: false
+            )
+            Picker(
+                localized("底線樣式"),
+                selection: readerTextUnderlineStyleBinding
+            ) {
+                ForEach(ReaderTextUnderlineStyle.allCases, id: \.self) { style in
+                    Label(style.localizedTitle, systemImage: style.systemImageName)
+                        .tag(style)
+                }
+            }
+            ValueSliderRow(
+                title: localized("粗細"),
+                valueText: String(format: "%.1f pt", settings.readerTextUnderlineThickness),
+                value: readerTextUnderlineThicknessBinding,
+                range: GlobalSettings.readerUnderlineThicknessRange,
+                step: 0.1
+            )
+
+            ValueSliderRow(
+                title: localized("偏移"),
+                valueText: String(format: "%.1f pt", settings.readerTextUnderlineOffset),
+                value: readerTextUnderlineOffsetBinding,
+                range: GlobalSettings.readerUnderlineOffsetRange,
+                step: 0.5
+            )
+        }
+
+        NavigationLink {
+            RegexHighlightSettingsView(
+                configuration: settings.regexHighlightConfiguration,
+                onOpenImporter: { requestStyleImporter(.regexHighlights) },
+                onChange: { settings.regexHighlightConfiguration = $0 }
+            )
+        } label: {
+            Label(localized("正則高亮"), systemImage: "text.magnifyingglass")
+        }
+
+        NavigationLink {
+            ReaderDialogueBubbleSettingsView(
+                style: settings.dialogueBubbleStyle,
+                onOpenImporter: { requestStyleImporter(.dialogueBubble) },
+                onChange: { settings.dialogueBubbleStyle = $0 }
+            )
+        } label: {
+            Label(localized("對話氣泡"), systemImage: "bubble.left.and.bubble.right")
+        }
     }
 
     private var brightnessSection: some View {

@@ -89,7 +89,9 @@ enum BookInfoEditPresentationPolicy {
 ///
 /// Covers every document picker reader settings owns — font import, and the
 /// 閱讀設定 / 正則高亮 style importers, whose 匯入 controls sit on pages pushed
-/// *inside* that sheet (and, for 正則高亮, inside a `Menu` as well).
+/// *inside* that sheet (and, for 正則高亮, inside a `Menu` as well) — and the
+/// paywall its locked Pro rows open, in both the flowing and the fixed-page
+/// reader's settings.
 enum ReaderSettingsPresentationPolicy {
     static func requiresFirstLevelImporter(
         osMajorVersion: Int

@@ -373,11 +373,14 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             return UIMenu(children: colorActions + [underlineAction])
         }
 
+        // AI items only with Pro (`ReaderPremiumVisibilityPolicy.showsAISelectionActions`).
+        let premium = ReaderPremiumVisibilityPolicy(isProActive: SubscriptionStore.shared.isProActive)
         // A translation is not the book's text: nothing can be highlighted, noted or turned
         // into a replace rule there, and the assistant has no place in the book to cite.
         if selectionTouchesTranslation {
             let text = interactor.selectedTextForCopy ?? ""
-            return UIMenu(children: suggestedActions + (AIWordLookup.isCandidate(text) ? [aiSelectionAction(.lookup)] : []))
+            let lookup = premium.showsAISelectionActions && AIWordLookup.isCandidate(text)
+            return UIMenu(children: suggestedActions + (lookup ? [aiSelectionAction(.lookup)] : []))
         }
 
         var actions = suggestedActions
@@ -407,9 +410,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         ))
         // 沒訂閱時項目照樣留著，只換成鎖頭：點下去 ReaderView 會開付費牆。
         // 「這一點該開編輯頁還是付費牆」的判斷只有 ReaderView 那一處，這裡純顯示。
-        let canEditNote = ReaderPremiumVisibilityPolicy(
-            isProActive: SubscriptionStore.shared.isProActive
-        ).allowsParagraphNoteEditing
+        let canEditNote = premium.allowsParagraphNoteEditing
         actions.append(UIAction(
             title: localized(noteMenuTitleIsEdit ? "編輯筆記" : "筆記"),
             image: UIImage(systemName: canEditNote ? "note.text" : "lock.fill"),
@@ -418,8 +419,10 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             }
         ))
 
-        for action in AIReadingAction.selectionMenu(for: interactor.selectedTextForCopy ?? "") {
-            actions.append(aiSelectionAction(action))
+        if premium.showsAISelectionActions {
+            for action in AIReadingAction.selectionMenu(for: interactor.selectedTextForCopy ?? "") {
+                actions.append(aiSelectionAction(action))
+            }
         }
         return UIMenu(children: actions)
     }

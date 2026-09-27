@@ -127,8 +127,9 @@ enum AIQuestionPrompt {
                 .init(role: $0.role == .user ? .user : .assistant,
                       content: "<conversation-data role=\"\($0.role.rawValue)\" evidence=\"false\">\n\($0.text)\n</conversation-data>")
             } + [.init(role: .user, content: data + "\n<source-evidence>\n" + selected.enumerated().map { offset, item in
-                let current = item.kind == .currentPosition || item.kind == .prefix
                 let passage = "[S\(offset + 1)]\n\(item.chunk.text)"
+                if item.isReaderSelection { return "<selected-text>\n" + passage + "\n</selected-text>" }
+                let current = item.kind == .currentPosition || item.kind == .prefix
                 return current ? "<current-reading-context>\n" + passage + "\n</current-reading-context>" : passage
             }.joined(separator: "\n\n") + "\n</source-evidence>")]
         }
@@ -149,4 +150,9 @@ enum AIQuestionPrompt {
         return .init(request: .init(messages: messages, maxTokens: budget.maximumOutputTokens,
             temperature: AIRAGPipeline.temperature, topP: AIRAGPipeline.topP), evidence: selected, history: selectedHistory)
     }
+}
+
+extension AIQuestionEvidence {
+    /// The passage the reader selected for 翻譯／解釋／問 AI; see `AIReadingEvidence.selectionIDPrefix`.
+    var isReaderSelection: Bool { chunk.id.hasPrefix(AIReadingEvidence.selectionIDPrefix) }
 }

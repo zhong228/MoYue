@@ -60,8 +60,15 @@ field; it is optional, so old saved positions decode unchanged.
   stored under a digest of its paragraph's trimmed text, so it survives anything that moves
   offsets (font, margins, replace rules elsewhere) and is lost only when that paragraph's
   text changes (繁簡轉換, a replace rule that touches it).
-- A translated paragraph takes the source paragraph's font, paragraph style, colour and kern
-  — never attachment run delegates, links or decorations.
+- A translation looks like its paragraph's main text — the style covering most of its
+  visible characters, as the book set it (a regex highlight is re-applied by the engines) —
+  and takes every box that text's colour was chosen against: an inline box, the paragraph's
+  block and container boxes (same ids, so they are drawn around the translation too), and a
+  對話氣泡 of its own fitted to its width. A colour without its box was invisible: 诡秘之主's
+  `span.look` headings are white on orange. Never kern, the language attribute, links or
+  attachments.
+- A paragraph with no visible text of its own — a designed chapter title, drawn from its
+  render plan over clear placeholders — is left as drawn, untranslated on screen.
 
 ## Tests
 
