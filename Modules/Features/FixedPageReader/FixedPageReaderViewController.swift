@@ -409,20 +409,18 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
     func readerToggleBookmark() {
         guard chapters.indices.contains(chapterIndex) else { return }
         let page = reader?.currentPageIndex() ?? 0
-        // These books are a single chapter, so `chapterStart` would collapse every
-        // page onto one bookmark; carry the page in the offset slot instead.
-        let position: CoreTextReadingPosition = isSingleChapterDocumentBook
-            ? CoreTextReadingPosition(spineIndex: chapterIndex, charOffset: page)
-            : .chapterStart(chapterIndex)
+        // 一頁一個書籤：這些書沒有字元位移，頁序號就是位置，一頁佔一格。
+        let range = ReaderPageBookmarkRange(
+            spineIndex: chapterIndex, startOffset: page, endOffset: page + 1)
         let title = isSingleChapterDocumentBook
             ? (currentDocumentSectionIndex.map { documentSections[$0].title } ?? chapters[chapterIndex].title)
             : chapters[chapterIndex].title
-        store?.toggleBookmark(
+        store?.togglePageBookmark(
             bookId: book.id,
             chapterIndex: chapterIndex,
             chapterTitle: title,
-            position: position,
-            excerpt: isSingleChapterDocumentBook ? String(format: localized("第 %d 頁"), page + 1) : ""
+            range: range,
+            excerpt: String(format: localized("第 %d 頁"), page + 1)
         )
     }
     func readerAutoScrollStateChanged(_ isActive: Bool) { state.isAutoScrolling = isActive }

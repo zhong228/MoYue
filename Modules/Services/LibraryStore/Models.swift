@@ -69,6 +69,11 @@ struct Bookmark: Identifiable, Codable, Equatable {
         self.annotationColor = annotationColor
     }
 
+    /// 書籤卡片摘錄的字數上限。卡片給摘錄兩行，而章首那一頁的開頭是排進版面的
+    /// 章名、顯示時會被 `ReaderBookmarkExcerpt.body(of:chapterTitle:)` 去掉，
+    /// 所以要多存一點，扣掉章名後才剩得下兩行內文。
+    static let pageExcerptLength = 90
+
     var isChapterStartBookmark: Bool {
         position.spineIndex == chapterIndex && position.charOffset == 0
     }

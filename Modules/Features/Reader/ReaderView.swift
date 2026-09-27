@@ -1287,22 +1287,52 @@ struct ReaderView: View {
     /// Footer intrinsic height (points), excluding safe area bottom.
     let footerOverlayHeight: CGFloat = ReaderLayoutMetrics.footerHeight
 
-    var currentTopBarBookmarkPosition: CoreTextReadingPosition? {
+    /// 一頁一個書籤：目前這一頁在章節內的字元範圍。頂部書籤鈕、觸控區動作、
+    /// 翻頁模式的下拉手勢全部以它為準，所以三者永遠談的是同一個書籤。
+    var currentPageBookmarkRange: ReaderPageBookmarkRange? {
         if let engine = epubRenderer.engine, usesCoreTextEPUB {
-            return .chapterStart(displayedCoreTextPosition(in: engine).spineIndex)
+            let displayed = displayedCoreTextPosition(in: engine)
+            let start = CoreTextReadingPosition(
+                spineIndex: displayed.spineIndex, charOffset: displayed.charOffset)
+            // 下一頁的頁首就是這一頁的結尾。跨章的下一頁不算——那是下一章的第一頁。
+            // 章節還沒排版完時引擎答 nil，範圍就一路到章尾：沒有版面就沒有頁界可言，
+            // 這時整章視為一頁，好過瞎猜一個字數。
+            let next = engine.positionAfter(start)
+            let end = next?.spineIndex == start.spineIndex ? next?.charOffset : nil
+            return ReaderPageBookmarkRange(
+                spineIndex: start.spineIndex, startOffset: start.charOffset, endOffset: end)
         }
         if !allPages.isEmpty {
-            let page = allPages[min(currentPage, allPages.count - 1)]
-            return .chapterStart(page.chapterIndex)
+            let index = min(currentPage, allPages.count - 1)
+            let page = allPages[index]
+            // 舊的 allPages 路徑沒有字元位移，頁在章內的序號就是它的位置。
+            // 同一章的頁在 allPages 裡是連續的，所以章首頁減一下就是章內頁號。
+            let localPage = index - (findChapterFirstPage(page.chapterIndex) ?? index)
+            return ReaderPageBookmarkRange(
+                spineIndex: page.chapterIndex, startOffset: localPage, endOffset: localPage + 1)
         }
         guard chapters.indices.contains(currentChapterIndex) else { return nil }
-        return .chapterStart(currentChapterIndex)
+        return ReaderPageBookmarkRange(spineIndex: currentChapterIndex, startOffset: 0, endOffset: 1)
     }
 
-    /// Whether the current chapter has a topbar bookmark.
+    /// Whether the current page has a bookmark.
     var isCurrentPageBookmarked: Bool {
-        guard let position = currentTopBarBookmarkPosition else { return false }
-        return store.isChapterStartBookmarked(bookId: bookId, chapterIndex: position.spineIndex)
+        guard let range = currentPageBookmarkRange else { return false }
+        return store.isPageBookmarked(bookId: bookId, range: range)
+    }
+
+    /// 加書籤／移除書籤：頂部書籤鈕、觸控區動作與下拉手勢共用這一條路徑。
+    /// - Returns: `true` 代表這次是加入書籤，`false` 代表移除或沒有可用的頁面範圍。
+    @discardableResult
+    func toggleCurrentPageBookmark() -> Bool {
+        guard let range = currentPageBookmarkRange else { return false }
+        return store.togglePageBookmark(
+            bookId: bookId,
+            chapterIndex: range.spineIndex,
+            chapterTitle: bookmarkChapterTitle(for: range.spineIndex),
+            range: range,
+            excerpt: currentPageBookmarkExcerpt
+        )
     }
 
     func bookmarkChapterTitle(for chapterIndex: Int) -> String {
@@ -1334,6 +1364,25 @@ struct ReaderView: View {
         guard !allPages.isEmpty else { return "" }
         let content = allPages[min(currentPage, allPages.count - 1)].content
         return String(content.prefix(30))
+    }
+
+    /// 書籤卡片上的摘錄。比 `currentPageExcerpt` 長，因為卡片留了兩行給它；
+    /// 30 字只填得滿一行，第二行會空著。
+    var currentPageBookmarkExcerpt: String {
+        if let engine = epubRenderer.engine, usesCoreTextEPUB {
+            if effectiveScrollMode {
+                let position = displayedCoreTextPosition(in: engine)
+                return ReaderDisplayedPosition.excerpt(
+                    in: epubRenderer.scrollEngine?.chapterText(forSpine: position.spineIndex) ?? "",
+                    charOffset: position.charOffset,
+                    maxLength: Bookmark.pageExcerptLength
+                )
+            }
+            return String(engine.plainText(forPage: currentPage).prefix(Bookmark.pageExcerptLength))
+        }
+        guard !allPages.isEmpty else { return "" }
+        let content = allPages[min(currentPage, allPages.count - 1)].content
+        return String(content.prefix(Bookmark.pageExcerptLength))
     }
 
     var coreTextTextAnnotations: [CoreTextTextAnnotation] {
@@ -1620,6 +1669,8 @@ struct ReaderView: View {
                     },
                     onTapZone: handleTouchAction,
                     onSwipeUpExit: { closeReader() },
+                    isCurrentPageBookmarked: { isCurrentPageBookmarked },
+                    onPullDownBookmark: { toggleCurrentPageBookmark() },
                     visibleRefreshCommit: epubRenderer.pendingVisibleRefreshCommit,
                     onVisibleRefreshFinished: { transactionID, outcome in
                         epubRenderer.finishVisibleRefresh(
@@ -1672,6 +1723,8 @@ struct ReaderView: View {
                     },
                     onTapZone: handleTouchAction,
                     onSwipeUpExit: { closeReader() },
+                    isCurrentPageBookmarked: { isCurrentPageBookmarked },
+                    onPullDownBookmark: { toggleCurrentPageBookmark() },
                     visibleRefreshCommit: epubRenderer.pendingVisibleRefreshCommit,
                     onVisibleRefreshFinished: { transactionID, outcome in
                         epubRenderer.finishVisibleRefresh(
@@ -2449,9 +2502,20 @@ struct ReaderView: View {
                     bookTitle: book?.title ?? "",
                     bookmarks: book?.bookmarks ?? [],
                     pageNumber: { inChapterPageNumber(for: $0) },
+                    chapterTitle: { index in
+                        // 章節已經不在目錄裡（換源、目錄重抓）就回空字串，讓清單退回
+                        // 書籤存檔時的章名——`bookmarkChapterTitle` 最後一手會回「目前
+                        // 章節」，掛在別章的書籤上是錯的。
+                        guard chapters.indices.contains(index) else { return "" }
+                        return bookmarkChapterTitle(for: index).converted(to: settings.textConversion)
+                    },
                     onSelect: { bm in
                         showBookmarkList = false
                         jumpToBookmark(bm)
+                    },
+                    onSelectChapter: { index in
+                        showBookmarkList = false
+                        jumpToChapter(index)
                     },
                     onDelete: { deleteBookmarkEntry($0) },
                     isPresented: $showBookmarkList
@@ -2803,14 +2867,7 @@ struct ReaderView: View {
             guard canGoNextChapter else { return }
             jumpToChapter(currentChapterIndex + 1)
         case .toggleBookmark:
-            guard let position = currentTopBarBookmarkPosition else { return }
-            store.toggleBookmark(
-                bookId: bookId,
-                chapterIndex: position.spineIndex,
-                chapterTitle: bookmarkChapterTitle(for: position.spineIndex),
-                position: position,
-                excerpt: currentPageExcerpt
-            )
+            toggleCurrentPageBookmark()
         case .tableOfContents:
             showTOC = true
         }

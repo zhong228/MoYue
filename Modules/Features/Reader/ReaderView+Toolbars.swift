@@ -88,15 +88,8 @@ extension ReaderView {
             overlayMaxWidth: overlayContentMaxWidth,
             onBack: { closeReader() },
             onToggleBookmark: {
-                guard let position = currentTopBarBookmarkPosition else { return }
-                withAnimation(.easeInOut(duration: uiFeedbackDuration)) {
-                    store.toggleBookmark(
-                        bookId: bookId,
-                        chapterIndex: position.spineIndex,
-                        chapterTitle: bookmarkChapterTitle(for: position.spineIndex),
-                        position: position,
-                        excerpt: currentPageExcerpt
-                    )
+                _ = withAnimation(.easeInOut(duration: uiFeedbackDuration)) {
+                    toggleCurrentPageBookmark()
                 }
             },
             menuActions: readerSecondaryActions.filter { !ReaderChromeActionItem($0.id).isClassicCircle },

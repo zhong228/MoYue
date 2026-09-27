@@ -958,21 +958,39 @@ class BookStore: ObservableObject, BookProvider {
         saveMeta()
     }
 
-    func toggleBookmark(
+    /// 一頁一個書籤：這一頁上已有的書籤，由早到晚。
+    func pageBookmarks(bookId: UUID, in range: ReaderPageBookmarkRange) -> [Bookmark] {
+        guard let book = records.first(where: { $0.id == bookId }) else { return [] }
+        return range.pageBookmarks(in: book.bookmarks)
+    }
+
+    /// 一頁一個書籤：這頁沒有就加一個（位置記在頁首），已經有就把整頁範圍內的書籤都移除。
+    ///
+    /// 用範圍而不是位置相等來判斷，換過字級／邊距之後舊書籤仍然屬於它原本那一頁，
+    /// 不會在同一頁上疊出第二個，也刪得掉。
+    /// - Returns: `true` 代表這次是加入書籤，`false` 代表移除。
+    @discardableResult
+    func togglePageBookmark(
         bookId: UUID, chapterIndex: Int, chapterTitle: String,
-        position: CoreTextReadingPosition, excerpt: String
-    ) {
-        guard let idx = records.firstIndex(where: { $0.id == bookId }) else { return }
-        if let bmIdx = records[idx].bookmarks.firstIndex(where: { $0.position == position }) {
-            records[idx].bookmarks.remove(at: bmIdx)
-        } else {
-            let bm = Bookmark(
-                chapterIndex: chapterIndex, chapterTitle: chapterTitle,
-                position: position, excerpt: excerpt)
-            records[idx].bookmarks.append(bm)
+        range: ReaderPageBookmarkRange, excerpt: String
+    ) -> Bool {
+        guard let idx = records.firstIndex(where: { $0.id == bookId }) else { return false }
+        let existing = range.pageBookmarks(in: records[idx].bookmarks)
+        if existing.isEmpty {
+            records[idx].bookmarks.append(Bookmark(
+                chapterIndex: chapterIndex,
+                chapterTitle: chapterTitle,
+                position: range.bookmarkPosition,
+                excerpt: excerpt
+            ))
             records[idx].bookmarks = records[idx].bookmarks.sortedByStablePosition()
+            saveMeta()
+            return true
         }
+        let removedIDs = Set(existing.map(\.id))
+        records[idx].bookmarks.removeAll { removedIDs.contains($0.id) }
         saveMeta()
+        return false
     }
 
     func addTextAnnotation(
@@ -1107,8 +1125,9 @@ class BookStore: ObservableObject, BookProvider {
         }) ?? false
     }
 
-    func isChapterStartBookmarked(bookId: UUID, chapterIndex: Int) -> Bool {
-        isBookmark(bookId: bookId, position: .chapterStart(chapterIndex))
+    /// 一頁一個書籤：這一頁上有沒有書籤。
+    func isPageBookmarked(bookId: UUID, range: ReaderPageBookmarkRange) -> Bool {
+        !pageBookmarks(bookId: bookId, in: range).isEmpty
     }
 
     // MARK: Incremental Content Update (download interruption protection)

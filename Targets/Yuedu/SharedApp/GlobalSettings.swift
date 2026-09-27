@@ -850,6 +850,14 @@ class GlobalSettings: ObservableObject {
     @Published var readerSwipeUpToExit: Bool {
         didSet { UserDefaults.standard.set(readerSwipeUpToExit, forKey: "yd_reader_swipe_up_exit") }
     }
+    /// Paged mode only: pulling down shows a bookmark pill and releasing past the
+    /// commit point bookmarks this page — or removes the bookmark, when the page
+    /// already has one. Defaults ON; scroll mode never installs the gesture, where
+    /// a downward drag is the scroll itself. Read at gesture-begin time by
+    /// `CoreTextPageEngineView` — no relayout needed.
+    @Published var readerPullDownToBookmark: Bool {
+        didSet { UserDefaults.standard.set(readerPullDownToBookmark, forKey: "yd_reader_pull_down_bookmark") }
+    }
     /// When on, the reader theme automatically follows the system light/dark
     /// appearance (light → last light theme, dark → night). Selecting a specific
     /// theme from the menu turns this off. Applied live in `ReaderView`.
@@ -1851,6 +1859,8 @@ class GlobalSettings: ObservableObject {
         readerTapBothSidesNextPage = UserDefaults.standard.bool(forKey: "yd_reader_tap_both_next")
         readerSwipeUpToExit =
             (UserDefaults.standard.object(forKey: "yd_reader_swipe_up_exit") as? Bool) ?? true
+        readerPullDownToBookmark =
+            (UserDefaults.standard.object(forKey: "yd_reader_pull_down_bookmark") as? Bool) ?? true
         readerFollowSystemTheme = UserDefaults.standard.bool(forKey: "yd_reader_follow_system_theme")
         readerTextUnderlineDecorationEnabled = UserDefaults.standard.bool(forKey: Self.readerTextUnderlineDecorationKey)
         readerTextUnderlineDecorationColorHex = UInt32(clamping:

@@ -3358,3 +3358,14 @@
 "收合註釋" = "Collapse comment";
 "分組「%@」" = "Group “%@”";
 "附加分組「%@」" = "Add to “%@”";
+"下拉加入書籤" = "Pull Down to Bookmark";
+"放開加入書籤" = "Release to Bookmark";
+"已加入書籤" = "Bookmarked";
+"下拉移除書籤" = "Pull Down to Remove";
+"放開移除書籤" = "Release to Remove";
+"已移除書籤" = "Bookmark Removed";
+"向下滑動時浮現書籤，滑過一半後鬆手即加入；這頁已有書籤則改為移除" = "Dragging down reveals a bookmark; release past halfway to add it, or to remove the one this page already has";
+"第 %@ 頁" = "Page %@";
+"點兩下跳至本章開頭" = "Double tap to go to the start of this chapter";
+"點兩下跳至此頁" = "Double tap to go to this page";
+"在想記住的那一頁向下滑動，或點一下右上角的書籤按鈕。" = "On a page you want to keep, drag down — or tap the bookmark button at the top right.";

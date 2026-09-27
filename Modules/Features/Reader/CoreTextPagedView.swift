@@ -27,6 +27,11 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
     let onPageChanged: (Int, CoreTextReadingPosition?) -> Void
     let onTapZone: (TouchAction) -> Void
     var onSwipeUpExit: () -> Void = {}
+    /// Read when the pull-down gesture begins, so the pill can say "加入" or
+    /// "移除" before the finger has travelled far enough to commit.
+    var isCurrentPageBookmarked: () -> Bool = { false }
+    /// Adds or removes this page's bookmark. Same call as the top bar's button.
+    var onPullDownBookmark: () -> Void = {}
     var visibleRefreshCommit: ReaderVisibleRefreshCommit?
     var onVisibleRefreshFinished: (UInt64, ReaderVisibleRefreshOutcome) -> Void = { _, _ in }
 
@@ -123,6 +128,18 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
         context.coordinator.swipeUpExitPanGesture = exitPan
         pvc.view.addGestureRecognizer(exitPan)
 
+        // Pull-down bookmark: the exit gesture's mirror image, gated the same way
+        // — it only begins on a clearly downward drag, and reads its setting at
+        // begin time so toggling it needs no controller rebuild.
+        let bookmarkPan = UIPanGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handlePullDownBookmarkPan(_:))
+        )
+        bookmarkPan.maximumNumberOfTouches = 1
+        bookmarkPan.delegate = context.coordinator
+        context.coordinator.pullDownBookmarkPanGesture = bookmarkPan
+        pvc.view.addGestureRecognizer(bookmarkPan)
+
         context.coordinator.bindEngineCallbacks(to: engine, pageViewController: pvc)
 
         return pvc
@@ -131,6 +148,12 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIPageViewController, context: Context) {
         context.coordinator.currentEngine = engine
         context.coordinator.sessionCoordinator = sessionCoordinator
+        // Refreshed every pass, ahead of the early returns below: these two read
+        // live reader state (which page is showing, whether it is bookmarked), so
+        // a copy captured once at makeCoordinator time would answer for the page
+        // the book opened on.
+        context.coordinator.isCurrentPageBookmarked = isCurrentPageBookmarked
+        context.coordinator.onPullDownBookmark = onPullDownBookmark
         context.coordinator.currentPlaybackHighlight = playbackHighlight
         let spreadModeChanged = context.coordinator.isDoublePageSpread != isDoublePageSpread
         context.coordinator.isDoublePageSpread = isDoublePageSpread
@@ -331,7 +354,9 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             currentPage: $currentPage,
             onPageChanged: onPageChanged,
             onTapZone: onTapZone,
-            onSwipeUpExit: onSwipeUpExit
+            onSwipeUpExit: onSwipeUpExit,
+            isCurrentPageBookmarked: isCurrentPageBookmarked,
+            onPullDownBookmark: onPullDownBookmark
         )
     }
 
@@ -349,6 +374,8 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
         let onPageChanged: (Int, CoreTextReadingPosition?) -> Void
         let onTapZone: (TouchAction) -> Void
         let onSwipeUpExit: () -> Void
+        var isCurrentPageBookmarked: () -> Bool
+        var onPullDownBookmark: () -> Void
         let isRTL: Bool
         var isDoublePageSpread: Bool
         private(set) var lastAppliedRefreshTransactionID: UInt64 = 0
@@ -441,6 +468,16 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
         private weak var swipeUpExitChipIcon: UIImageView?
         private var swipeUpExitArmed = false
         private let swipeUpExitHaptic = UIImpactFeedbackGenerator(style: .medium)
+        // Pull-down bookmark gesture state
+        weak var pullDownBookmarkPanGesture: UIPanGestureRecognizer?
+        private var pullDownBookmarkPill: UIView?
+        private weak var pullDownBookmarkIcon: UIImageView?
+        private weak var pullDownBookmarkLabel: UILabel?
+        /// Read once at `.began`; the pill must not flip mid-drag because a
+        /// neighbouring page settled underneath the finger.
+        private var pullDownBookmarkWasBookmarked = false
+        private var pullDownBookmarkPhase: ReaderPullDownBookmarkMotion.Phase = .pulling
+        private let pullDownBookmarkHaptic = UIImpactFeedbackGenerator(style: .medium)
         private weak var callbackEngineObject: AnyObject?
         private var callbackEngineIdentifier: ObjectIdentifier?
 
@@ -679,7 +716,9 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
              currentPage: Binding<Int>,
              onPageChanged: @escaping (Int, CoreTextReadingPosition?) -> Void,
              onTapZone: @escaping (TouchAction) -> Void,
-             onSwipeUpExit: @escaping () -> Void = {}) {
+             onSwipeUpExit: @escaping () -> Void = {},
+             isCurrentPageBookmarked: @escaping () -> Bool = { false },
+             onPullDownBookmark: @escaping () -> Void = {}) {
             self.currentEngine = engine
             self.pageTurnStyle = pageTurnStyle
             self.currentTheme = theme
@@ -694,6 +733,8 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             self.onPageChanged = onPageChanged
             self.onTapZone = onTapZone
             self.onSwipeUpExit = onSwipeUpExit
+            self.isCurrentPageBookmarked = isCurrentPageBookmarked
+            self.onPullDownBookmark = onPullDownBookmark
             if let externalTargetPosition {
                 // Direct, because a method call before `super.init` does not compile. Safe
                 // to leave outside the funnel only because `.externalTarget` reports
@@ -2218,9 +2259,228 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             chip.alpha = ReaderSwipeUpExitMotion.chipAlpha(forProgress: progress)
         }
 
-        // MARK: - UIGestureRecognizerDelegate (swipe-up exit)
+        // MARK: - Pull-down bookmark gesture
+
+        @objc func handlePullDownBookmarkPan(_ gesture: UIPanGestureRecognizer) {
+            guard let view = gesture.view else { return }
+            let progress = ReaderPullDownBookmarkMotion.progress(
+                forTranslationY: gesture.translation(in: view).y
+            )
+
+            switch gesture.state {
+            case .began:
+                pullDownBookmarkWasBookmarked = isCurrentPageBookmarked()
+                pullDownBookmarkPhase = .pulling
+                pullDownBookmarkHaptic.prepare()
+                let pill = ensurePullDownBookmarkPill(in: view)
+                pill.layer.removeAllAnimations()
+                pill.isHidden = false
+                applyPullDownBookmarkPillState(animated: false)
+                layoutPullDownBookmarkPill(progress: progress, in: view)
+
+            case .changed:
+                let phase: ReaderPullDownBookmarkMotion.Phase =
+                    progress >= ReaderPullDownBookmarkMotion.commitProgress ? .armed : .pulling
+                if phase != pullDownBookmarkPhase {
+                    pullDownBookmarkPhase = phase
+                    if phase == .armed { pullDownBookmarkHaptic.impactOccurred() }
+                    applyPullDownBookmarkPillState(animated: true)
+                }
+                layoutPullDownBookmarkPill(progress: progress, in: view)
+
+            case .ended, .cancelled, .failed:
+                let shouldToggle = gesture.state == .ended && ReaderPullDownBookmarkMotion.shouldCommit(
+                    progress: progress,
+                    velocityY: gesture.velocity(in: view).y
+                )
+                if shouldToggle {
+                    onPullDownBookmark()
+                    pullDownBookmarkPhase = .done
+                    applyPullDownBookmarkPillState(animated: true)
+                    UIAccessibility.post(
+                        notification: .announcement,
+                        argument: localized(ReaderPullDownBookmarkMotion.titleKey(
+                            isBookmarked: pullDownBookmarkWasBookmarked, phase: .done
+                        ))
+                    )
+                    // The pill holds the outcome where the finger left it, then fades.
+                    UIView.animate(
+                        withDuration: ReaderPullDownBookmarkMotion.confirmationFadeDuration,
+                        delay: ReaderPullDownBookmarkMotion.confirmationHold,
+                        options: [.beginFromCurrentState]
+                    ) {
+                        self.pullDownBookmarkPill?.alpha = 0
+                    } completion: { _ in
+                        self.pullDownBookmarkPill?.isHidden = true
+                    }
+                } else {
+                    UIView.animate(
+                        withDuration: ReaderPullDownBookmarkMotion.cancelSettleDuration,
+                        delay: 0,
+                        options: [.curveEaseOut, .beginFromCurrentState]
+                    ) {
+                        self.layoutPullDownBookmarkPill(progress: 0, in: view)
+                    } completion: { _ in
+                        self.pullDownBookmarkPill?.isHidden = true
+                    }
+                }
+                pullDownBookmarkPhase = .pulling
+
+            default:
+                break
+            }
+        }
+
+        /// Builds the bookmark pill lazily and keeps it parented to the gesture's
+        /// view. A blur capsule adapts to any reader background; icon and label
+        /// follow the current theme's text color.
+        private func ensurePullDownBookmarkPill(in view: UIView) -> UIView {
+            let pill: UIView
+            if let existing = pullDownBookmarkPill {
+                pill = existing
+            } else {
+                let container = UIView(
+                    frame: CGRect(
+                        x: 0, y: 0,
+                        width: ReaderPullDownBookmarkMotion.pillHeight * 4,
+                        height: ReaderPullDownBookmarkMotion.pillHeight
+                    )
+                )
+                container.isUserInteractionEnabled = false
+                container.layer.shadowColor = UIColor.black.cgColor
+                container.layer.shadowOpacity = 0.18
+                container.layer.shadowRadius = 10
+                container.layer.shadowOffset = CGSize(width: 0, height: 4)
+
+                let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+                blur.frame = container.bounds
+                blur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                blur.clipsToBounds = true
+                blur.layer.cornerRadius = ReaderPullDownBookmarkMotion.pillHeight / 2
+                container.addSubview(blur)
+
+                let icon = UIImageView()
+                icon.contentMode = .center
+                icon.setContentHuggingPriority(.required, for: .horizontal)
+
+                let label = UILabel()
+                label.font = UIFont.preferredFont(forTextStyle: .subheadline)
+                label.adjustsFontForContentSizeCategory = true
+                label.numberOfLines = 1
+
+                let stack = UIStackView(arrangedSubviews: [icon, label])
+                stack.axis = .horizontal
+                stack.alignment = .center
+                stack.spacing = ReaderPullDownBookmarkMotion.pillIconTextSpacing
+                container.addSubview(stack)
+
+                pullDownBookmarkPill = container
+                pullDownBookmarkIcon = icon
+                pullDownBookmarkLabel = label
+                pill = container
+            }
+            let tint = UIColor(currentTheme.textColor)
+            pullDownBookmarkIcon?.tintColor = tint
+            pullDownBookmarkLabel?.textColor = tint
+            if pill.superview !== view {
+                pill.removeFromSuperview()
+                view.addSubview(pill)
+            }
+            view.bringSubviewToFront(pill)
+            return pill
+        }
+
+        /// Icon and wording for the current phase, and the pill resized to fit them.
+        private func applyPullDownBookmarkPillState(animated: Bool) {
+            guard let pill = pullDownBookmarkPill,
+                  let icon = pullDownBookmarkIcon,
+                  let label = pullDownBookmarkLabel,
+                  let stack = label.superview as? UIStackView else { return }
+
+            let apply = {
+                icon.image = UIImage(
+                    systemName: ReaderPullDownBookmarkMotion.iconName(
+                        isBookmarked: self.pullDownBookmarkWasBookmarked,
+                        phase: self.pullDownBookmarkPhase
+                    ),
+                    withConfiguration: UIImage.SymbolConfiguration(
+                        pointSize: ReaderPullDownBookmarkMotion.pillIconPointSize,
+                        weight: .semibold
+                    )
+                )
+                label.text = localized(ReaderPullDownBookmarkMotion.titleKey(
+                    isBookmarked: self.pullDownBookmarkWasBookmarked,
+                    phase: self.pullDownBookmarkPhase
+                ))
+
+                let padding = ReaderPullDownBookmarkMotion.pillHorizontalPadding
+                let content = stack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+                // Accessibility text sizes can outgrow the screen; the pill stays inside it.
+                let maxWidth = max(
+                    ReaderPullDownBookmarkMotion.pillHeight,
+                    (pill.superview?.bounds.width ?? content.width) - DSSpacing.xl * 2
+                )
+                let width = min(content.width + padding * 2, maxWidth)
+                let center = pill.center
+                pill.bounds = CGRect(
+                    x: 0, y: 0,
+                    width: width,
+                    height: ReaderPullDownBookmarkMotion.pillHeight
+                )
+                pill.center = center
+                stack.frame = pill.bounds.insetBy(dx: padding, dy: 0)
+            }
+
+            // Reduce Motion: the wording still changes, it just does not cross-fade.
+            if animated, !UIAccessibility.isReduceMotionEnabled {
+                UIView.transition(
+                    with: pill,
+                    duration: ReaderPullDownBookmarkMotion.stateChangeDuration,
+                    options: [.transitionCrossDissolve, .beginFromCurrentState],
+                    animations: apply
+                )
+            } else {
+                apply()
+            }
+        }
+
+        private func layoutPullDownBookmarkPill(progress: CGFloat, in view: UIView) {
+            guard let pill = pullDownBookmarkPill else { return }
+            pill.alpha = ReaderPullDownBookmarkMotion.pillAlpha(forProgress: progress)
+            // Reduce Motion: no travel, no growth — the pill sits at its committed
+            // spot and only fades, so the cue survives without the movement.
+            guard !UIAccessibility.isReduceMotionEnabled else {
+                pill.transform = .identity
+                pill.center = CGPoint(
+                    x: view.bounds.midX,
+                    y: ReaderPullDownBookmarkMotion.pillCenterY(
+                        forProgress: 1, topSafeInset: view.safeAreaInsets.top
+                    )
+                )
+                return
+            }
+            var scale = ReaderPullDownBookmarkMotion.pillScale(forProgress: progress)
+            if pullDownBookmarkPhase != .pulling { scale *= ReaderPullDownBookmarkMotion.armedScaleBoost }
+            pill.center = CGPoint(
+                x: view.bounds.midX,
+                y: ReaderPullDownBookmarkMotion.pillCenterY(
+                    forProgress: progress,
+                    topSafeInset: view.safeAreaInsets.top
+                )
+            )
+            pill.transform = CGAffineTransform(scaleX: scale, y: scale)
+        }
+
+        // MARK: - UIGestureRecognizerDelegate (swipe-up exit / pull-down bookmark)
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            if gestureRecognizer === pullDownBookmarkPanGesture {
+                guard let pan = gestureRecognizer as? UIPanGestureRecognizer,
+                      let view = pan.view,
+                      GlobalSettings.shared.readerPullDownToBookmark,
+                      !isAnimatingTransition, !isPageTransitioning else { return false }
+                return ReaderPullDownBookmarkMotion.shouldBegin(velocity: pan.velocity(in: view))
+            }
             guard gestureRecognizer === swipeUpExitPanGesture else { return true }
             guard let pan = gestureRecognizer as? UIPanGestureRecognizer,
                   let view = pan.view,
@@ -2234,9 +2494,14 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
             // Horizontal page-turn pans on the same container (cover / instant /
-            // curl) wait for the exit pan, which fails immediately unless the
-            // drag is clearly upward — page turns keep their responsiveness.
-            guard gestureRecognizer === swipeUpExitPanGesture else { return false }
+            // curl) wait for the vertical pans, which fail immediately unless the
+            // drag is clearly up or down — page turns keep their responsiveness.
+            guard gestureRecognizer === swipeUpExitPanGesture
+                    || gestureRecognizer === pullDownBookmarkPanGesture else { return false }
+            // Not each other: the two vertical pans are mutually exclusive by
+            // direction already, and making each wait for the other is a cycle.
+            guard otherGestureRecognizer !== swipeUpExitPanGesture,
+                  otherGestureRecognizer !== pullDownBookmarkPanGesture else { return false }
             return otherGestureRecognizer is UIPanGestureRecognizer
                 && otherGestureRecognizer.view === gestureRecognizer.view
         }
@@ -2245,9 +2510,10 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
-            // Selection-handle drags travel upward too; the page content's own
+            // Selection-handle drags travel vertically too; the page content's own
             // pan wins whenever a text selection can consume the touch.
-            guard gestureRecognizer === swipeUpExitPanGesture else { return false }
+            guard gestureRecognizer === swipeUpExitPanGesture
+                    || gestureRecognizer === pullDownBookmarkPanGesture else { return false }
             return otherGestureRecognizer is UIPanGestureRecognizer
                 && otherGestureRecognizer.view is CoreTextPageView
         }

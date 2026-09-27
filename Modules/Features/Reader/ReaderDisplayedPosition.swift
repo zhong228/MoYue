@@ -20,10 +20,10 @@ enum ReaderDisplayedPosition {
 
     /// Reader positions use UTF-16 offsets; snippets must preserve complete
     /// graphemes even when a stored offset lands inside a composed character.
-    static func excerpt(in text: String, charOffset: Int) -> String {
+    static func excerpt(in text: String, charOffset: Int, maxLength: Int = 30) -> String {
         let source = text as NSString
         guard charOffset >= 0, charOffset < source.length else { return "" }
         let start = source.rangeOfComposedCharacterSequence(at: charOffset).location
-        return String(source.substring(from: start).prefix(30))
+        return String(source.substring(from: start).prefix(maxLength))
     }
 }

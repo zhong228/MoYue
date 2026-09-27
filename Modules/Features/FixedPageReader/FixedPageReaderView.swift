@@ -350,41 +350,49 @@ struct FixedPageReaderControlsOverlay: View {
     private var bottomBar: some View {
         HStack(spacing: DSSpacing.sm) {
             chapterButton(forward: false)
-            Slider(
-                value: Binding(
-                    get: {
-                        isRTL ? Double(max(0, state.totalPages - 1 - state.currentPage))
-                              : Double(state.currentPage)
-                    },
-                    set: { value in
-                        let page = Int(value.rounded())
-                        state.onJumpToPage?(isRTL ? state.totalPages - 1 - page : page)
-                    }
-                ),
-                in: 0...Double(max(1, state.totalPages - 1)),
-                step: 1
-            )
-            .disabled(state.totalPages <= 1)
-            .tint(DSColor.textPrimary)
-            .accessibilityLabel(localized("閱讀進度"))
-            .accessibilityValue(pageIndicatorText)
-            // The page number hangs off the slider instead of sitting under it
-            // in a VStack. Stacked, the two of them centre as a pair, which
-            // leaves the slider itself about 6pt above the bar's centre line;
-            // as an overlay it takes no height and the slider stays centred.
-            .overlay(alignment: .bottom) {
-                Text(pageIndicatorText)
-                    .font(DSFont.caption2)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .fixedSize()
-                    .alignmentGuide(VerticalAlignment.bottom) { $0[VerticalAlignment.top] }
-                    .accessibilityHidden(true)
+            // Aidoku's ReaderToolbarView anchors the slider to the top of the
+            // bar and pins the page labels to its bottom edge, so the label
+            // never takes part in the slider's own layout. Stacking the two in
+            // a VStack instead centres them as a pair and leaves the slider
+            // about 6pt above the bar's centre line.
+            ZStack {
+                Slider(
+                    value: Binding(
+                        get: { Double(state.currentPage) },
+                        set: { state.onJumpToPage?(Int($0.rounded())) }
+                    ),
+                    in: 0...Double(max(1, state.totalPages - 1)),
+                    step: 1
+                )
+                .disabled(state.totalPages <= 1)
+                // The value is always plain forward progress; a right-to-left
+                // book mirrors the *track* instead, which is what Aidoku's
+                // ReaderSliderView does for `direction == .backward` by
+                // re-anchoring its thumb and filled track to the trailing edge.
+                // Inverting the value here instead filled the whole bar on page
+                // one of a manga, so a freshly opened book read as finished.
+                .environment(\.layoutDirection, isRTL ? .rightToLeft : .leftToRight)
+                .tint(DSColor.textPrimary)
+                .accessibilityLabel(localized("閱讀進度"))
+                .accessibilityValue(pageIndicatorText)
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    Text(pageIndicatorText)
+                        .font(DSFont.caption2)
+                        .foregroundStyle(DSColor.textSecondary)
+                        .accessibilityHidden(true)
+                }
             }
             chapterButton(forward: true)
         }
-        // Progress direction belongs to the book, independent of the app language.
+        // The bar itself never mirrors with the app's UI language; only the
+        // slider above follows the book. This is what Aidoku gets from
+        // `semanticContentAttribute = .playback` on its slider view.
         .environment(\.layoutDirection, .leftToRight)
-        .frame(height: DSLayout.minimumTapTarget + DSSpacing.sm)
+        // The toolbar's capsule keeps its own height whatever this frame asks for,
+        // so anything laid out past minimumTapTarget spills outside it — that is
+        // what pushed the page number half out of the bar.
+        .frame(height: DSLayout.minimumTapTarget)
     }
 
     private func chapterButton(forward: Bool) -> some View {

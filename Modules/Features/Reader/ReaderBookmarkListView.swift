@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 閱讀器「書籤／重點」清單（Apple Books 風格）。
-/// 由底部工具列的書籤按鈕開啟，列出書籤與標註（底線/螢光筆）。
+/// 由底部工具列的書籤按鈕開啟，列出書籤與標註（底線/螢光筆），依章節分組。
 ///
 /// 清單本體使用 SwiftUI `List` 搭配 `selection` 綁定（見 `BookmarkSelectionList`），
 /// 系統會自動支援 iOS 原生的兩指拖曳多選手勢。
@@ -17,7 +17,11 @@ struct ReaderBookmarkListView: View {
     let bookmarks: [Bookmark]
     /// 標註在所屬章節內的頁碼（1-based）；無法解析時回傳 nil。
     let pageNumber: (Bookmark) -> Int?
+    /// 章名用目前的目錄解析（含繁簡轉換），不是書籤存檔時的那一份。
+    let chapterTitle: (Int) -> String
     let onSelect: (Bookmark) -> Void
+    /// 點章名：跳回這一章的開頭。
+    let onSelectChapter: (Int) -> Void
     let onDelete: (Bookmark) -> Void
 
     @Binding var isPresented: Bool
@@ -130,7 +134,9 @@ struct ReaderBookmarkListView: View {
             isBookmark: segment == .bookmark,
             items: currentItems,
             pageNumber: pageNumber,
+            chapterTitle: chapterTitle,
             onSelect: onSelect,
+            onSelectChapter: onSelectChapter,
             onDelete: onDelete,
             selection: $selection
         )
@@ -158,7 +164,9 @@ struct BookmarkListSection: View {
     let items: [Bookmark]
     /// 標註在所屬章節內的頁碼（1-based）；無法解析時回傳 nil。
     let pageNumber: (Bookmark) -> Int?
+    let chapterTitle: (Int) -> String
     let onSelect: (Bookmark) -> Void
+    let onSelectChapter: (Int) -> Void
     let onDelete: (Bookmark) -> Void
 
     @Binding var selection: Set<UUID>
@@ -169,7 +177,7 @@ struct BookmarkListSection: View {
                 ContentUnavailableView {
                     Label(localized("沒有書籤"), systemImage: "bookmark")
                 } description: {
-                    Text(localized("點一下你要加入書籤的頁面，點一下選單圖像，然後點一下書籤按鈕。"))
+                    Text(localized("在想記住的那一頁向下滑動，或點一下右上角的書籤按鈕。"))
                 }
             } else {
                 ContentUnavailableView {
@@ -180,14 +188,27 @@ struct BookmarkListSection: View {
             }
         } else {
             BookmarkSelectionList(
-                items: items,
+                groups: ReaderBookmarkChapterGroup.group(items),
                 selection: $selection,
+                chapterTitle: resolvedChapterTitle,
                 primaryText: { bm in
-                    isBookmark
-                        ? bm.chapterTitle
-                        : (bm.excerpt.isEmpty ? bm.chapterTitle : bm.excerpt)
+                    guard !bm.excerpt.isEmpty else { return bm.chapterTitle }
+                    // 章首那一頁的摘錄開頭就是排進版面的章名，而它正上方的分組標題
+                    // 已經寫著同一句；重複兩次等於這張卡片沒說出這一頁講什麼。
+                    return ReaderBookmarkExcerpt.body(
+                        of: bm.excerpt,
+                        chapterTitle: resolvedChapterTitle(
+                            ReaderBookmarkChapterGroup(chapterIndex: bm.chapterIndex, items: [bm])
+                        )
+                    )
                 },
-                primaryLines: isBookmark ? 1 : 2,
+                icon: { bm in
+                    switch bm.kind {
+                    case .bookmark: return "bookmark"
+                    case .underline: return "underline"
+                    case .highlight: return "highlighter"
+                    }
+                },
                 dateText: { Self.relativeDate($0.date) },
                 pageText: { pageNumber($0).map { String($0) } },
                 noteText: { bm in
@@ -195,9 +216,17 @@ struct BookmarkListSection: View {
                     return note.isEmpty ? nil : note
                 },
                 onSelect: onSelect,
+                onSelectChapter: { onSelectChapter($0.chapterIndex) },
                 onDelete: onDelete
             )
         }
+    }
+
+    /// 章名優先用目前的目錄；解析不出來（章節已被移除、離線書換源）就退回書籤
+    /// 存檔時的章名，總比一個空標題好。
+    private func resolvedChapterTitle(_ group: ReaderBookmarkChapterGroup) -> String {
+        let resolved = chapterTitle(group.chapterIndex)
+        return resolved.isEmpty ? (group.items.first?.chapterTitle ?? "") : resolved
     }
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {
@@ -214,28 +243,34 @@ struct BookmarkListSection: View {
 
 #Preview("有資料") {
     ReaderBookmarkListView(
-        bookTitle: "ナミヤ雑貨店の奇蹟",
+        bookTitle: "劍來",
         bookmarks: [
             Bookmark(
-                chapterIndex: 2,
-                chapterTitle: "第三章 シビックで朝まで",
-                position: CoreTextReadingPosition(spineIndex: 2, charOffset: 1200),
-                excerpt: "敦也たちが怒りと苛立ちを込めて書いた手紙",
-                date: Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+                chapterIndex: 118,
+                chapterTitle: "第 119 章 觀劍大會",
+                position: CoreTextReadingPosition(spineIndex: 118, charOffset: 0),
+                excerpt: "他能在「一表人才」之外特地強調一句「天賦上佳」，那便說明這個年輕人的天賦不是一般的好。",
+                date: Date().addingTimeInterval(-60)
             ),
             Bookmark(
-                chapterIndex: 1,
-                chapterTitle: "第二章",
-                position: CoreTextReadingPosition(spineIndex: 1, charOffset: 800),
-                length: 12,
-                kind: .underline,
-                excerpt: "ナミヤ雑貨店の相談",
-                annotationStyle: .underline,
-                annotationColor: .yellow
+                chapterIndex: 118,
+                chapterTitle: "第 119 章 觀劍大會",
+                position: CoreTextReadingPosition(spineIndex: 118, charOffset: 1240),
+                excerpt: "陸歡得了許可，立刻便像一隻得了赦令的小貓，輕手輕腳地跨過門檻，小碎步溜到沈回身邊站好。",
+                date: Date().addingTimeInterval(-90)
+            ),
+            Bookmark(
+                chapterIndex: 119,
+                chapterTitle: "第 120 章 劍氣長城",
+                position: CoreTextReadingPosition(spineIndex: 119, charOffset: 640),
+                excerpt: "城頭上的風，吹了千年。",
+                date: Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
             ),
         ],
-        pageNumber: { _ in 139 },
+        pageNumber: { _ in 3 },
+        chapterTitle: { index in index == 118 ? "第 119 章 觀劍大會" : "第 120 章 劍氣長城" },
         onSelect: { _ in },
+        onSelectChapter: { _ in },
         onDelete: { _ in },
         isPresented: .constant(true)
     )
@@ -243,10 +278,12 @@ struct BookmarkListSection: View {
 
 #Preview("空狀態") {
     ReaderBookmarkListView(
-        bookTitle: "ナミヤ雑貨店の奇蹟",
+        bookTitle: "劍來",
         bookmarks: [],
         pageNumber: { _ in nil },
+        chapterTitle: { _ in "" },
         onSelect: { _ in },
+        onSelectChapter: { _ in },
         onDelete: { _ in },
         isPresented: .constant(true)
     )

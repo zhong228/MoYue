@@ -215,6 +215,12 @@ struct ReaderSettingsView: View {
                 isOn: $settings.readerSwipeUpToExit
             )
 
+            ToggleRow(
+                title: localized("下拉加入書籤"),
+                subtitle: localized("向下滑動時浮現書籤，滑過一半後鬆手即加入；這頁已有書籤則改為移除"),
+                isOn: $settings.readerPullDownToBookmark
+            )
+
             if let onOpenTouchZoneEditor {
                 if premiumVisibility.showsTouchZoneEditor {
                     Button {
