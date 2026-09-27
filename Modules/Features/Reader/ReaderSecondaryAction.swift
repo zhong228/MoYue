@@ -12,6 +12,7 @@ struct ReaderSecondaryAction: Identifiable {
         case changeSource
         case refresh
         case aiAssistant
+        case translation
     }
 
     let id: ID

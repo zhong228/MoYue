@@ -131,6 +131,7 @@ extension ReaderView {
             onDownloadAction: { handleDownloadAction() },
             onOpenTTS: { openPlaybackPanel() },
             onOpenAIAssistant: { showAIAssistantPanel = true },
+            onOpenTranslation: isFixedLayoutEPUB ? nil : { showTranslationSheet = true },
             onOpenTOC: { showTOC = true },
             onOpenBookmarks: { showBookmarkList = true },
             onOpenSettings: { showQuickThemePanel = true }
@@ -441,6 +442,18 @@ extension ReaderView {
             )
         )
 
+        // 整章翻譯 lays translations into reflowed text; a fixed-layout page has none.
+        if !isFixedLayoutEPUB {
+            actions.append(
+                ReaderSecondaryAction(
+                    id: .translation,
+                    icon: "translate",
+                    label: localized("翻譯"),
+                    action: { showTranslationSheet = true }
+                )
+            )
+        }
+
         if !(book?.onlineChapters?.isEmpty ?? true) {
             actions.append(
                 ReaderSecondaryAction(
@@ -476,6 +489,8 @@ extension ReaderView {
     /// prompt. All pushed-reader exits must pass through the coordinator so
     /// the custom close animator, UIKit stack, and retained reader state agree.
     func dismissReaderPresentation() {
+        // Only the chapter on screen was worth translating; what finished is kept.
+        AIChapterTranslationService.shared.cancel(book: bookId)
         if let navigator = readerNavigator {
             navigator.close()
         } else {

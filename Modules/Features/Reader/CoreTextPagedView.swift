@@ -1213,12 +1213,9 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             if scalesNativeTransition {
                 pageViewController.view.layer.speed = activeTurnSpeed
             }
-            // Bursts only. A lone tap (1×) plays UIKit's own slide transition so tap
-            // and swipe match frame for frame — see the long note below.
             let runsTimedSlide = ReaderSlideTurnAnimation.runsTimedPush(
                 pageTurnStyle: pageTurnStyle,
-                animated: animated,
-                turnSpeed: activeTurnSpeed
+                animated: animated
             )
             let finishTransition: (UIViewController) -> Void = { shownViewController in
                 if scalesNativeTransition {
@@ -1252,7 +1249,6 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                         targetViewControllers: stack,
                         direction: direction,
                         animated: animatedFlag,
-                        restoringDataSource: self,
                         completion: completion
                     )
                     return
@@ -1263,24 +1259,16 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                     targetViewControllers: stack,
                     direction: direction,
                     animated: animatedFlag,
-                    restoringDataSource: self,
                     completion: completion
                 )
             }
 
-            // A slide burst runs as an explicit CATransition instead of the page view
-            // controller's own animation — `ReaderSlideTurnAnimation` says why it is
-            // burst-only. A push moves two layer snapshots, the same visual (both
-            // pages translate together) with a duration we own, and the page swap
-            // itself becomes non-animated (no _UIQueuingScrollView reverse-transition
-            // dance).
-            //
-            // A lone tap deliberately does NOT take this path: the push has no finger
-            // tracking and no velocity-linked settle, so at 1× it read as a visibly
-            // different animation from an interactive swipe, and the incoming page's
-            // full-page CoreText draw lands on the main thread at CATransaction.commit(),
-            // delaying the first frame. Only speeds above 1×, which UIKit cannot reach,
-            // pay that cost.
+            // A slide turn runs as an explicit CATransition instead of the page view
+            // controller's own animation — `ReaderSlideTurnAnimation` says why. A push
+            // moves two layer snapshots, the same visual (both pages translate
+            // together) with a duration we own, and the page swap itself becomes
+            // non-animated, so the stack is free again the moment the push lands and
+            // a queued tap follows at once.
             guard runsTimedSlide else {
                 runTransition(animated: animated, completion: finishTransition)
                 return
@@ -1291,7 +1279,7 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 finishTransition(settled ?? targetViewController)
             }
             pageViewController.view.layer.add(
-                slidePushTransition(direction: direction, speed: activeTurnSpeed),
+                ReaderSlideTurnAnimation.pushTransition(direction: direction, speed: activeTurnSpeed),
                 forKey: Self.slideTransitionKey
             )
             runTransition(animated: false) { settled = $0 }
@@ -1299,24 +1287,6 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             // transition's "after" state is the new page, not a half-laid-out one.
             pageViewController.view.layoutIfNeeded()
             CATransaction.commit()
-        }
-
-        /// The push transition that stands in for `.scroll`'s built-in page animation
-        /// while a tap burst is running, so `activeTurnSpeed` can shorten it. Reached
-        /// only when `ReaderSlideTurnAnimation.runsTimedPush` allows it; a lone tap
-        /// plays UIKit's own slide, the animation an interactive swipe uses too.
-        private func slidePushTransition(
-            direction: UIPageViewController.NavigationDirection,
-            speed: Float
-        ) -> CATransition {
-            let transition = CATransition()
-            transition.type = .push
-            // `direction` already carries the RTL swap, so it maps straight to the
-            // edge the incoming page enters from.
-            transition.subtype = direction == .forward ? .fromRight : .fromLeft
-            transition.duration = Self.normalFlipDuration / Double(max(speed, 1))
-            transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            return transition
         }
 
         @objc func handleTap(_ recognizer: UITapGestureRecognizer) {

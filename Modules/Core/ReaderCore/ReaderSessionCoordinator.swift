@@ -193,7 +193,6 @@ final class ReaderSessionCoordinator: ObservableObject {
         targetViewControllers: [UIViewController]? = nil,
         direction: UIPageViewController.NavigationDirection,
         animated: Bool,
-        restoringDataSource: UIPageViewControllerDataSource?,
         completion: @escaping (UIViewController) -> Void
     ) {
         ProgrammaticPageTransitionPerformer(pageTurnStyle: pageTurnStyle).perform(
@@ -202,7 +201,6 @@ final class ReaderSessionCoordinator: ObservableObject {
             targetViewControllers: targetViewControllers,
             direction: direction,
             animated: animated,
-            restoringDataSource: restoringDataSource,
             completion: completion
         )
     }

@@ -16,6 +16,17 @@ import UIKit
 /// setting was off points a little earlier once it is on.
 enum ReaderDialogueBubbleMarker {
     static let attributeKey = NSAttributedString.Key("YDDialogueBubble")
+    private static let fixedTextColorKey = NSAttributedString.Key("YDDialogueBubbleTextColor")
+
+    /// Theme recoloring must retain the skin's text color and collapsed punctuation.
+    /// Unspecified bubble text colors have no marker and continue to follow the reader.
+    static func restoreTextColors(in attr: NSMutableAttributedString) {
+        attr.enumerateAttribute(fixedTextColorKey, in: NSRange(location: 0, length: attr.length)) {
+            value, range, _ in
+            guard let color = value as? UIColor else { return }
+            attr.addAttribute(.foregroundColor, value: color, range: range)
+        }
+    }
 
     static func apply(
         style: ReaderDialogueBubbleStyle,
@@ -278,11 +289,8 @@ enum ReaderDialogueBubbleMarker {
         )
 
         if let textHex = sideStyle.textHex {
-            attr.addAttribute(
-                .foregroundColor,
-                value: GlobalSettings.uiColor(rgbHex: textHex),
-                range: range
-            )
+            let color = GlobalSettings.uiColor(rgbHex: textHex)
+            attr.addAttributes([.foregroundColor: color, fixedTextColorKey: color], range: range)
         }
         applyTypography(sideStyle, metrics: metrics, to: attr, in: range)
         applyParagraphStyle(
@@ -433,7 +441,10 @@ enum ReaderDialogueBubbleMarker {
 
     private static func collapse(_ range: NSRange, in attr: NSMutableAttributedString) {
         attr.addAttribute(.font, value: UIFont.systemFont(ofSize: 0.01), range: range)
-        attr.addAttribute(.foregroundColor, value: UIColor.clear, range: range)
+        attr.addAttributes([
+            .foregroundColor: UIColor.clear,
+            fixedTextColorKey: UIColor.clear,
+        ], range: range)
         attr.addAttribute(.kern, value: 0 as NSNumber, range: range)
     }
 

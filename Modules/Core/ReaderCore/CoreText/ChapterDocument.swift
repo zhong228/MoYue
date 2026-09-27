@@ -15,17 +15,29 @@ struct ChapterDocument {
     let darkPageBackgroundColor: UIColor?
     let anchorOffsets: [String: Int]
     let revision: ContentRevision
+    /// 整章翻譯: set when `attributedString` is the chapter with its translations spliced in.
+    /// `anchorOffsets` stay in the chapter's own text, like every other stored position.
+    let translation: ReaderTranslationLayout?
 
-    init(spineIndex: Int, buildResult: AttributedChapterBuildResult) {
+    init(spineIndex: Int, buildResult: AttributedChapterBuildResult,
+         translated: (display: NSAttributedString, layout: ReaderTranslationLayout)? = nil) {
         self.spineIndex = spineIndex
-        attributedString = buildResult.attributedString
+        attributedString = translated?.display ?? buildResult.attributedString
         imagePage = buildResult.imagePage
         pageBackgroundImage = buildResult.pageBackgroundImage
         pageBackgroundColor = buildResult.pageBackgroundColor
         darkPageBackgroundColor = buildResult.darkPageBackgroundColor
         anchorOffsets = buildResult.anchorOffsets
         revision = buildResult.revision
+        translation = translated?.layout
     }
+}
+
+/// Where the chapter documents find 整章翻譯's translations, looked up by paragraph text
+/// (`ReaderTranslationText.paragraphs`) while a document is built.
+@MainActor
+protocol ReaderTranslationSource: AnyObject {
+    func translation(forParagraph key: String, language: AIAnswerLanguage) -> String?
 }
 
 /// Full identity of a builder invocation.
@@ -62,6 +74,9 @@ final class ChapterDocumentStore {
     }
 
     private let builder: any AttributedStringBuilding
+    /// Supplies translations when the request's settings show them. Set by the renderer
+    /// for the book being read; nil leaves every document as the builder made it.
+    var translationSource: (any ReaderTranslationSource)?
     private let capacity: Int
     private var cache: [CacheEntry] = []
     private var inFlight: [InFlightEntry] = []
@@ -86,7 +101,7 @@ final class ChapterDocumentStore {
 
         let entryID = UUID()
         let requestGeneration = generation
-        let task = Task { @MainActor [builder] in
+        let task = Task { @MainActor [builder, translationSource] in
             // Binds the spine index for the `⏱ coreText.document.*` lines emitted deep inside
             // the chapter-agnostic HTML/CSS builders. See `ReaderDocumentTrace`.
             try await ReaderDocumentTrace.$spineIndex.withValue(request.spineIndex) {
@@ -96,7 +111,14 @@ final class ChapterDocumentStore {
                     themeTextColor: request.themeTextColor,
                     themeBackgroundColor: request.themeBackgroundColor
                 )
-                return ChapterDocument(spineIndex: request.spineIndex, buildResult: result)
+                let presentation = request.settings.translation
+                guard presentation.isActive, result.imagePage == nil, let translationSource else {
+                    return ChapterDocument(spineIndex: request.spineIndex, buildResult: result)
+                }
+                let translated = ReaderTranslationLayout.splice(result.attributedString, mode: presentation.mode) {
+                    translationSource.translation(forParagraph: $0, language: presentation.language)
+                }
+                return ChapterDocument(spineIndex: request.spineIndex, buildResult: result, translated: translated)
             }
         }
         inFlight.append(

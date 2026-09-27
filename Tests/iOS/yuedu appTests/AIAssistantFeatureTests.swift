@@ -40,102 +40,29 @@ struct AIAssistantFeatureTests {
 
     // MARK: - Answering
 
-    @Test("no retrieved evidence answers without spending a request")
-    func refusesWithoutEvidence() async throws {
-        let provider = CountingProvider(reply: "should never be asked")
-        let result = try await AIRAGPipeline.answer(query: "結局是什麼？", hits: [], provider: provider)
-        #expect(!result.hasEvidence)
-        #expect(result.citations.isEmpty)
-        #expect(provider.callCount == 0)
-    }
-
     @Test("an answer citing nothing is reported as unsourced")
-    func answerWithoutCitationsHasNoEvidence() async throws {
+    func answerWithoutCitationsHasNoEvidence() throws {
         let chunk = makeChunk(ordinal: 0)
-        let provider = CountingProvider(reply: "我覺得應該是這樣。")
-        let result = try await AIRAGPipeline.answer(
-            query: "他去哪了？",
-            hits: [AIRetrievalHit(chunk: chunk, score: 1)],
-            provider: provider
-        )
-        #expect(provider.callCount == 1)
+        let raw = LLMRawResponse(content: "我覺得應該是這樣。", provider: "counting", model: "counting-model")
+        let result = try AIRAGPipeline.result(raw: raw, chunks: [chunk], nonce: "ABC123", sectionTitleByID: [:])
         #expect(!result.hasEvidence)
     }
 
     /// The envelope is an internal control channel; a user must never see a sentinel.
     @Test("the self-assessment envelope is stripped from a non-streamed answer")
-    func stripsEnvelopeFromAnswer() async throws {
+    func stripsEnvelopeFromAnswer() throws {
         let chunk = makeChunk(ordinal: 0)
-        let provider = EnvelopeEchoProvider(chunkID: chunk.id)
-        let result = try await AIRAGPipeline.answer(
-            query: "他去哪了？",
-            hits: [AIRetrievalHit(chunk: chunk, score: 1)],
-            provider: provider
+        let nonce = "ABC123"
+        let raw = LLMRawResponse(
+            content: "他離開了 [\(chunk.id)]。[[SELFASSESS:\(nonce)]]{\"sufficient\":\"full\"}[[/SELFASSESS:\(nonce)]]",
+            provider: "envelope",
+            model: "envelope-model"
         )
+        let result = try AIRAGPipeline.result(raw: raw, chunks: [chunk], nonce: nonce, sectionTitleByID: [:])
         #expect(!result.content.contains("SELFASS"))
         #expect(result.hasEvidence)
         #expect(result.citations.count == 1)
         #expect(result.promptVersion == AIRAGPipeline.promptVersion)
-    }
-
-    /// Novel text is untrusted data and must not receive system authority.
-    @Test("passages and the question go in the data message")
-    func promptKeepsBookTextOutOfTheUserTurn() {
-        let chunk = makeChunk(ordinal: 0, text: "池瑤走出房門。")
-        let request = AIRAGPipeline.request(query: "她去哪了？", chunks: [chunk], nonce: "ABC123")
-        #expect(request.messages.map(\.role) == [.system, .user])
-        #expect(!request.messages[0].content.contains("池瑤走出房門。"))
-        #expect(request.messages[1].content.contains(chunk.id))
-        #expect(request.messages[1].content.contains("她去哪了？"))
-        #expect(request.messages[1].content.contains("池瑤走出房門。"))
-    }
-
-    // MARK: - Recap reuse
-
-    @Test("a recap is reused until the reader has actually moved on")
-    func recapReusePolicy() {
-        let now = Date()
-        var stored = AIRecap(
-            text: "前情提要內容。",
-            progress: 0.40,
-            generatedAt: now,
-            provider: "p",
-            model: "m",
-            promptVersion: AIRecap.currentPromptVersion
-        )
-        let boundary = AIReadingBoundary(sourceVersion: "fixture", sectionID: "0", spineIndex: 0, utf16Offset: 100)
-        stored.sourceBoundary = boundary
-        stored.evidenceChunkIDs = ["fixture-chunk"]
-        #expect(AIRecap.canReuse(stored, atProgress: 0.42, now: now, boundary: boundary))
-        #expect(!AIRecap.canReuse(stored, atProgress: 0.50, now: now))
-        #expect(!AIRecap.canReuse(stored, atProgress: 0.42, now: now.addingTimeInterval(25 * 3600)))
-        #expect(!AIRecap.canReuse(nil, atProgress: 0.42, now: now))
-    }
-
-    @Test("a recap from an older prompt version is never reused")
-    func recapVersionGate() {
-        let stored = AIRecap(
-            text: "舊版提要。",
-            progress: 0.40,
-            generatedAt: Date(),
-            provider: "p",
-            model: "m",
-            promptVersion: "yuedu.recap.v0"
-        )
-        #expect(!AIRecap.canReuse(stored, atProgress: 0.40))
-    }
-
-    @Test("an empty stored recap is not reusable")
-    func recapEmptyGate() {
-        let stored = AIRecap(
-            text: "   ",
-            progress: 0.4,
-            generatedAt: Date(),
-            provider: "p",
-            model: "m",
-            promptVersion: AIRecap.currentPromptVersion
-        )
-        #expect(!AIRecap.canReuse(stored, atProgress: 0.4))
     }
 
     // MARK: - Character cards → voices
@@ -256,25 +183,6 @@ struct AIAssistantFeatureTests {
         func generate(_ request: LLMGenerationRequest, model: String?) async throws -> LLMRawResponse {
             callCount += 1
             return LLMRawResponse(content: reply, provider: identifier, model: defaultModel)
-        }
-    }
-
-    private struct EnvelopeEchoProvider: LLMProviding {
-        let identifier = "envelope"
-        let defaultModel = "envelope-model"
-        let chunkID: String
-
-        func generate(_ request: LLMGenerationRequest, model: String?) async throws -> LLMRawResponse {
-            // Echo back the nonce the pipeline put in the system prompt.
-            let system = request.messages.first(where: { $0.role == .system })?.content ?? ""
-            let nonce = system
-                .components(separatedBy: "[[SELFASSESS:").dropFirst().first?
-                .components(separatedBy: "]]").first ?? "X"
-            return LLMRawResponse(
-                content: "他離開了 [\(chunkID)]。[[SELFASSESS:\(nonce)]]{\"sufficient\":\"full\"}[[/SELFASSESS:\(nonce)]]",
-                provider: identifier,
-                model: defaultModel
-            )
         }
     }
 

@@ -33,6 +33,13 @@ extension ReaderView {
         )
     }
 
+    /// 整章翻譯's translations for this book, handed to the renderer before any chapter of
+    /// it is built, so both engines lay out the same translated documents.
+    func attachTranslationSource() {
+        guard epubRenderer.translationSource == nil else { return }
+        epubRenderer.translationSource = AIChapterTranslationService.shared.source(for: bookId)
+    }
+
     func readerRenderSettings(for mode: ReaderDisplayMode) -> ReaderRenderSettings {
         let input = ReaderRenderSettingsSnapshotInput(
             theme: readerTheme.epubJSName,
@@ -53,7 +60,8 @@ extension ReaderView {
             readerStyleAppearance: activeReaderStyleAppearance,
             readerStyleAssetRevision: settings.readerStyleAssetRevision,
             dialogueBubbleStyle: settings.dialogueBubbleStyle,
-            textConversion: settings.textConversion
+            textConversion: settings.textConversion,
+            translation: readerTranslation
         )
 
         let surface: ReaderRenderSurface
@@ -144,6 +152,7 @@ extension ReaderView {
             )
         ]
 
+        attachTranslationSource()
         epubRenderer.load(
             publicationSession: session,
             bookIdentifier: book.remoteEPUBRenderIdentifier ?? session.sourceURL.standardizedFileURL.path,
@@ -238,6 +247,7 @@ extension ReaderView {
             )
         } ?? [:]
 
+        attachTranslationSource()
         epubRenderer.loadWithProvider(
             contentProvider: bundle.provider,
             chapterSourceHrefs: bundle.chapterSourceHrefs,
@@ -340,6 +350,7 @@ extension ReaderView {
                         self.txtIndexReady = true
                         self.applyDocument(document)
 
+                        self.attachTranslationSource()
                         self.epubRenderer.loadTXT(
                             attributedBuilder: markdownBuilder,
                             bookIdentifier: targetBook.id.uuidString,
@@ -473,6 +484,7 @@ extension ReaderView {
         completesPipeline: Bool = true
     ) {
         applyDocument(document)
+        attachTranslationSource()
         epubRenderer.loadTXT(
             attributedBuilder: builder,
             bookIdentifier: book.id.uuidString,

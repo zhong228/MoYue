@@ -351,7 +351,19 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         guard selectedText?.isEmpty == false else { return false }
-        return action == #selector(copy(_:)) || action == #selector(underlineSelection(_:))
+        return action == #selector(copy(_:))
+            || (action == #selector(underlineSelection(_:)) && !selectionTouchesTranslation)
+    }
+
+    /// Whether the selection covers any of 整章翻譯's translated text.
+    private var selectionTouchesTranslation: Bool {
+        guard let chapter = selectionChapter, let range = currentSelectionRange else { return false }
+        return engine.isTranslation(chapter: chapter, range: range)
+    }
+
+    /// The chunk text of a chapter — its own text, or with translations spliced in.
+    private func displayedChapterText(_ chapter: Int) -> String? {
+        engine.chunks.first(where: { $0.chapterIndex == chapter })?.attributedString.string
     }
 
     func editMenuInteraction(
@@ -385,6 +397,12 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
             return UIMenu(children: colorActions + [underlineAction])
         }
 
+        // A translation is not the book's text: nothing to highlight, note or replace there,
+        // and nothing the assistant could cite.
+        if selectionTouchesTranslation {
+            return UIMenu(children: suggestedActions + (AIWordLookup.isCandidate(selectedText ?? "") ? [aiSelectionAction(.lookup)] : []))
+        }
+
         var actions = suggestedActions
         actions.append(UIAction(
             title: localized("替換"),
@@ -411,15 +429,22 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
                 self?.requestNoteEdit()
             }
         ))
-        for action in [AIReadingAction.question, .explain, .translate] {
-            actions.append(UIAction(title: action.title, image: UIImage(systemName: "sparkles")) { [weak self] _ in
-                guard let self, let spine = selectionChapter, let range = currentSelectionRange,
-                      let text = selectedText, range.length == text.utf16.count else { return }
-                pendingAISelection = .init(spineIndex: spine, range: range, text: text, action: action)
-                editMenuInteraction.dismissMenu()
-            })
+        for action in AIReadingAction.selectionMenu(for: selectedText ?? "") {
+            actions.append(aiSelectionAction(action))
         }
         return UIMenu(children: actions)
+    }
+
+    private func aiSelectionAction(_ action: AIReadingAction) -> UIAction {
+        UIAction(title: action.title, image: UIImage(systemName: "sparkles")) { [weak self] _ in
+            guard let self, let spine = selectionChapter, let range = currentSelectionRange,
+                  let text = selectedText, range.length == text.utf16.count else { return }
+            let stored = engine.bookRange(chapter: spine, range: range)
+            pendingAISelection = .init(spineIndex: spine, range: stored ?? range, text: text, action: action,
+                                       context: displayedChapterText(spine).map { AIWordLookup.context(in: $0, range: range) },
+                                       isTranslation: stored == nil)
+            editMenuInteraction.dismissMenu()
+        }
     }
 
     private var pendingAISelection: CoreTextAISelectionRequest?
@@ -494,15 +519,16 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     private func requestUnderline(style: AnnotationStyle, color: AnnotationColor) {
         guard let chapter = selectionChapter,
               let range = currentSelectionRange,
-              range.length > 0
+              range.length > 0,
+              let stored = engine.bookRange(chapter: chapter, range: range)
         else { return }
         NotificationCenter.default.post(
             name: .coreTextUnderlineSelectionRequested,
             object: self,
             userInfo: [
                 "request": CoreTextUnderlineSelectionRequest(
-                    position: CoreTextReadingPosition(spineIndex: chapter, charOffset: range.location),
-                    length: range.length,
+                    position: CoreTextReadingPosition(spineIndex: chapter, charOffset: stored.location),
+                    length: stored.length,
                     excerpt: selectedText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
                     removesExistingUnderline: false,
                     style: style,
@@ -537,15 +563,16 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         }
         guard let chapter = selectionChapter,
               let range = currentSelectionRange,
-              range.length > 0
+              range.length > 0,
+              let stored = engine.bookRange(chapter: chapter, range: range)
         else { return }
         NotificationCenter.default.post(
             name: .coreTextNoteEditRequested,
             object: self,
             userInfo: [
                 "request": CoreTextNoteEditRequest(
-                    position: CoreTextReadingPosition(spineIndex: chapter, charOffset: range.location),
-                    length: range.length,
+                    position: CoreTextReadingPosition(spineIndex: chapter, charOffset: stored.location),
+                    length: stored.length,
                     excerpt: selectedText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 )
             ]
@@ -554,6 +581,8 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     }
 
     private func postNoteEditRequest(for annotation: CoreTextTextAnnotation) {
+        guard let stored = engine.bookRange(chapter: annotation.spineIndex, range: annotation.range, annotationID: annotation.id)
+        else { return }
         NotificationCenter.default.post(
             name: .coreTextNoteEditRequested,
             object: self,
@@ -561,9 +590,9 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
                 "request": CoreTextNoteEditRequest(
                     position: CoreTextReadingPosition(
                         spineIndex: annotation.spineIndex,
-                        charOffset: annotation.startOffset
+                        charOffset: stored.location
                     ),
-                    length: annotation.range.length,
+                    length: stored.length,
                     excerpt: annotationExcerpt(annotation),
                     existingNote: annotation.note ?? "",
                     style: annotation.style,
@@ -707,7 +736,9 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         collectionView.isOpaque = !isTransparent
     }
 
-    func setTextAnnotations(_ annotations: [CoreTextTextAnnotation]) {
+    func setTextAnnotations(_ stored: [CoreTextTextAnnotation]) {
+        // Drawn and hit-tested in chunk text, which 整章翻譯 may have spliced translations into.
+        let annotations = engine.displayed(stored)
         textAnnotations = annotations
         // Refresh visible cells
         for indexPath in collectionView.indexPathsForVisibleItems {
@@ -721,7 +752,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
 
     func setPlaybackHighlight(_ highlight: ReaderPlaybackHighlight?) {
         let changed = highlight != playbackHighlight
-        playbackHighlight = highlight
+        playbackHighlight = highlight.map(engine.displayed)
         for cell in collectionView.visibleCells.compactMap({ $0 as? CoreTextChunkCollectionCell }) {
             cell.applyPlaybackHighlight(playbackHighlight)
         }
@@ -785,6 +816,15 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         charOffset: Int = 0,
         completion: ((Bool) -> Void)?
     ) {
+        requestReslice(to: CoreTextReadingPosition(spineIndex: chapter, charOffset: charOffset), completion: completion)
+    }
+
+    /// Keeps the whole position, including a place inside a translation (整章翻譯).
+    private func requestReslice(
+        to position: CoreTextReadingPosition,
+        completion: ((Bool) -> Void)?
+    ) {
+        let chapter = position.spineIndex
         let extent = currentContentExtent
         let imageExtent = currentImageContentWidth
         let viewportExtent = currentViewportExtent
@@ -794,9 +834,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
         resliceTask = Task { [weak self] in
             guard let self = self else { return }
             self.hasAppliedReadingPosition = false
-            self.setReadingPosition(
-                CoreTextReadingPosition(spineIndex: chapter, charOffset: charOffset), .reslice
-            )
+            self.setReadingPosition(position, .reslice)
             let succeeded = await self.engine.reslice(
                 restoreAt: chapter,
                 contentWidth: extent,
@@ -831,10 +869,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
             return
         }
 
-        requestReslice(
-            at: commit.position.spineIndex,
-            charOffset: commit.position.charOffset
-        ) { [weak self] succeeded in
+        requestReslice(to: commit.position) { [weak self] succeeded in
             guard let self else { return }
             guard succeeded else {
                 completion(
@@ -979,7 +1014,7 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
             viewportSnapshotArrived(spine: spine, install: install)
         }
 
-        engine.$textAnnotations
+        engine.$displayedTextAnnotations
             .receive(on: RunLoop.main)
             .sink { [weak self] annotations in
                 self?.textAnnotations = annotations
@@ -1106,9 +1141,11 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
             restoreAwaitingLayout = laidOut ? nil : target
             engine.requestViewport(chapter: target.spineIndex, bounds: bounds, anchorOffset: target.charOffset)
         }
+        // Chunk text offset: the same as the position's unless translations are spliced in.
+        let targetOffset = engine.displayOffset(for: target)
         guard let row = engine.chunkIndex(
             forChapter: target.spineIndex,
-            charOffset: target.charOffset
+            charOffset: targetOffset
         ), row < engine.chunks.count else {
             // Called from `viewDidLayoutSubviews` too, so deferring is normal early on. It matters
             // only if it keeps deferring — or if it resolves once content has *changed* under it.
@@ -1123,9 +1160,9 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
             "restore.resolve",
             "target=(ch\(target.spineIndex),off\(target.charOffset)) row=\(row) force=\(force) "
                 + "chunkChapter=\(chunk.chapterIndex) chunkStart=\(chunk.charRange.location) "
-                + "withinChunkChars=\(target.charOffset - chunk.charRange.location)"
+                + "withinChunkChars=\(targetOffset - chunk.charRange.location)"
         )
-        guard scrollToRow(row, charOffset: target.charOffset) else { return false }
+        guard scrollToRow(row, charOffset: targetOffset) else { return false }
         warmChunks(around: row, force: true)
         // The whole contract of this method is that the reader ends up where they were.
         // Checking it here rather than at each caller is deliberate: every structural
@@ -2213,7 +2250,7 @@ extension CoreTextCollectionScrollViewController: UICollectionViewDataSource, UI
                 ? chunk.readingOffset(atVerticalOffset: localPoint.y)
                 : (chunk.stringIndex(atLocalPoint: localPoint) ?? chunk.charRange.location)
             guard let char = offset else { return nil }
-            return CoreTextReadingPosition(spineIndex: chunk.chapterIndex, charOffset: char)
+            return engine.readingPosition(chapter: chunk.chapterIndex, displayOffset: char)
         }
 
         // Deliberately no chunk-start fallback. Returning the chunk's first character when the

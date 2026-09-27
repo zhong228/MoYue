@@ -1,0 +1,188 @@
+import SwiftUI
+
+/// AI 整理書架. The model proposes a group for each book; the reader switches off any move
+/// they disagree with, renames groups, and applies. Nothing on the shelf changes before that.
+struct AIBookshelfOrganizerView: View {
+    @EnvironmentObject private var store: BookStore
+    @StateObject private var model: AIBookshelfOrganizerModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var scope: AIBookshelfOrganizer.Scope = .ungrouped
+    @State private var shelf: [AIBookshelfOrganizer.Book]?
+
+    init(model: AIBookshelfOrganizerModel? = nil, shelf: [AIBookshelfOrganizer.Book]? = nil) {
+        _model = StateObject(wrappedValue: model ?? AIBookshelfOrganizerModel())
+        _shelf = State(initialValue: shelf)
+    }
+
+    private var candidates: [AIBookshelfOrganizer.Book] {
+        AIBookshelfOrganizer.books(shelf ?? [], in: scope)
+    }
+
+    var body: some View {
+        List {
+            switch model.phase {
+            case .idle, .failed: setup
+            case let .running(completed, total): running(completed: completed, total: total)
+            case .review: review
+            }
+        }
+        .themedAppSurface(for: .settings)
+        .navigationTitle(localized("AI 整理書架"))
+        .toolbarTitleDisplayMode(.inline)
+        .toolbar {
+            if model.phase == .review, let proposal = model.proposal, !proposal.groups.isEmpty {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(localized("套用")) {
+                        model.apply(to: store)
+                        dismiss()
+                    }
+                    .disabled(!proposal.canApply)
+                }
+            }
+        }
+        .task { if shelf == nil { shelf = await AIBookshelfOrganizerModel.shelfBooks(store: store) } }
+        .onDisappear { model.cancel() }
+    }
+
+    // MARK: - Setup
+
+    @ViewBuilder private var setup: some View {
+        Section {
+            Picker(localized("範圍"), selection: $scope) {
+                Text(localized("未分組的書")).tag(AIBookshelfOrganizer.Scope.ungrouped)
+                Text(localized("全部的書")).tag(AIBookshelfOrganizer.Scope.all)
+            }
+            .pickerStyle(.segmented)
+            .listRowBackground(Color.clear)
+        } footer: {
+            if scope == .all {
+                Text(localized("已分組的書也可能被建議換到別的分組。"))
+                    .dsSectionFooter()
+            }
+        }
+        if shelf == nil {
+            Section { ProgressView(localized("載入中…")) }
+                .interfaceSectionSurface()
+        } else if candidates.isEmpty {
+            ContentUnavailableView(scope == .ungrouped ? localized("沒有未分組的書") : localized("書架上沒有書"),
+                                   systemImage: "books.vertical")
+                .listRowBackground(Color.clear)
+        } else {
+            switch model.service() {
+            case let .success(active):
+                Section {
+                    LabeledContent(localized("要整理的書"), value: "\(candidates.count)")
+                    LabeledContent(localized("生成服務"), value: active.name)
+                    LabeledContent(localized("生成模型"), value: active.model)
+                    LabeledContent(localized("預計模型呼叫"), value: "\(AIBookshelfOrganizer.batches(candidates).count)")
+                } footer: {
+                    Text(localized("會送出書名、作者，以及線上書已快取的分類、簡介和前幾章標題。"))
+                        .dsSectionFooter()
+                }
+                .interfaceSectionSurface()
+                if case let .failed(message) = model.phase {
+                    Section {
+                        Label(message, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(DSColor.destructive)
+                    }
+                    .interfaceSectionSurface()
+                }
+                Section {
+                    Button(model.phase == .idle ? localized("開始整理") : localized("重試")) {
+                        model.start(books: candidates, existingGroups: store.allGroups)
+                    }
+                }
+                .interfaceSectionSurface()
+            case let .failure(reason):
+                Section {
+                    Text(reason.message)
+                        .foregroundStyle(DSColor.textSecondary)
+                    NavigationLink(localized("AI 助手設定")) { AISettingsView(embedded: true) }
+                }
+                .interfaceSectionSurface()
+            }
+        }
+    }
+
+    // MARK: - Running
+
+    private func running(completed: Int, total: Int) -> some View {
+        Section {
+            ProgressView(value: Double(completed), total: Double(max(total, 1))) {
+                Text(localized("整理中…"))
+            } currentValueLabel: {
+                Text(verbatim: "\(completed)/\(total)")
+            }
+            Button(localized("停止"), role: .cancel) { model.cancel() }
+        }
+        .interfaceSectionSurface()
+    }
+
+    // MARK: - Review
+
+    @ViewBuilder private var review: some View {
+        if let proposal = model.proposal {
+            if proposal.groups.isEmpty {
+                ContentUnavailableView(localized("不需要移動"), systemImage: "checkmark.circle",
+                    description: Text(localized("每本書都已在建議的分組裡，或 AI 沒有把握。")))
+                    .listRowBackground(Color.clear)
+            } else {
+                Section {
+                    Text(String(format: localized("將移動 %d 本書。關掉的書維持原樣，分組名稱可以直接改。"), proposal.includedCount))
+                        .font(DSFont.subheadline)
+                        .foregroundStyle(DSColor.textSecondary)
+                        .listRowBackground(Color.clear)
+                }
+                ForEach(Binding(get: { model.proposal?.groups ?? [] }, set: { model.proposal?.groups = $0 })) { $group in
+                    groupSection($group)
+                }
+            }
+            if proposal.unchangedCount + proposal.unassignedCount > 0 {
+                Section {
+                    Button(localized("重新產生建議")) { model.reset() }
+                } footer: {
+                    Text(String(format: localized("另有 %1$d 本已在建議的分組、%2$d 本 AI 沒有把握，維持不動。"),
+                                proposal.unchangedCount, proposal.unassignedCount))
+                        .dsSectionFooter()
+                }
+                .interfaceSectionSurface()
+            } else {
+                Section { Button(localized("重新產生建議")) { model.reset() } }
+                    .interfaceSectionSurface()
+            }
+        }
+    }
+
+    private func groupSection(_ group: Binding<AIBookshelfProposal.Group>) -> some View {
+        let isNew = !store.allGroups.contains(AIBookshelfOrganizer.groupName(group.wrappedValue.name))
+        return Section {
+            TextField(localized("分組名稱"), text: group.name)
+                .font(DSFont.body.weight(.semibold))
+                .accessibilityLabel(localized("分組名稱"))
+            ForEach(group.moves) { $move in
+                Toggle(isOn: $move.isIncluded) {
+                    VStack(alignment: .leading, spacing: DSSpacing.xs) {
+                        Text(move.title)
+                            .foregroundStyle(DSColor.textPrimary)
+                        Text(move.from.isEmpty ? localized("原本未分組") : String(format: localized("原本在「%@」"), move.from))
+                            .font(DSFont.footnote)
+                            .foregroundStyle(DSColor.textSecondary)
+                    }
+                }
+            }
+        } header: {
+            Text(isNew ? localized("新分組") : localized("現有分組"))
+        }
+        .interfaceSectionSurface()
+    }
+}
+
+#Preview("Setup") {
+    NavigationStack {
+        AIBookshelfOrganizerView(model: AIBookshelfOrganizerModel(provider: AIWordLookupPreviewProvider()), shelf: [
+            .init(id: UUID(), title: "萬古神帝", author: "飛天魚"),
+            .init(id: UUID(), title: "三體", author: "劉慈欣"),
+        ])
+        .environmentObject(BookStore())
+    }
+}

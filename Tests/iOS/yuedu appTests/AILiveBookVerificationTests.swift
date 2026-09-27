@@ -91,21 +91,6 @@ final class AILiveBookVerificationTests: XCTestCase {
             report["turns"] = turns; try saveReport()
             print("AI_LIVE answer \(turns.count) chars=\(result.content.count) citations=\(result.citations.count)")
         }
-        var stored: AIRecap?
-        var recaps: [[String: Any]] = []
-        for _ in 0..<2 {
-            let start = Date()
-            let generated = try await AIAssistantService.shared.recap(bookID: book.id, bookTitle: book.title,
-                adapter: source, progress: progress, stored: stored, boundary: source.boundary())
-            let recap = try XCTUnwrap(generated)
-            if let previous = stored { XCTAssertGreaterThan(recap.generatedAt, previous.generatedAt) }
-            stored = recap
-            AIRecapStore.shared.save(recap, forBook: book.id)
-            recaps.append(["answer": recap.text, "seconds": Date().timeIntervalSince(start),
-                "trace": try JSONSerialization.jsonObject(with: XCTUnwrap(AIDiagnosticStore.shared.latest).export())])
-            report["recaps"] = recaps; try saveReport()
-            print("AI_LIVE recap \(recaps.count) chars=\(recap.text.count)")
-        }
         // A bounded live regression, with the full read boundary planned and honest partial
         // coverage persisted for the app's normal Resume action. It is not a full-book scan.
         var budget = AIMemoryBudget(); budget.maximumCalls = min(max(configuration.memoryCalls, 1), 8)

@@ -76,6 +76,8 @@ struct HomeView: View {
     @State private var selectedBookIds: Set<UUID> = []
     @State private var showBulkDeleteAlert = false
     @State private var showAddToGroupSheet = false
+    /// Pushed rather than presented: a sheet asked for from a menu action can be dropped on iOS 17.
+    @State private var showBookshelfOrganizer = false
     @AppStorage("bookLayoutIsGrid") private var isGridMode = false
     @AppStorage("bookSortOrder") private var sortOrder = BookSortOrder.manual.rawValue
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -461,6 +463,9 @@ struct HomeView: View {
                     OPDSImportView(kind: .calibre).environmentObject(store)
                 }
             }
+            .navigationDestination(isPresented: $showBookshelfOrganizer) {
+                AIBookshelfOrganizerView().environmentObject(store)
+            }
             .navigationDestination(item: $selectedOnlineBookDetail) { book in
                 if BookSourceStore.shared.isAudiobook(book) {
                     AudiobookDetailView(book: book, onRemoveFromShelf: {
@@ -634,6 +639,11 @@ struct HomeView: View {
                 withAnimation { editMode = .active }
             } label: {
                 Label(localized("選取"), systemImage: "checkmark.circle")
+            }
+            Button {
+                showBookshelfOrganizer = true
+            } label: {
+                Label(localized("AI 整理書架"), systemImage: "sparkles")
             }
 
             Divider()

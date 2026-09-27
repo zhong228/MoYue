@@ -27,14 +27,82 @@ final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
     /// chapter → index range within chunks (inclusive start, exclusive end)
     @Published private(set) var chapterRanges: [Int: Range<Int>] = [:]
     @Published private(set) var isReady: Bool = false
-    @Published var textAnnotations: [CoreTextTextAnnotation] = []
+    /// Annotations as the reader stores them, in each chapter's own text.
+    @Published var textAnnotations: [CoreTextTextAnnotation] = [] {
+        didSet { displayedTextAnnotations = displayed(textAnnotations) }
+    }
+    /// The same annotations where the chunks draw them. Differs from `textAnnotations` only
+    /// in chapters 整章翻譯 spliced translations into.
+    @Published private(set) var displayedTextAnnotations: [CoreTextTextAnnotation] = []
+
+    /// 整章翻譯's map for each loaded chapter that shows translations. Chunks hold the
+    /// translated text; positions, annotations and `chapterText` stay in the chapter's own.
+    private var chapterTranslations: [Int: ReaderTranslationLayout] = [:] {
+        didSet { if chapterTranslations != oldValue { displayedTextAnnotations = displayed(textAnnotations) } }
+    }
 
     /// Scroll-only chapters need not exist in the paged engine's layout cache.
     /// Every chunk retains its chapter text in canonical UTF-16 offset space.
     func chapterText(forSpine spine: Int) -> String? {
         guard let row = chapterRanges[spine]?.first, chunks.indices.contains(row),
               !placeholderChapters.contains(spine) else { return nil }
-        return chunks[row].attributedString.string
+        return chapterTranslations[spine]?.sourceText ?? chunks[row].attributedString.string
+    }
+
+    // MARK: - 整章翻譯 offsets
+
+    func translation(forChapter chapter: Int) -> ReaderTranslationLayout? {
+        chapterTranslations[chapter]
+    }
+
+    /// The reading position of an offset in a chunk's text.
+    func readingPosition(chapter: Int, displayOffset: Int) -> CoreTextReadingPosition {
+        guard let translation = chapterTranslations[chapter] else {
+            return CoreTextReadingPosition(spineIndex: chapter, charOffset: displayOffset)
+        }
+        let mapped = translation.sourcePosition(displayOffset: displayOffset)
+        return CoreTextReadingPosition(spineIndex: chapter, charOffset: mapped.charOffset, translationOffset: mapped.translationOffset)
+    }
+
+    /// Where a reading position is in its chapter's chunk text.
+    func displayOffset(for position: CoreTextReadingPosition) -> Int {
+        guard let translation = chapterTranslations[position.spineIndex] else { return position.charOffset }
+        if position.charOffset == .max { return translation.displayLength }
+        return translation.displayOffset(charOffset: position.charOffset, translationOffset: position.translationOffset)
+    }
+
+    /// The stored range a request about `range` (chunk text) must name: an existing
+    /// annotation's own range, or the book text a selection covers; nil when the selection
+    /// takes in a translation.
+    func bookRange(chapter: Int, range: NSRange, annotationID: UUID? = nil) -> NSRange? {
+        if let annotationID, let stored = textAnnotations.first(where: { $0.id == annotationID }) { return stored.range }
+        guard let translation = chapterTranslations[chapter] else { return range }
+        return translation.sourceRange(forDisplay: range)
+    }
+
+    func isTranslation(chapter: Int, range: NSRange) -> Bool {
+        chapterTranslations[chapter]?.isTranslation(range) ?? false
+    }
+
+    /// A narration highlight with its chapter offset hint moved into chunk text.
+    func displayed(_ highlight: ReaderPlaybackHighlight) -> ReaderPlaybackHighlight {
+        guard let chapter = highlight.chapterIndex, let offset = highlight.expectedChapterOffset,
+              chapterTranslations[chapter] != nil else { return highlight }
+        return ReaderPlaybackHighlight(text: highlight.text,
+            expectedChapterOffset: displayOffset(for: CoreTextReadingPosition(spineIndex: chapter, charOffset: offset)),
+            chapterIndex: chapter) ?? highlight
+    }
+
+    /// Annotations where the chunks draw them.
+    func displayed(_ annotations: [CoreTextTextAnnotation]) -> [CoreTextTextAnnotation] {
+        guard !chapterTranslations.isEmpty else { return annotations }
+        return annotations.flatMap { annotation -> [CoreTextTextAnnotation] in
+            guard let translation = chapterTranslations[annotation.spineIndex] else { return [annotation] }
+            return translation.displayRanges(forSource: annotation.range).map {
+                CoreTextTextAnnotation(id: annotation.id, spineIndex: annotation.spineIndex, range: $0,
+                                       style: annotation.style, color: annotation.color, note: annotation.note)
+            }
+        }
     }
 
     /// UTF-16 character counts retained independently of rendered chunks so
@@ -337,6 +405,7 @@ final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
         textAnnotations = annotations
     }
 
+    /// In the chapter's own text, like every position.
     func characterCount(forChapter chapterIndex: Int) -> Int? {
         chapterCharacterCounts[chapterIndex]
     }
@@ -474,6 +543,7 @@ final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
                     ? CGSize(width: max(1, viewportExtent), height: contentWidth)
                     : CGSize(width: contentWidth, height: max(1, viewportExtent))) {
                 guard generation == resliceGeneration, !Task.isCancelled else { return }
+                chapterTranslations[chapterIndex] = nil
                 chapterCharacterCounts[chapterIndex] = (chapter.document.sourceText as NSString).length
                 let vacatedIndex = removeLoadingPlaceholder(for: chapterIndex)
                 bindViewportSnapshots(of: chapter)
@@ -546,6 +616,7 @@ final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
 
             // Single-image page (cover / chapter illustration): builder puts the image in result.imagePage while attrStr is just a placeholder.
             if let imagePage = result.imagePage, let img = imagePage.image {
+                chapterTranslations[chapterIndex] = nil
                 chapterCharacterCounts[chapterIndex] = attrStr.length
                 let chunk = makeImageOnlyChunk(
                     image: img,
@@ -621,7 +692,8 @@ final class CoreTextScrollEngine: ObservableObject, ScrollReaderEngine {
             // The placeholder already holds this chapter's slot, so the real content takes
             // exactly that index rather than being re-placed by chapter order.
             let insertStart = CoreTextSliceMetrics.now
-            chapterCharacterCounts[chapterIndex] = attrStr.length
+            chapterTranslations[chapterIndex] = result.translation
+            chapterCharacterCounts[chapterIndex] = result.translation?.sourceLength ?? attrStr.length
             let vacatedIndex = removeLoadingPlaceholder(for: chapterIndex)
             insert(
                 chunks: output.chunks,

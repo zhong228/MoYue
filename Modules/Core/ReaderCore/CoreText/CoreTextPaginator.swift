@@ -230,6 +230,10 @@ final class CoreTextPaginator {
         /// For a partial layout: projected total page count (>= pageRanges.count),
         /// extrapolated from the first page's character density. nil when complete.
         var estimatedPageCount: Int? = nil
+        /// 整章翻譯: set when `attributedString` has translations spliced in. Page ranges and
+        /// drawing stay in its offsets; every reading position goes through this map. See
+        /// `ChapterLayout+Translation.swift`.
+        var translation: ReaderTranslationLayout? = nil
 
         /// Page count for global-offset/progress math: the real count when
         /// complete, the extrapolated estimate while partial.
@@ -382,6 +386,8 @@ final class CoreTextPaginator {
                 )
             }
 
+            ReaderDialogueBubbleMarker.restoreTextColors(in: updated)
+
             let recoloredBlockRenderables = blockRenderables.mapValues { renderables in
                 renderables.map { item in
                     guard case let .htmlBlock(sourceText) = item.content else {
@@ -482,7 +488,8 @@ final class CoreTextPaginator {
                 writingMode: writingMode,
                 pageFloatNotches: pageFloatNotches,
                 isPartial: isPartial,
-                estimatedPageCount: estimatedPageCount
+                estimatedPageCount: estimatedPageCount,
+                translation: translation
             )
         }
 
@@ -1466,6 +1473,8 @@ final class CoreTextPaginator {
                 updated.addAttribute(.foregroundColor, value: cssColor, range: effectiveRange)
             }
         }
+
+        ReaderDialogueBubbleMarker.restoreTextColors(in: updated)
 
         // Swap fill/border colors inside every block decoration style stored on the string.
         for styleKey in [

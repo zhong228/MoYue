@@ -161,6 +161,8 @@ extension ReaderRenderSettings {
             || dialogueBubbleStyle != old.dialogueBubbleStyle
             // 繁簡轉換 swaps characters while the string is built.
             || textConversion != old.textConversion
+            // 整章翻譯 splices translations into the string.
+            || translation != old.translation
             || regexRefresh == .relayout
 
         if layoutChanged { return .layout }

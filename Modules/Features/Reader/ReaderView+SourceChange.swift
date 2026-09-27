@@ -1126,10 +1126,13 @@ extension ReaderView {
         // after the browser owns that chapter. Its offsets are not browser offsets.
         let browserOwnsChapter = (epubRenderer.engine as? BrowserLayoutPageEngine)?
             .choice(for: chapterIndex)?.isBrowser == true
+        // A translated layout reads its source text through `chapterText` below: narration
+        // stays on the book's own words and in the offsets every position uses.
         if let engine = epubRenderer.engine,
            usesCoreTextEPUB,
            !browserOwnsChapter,
            let layout = engine.layouts[chapterIndex],
+           layout.translation == nil,
            layout.attributedString.length > 0 {
             let hints = TTSPronunciationAnnotator.hints(
                 in: layout.attributedString,

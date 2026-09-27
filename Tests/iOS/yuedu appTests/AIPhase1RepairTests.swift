@@ -52,16 +52,13 @@ struct AIPhase1RepairTests {
         }
     }
 
-    @Test func bookTextHasNoSystemAuthority() {
+    @Test func bookTextHasNoSystemAuthority() throws {
         let chunks = AIPublicationChunker().chunks(from: adapter(["SECRET_FIXTURE_NOVEL"]))
-        let request = AIRAGPipeline.request(query: "question", chunks: chunks, nonce: "test")
-        #expect(!request.messages.filter { $0.role == .system }.contains { $0.content.contains("SECRET_FIXTURE_NOVEL") })
-        #expect(request.messages.filter { $0.role == .user }.contains { $0.content.contains("SECRET_FIXTURE_NOVEL") })
-        #expect(!AIRecap.systemPrompt(for: chunks).contains("SECRET_FIXTURE_NOVEL"))
-    }
-
-    @Test func backwardRecapIsUnsafe() {
-        let recap = AIRecap(text: "future evidence", progress: 0.8, generatedAt: Date(), provider: "fixture", model: "fixture", promptVersion: AIRecap.currentPromptVersion)
-        #expect(!AIRecap.canReuse(recap, atProgress: 0.79))
+        let evidence = chunks.map { AIQuestionEvidence(chunk: $0, parentChunkID: $0.id, kind: .initial) }
+        let selection = try AIQuestionPrompt.assemble(system: AIRAGPipeline.systemPrompt(for: [], selfAssessmentNonce: "test"),
+            data: "question", history: [], evidence: evidence, budget: AIQuestionBudget(), requireHistory: false)
+        let messages = selection.request.messages
+        #expect(!messages.filter { $0.role == .system }.contains { $0.content.contains("SECRET_FIXTURE_NOVEL") })
+        #expect(messages.filter { $0.role == .user }.contains { $0.content.contains("SECRET_FIXTURE_NOVEL") })
     }
 }

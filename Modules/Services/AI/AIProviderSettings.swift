@@ -159,6 +159,23 @@ enum AIProviderAssembly {
         } catch { return .failure(.corruptedConfiguration) }
     }
 
+    /// The active service, with the name and model a run shows the reader before it starts.
+    struct ActiveService {
+        let provider: any LLMProviding
+        let name: String
+        var model: String { provider.defaultModel }
+    }
+
+    /// Background jobs — 全書摘要, 整章翻譯, 書架整理 — run on the default service and model;
+    /// only the assistant's composer picks per conversation.
+    static func activeService() -> Result<ActiveService, Unavailable> {
+        do {
+            let profiles = try AIProviderStore.shared.profiles()
+            guard let profile = profiles.first(where: { $0.id == AIProviderStore.shared.activeID }) ?? profiles.first else { return .failure(.notConfigured) }
+            return makeProvider(profile: profile).map { ActiveService(provider: $0, name: profile.name) }
+        } catch { return .failure(.corruptedConfiguration) }
+    }
+
     static func makeProvider(profile: AIServiceProfile, model: String? = nil) -> Result<any LLMProviding, Unavailable> {
         guard let key = AIAPIKeyStore.load(providerID: profile.id), !key.isEmpty else { return .failure(.noAPIKey) }
         guard let url = profile.configuration.endpointURL else { return .failure(.invalidEndpoint) }

@@ -2,6 +2,8 @@ import Foundation
 
 enum AIReadingAction: String, Codable, CaseIterable, Sendable {
     case question, explain, translate, chapterSummary, recap, custom, annotationReview
+    /// AI 查詞. Answered on its own card, never through the assistant's question pipeline.
+    case lookup
 
     var title: String {
         switch self {
@@ -12,7 +14,14 @@ enum AIReadingAction: String, Codable, CaseIterable, Sendable {
         case .recap: return localized("前情回顧")
         case .custom: return localized("自訂提示詞")
         case .annotationReview: return localized("整理我的劃線")
+        case .lookup: return localized("AI 查詞")
         }
+    }
+
+    /// The AI items of the reader's selection menu. A word or short phrase gets 查詞 in place
+    /// of 解釋, so the menu stays the same length.
+    static func selectionMenu(for text: String) -> [AIReadingAction] {
+        [.question, AIWordLookup.isCandidate(text) ? .lookup : .explain, .translate]
     }
 }
 

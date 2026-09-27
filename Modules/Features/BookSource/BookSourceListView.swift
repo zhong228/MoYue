@@ -57,11 +57,7 @@ struct BookSourceListView: View {
     @State private var showDisclaimer = false
     /// Set by 置頂／置底 so the list follows the row to its new position.
     @State private var scrollTargetId: UUID? = nil
-    /// Non-empty book-source groups the user has expanded. Seeded with every group on
-    /// appear so nothing starts hidden; afterwards only groups that newly appear (imports,
-    /// 移動到新分組) are added, so merges and deletes can't re-expand what the user
-    /// collapsed. Searching flattens the layout regardless.
-    @State private var expandedGroups: Set<String> = []
+    @StateObject private var groupExpansion = BookSourceGroupExpansionStore()
     /// Pending 重命名分組 / 移動到新分組 text entry, plus its draft name.
     @State private var groupNaming: PendingGroupNaming? = nil
     @State private var groupNameText = ""
@@ -162,12 +158,14 @@ struct BookSourceListView: View {
         var byName: [String: [BookSource]] = [:]
         for source in displayedSources where store.pinRecord(for: source.id) == nil {
             let name = source.bookSourceGroup.trimmingCharacters(in: .whitespacesAndNewlines)
-            let key = name.isEmpty ? defaultGroupName : name
+            let key = name
             if byName[key] == nil { names.append(key) }
             byName[key, default: []].append(source)
         }
         groups.append(contentsOf: names.map {
-            BookSourceRowGroup(id: $0, name: $0, sources: byName[$0] ?? [])
+            BookSourceRowGroup(
+                id: $0.isEmpty ? BookSourceRowGroup.defaultGroupID : $0,
+                name: $0.isEmpty ? defaultGroupName : $0, sources: byName[$0] ?? [])
         })
         if !bottomPinned.isEmpty {
             groups.append(BookSourceRowGroup(
@@ -181,30 +179,6 @@ struct BookSourceListView: View {
     /// which group they belong to; the filter row's grouping toggle flattens it on demand.
     private var usesGroupedLayout: Bool {
         searchText.isEmpty && gs.bookSourceListGrouped
-    }
-
-    /// Every group id (named groups, the built-in default group, and the pin groups when
-    /// pinned sources exist). `onChange` diffs it against the previous snapshot so only
-    /// groups that newly appear are seeded expanded instead of hidden behind a collapsed
-    /// header — an id disappearing (merge/delete emptied its group) must not expand the rest.
-    private var allGroupIDs: Set<String> {
-        var ids = Set(store.sources.map {
-            $0.bookSourceGroup.trimmingCharacters(in: .whitespacesAndNewlines)
-        }.filter { !$0.isEmpty })
-        if store.sources.contains(where: {
-            $0.bookSourceGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }) {
-            ids.insert(defaultGroupName)
-        }
-        // Read the pin table directly instead of scanning every source for a pin: the
-        // scan was O(sources) twice per body evaluation, and pins are a handful of rows.
-        if store.pinRecords.values.contains(where: { $0.position == .top }) {
-            ids.insert(BookSourceRowGroup.topPinnedID)
-        }
-        if store.pinRecords.values.contains(where: { $0.position == .bottom }) {
-            ids.insert(BookSourceRowGroup.bottomPinnedID)
-        }
-        return ids
     }
 
     var body: some View {
@@ -549,7 +523,6 @@ struct BookSourceListView: View {
                 }
             }
             .onAppear {
-                expandedGroups.formUnion(allGroupIDs)
                 if !gs.sourceDisclaimerAccepted {
                     showDisclaimer = true
                 }
@@ -557,12 +530,7 @@ struct BookSourceListView: View {
             .onChange(of: store.sources.map(\.id)) { _, sourceIds in
                 selectedIds.formIntersection(Set(sourceIds))
             }
-            .onChange(of: allGroupIDs) { oldIDs, newIDs in
-                // Only ids that weren't there before. Unioning every id here meant a
-                // merge/delete that makes one id vanish re-expanded all the groups the user
-                // had collapsed.
-                expandedGroups.formUnion(newIDs.subtracting(oldIDs))
-            }
+
     }
 
     /// One 「+」 entry for 手動新增 and both import routes — the separate ⤓ button is gone.
@@ -647,7 +615,7 @@ struct BookSourceListView: View {
                     ForEach(displayedGroups) { group in
                         BookSourceGroupHeaderRow(
                             group: group,
-                            expanded: expandedGroups.contains(group.id),
+                            expanded: groupExpansion.isExpanded(group.id),
                             actions: groupActions
                         )
                         .listRowInsets(
@@ -656,7 +624,7 @@ struct BookSourceListView: View {
                         .listRowSeparator(.hidden)
                         .interfaceSectionSurface()
 
-                        if expandedGroups.contains(group.id) {
+                        if groupExpansion.isExpanded(group.id) {
                             ForEach(group.sources) { source in
                                 sourceRowListEntry(source, actions: rowActions)
                             }
@@ -751,11 +719,7 @@ struct BookSourceListView: View {
 
     private func toggleGroupExpansion(_ id: String) {
         withAnimation(reduceMotion ? nil : DSAnimation.standard) {
-            if expandedGroups.contains(id) {
-                expandedGroups.remove(id)
-            } else {
-                expandedGroups.insert(id)
-            }
+            groupExpansion.toggle(id)
         }
     }
 

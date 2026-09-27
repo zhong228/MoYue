@@ -1142,10 +1142,21 @@ class BookStore: ObservableObject, BookProvider {
     }
 
     func setGroup(_ group: String, for bookId: UUID) {
-        if let idx = records.firstIndex(where: { $0.id == bookId }) {
-            records[idx].group = group
-            saveMeta()
+        setGroups([bookId: group])
+    }
+
+    /// Moves several books at once and saves once — AI 整理書架 applies a whole proposal.
+    func setGroups(_ assignments: [UUID: String]) {
+        var updated = records
+        var changed = false
+        for index in updated.indices {
+            guard let group = assignments[updated[index].id], updated[index].group != group else { continue }
+            updated[index].group = group
+            changed = true
         }
+        guard changed else { return }
+        records = updated
+        saveMeta()
     }
 
     // MARK: Delete Book

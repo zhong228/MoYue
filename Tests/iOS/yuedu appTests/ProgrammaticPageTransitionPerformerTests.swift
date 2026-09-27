@@ -20,25 +20,10 @@ struct ProgrammaticPageTransitionPerformerTests {
         }
     }
 
-    private final class FakeDataSource: NSObject, UIPageViewControllerDataSource {
-        func pageViewController(
-            _ pageViewController: UIPageViewController,
-            viewControllerBefore viewController: UIViewController
-        ) -> UIViewController? { nil }
-
-        func pageViewController(
-            _ pageViewController: UIPageViewController,
-            viewControllerAfter viewController: UIViewController
-        ) -> UIViewController? { nil }
-    }
-
     private final class FakePageContainer: ProgrammaticPageTransitionControlling {
-        var dataSource: UIPageViewControllerDataSource?
         var viewControllers: [UIViewController]?
         var animatedCalls = 0
-        var animatedReverseCalls = 0
         var nonAnimatedCalls = 0
-        var layoutIfNeededCalls = 0
 
         func setViewControllers(
             _ viewControllers: [UIViewController]?,
@@ -48,67 +33,88 @@ struct ProgrammaticPageTransitionPerformerTests {
         ) {
             if animated {
                 animatedCalls += 1
-            }
-            if animated && direction == .reverse {
-                animatedReverseCalls += 1
-                // Simulate the UIKit bug: completion fires, but visible controller is still the old one
-                completion?(true)
-                return
-            }
-
-            if !animated {
+            } else {
                 nonAnimatedCalls += 1
             }
-
             self.viewControllers = viewControllers
             completion?(true)
         }
 
-        func layoutIfNeeded() {
-            layoutIfNeededCalls += 1
-        }
+        func layoutIfNeeded() {}
     }
 
-    @Test("only a slide burst runs our timed push; a lone tap keeps UIKit's transition")
-    func slideTurnAnimationIsBurstOnly() {
-        #expect(!ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .slide, animated: true, turnSpeed: 1))
-        #expect(ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .slide, animated: true, turnSpeed: 1.5))
-        #expect(ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .slide, animated: true, turnSpeed: 3))
-        #expect(!ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .slide, animated: false, turnSpeed: 2))
-        #expect(!ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .curl, animated: true, turnSpeed: 2))
-        #expect(!ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .cover, animated: true, turnSpeed: 2))
-        #expect(!ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .none, animated: true, turnSpeed: 2))
+    @Test("every animated slide turn runs our timed push, a lone tap included")
+    func everyAnimatedSlideTurnRunsTimedPush() {
+        #expect(ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .slide, animated: true))
+        #expect(!ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .slide, animated: false))
+        #expect(!ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .curl, animated: true))
+        #expect(!ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .cover, animated: true))
+        #expect(!ReaderSlideTurnAnimation.runsTimedPush(pageTurnStyle: .none, animated: true))
     }
 
-    @Test("reverse slide re-applies target non-animated so settled page stays on target")
-    @MainActor
-    func reverseSlideTransitionIsStabilized() async {
-        let performer = ProgrammaticPageTransitionPerformer(pageTurnStyle: .slide)
-        let container = FakePageContainer()
-        let dataSource = FakeDataSource()
-        let current = IndexedViewController(index: 1)
-        let target = IndexedViewController(index: 0)
-        container.viewControllers = [current]
-        container.dataSource = dataSource
+    @Test("the slide push replays UIKit's own turn at ProMotion rates, shortened only by a burst")
+    func slidePushMatchesUIKitTurn() {
+        let lone = ReaderSlideTurnAnimation.pushTransition(direction: .forward, speed: 1)
+        #expect(lone.type == .push)
+        #expect(lone.subtype == .fromRight)
+        // UIKit's programmatic `.scroll` turn, measured: 0.30s on a sine curve.
+        #expect(abs(lone.duration - 0.3) < 0.0001)
+        var start: [Float] = [0, 0]
+        var end: [Float] = [0, 0]
+        lone.timingFunction?.getControlPoint(at: 1, values: &start)
+        lone.timingFunction?.getControlPoint(at: 2, values: &end)
+        #expect(abs(start[0] - 0.365) < 0.0001 && start[1] == 0)
+        #expect(abs(end[0] - 0.635) < 0.0001 && end[1] == 1)
+        #expect(lone.preferredFrameRateRange.minimum == 80)
+        #expect(lone.preferredFrameRateRange.maximum == 120)
+        #expect(lone.preferredFrameRateRange.preferred == 120)
 
-        let settledViewController = await withCheckedContinuation { continuation in
-            performer.perform(
-                on: container,
-                targetViewController: target,
-                direction: .reverse,
-                animated: true,
-                restoringDataSource: dataSource
-            ) { settled in
-                continuation.resume(returning: settled)
-            }
+        let burst = ReaderSlideTurnAnimation.pushTransition(direction: .reverse, speed: 3)
+        #expect(burst.subtype == .fromLeft)
+        #expect(abs(burst.duration - 0.1) < 0.0001)
+        #expect(burst.preferredFrameRateRange.maximum == 120)
+    }
+
+    @Test("the app unlocks ProMotion rates for its own Core Animation on iPhone")
+    func appUnlocksProMotionRatesOnPhone() {
+        // Without this key an iPhone caps every CAAnimation the app adds — the
+        // slide push included — at 60Hz, while UIKit's own scrolling keeps 120Hz.
+        #expect(Bundle.main.object(forInfoDictionaryKey: "CADisableMinimumFrameDurationOnPhone") as? Bool == true)
+    }
+
+    @Test("the cover turn's UIView animations ask for 120Hz on their own")
+    func coverTurnAnimationsAskForProMotionRates() throws {
+        // The cover turn animates with `UIView.animate(... .curveEaseOut)`, whose
+        // block API cannot state a frame rate. UIKit stamps its own request on the
+        // animations it builds — measured 2026-09-26 on iOS 27: 30–120, preferring
+        // 120 — so with `CADisableMinimumFrameDurationOnPhone` the cover turn runs at
+        // ProMotion rates without a Core Animation rewrite, for as long as this holds.
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        let root = UIViewController()
+        window.rootViewController = root
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        let page = UIImageView(frame: window.bounds)
+        let dim = UIView(frame: window.bounds)
+        root.view.addSubview(page)
+        root.view.addSubview(dim)
+
+        UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut]) {
+            page.frame.origin.x = -page.bounds.width
+            dim.alpha = 0.35
         }
-
-        #expect(container.animatedReverseCalls == 1)
-        #expect(container.nonAnimatedCalls == 1)
-        #expect(container.layoutIfNeededCalls == 1)
-        #expect(container.dataSource === dataSource)
-        #expect((settledViewController as? IndexedViewController)?.globalPageIndex == 0)
-        #expect((container.viewControllers?.first as? IndexedViewController)?.globalPageIndex == 0)
+        let animations = [page.layer, dim.layer].flatMap { layer in
+            (layer.animationKeys() ?? []).compactMap { layer.animation(forKey: $0) }
+        }
+        #expect(animations.count == 2)
+        for animation in animations {
+            #expect(animation.preferredFrameRateRange.maximum == 120)
+            #expect(animation.preferredFrameRateRange.preferred == 120)
+        }
+        page.layer.removeAllAnimations()
+        dim.layer.removeAllAnimations()
     }
 
     @Test("animated curl transition keeps the provided mirrored back page")
@@ -125,8 +131,7 @@ struct ProgrammaticPageTransitionPerformerTests {
             targetViewController: target,
             targetViewControllers: [target, back],
             direction: .forward,
-            animated: true,
-            restoringDataSource: nil
+            animated: true
         ) { settled in
             settledViewController = settled
         }
@@ -151,8 +156,7 @@ struct ProgrammaticPageTransitionPerformerTests {
             targetViewController: target,
             targetViewControllers: [target],
             direction: .forward,
-            animated: true,
-            restoringDataSource: nil
+            animated: true
         ) { settled in
             settledViewController = settled
         }
@@ -178,8 +182,7 @@ struct ProgrammaticPageTransitionPerformerTests {
             targetViewController: target,
             targetViewControllers: [target, back],
             direction: .forward,
-            animated: false,
-            restoringDataSource: nil
+            animated: false
         ) { settled in
             settledViewController = settled
         }

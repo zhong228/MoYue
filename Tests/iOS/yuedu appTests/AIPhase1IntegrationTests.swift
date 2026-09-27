@@ -76,21 +76,6 @@ struct AIPhase1IntegrationTests {
         #expect(AITextCoordinates.sourceBoundaryOffset(source: source, rendered: "不同文字", renderedOffset: 4) == 0)
     }
 
-    @Test @MainActor func explicitRecapRegeneratesDespiteReusableStoredAnswer() async throws {
-        let source = adapter([String(repeating: "柳青沿河走到橋邊。", count: 50)])
-        let boundary = end(source)
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let provider = ScriptProvider(replies: [
-            .init(content: "first fresh answer", provider: "fixture", model: "fixture"),
-            .init(content: "second fresh answer", provider: "fixture", model: "fixture")])
-        let service = AIAssistantService(store: AIBookIndexStore(directory: directory), provider: provider, diagnosticOrigin: .testFixture)
-        let first = try #require(try await service.recap(bookID: bookID, bookTitle: "fixture", adapter: source, progress: 0.5, stored: nil, boundary: boundary))
-        #expect(AIRecap.canReuse(first, atProgress: 0.5, boundary: boundary))
-        let second = try #require(try await service.recap(bookID: bookID, bookTitle: "fixture", adapter: source, progress: 0.5, stored: first, boundary: boundary))
-        #expect(second.text == "second fresh answer")
-    }
-
     @Test func diagnosticsOnlyExportSelectedOptedInContent() throws {
         let source = adapter(["PRIVATE_NOVEL"])
         let trace = AIRequestTrace(feature: "diagnosticTest", bookID: bookID, adapter: source, boundary: end(source), origin: .testFixture)
@@ -226,17 +211,6 @@ extension AIPhase1IntegrationTests {
         #expect(cold.identifier == newer.identifier)
     }
 
-    @Test func recapRequiresMatchingVersionAndSafeEvidenceBoundary() {
-        let source = adapter(["first", "second"])
-        let later = end(source, spine: 1)
-        var recap = AIRecap(text: "summary", progress: 0.8, generatedAt: Date(), provider: "fixture", model: "fixture", promptVersion: AIRecap.currentPromptVersion)
-        recap.sourceBoundary = later
-        recap.evidenceChunkIDs = ["fixture"]
-        #expect(AIRecap.canReuse(recap, atProgress: 0.81, boundary: later))
-        #expect(!AIRecap.canReuse(recap, atProgress: 0.79, boundary: end(source, spine: 0)))
-        #expect(!AIRecap.canReuse(recap, atProgress: 0.81, boundary: end(adapter(["changed", "second"]), spine: 1)))
-    }
-
     @Test @MainActor func rosterUnknownOrWholeBookScopeIsNotSafe() {
         let suite = "AIPhase1-\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
@@ -290,10 +264,11 @@ extension AIPhase1IntegrationTests {
         let built = index(source)
         let trace = AIRequestTrace(feature: "answer", bookID: bookID, adapter: source, boundary: end(source), origin: .testFixture, captureContent: true)
         try await AIDiagnostics.$current.withValue(trace) {
-            let hits = try await built.retrieve(query: "key", maximumProgress: 1, boundary: end(source))
-            let cited = try #require(hits.first?.id)
-            let provider = AITracedProvider(base: ScriptProvider(replies: [.init(content: "A key was by the door. [\(cited)]", provider: "fixture", model: "fixture-model", finishReason: "stop", httpStatus: 200)]))
-            let result = try await AIRAGPipeline.answer(query: "Where was the key?", hits: hits, provider: provider)
+            // The production question path retrieves, sends the passages as `[S1]`… aliases,
+            // and maps a cited alias back to its chunk.
+            let provider = AITracedProvider(base: ScriptProvider(replies: [.init(content: "A key was by the door. [S1]", provider: "fixture", model: "fixture-model", finishReason: "stop", httpStatus: 200)]))
+            let context = AIQuestionContext(bookID: bookID, question: "Where was the key?", source: source, boundary: end(source))
+            let result = try await AIAgenticAssistant.answerQuestion(context: context, index: built, provider: provider)
             #expect(result.citations.count == 1)
         }
         trace.event("complete", ["result": "success", "note": "synthetic fixture; no real model or user data"])

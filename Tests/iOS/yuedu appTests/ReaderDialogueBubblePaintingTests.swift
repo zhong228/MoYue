@@ -12,6 +12,30 @@ struct ReaderDialogueBubblePaintingTests {
     private static let width: CGFloat = 300
     private static let fontSize: CGFloat = 18
 
+    @Test("theme changes retain readable text on both bubble fills", arguments: [
+        ReaderDialogueBubbleSide.left, .right,
+    ])
+    func nightThemeRetainsBubbleText(side: ReaderDialogueBubbleSide) async throws {
+        var style = ReaderDialogueBubbleStyle(isEnabled: true)
+        style.startSide = side
+        let attr = markedText(style: style)
+        var layout = await CoreTextPaginator().paginate(
+            spineIndex: 0, attrStr: attr, anchorOffsets: [:],
+            renderSize: CGSize(width: Self.width, height: 600), fontSize: Self.fontSize
+        )
+        for appearance in [ReaderStyleAppearance.dark, .light, .dark] {
+            let background: UIColor = appearance == .dark ? .black : .white
+            layout = layout.withUpdatedColors(
+                textColor: appearance == .dark ? .lightGray : .darkGray,
+                backgroundColor: background,
+                readerStyleAppearance: appearance
+            )
+            let canvas = try render(attr: layout.attributedString, background: background)
+            #expect(canvas.count(of: style.side(side).fillHex) > 200)
+            #expect(canvas.count(of: try #require(style.side(side).textHex)) > 30)
+        }
+    }
+
     @Test("paints the bubble against the side it was assigned")
     func paintsOnAssignedSide() throws {
         var style = ReaderDialogueBubbleStyle(isEnabled: true)
@@ -61,6 +85,10 @@ struct ReaderDialogueBubblePaintingTests {
     // MARK: - Rendering
 
     private func render(style: ReaderDialogueBubbleStyle) throws -> Canvas {
+        try render(attr: markedText(style: style), background: .white)
+    }
+
+    private func markedText(style: ReaderDialogueBubbleStyle) -> NSAttributedString {
         let attr = NSMutableAttributedString(
             string: "「你今天怎麼這麼早？」",
             attributes: [
@@ -74,7 +102,10 @@ struct ReaderDialogueBubblePaintingTests {
             bodyFontSize: Self.fontSize,
             to: attr
         )
+        return attr
+    }
 
+    private func render(attr: NSAttributedString, background: UIColor) throws -> Canvas {
         let framesetter = CTFramesetterCreateWithAttributedString(attr)
         let range = CFRange(location: 0, length: attr.length)
         let suggested = CTFramesetterSuggestFrameSizeWithConstraints(
@@ -103,7 +134,7 @@ struct ReaderDialogueBubblePaintingTests {
             format: format
         ).image { context in
             let ctx = context.cgContext
-            ctx.setFillColor(UIColor.white.cgColor)
+            ctx.setFillColor(background.cgColor)
             ctx.fill(CGRect(x: 0, y: 0, width: Self.width, height: height))
             ctx.saveGState()
             ctx.textMatrix = .identity

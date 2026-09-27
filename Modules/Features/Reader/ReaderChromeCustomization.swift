@@ -148,6 +148,7 @@ enum ReaderChromeActionItem: String, CaseIterable, Codable, Hashable, Identifiab
     case download
     case playback
     case aiAssistant
+    case translation
 
     var id: String { rawValue }
     var storageID: String { "action.\(rawValue)" }
@@ -159,6 +160,7 @@ enum ReaderChromeActionItem: String, CaseIterable, Codable, Hashable, Identifiab
         case .download: return "下載"
         case .playback: return "聽書"
         case .aiAssistant: return "AI 助手"
+        case .translation: return "翻譯"
         }
     }
 
@@ -169,6 +171,7 @@ enum ReaderChromeActionItem: String, CaseIterable, Codable, Hashable, Identifiab
         case .download: return "arrow.down.circle"
         case .playback: return "headphones"
         case .aiAssistant: return "sparkles"
+        case .translation: return "translate"
         }
     }
 
@@ -179,6 +182,7 @@ enum ReaderChromeActionItem: String, CaseIterable, Codable, Hashable, Identifiab
         case .download: self = .download
         case .playback: self = .playback
         case .aiAssistant: self = .aiAssistant
+        case .translation: self = .translation
         }
     }
 }

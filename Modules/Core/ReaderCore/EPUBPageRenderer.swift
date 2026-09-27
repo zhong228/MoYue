@@ -41,6 +41,13 @@ final class EPUBPageRenderer: ObservableObject {
     /// answers "what does chapter N say", which the layout cache cannot — it holds five
     /// chapters, and the AI features need the book.
     private var contentBuilder: (any AttributedStringBuilding)?
+    /// The one document store the paged and scroll engines share for the current book.
+    private var chapterDocumentStore: ChapterDocumentStore?
+    /// 整章翻譯's translations for the book being read. Handed to every document store, so
+    /// both engines lay out the same translated chapters.
+    var translationSource: (any ReaderTranslationSource)? {
+        didSet { chapterDocumentStore?.translationSource = translationSource }
+    }
 
     /// Scroll-mode-specific engine (alongside the page engine). Created automatically when builder is available.
     @Published private(set) var scrollEngine: CoreTextScrollEngine? {
@@ -62,8 +69,17 @@ final class EPUBPageRenderer: ObservableObject {
             scrollReadyCancellable = scrollEngine?.$isReady
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] ready in self?.scrollEngineReady = ready }
+            scrollInsertionCancellable = scrollEngine?.events
+                .sink { [weak self] event in
+                    if case .chunksInserted = event { self?.scrollChapterInsertions &+= 1 }
+                }
         }
     }
+
+    /// Counts chapters the scroll engine has laid out, so the view can react to a chapter's
+    /// text becoming available — 整章翻譯 cannot start on a chapter before that.
+    @Published private(set) var scrollChapterInsertions: UInt64 = 0
+    private var scrollInsertionCancellable: AnyCancellable?
 
     /// How many scroll engines this renderer has created. Diagnostics only; see the probe above.
     private var scrollEngineCreations = 0
@@ -419,6 +435,8 @@ final class EPUBPageRenderer: ObservableObject {
             renderSize: effectiveSize
         )
         let chapterDocumentStore = ChapterDocumentStore(builder: builder)
+        chapterDocumentStore.translationSource = translationSource
+        self.chapterDocumentStore = chapterDocumentStore
         self.epubBuilder = builder
         self.contentBuilder = builder
         let newEngine = CoreTextPageEngine(
@@ -492,6 +510,8 @@ final class EPUBPageRenderer: ObservableObject {
         let progressDir = StorageLocations.epubCharOffsets.appendingPathComponent(bookIdentifier)
         let store = CharOffsetStore(directoryURL: progressDir)
         let chapterDocumentStore = ChapterDocumentStore(builder: attributedBuilder)
+        chapterDocumentStore.translationSource = translationSource
+        self.chapterDocumentStore = chapterDocumentStore
         let newEngine = CoreTextPageEngine(
             attributedBuilder: attributedBuilder,
             renderSettings: settings,
@@ -558,6 +578,8 @@ final class EPUBPageRenderer: ObservableObject {
             imageCacheDirectory: imageCacheDirectory
         )
         let chapterDocumentStore = ChapterDocumentStore(builder: onlineBuilder)
+        chapterDocumentStore.translationSource = translationSource
+        self.chapterDocumentStore = chapterDocumentStore
         let newEngine = CoreTextPageEngine(
             attributedBuilder: onlineBuilder,
             renderSettings: settings,

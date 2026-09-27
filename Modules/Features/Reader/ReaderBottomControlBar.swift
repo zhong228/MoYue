@@ -39,6 +39,8 @@ struct ReaderBottomControlBar: View {
     let onDownloadAction: () -> Void
     let onOpenTTS: () -> Void
     let onOpenAIAssistant: () -> Void
+    /// 整章翻譯; nil where it does not apply (fixed-layout books).
+    let onOpenTranslation: (() -> Void)?
     let onOpenTOC: () -> Void
     let onOpenBookmarks: () -> Void
     let onOpenSettings: () -> Void
@@ -74,6 +76,9 @@ struct ReaderBottomControlBar: View {
                 // button only ever appeared on 現代's book card.
                 if settings.isReaderChromeItemVisible(ReaderChromeActionItem.aiAssistant) {
                     circleBtn(item: .aiAssistant, label: localized("AI 助手")) { onOpenAIAssistant() }
+                }
+                if let onOpenTranslation, settings.isReaderChromeItemVisible(ReaderChromeActionItem.translation) {
+                    circleBtn(item: .translation, label: localized("翻譯")) { onOpenTranslation() }
                 }
             }
             .padding(.trailing, 20)
@@ -371,6 +376,7 @@ struct ReaderBottomControlBar: View {
             onDownloadAction: {},
             onOpenTTS: {},
             onOpenAIAssistant: {},
+            onOpenTranslation: {},
             onOpenTOC: {},
             onOpenBookmarks: {},
             onOpenSettings: {}

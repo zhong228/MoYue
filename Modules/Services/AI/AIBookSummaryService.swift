@@ -52,11 +52,9 @@ final class AIBookSummaryService: ObservableObject {
         if let injectedProvider {
             return (injectedProvider, Service(name: injectedProvider.identifier, model: injectedProvider.defaultModel))
         }
-        switch AIProviderAssembly.makeProvider() {
-        case let .success(provider):
-            let profiles = try AIProviderStore.shared.profiles()
-            let profile = profiles.first { $0.id == AIProviderStore.shared.activeID } ?? profiles.first
-            return (provider, Service(name: profile?.name ?? provider.identifier, model: provider.defaultModel))
+        switch AIProviderAssembly.activeService() {
+        case let .success(active):
+            return (active.provider, Service(name: active.name, model: active.model))
         case let .failure(reason):
             throw AIAssistantService.Failure.unavailable(reason)
         }

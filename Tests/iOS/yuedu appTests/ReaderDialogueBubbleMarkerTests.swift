@@ -8,6 +8,61 @@ struct ReaderDialogueBubbleMarkerTests {
     private static let columnWidth: CGFloat = 340
     private static let fontSize: CGFloat = 18
 
+    @Test("theme recoloring preserves custom colors, inherited colors and hidden quotes",
+          arguments: [UInt32?.none, UInt32(0x182012), UInt32(0x8A2345)])
+    func themeRecolorPreservesBubbleColorPolicy(textHex: UInt32?) async throws {
+        let source = "敘述。\n「你好。」\n「再見。」"
+        let builder = TXTLazyAttributedStringBuilder(text: source, chapterIndexes: [
+            TXTChapterIndex(index: 0, title: "", contentRange: NSRange(location: 0, length: (source as NSString).length))
+        ])
+        var settings = EPUBTestFixtures.renderSettings()
+        settings.dialogueBubbleStyle = style()
+        settings.dialogueBubbleStyle.left.textHex = textHex
+        settings.dialogueBubbleStyle.right.textHex = textHex
+
+        for startsDark in [false, true] {
+            let initialColor: UIColor = startsDark ? .lightGray : .darkGray
+            let built = try await builder.buildChapter(
+                at: 0, settings: settings, themeTextColor: initialColor,
+                themeBackgroundColor: startsDark ? .black : .white
+            )
+            let scroll = CoreTextPaginator.scrollAppearanceRecolor(
+                built.attributedString, appearance: startsDark ? .dark : .light
+            )
+            try checkColors(scroll, themeColor: initialColor, textHex: textHex)
+            var layout = await CoreTextPaginator().paginate(
+                spineIndex: 0, attrStr: built.attributedString, anchorOffsets: [:],
+                renderSize: CGSize(width: 390, height: 844), fontSize: Self.fontSize
+            )
+            let originalString = layout.attributedString.string
+            let originalRanges = layout.pageRanges.map { NSRange(location: $0.location, length: $0.length) }
+            for dark in [true, false, true] {
+                let themeColor: UIColor = dark ? .lightGray : .darkGray
+                layout = layout.withUpdatedColors(
+                    textColor: themeColor, backgroundColor: dark ? .black : .white,
+                    readerStyleAppearance: dark ? .dark : .light
+                )
+                try checkColors(layout.attributedString, themeColor: themeColor, textHex: textHex)
+                #expect(layout.attributedString.string == originalString)
+                #expect(layout.pageRanges.map { NSRange(location: $0.location, length: $0.length) } == originalRanges)
+            }
+        }
+    }
+
+    private func checkColors(_ attr: NSAttributedString, themeColor: UIColor, textHex: UInt32?) throws {
+        for text in ["敘述", "你好", "再見", "「", "」"] {
+            let offset = (attr.string as NSString).range(of: text).location
+            #expect(offset != NSNotFound)
+            guard offset != NSNotFound else { continue }
+            let color = try #require(attr.attribute(.foregroundColor, at: offset, effectiveRange: nil) as? UIColor)
+            if text == "「" || text == "」" {
+                #expect(color.cgColor.alpha == 0)
+            } else {
+                #expect(color.rgbHex == (text == "敘述" ? themeColor.rgbHex : textHex ?? themeColor.rgbHex))
+            }
+        }
+    }
+
     @Test func txtBuilderPreservesDialogueAndNarration() async throws {
         let body = "敘述。\n「你好。」\n結尾。"
         let builder = TXTLazyAttributedStringBuilder(text: body, chapterIndexes: [

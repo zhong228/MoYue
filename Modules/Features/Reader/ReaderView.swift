@@ -21,6 +21,13 @@ private struct ReaderFontImportPresentationError: Identifiable {
 // MARK: - Main Reader View
 struct ReaderView: View {
     let bookId: UUID
+
+    init(bookId: UUID) {
+        self.bookId = bookId
+        // The book's 整章翻譯 setting is part of the first layout, so a translated book never
+        // opens on its untranslated text first.
+        _readerTranslation = State(initialValue: ReaderTranslationSettingsStore.presentation(for: bookId))
+    }
     @EnvironmentObject var store: BookStore
     @Environment(\.appDependencies) var dependencies
     @Environment(\.presentationMode) var presentationMode
@@ -190,6 +197,15 @@ struct ReaderView: View {
     @State var showTTSPanel = false
     @State var showAIAssistantPanel = false
     @State var aiLaunch: AIReadingLaunch?
+    /// 整章翻譯 for this book, and the sheet that sets it.
+    @State var readerTranslation: ReaderTranslationPresentation
+    @State var showTranslationSheet = false
+    /// Scroll mode keeps neighbouring chapters sliced; those whose translations changed off
+    /// screen are laid out again when they become the chapter on screen.
+    @State var staleTranslatedChapters: Set<Int> = []
+    /// AI 查詞's card, and the assistant launch its 繼續問 AI asks for once the card is gone.
+    @State var wordLookup: ReaderWordLookupRoute?
+    @State var aiLaunchAfterWordLookup: AIReadingLaunch?
     @State var aiCitationTask: Task<Void, Never>?
     /// Whole-book text for the AI features, gathered from the source rather than the layout
     /// cache. Filled by `gatherAIBookText()` when an AI surface opens. See `aiBookAdapter()`.
@@ -2112,6 +2128,19 @@ struct ReaderView: View {
                         settings: activeReaderRenderSettings
                     )
                 }
+                .onChanged(of: readerTranslation) { old, new in
+                    readerTranslationDidChange(from: old, to: new)
+                }
+                .onReceive(AIChapterTranslationService.shared.updates) { chapter in
+                    applyTranslationUpdate(chapter)
+                }
+                .onChanged(of: currentChapterIndex) { _ in translationChapterDidChange() }
+                .onChanged(of: scrollVisibleChapter) { _ in translationChapterDidChange() }
+                .onChanged(of: epubRenderer.isCoreTextReady) { _ in translateVisibleChapterIfNeeded() }
+                // A chapter's text is only there once it is laid out: paged mode lands on a
+                // page, scroll mode inserts the chapter's chunks.
+                .onChanged(of: currentPage) { _ in translateVisibleChapterIfNeeded() }
+                .onChanged(of: epubRenderer.scrollChapterInsertions) { _ in translateVisibleChapterIfNeeded() }
         .onChanged(of: settings.customAppearanceThemes) { _ in
             syncActiveThemePreset()
         }
@@ -2137,12 +2166,22 @@ struct ReaderView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .coreTextAISelectionRequested)) { notification in
             guard let request = notification.userInfo?["request"] as? CoreTextAISelectionRequest else { return }
-            var launch = AIReadingLaunch(action: request.action,
+            let renderedChapterText = effectiveScrollMode
+                ? epubRenderer.scrollEngine?.chapterText(forSpine: request.spineIndex) ?? epubRenderer.engine?.chapterText(forSpine: request.spineIndex)
+                : epubRenderer.engine?.chapterText(forSpine: request.spineIndex)
+            // 查詞's 繼續問 AI continues as 解釋 of the same selection.
+            var launch = AIReadingLaunch(action: request.action == .lookup ? .explain : request.action,
                 selection: .init(bookID: bookId, spineIndex: request.spineIndex, range: request.range, text: request.text),
-                renderedChapterText: effectiveScrollMode
-                    ? epubRenderer.scrollEngine?.chapterText(forSpine: request.spineIndex) ?? epubRenderer.engine?.chapterText(forSpine: request.spineIndex)
-                    : epubRenderer.engine?.chapterText(forSpine: request.spineIndex))
+                renderedChapterText: renderedChapterText)
             if let source = aiSourceAdapter, aiPreparedSourceIdentity == aiSourceIdentity { launch = launch.resolvingSelection(in: source) }
+            if request.action == .lookup {
+                let context = request.context ?? renderedChapterText.map { AIWordLookup.context(in: $0, range: request.range) } ?? ""
+                // A translation has no place in the book for the assistant to cite.
+                wordLookup = ReaderWordLookupRoute(term: request.text, context: context.isEmpty ? request.text : context,
+                                                   launch: request.isTranslation ? nil : launch)
+                return
+            }
+            guard !request.isTranslation else { return }
             aiLaunch = launch
             showAIAssistantPanel = true
         }
@@ -2507,6 +2546,32 @@ struct ReaderView: View {
                     Button(localized("確定"), role: .cancel) { aiCitationError = nil }
                 } message: { Text(aiCitationError ?? "") }
             }
+        }
+        .sheet(isPresented: $showTranslationSheet) {
+            let position = translationReadingPosition
+            ReaderTranslationSheet(
+                presentation: $readerTranslation,
+                bookID: bookId,
+                chapter: position?.spineIndex ?? currentChapterIndex,
+                chapterText: translationSourceText(forSpine: position?.spineIndex ?? currentChapterIndex),
+                onTranslateChapter: {
+                    guard let position = translationReadingPosition else { return }
+                    translateChapter(position.spineIndex, readingOffset: position.charOffset, force: true)
+                }
+            )
+        }
+        .sheet(item: $wordLookup, onDismiss: {
+            // Opened only after the card is gone: two sheets asked for at once, one is dropped.
+            guard let launch = aiLaunchAfterWordLookup else { return }
+            aiLaunchAfterWordLookup = nil
+            aiLaunch = launch
+            showAIAssistantPanel = true
+        }) { route in
+            AIWordLookupView(term: route.term, context: route.context, bookTitle: book?.title, bookID: bookId,
+                             onAskAI: route.launch.map { launch in {
+                                 aiLaunchAfterWordLookup = launch
+                                 wordLookup = nil
+                             } })
         }
         .sheet(isPresented: $showTTSPanel) {
             AdaptiveSheetContainer(maxWidth: DSLayout.readableListWidth) {
@@ -2991,4 +3056,15 @@ struct ReaderView: View {
 
     // MARK: - Loading & Page Building
     // Extracted to ReaderView+PageBuilding.swift
+}
+
+/// One AI 查詞 card: the selected word, its sentence, and the assistant launch that
+/// 繼續問 AI opens for the same selection.
+struct ReaderWordLookupRoute: Identifiable {
+    let id = UUID()
+    let term: String
+    let context: String
+    /// Nil when the word is in a translation (整章翻譯): the assistant cites the book, and a
+    /// translation has no place in it.
+    let launch: AIReadingLaunch?
 }

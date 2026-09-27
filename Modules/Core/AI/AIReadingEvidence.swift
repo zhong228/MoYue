@@ -118,7 +118,7 @@ enum AIReadingEvidence {
         let task: String
         switch context.action {
         case .question: task = "回答讀者的問題，延續安全的對話背景。"
-        case .explain: task = "解釋選取文字在原文中的意思、指代及必要背景，先給簡潔說明。"
+        case .explain, .lookup: task = "解釋選取文字在原文中的意思、指代及必要背景，先給簡潔說明。"
         case .translate: task = "將選取文字翻譯成繁體中文；已是中文時以白話解釋。保留段落和語氣，必要譯註另外列出。"
         case .chapterSummary: task = "摘要目前章節在允許範圍內的內容；若提供的正文不完整，明確說明只涵蓋部分。"
         case .recap: task = "以最近已讀片段整理前情，幫助讀者接續閱讀，不聲稱涵蓋全部劇情。"

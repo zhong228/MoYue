@@ -1,7 +1,6 @@
 import UIKit
 
 protocol ProgrammaticPageTransitionControlling: AnyObject {
-    var dataSource: UIPageViewControllerDataSource? { get set }
     var viewControllers: [UIViewController]? { get }
 
     func setViewControllers(
@@ -29,7 +28,6 @@ struct ProgrammaticPageTransitionPerformer {
         targetViewControllers: [UIViewController]? = nil,
         direction: UIPageViewController.NavigationDirection,
         animated: Bool,
-        restoringDataSource: UIPageViewControllerDataSource?,
         completion: @escaping (UIViewController) -> Void
     ) {
         let targetStack: [UIViewController]
@@ -53,25 +51,12 @@ struct ProgrammaticPageTransitionPerformer {
             completion(settledViewController)
         }
 
-        if effectiveAnimated && direction == .reverse && pageTurnStyle != .curl {
-            controller.dataSource = nil
-            controller.setViewControllers(targetStack, direction: .reverse, animated: true) { _ in
-                // Defer the non-animated follow-up to avoid NSInternalInconsistencyException
-                // in _UIQueuingScrollView — the just-completed animated scroll has not yet
-                // fully unwound, and a synchronous second setViewControllers triggers
-                // queuingScrollView:willManuallyScroll: to raise.
-                DispatchQueue.main.async { [controller, targetStack, targetViewController, restoringDataSource, finish] in
-                    controller.setViewControllers(targetStack, direction: .reverse, animated: false) { _ in
-                        if self.pageTurnStyle == .slide {
-                            controller.dataSource = restoringDataSource
-                        }
-                        finish(targetViewController)
-                    }
-                }
-            }
-            return
-        }
-
+        // No animated `.scroll` turn reaches here: slide plays its own push over a
+        // non-animated swap (`ReaderSlideTurnAnimation`), and cover / none never
+        // animate through the page view controller. That is what retired the
+        // reverse-slide workaround — nil the data source, animate, then re-set the
+        // stack a runloop later — which patched UIKit settling a reverse `.scroll`
+        // turn on the page it started from.
         controller.setViewControllers(targetStack, direction: direction, animated: effectiveAnimated) { _ in
             finish(controller.viewControllers?.first ?? targetViewController)
         }

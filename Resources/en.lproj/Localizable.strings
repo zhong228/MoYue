@@ -3193,3 +3193,45 @@
 "引用超出目前閱讀範圍。" = "This citation is outside the current reading scope.";
 
 "名稱會先儲存在此裝置，並同步至帳號；同步失敗時仍會保留。" = "Your name is saved on this device and synced to your account. It is kept if syncing fails.";
+
+"AI 查詞" = "AI Look Up";
+"讀音" = "Pronunciation";
+"釋義" = "Meanings";
+"例句" = "Examples";
+"出處與背景" = "Origin & Background";
+"查詢中…" = "Looking up…";
+"繼續問 AI" = "Ask AI More";
+
+"AI 整理書架" = "Organize Shelf with AI";
+"未分組的書" = "Ungrouped Books";
+"全部的書" = "All Books";
+"已分組的書也可能被建議換到別的分組。" = "Books already in a group may be suggested for a different one.";
+"沒有未分組的書" = "No Ungrouped Books";
+"書架上沒有書" = "Your Shelf Is Empty";
+"要整理的書" = "Books to Organize";
+"會送出書名、作者，以及線上書已快取的分類、簡介和前幾章標題。" = "Sends titles and authors, plus the cached category, blurb and first chapter titles of online books.";
+"不需要移動" = "Nothing to Move";
+"每本書都已在建議的分組裡，或 AI 沒有把握。" = "Every book is already in its suggested group, or the AI wasn’t sure.";
+"將移動 %d 本書。關掉的書維持原樣，分組名稱可以直接改。" = "%d books will move. Books you switch off stay put, and you can rename any group.";
+"重新產生建議" = "Suggest Again";
+"另有 %1$d 本已在建議的分組、%2$d 本 AI 沒有把握，維持不動。" = "%1$d more are already in their suggested group and the AI wasn’t sure about %2$d; they stay put.";
+"原本未分組" = "Was ungrouped";
+"原本在「%@」" = "Was in “%@”";
+"新分組" = "New Group";
+"現有分組" = "Existing Group";
+
+"顯示方式" = "Show";
+"雙語對照" = "Side by Side";
+"只看譯文" = "Translation Only";
+"翻譯成" = "Translate Into";
+"本章" = "This Chapter";
+"翻譯中…" = "Translating…";
+"本章已翻譯" = "Chapter translated";
+"翻譯本章" = "Translate This Chapter";
+"本章還在載入" = "This chapter is still loading";
+"會翻譯你讀到的章節和下一章，約每 2,000 字一次模型呼叫；原文、劃線與閱讀進度不受影響。" = "Translates the chapter you are reading and the next one, about one model call per 2,000 characters. The original text, highlights and reading position are not affected.";
+"清除本書譯文" = "Delete This Book’s Translations";
+"清除本書的所有譯文？" = "Delete all translations of this book?";
+"清除譯文" = "Delete Translations";
+"譯文會刪除，翻譯也會關閉；之後再開啟要重新翻譯。" = "The translations are deleted and translation is turned off. Turning it back on translates again.";
+"整章翻譯" = "Chapter Translation";

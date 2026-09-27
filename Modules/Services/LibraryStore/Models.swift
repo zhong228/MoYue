@@ -768,6 +768,9 @@ struct ReaderRenderSettings: Equatable {
     /// 繁簡轉換. Applied while the string is built — ahead of replace rules, as legado
     /// does — so switching it re-runs layout rather than repainting.
     var textConversion: TextConversion = .original
+    /// 整章翻譯. Translations are spliced into the chapter documents, so switching it re-runs
+    /// layout; a chapter's translations arriving refreshes that chapter alone.
+    var translation: ReaderTranslationPresentation = .off
 }
 
 enum TOCLayoutMode {

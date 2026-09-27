@@ -181,13 +181,15 @@ extension StablePositionResolving where Self: LayoutLifecycle {
     func chapterPagination(forSpine spineIndex: Int, charOffset: Int) -> ChapterPagination? {
         guard let layout = layouts[spineIndex], !layout.pageRanges.isEmpty else { return nil }
         return ChapterPagination(
-            localPageIndex: layout.pageIndex(for: charOffset),
+            localPageIndex: layout.pageIndex(for: layout.displayOffset(forSource: charOffset)),
             displayPageCount: layout.displayPageCount
         )
     }
 
+    /// The chapter's own text: with 整章翻譯 on, the text without its translations, since
+    /// that is the space `charOffset` counts in.
     func chapterText(forSpine spineIndex: Int) -> String? {
-        layouts[spineIndex]?.attributedString.string
+        layouts[spineIndex]?.sourceText
     }
 
     func chapterAnchorOffsets(forSpine spineIndex: Int) -> [String: Int]? {

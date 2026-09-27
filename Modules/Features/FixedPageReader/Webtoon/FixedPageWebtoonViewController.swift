@@ -110,7 +110,7 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
         guard autoScrollDisplayLink == nil else { return }
         isAutoScrolling = true
         isPausedByTouch = false
-        let link = CADisplayLink(target: self, selector: #selector(handleAutoScrollTick))
+        let link = CADisplayLink(target: self, selector: #selector(handleAutoScrollTick(_:)))
         link.add(to: .main, forMode: .common)
         autoScrollDisplayLink = link
     }
@@ -122,10 +122,13 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
         isPausedByTouch = false
     }
 
-    @objc private func handleAutoScrollTick() {
+    @objc private func handleAutoScrollTick(_ link: CADisplayLink) {
         guard isAutoScrolling, !isPausedByTouch else { return }
-        let speed = CGFloat(max(1, fixedPageReaderConfiguration.autoScrollSpeed)) * 0.8
-        let newOffset = collectionView.contentOffset.y + speed
+        let step = Self.autoScrollStep(
+            speedSetting: fixedPageReaderConfiguration.autoScrollSpeed,
+            frameInterval: link.targetTimestamp - link.timestamp
+        )
+        let newOffset = collectionView.contentOffset.y + step
         let maxOffset = max(0, collectionView.contentSize.height - collectionView.bounds.height)
 
         if newOffset >= maxOffset {
@@ -135,6 +138,16 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
         } else {
             collectionView.contentOffset.y = newOffset
         }
+    }
+
+    /// Points to scroll in one display-link frame.
+    ///
+    /// `autoScrollSpeed` was tuned as a step per 60Hz frame, the only rate an
+    /// iPhone gave this link before Info.plist unlocked ProMotion. Scaling by the
+    /// frame's real interval keeps that distance per second at 120Hz instead of
+    /// doubling it.
+    nonisolated static func autoScrollStep(speedSetting: Int, frameInterval: CFTimeInterval) -> CGFloat {
+        CGFloat(max(1, speedSetting)) * 0.8 * CGFloat(frameInterval * 60)
     }
 
     // MARK: Pinch & Double-Tap Zoom

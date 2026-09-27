@@ -188,7 +188,13 @@ extension Bookmark {
 
 struct CoreTextAISelectionRequest {
     let spineIndex: Int
+    /// The selection in the chapter's own text. Meaningless when `isTranslation`.
     let range: NSRange
     let text: String
     let action: AIReadingAction
+    /// The selection's sentence as it reads on screen, for AI 查詞.
+    var context: String? = nil
+    /// The selection is 整章翻譯's translation, not the book's text: only 查詞 applies, and
+    /// nothing can be anchored to a place in the book.
+    var isTranslation = false
 }

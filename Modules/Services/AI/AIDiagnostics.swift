@@ -47,6 +47,16 @@ final class AIRequestTrace: @unchecked Sendable {
             event("missingChapter", ["order": "\(chapter.order)", "status": chapter.status.rawValue])
         }
     }
+    /// For requests that read no book text of their own — 查詞, 書架整理. `bookID` is
+    /// `AIRequestTrace.library` when the request is about the library rather than one book.
+    init(feature: String, bookID: UUID, origin: AIDiagnostics.Origin = .observed, captureContent: Bool = false, requestID: UUID = UUID()) {
+        self.requestID = requestID
+        self.bookID = bookID
+        self.origin = origin
+        self.captureContent = captureContent
+        event("request", ["feature": feature, "bookID": bookID.uuidString])
+    }
+    static let library = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
     func event(_ stage: String, _ values: [String: String]) {
         lock.lock(); defer { lock.unlock() }
         events.append(.init(stage: stage, milliseconds: Date().timeIntervalSince(start) * 1000,
@@ -103,6 +113,12 @@ final class AIDiagnosticStore: ObservableObject {
         guard let trace = latest, trace.requestID == requestID else { return }
         trace.event("uiFinalState", ["status": status])
         finish(trace)
+    }
+    func begin(feature: String, bookID: UUID, origin: AIDiagnostics.Origin = .observed, requestID: UUID = UUID()) -> AIRequestTrace {
+        let trace = AIRequestTrace(feature: feature, bookID: bookID, origin: origin, captureContent: captureNextRequestContent, requestID: requestID)
+        captureNextRequestContent = false
+        latest = trace
+        return trace
     }
     func finish(_ trace: AIRequestTrace) {
         // Only the most recently started request owns the displayed/exported result.

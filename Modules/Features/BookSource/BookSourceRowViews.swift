@@ -27,6 +27,7 @@ import SwiftUI
 struct BookSourceRowGroup: Identifiable {
     /// Sentinel ids for the built-in 置頂／置底 groups — kept distinct from any user group
     /// name, so a group literally named 置頂 cannot collide with them.
+    static let defaultGroupID = "yuedu.default-group"
     static let topPinnedID = "yuedu.pin-group.top"
     static let bottomPinnedID = "yuedu.pin-group.bottom"
 

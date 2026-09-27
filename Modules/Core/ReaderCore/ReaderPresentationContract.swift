@@ -6,6 +6,8 @@ import UIKit
 struct ReaderLocation: Hashable, Codable {
     let spineIndex: Int
     let charOffset: Int
+    /// See `CoreTextReadingPosition.translationOffset`.
+    var translationOffset: Int? = nil
     let source: Source?
     let isEstimated: Bool
     let progression: Progression?
@@ -62,18 +64,20 @@ struct ReaderLocation: Hashable, Codable {
     ) {
         self.spineIndex = position.spineIndex
         self.charOffset = position.charOffset
+        self.translationOffset = position.translationOffset
         self.source = source
         self.isEstimated = isEstimated
         self.progression = progression
     }
 
     var coreTextPosition: CoreTextReadingPosition {
-        CoreTextReadingPosition(spineIndex: spineIndex, charOffset: charOffset)
+        CoreTextReadingPosition(spineIndex: spineIndex, charOffset: charOffset, translationOffset: translationOffset)
     }
 
     enum CodingKeys: String, CodingKey {
         case spineIndex
         case charOffset
+        case translationOffset
         case source
         case isEstimated
         case progression
@@ -83,6 +87,7 @@ struct ReaderLocation: Hashable, Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         spineIndex = try container.decode(Int.self, forKey: .spineIndex)
         charOffset = try container.decode(Int.self, forKey: .charOffset)
+        translationOffset = try container.decodeIfPresent(Int.self, forKey: .translationOffset)
         source = try container.decodeIfPresent(Source.self, forKey: .source)
         isEstimated = try container.decodeIfPresent(Bool.self, forKey: .isEstimated) ?? false
         progression = try container.decodeIfPresent(Progression.self, forKey: .progression)
@@ -92,6 +97,7 @@ struct ReaderLocation: Hashable, Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(spineIndex, forKey: .spineIndex)
         try container.encode(charOffset, forKey: .charOffset)
+        try container.encodeIfPresent(translationOffset, forKey: .translationOffset)
         try container.encodeIfPresent(source, forKey: .source)
         try container.encode(isEstimated, forKey: .isEstimated)
         try container.encodeIfPresent(progression, forKey: .progression)

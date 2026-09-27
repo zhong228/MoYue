@@ -151,42 +151,6 @@ final class AIAssistantService: ObservableObject {
         }
     }
 
-    /// Explicit requests always generate a fresh recap. Background consumers may opt into reuse.
-    /// Recap of at most twelve recent eligible chunks.
-    func recap(
-        bookID: UUID,
-        bookTitle: String,
-        adapter: AIBookContentAdapter,
-        progress: Double,
-        stored: AIRecap?,
-        reuseStored: Bool = false,
-        boundary: AIReadingBoundary? = nil
-    ) async throws -> AIRecap? {
-        let boundary = boundary ?? adapter.boundary()
-        return try await traced("recap", adapter: adapter, boundary: boundary) {
-            if reuseStored && AIRecap.canReuse(stored, atProgress: progress, boundary: boundary) {
-                AIDiagnostics.current?.event("recapCache", ["result": "safeHit"])
-                return stored
-            }
-            let provider = try resolveProvider()
-            let index = try await index(forBook: bookID, adapter: adapter)
-            // The most recent already-read passages, oldest first, so the recap reads forwards.
-            let selectionStarted = Date()
-            let readable = index.chunks.filter { boundary.contains($0) }
-            let seed = Array(readable.suffix(12))
-            AIDiagnostics.current?.retrieval(total: index.chunks.count, eligible: readable.count, candidates: [seed.count],
-                hits: seed.map { .init(chunk: $0, score: 0) }, scoreType: "recentReadingOrder", elapsed: Date().timeIntervalSince(selectionStarted))
-            guard !seed.isEmpty else { return nil }
-            return try await AIRecap.generate(
-                chunks: seed,
-                bookTitle: bookTitle,
-                progress: progress,
-                provider: provider,
-                boundary: boundary
-            )
-        }
-    }
-
     /// A character card with an explicit, versioned scope selected by the reader.
     func characterCard(
         name: String,

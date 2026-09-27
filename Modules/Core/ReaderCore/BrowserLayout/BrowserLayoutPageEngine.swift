@@ -14,6 +14,9 @@ enum BrowserFallbackReason: Equatable {
     case resourceFailure(String)
     case layoutFailure(String)
     case timeout
+    /// 整章翻譯 is on: translations are spliced into the chapter document, which only the
+    /// CoreText path lays out.
+    case readerTranslation
 
     var description: String {
         switch self {
@@ -24,6 +27,7 @@ enum BrowserFallbackReason: Equatable {
         case .resourceFailure(let r): return "resource-failure(\(r))"
         case .layoutFailure(let f): return "layout-failure(\(f))"
         case .timeout: return "timeout"
+        case .readerTranslation: return "reader-translation"
         }
     }
 
@@ -32,7 +36,7 @@ enum BrowserFallbackReason: Equatable {
     /// Forced-mode diagnostics split accordingly (unsupported vs failed).
     var isUnsupportedKind: Bool {
         switch self {
-        case .unsupportedSVG, .unsupportedLayoutProperty, .imageOnlyDocument, .emptyRenderableContent:
+        case .unsupportedSVG, .unsupportedLayoutProperty, .imageOnlyDocument, .emptyRenderableContent, .readerTranslation:
             return true
         case .resourceFailure, .layoutFailure, .timeout:
             return false
@@ -573,6 +577,9 @@ final class BrowserLayoutPageEngine: PageRenderingProvider, LinkNavigationProvid
     }
 
     private func decideEngine(for spineIndex: Int, generation: Int) async -> ChapterEngineChoice? {
+        if settings.translation.isActive {
+            return .legacyEngineFailure(.readerTranslation)
+        }
         if let cached = choices[spineIndex] {
             BrowserLayoutDeviceDiagnostic.log(
                 .engineDecision(spine: spineIndex, generation: layoutGeneration),
@@ -1234,6 +1241,8 @@ final class BrowserLayoutPageEngine: PageRenderingProvider, LinkNavigationProvid
 
     func updateRenderSettings(_ settings: ReaderRenderSettings) {
         if self.settings != settings { discardScrollPreparation() }
+        // Which engine a chapter uses depends on whether translations are shown.
+        if self.settings.translation.isActive != settings.translation.isActive { choices.removeAll() }
         let regexActive = self.settings.regexHighlightConfiguration.isEnabled
             || settings.regexHighlightConfiguration.isEnabled
         if regexActive,

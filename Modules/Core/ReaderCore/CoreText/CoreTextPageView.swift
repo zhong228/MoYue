@@ -64,7 +64,12 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     private let playbackOverlay = InteractionOverlayView()
     private let interactionOverlay = InteractionOverlayView()
     private var playbackHighlight: ReaderPlaybackHighlight?
+    /// Annotations in the layout's laid-out text, which is what drawing and hit-testing use.
+    /// The same as `sourceAnnotations` unless 整章翻譯 spliced translations into the chapter.
     private var textAnnotations: [CoreTextTextAnnotation] = []
+    /// The annotations as the reader stores them, by id: what a request about an existing
+    /// annotation must name, whatever pieces a translation split it into on screen.
+    private var sourceAnnotations: [UUID: CoreTextTextAnnotation] = [:]
     private var annotationOverlays: [LayerKey: InteractionOverlayView] = [:]
     private let noteMarkerOverlay = NoteMarkerOverlayView()
     /// 已縮放到 view 座標的筆記圓圈，供 `handleTap` 命中判定用。
@@ -165,6 +170,9 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         pendingAISelection = nil
         self.layout = layout
         self.localPageIndex = pageIndex
+        if !sourceAnnotations.isEmpty {
+            textAnnotations = sourceAnnotations.values.flatMap { $0.displayed(in: layout) }
+        }
         clearSelection()
         backgroundColor = layout.attributedString.length > 0
             ? layout.backgroundColor
@@ -180,8 +188,24 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     }
 
     func setTextAnnotations(_ annotations: [CoreTextTextAnnotation]) {
-        textAnnotations = annotations
+        sourceAnnotations = Dictionary(annotations.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        textAnnotations = layout.map { layout in annotations.flatMap { $0.displayed(in: layout) } } ?? annotations
         updateAnnotationOverlay()
+    }
+
+    /// The stored range a request about `range` must name: an existing annotation's own
+    /// range, or the book text a selection covers. Nil when the selection takes in a
+    /// translation, which is not the book's text to highlight or note.
+    private func bookRange(_ range: NSRange, annotationID: UUID? = nil) -> NSRange? {
+        if let annotationID, let stored = sourceAnnotations[annotationID] { return stored.range }
+        guard let layout else { return range }
+        return layout.sourceRange(forDisplay: range)
+    }
+
+    /// Whether the current selection covers any translated text.
+    private var selectionTouchesTranslation: Bool {
+        guard let layout, let range = interactor.selectionManager.selectedRange else { return false }
+        return layout.isTranslation(range)
     }
 
     // MARK: - Accessibility
@@ -297,7 +321,8 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         guard interactor.selectedTextForCopy?.isEmpty == false else { return false }
-        return action == #selector(copy(_:)) || action == #selector(underlineSelection(_:))
+        return action == #selector(copy(_:))
+            || (action == #selector(underlineSelection(_:)) && !selectionTouchesTranslation)
     }
 
     func editMenuInteraction(
@@ -348,6 +373,13 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             return UIMenu(children: colorActions + [underlineAction])
         }
 
+        // A translation is not the book's text: nothing can be highlighted, noted or turned
+        // into a replace rule there, and the assistant has no place in the book to cite.
+        if selectionTouchesTranslation {
+            let text = interactor.selectedTextForCopy ?? ""
+            return UIMenu(children: suggestedActions + (AIWordLookup.isCandidate(text) ? [aiSelectionAction(.lookup)] : []))
+        }
+
         var actions = suggestedActions
         if interactor.tappedAnnotation != nil {
             actions.append(UIAction(
@@ -386,17 +418,24 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             }
         ))
 
-        for action in [AIReadingAction.question, .explain, .translate] {
-            actions.append(UIAction(title: action.title, image: UIImage(systemName: "sparkles")) { [weak self] _ in
-                guard let self, let layout, let range = interactor.selectionManager.selectedRange,
-                      range.location >= 0, NSMaxRange(range) <= layout.attributedString.length else { return }
-                let request = CoreTextAISelectionRequest(spineIndex: layout.spineIndex, range: range,
-                    text: (layout.attributedString.string as NSString).substring(with: range), action: action)
-                pendingAISelection = request
-                editMenuInteraction.dismissMenu()
-            })
+        for action in AIReadingAction.selectionMenu(for: interactor.selectedTextForCopy ?? "") {
+            actions.append(aiSelectionAction(action))
         }
         return UIMenu(children: actions)
+    }
+
+    private func aiSelectionAction(_ action: AIReadingAction) -> UIAction {
+        UIAction(title: action.title, image: UIImage(systemName: "sparkles")) { [weak self] _ in
+            guard let self, let layout, let range = interactor.selectionManager.selectedRange,
+                  range.location >= 0, NSMaxRange(range) <= layout.attributedString.length else { return }
+            let displayed = layout.attributedString.string
+            let stored = bookRange(range)
+            let request = CoreTextAISelectionRequest(spineIndex: layout.spineIndex, range: stored ?? range,
+                text: (displayed as NSString).substring(with: range), action: action,
+                context: AIWordLookup.context(in: displayed, range: range), isTranslation: stored == nil)
+            pendingAISelection = request
+            editMenuInteraction.dismissMenu()
+        }
     }
 
     private var pendingAISelection: CoreTextAISelectionRequest?
@@ -1129,6 +1168,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
               range.location >= 0,
               range.location + range.length <= layout.attributedString.length
         else { return }
+        guard let stored = bookRange(range) else { return }
         let excerpt = interactor.selectedTextForCopy ?? interactor.selectionManager.selectedText(in: layout.attributedString) ?? ""
         if removesExistingUnderline {
             let (remaining, _) = AnnotationStore.removeExact(
@@ -1155,9 +1195,9 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
                 "request": CoreTextUnderlineSelectionRequest(
                     position: CoreTextReadingPosition(
                         spineIndex: layout.spineIndex,
-                        charOffset: range.location
+                        charOffset: stored.location
                     ),
-                    length: range.length,
+                    length: stored.length,
                     excerpt: excerpt.trimmingCharacters(in: .whitespacesAndNewlines),
                     removesExistingUnderline: removesExistingUnderline,
                     style: style,
@@ -1928,6 +1968,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
               range.location + range.length <= layout.attributedString.length
         else { return }
 
+        guard let stored = bookRange(range) else { return }
         let excerpt = interactor.selectedTextForCopy
             ?? interactor.selectionManager.selectedText(in: layout.attributedString)
             ?? ""
@@ -1938,9 +1979,9 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
                 "request": CoreTextNoteEditRequest(
                     position: CoreTextReadingPosition(
                         spineIndex: layout.spineIndex,
-                        charOffset: range.location
+                        charOffset: stored.location
                     ),
-                    length: range.length,
+                    length: stored.length,
                     excerpt: excerpt.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
             ]
@@ -1961,6 +2002,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     }
 
     private func postNoteEditRequest(for annotation: CoreTextTextAnnotation) {
+        guard let stored = bookRange(annotation.range, annotationID: annotation.id) else { return }
         NotificationCenter.default.post(
             name: .coreTextNoteEditRequested,
             object: self,
@@ -1968,9 +2010,9 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
                 "request": CoreTextNoteEditRequest(
                     position: CoreTextReadingPosition(
                         spineIndex: annotation.spineIndex,
-                        charOffset: annotation.startOffset
+                        charOffset: stored.location
                     ),
-                    length: annotation.range.length,
+                    length: stored.length,
                     excerpt: annotationExcerpt(annotation),
                     existingNote: annotation.note ?? "",
                     style: annotation.style,
@@ -2004,7 +2046,8 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     }
 
     private func deleteTappedAnnotation() {
-        guard let annotation = interactor.tappedAnnotation else { return }
+        guard let annotation = interactor.tappedAnnotation,
+              let stored = bookRange(annotation.range, annotationID: annotation.id) else { return }
 
         // 這段寫過筆記：刪掉標註等於一併丟掉筆記，必須先讓使用者選。引擎層沒有 alert，
         // 所以只送請求，實際刪除由閱讀器在使用者回答後執行。
@@ -2017,9 +2060,9 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
                     "request": CoreTextNoteDeleteRequest(
                         position: CoreTextReadingPosition(
                             spineIndex: annotation.spineIndex,
-                            charOffset: annotation.startOffset
+                            charOffset: stored.location
                         ),
-                        length: annotation.range.length,
+                        length: stored.length,
                         excerpt: annotationExcerpt(annotation),
                         note: note,
                         style: annotation.style,
@@ -2040,9 +2083,9 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
                 "request": CoreTextUnderlineSelectionRequest(
                     position: CoreTextReadingPosition(
                         spineIndex: annotation.spineIndex,
-                        charOffset: annotation.startOffset
+                        charOffset: stored.location
                     ),
-                    length: annotation.range.length,
+                    length: stored.length,
                     excerpt: interactor.selectedTextForCopy ?? "",
                     removesExistingUnderline: true,
                     style: annotation.style,
@@ -2073,7 +2116,8 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     }
 
     private func notifyAnnotationChange() {
-        guard let annotation = interactor.tappedAnnotation else { return }
+        guard let annotation = interactor.tappedAnnotation,
+              let stored = bookRange(annotation.range, annotationID: annotation.id) else { return }
         NotificationCenter.default.post(
             name: .coreTextUnderlineSelectionRequested,
             object: self,
@@ -2081,9 +2125,9 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
                 "request": CoreTextUnderlineSelectionRequest(
                     position: CoreTextReadingPosition(
                         spineIndex: annotation.spineIndex,
-                        charOffset: annotation.startOffset
+                        charOffset: stored.location
                     ),
-                    length: annotation.range.length,
+                    length: stored.length,
                     excerpt: interactor.selectedTextForCopy ?? "",
                     removesExistingUnderline: false,
                     style: annotation.style,
@@ -2125,7 +2169,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
 
         // Searched in chapter coordinates, restricted to this page, so the offset the
         // reader derived from the narration unit can pick between repeated lines.
-        guard let found = playbackHighlight.occurrence(
+        guard let found = playbackHighlight.displayed(in: layout).occurrence(
             in: layout.attributedString.string as NSString,
             searchRange: pageRange,
             chapterIndex: layout.spineIndex

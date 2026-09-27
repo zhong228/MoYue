@@ -3,6 +3,10 @@ import Foundation
 struct CoreTextReadingPosition: Codable, Equatable {
     let spineIndex: Int
     let charOffset: Int
+    /// A place inside a translation (整章翻譯): how far into the translation that hangs off
+    /// `charOffset`. Nil for the book's own text — and read as the source character once the
+    /// translation is not on screen. See `ReaderTranslationLayout`.
+    var translationOffset: Int? = nil
 
     static func chapterStart(_ spineIndex: Int) -> Self {
         Self(spineIndex: spineIndex, charOffset: 0)
@@ -35,15 +39,13 @@ enum CoreTextReadingPositionMapper {
         layout.pageIndex(for: clampedCharOffset(for: position, in: layout))
     }
 
+    /// The position's offset in the laid-out text, clamped to it. The same as the
+    /// position's own offset unless 整章翻譯 spliced translations into the chapter.
     static func clampedCharOffset(
         for position: CoreTextReadingPosition,
         in layout: CoreTextPaginator.ChapterLayout
     ) -> Int {
-        let upperBound = max(layout.attributedString.length, 0)
-        if position.charOffset == .max {
-            return upperBound
-        }
-        return min(max(position.charOffset, 0), upperBound)
+        layout.displayOffset(for: position)
     }
 
     // MARK: - Page stepping
@@ -73,10 +75,7 @@ enum CoreTextReadingPositionMapper {
         let offset = clampedCharOffset(for: position, in: layout)
         let localPage = layout.pageIndex(for: offset)
         if localPage + 1 < layout.pageRanges.count {
-            return CoreTextReadingPosition(
-                spineIndex: spineIndex,
-                charOffset: Int(layout.pageRanges[localPage + 1].location)
-            )
+            return layout.readingPosition(atDisplay: Int(layout.pageRanges[localPage + 1].location))
         }
 
         // Partial layout: the chapter continues past what has been measured. The
@@ -94,7 +93,7 @@ enum CoreTextReadingPositionMapper {
                 // parked on `coveredEnd` in the first place because the previous call
                 // handed it out as a destination, so it is reached by ordinary reading.
                 if coveredEnd > offset {
-                    return CoreTextReadingPosition(spineIndex: spineIndex, charOffset: coveredEnd)
+                    return layout.readingPosition(atDisplay: coveredEnd)
                 }
                 // Nothing honest left to say: this chapter continues, but the text after
                 // `coveredEnd` has not been measured, so no position can name it. Falling
@@ -125,10 +124,7 @@ enum CoreTextReadingPositionMapper {
 
         let localPage = localPageIndex(for: position, in: layout)
         if localPage > 0 {
-            return CoreTextReadingPosition(
-                spineIndex: spineIndex,
-                charOffset: Int(layout.pageRanges[localPage - 1].location)
-            )
+            return layout.readingPosition(atDisplay: Int(layout.pageRanges[localPage - 1].location))
         }
 
         guard spineIndex > 0 else { return nil }

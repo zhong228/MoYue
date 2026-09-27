@@ -105,20 +105,49 @@ struct PageViewControllerPagingAdapterDescriptor: Equatable {
     }
 }
 
-/// Which animation engine plays a programmatic slide turn.
+/// Which animation engine plays a programmatic slide turn, and how.
 ///
-/// Interactive swipes always use UIKit's own `.scroll` transition, and so does a
-/// programmatic turn at 1× — a lone tap must animate exactly like a swipe. Only a
-/// tap burst falls back to our own timed push, because UIKit's slide cannot be
-/// shortened: it animates its content offset off a display link inside
-/// `_UIQueuingScrollView`, which `layer.speed` does not scale.
+/// Every tap, volume-key and queued slide turn runs as our own push transition;
+/// only interactive swipes keep UIKit's `.scroll` transition. UIKit's programmatic
+/// turn can be neither shortened nor cut short: `_UIQueuingScrollView` walks its
+/// content offset on the main thread off a display link, which `layer.speed` does
+/// not scale, so a second tap has to wait out the first turn in full. A push is a
+/// render-server animation with a duration we own.
+///
+/// The push reproduces UIKit's own turn — duration and curve below — so a lone
+/// tap still moves exactly like the page a swipe settles. It used to read as a
+/// different, rougher animation because iPhone capped it at 60Hz while UIKit's
+/// scrolling ran at 120Hz; `CADisableMinimumFrameDurationOnPhone` in Info.plist
+/// plus `frameRateRange` lift that cap.
 enum ReaderSlideTurnAnimation {
-    static func runsTimedPush(
-        pageTurnStyle: PageTurnStyle,
-        animated: Bool,
-        turnSpeed: Float
-    ) -> Bool {
-        animated && pageTurnStyle == .slide && turnSpeed > 1
+    /// UIKit's programmatic `.scroll` turn, sampled frame by frame (2026-09-26,
+    /// iOS 27 simulator): 0.30s, progress (1 − cos πt) / 2.
+    static let nativeDuration: CFTimeInterval = 0.3
+    /// Apple's range for a fast, full-screen movement. On iPhone, Core Animation
+    /// ignores anything above 60Hz unless Info.plist carries
+    /// `CADisableMinimumFrameDurationOnPhone`.
+    static let frameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+
+    static func runsTimedPush(pageTurnStyle: PageTurnStyle, animated: Bool) -> Bool {
+        animated && pageTurnStyle == .slide
+    }
+
+    /// - Parameter speed: the tap-burst speed-up; 1 plays UIKit's own pace.
+    static func pushTransition(
+        direction: UIPageViewController.NavigationDirection,
+        speed: Float
+    ) -> CATransition {
+        let transition = CATransition()
+        transition.type = .push
+        // `direction` already carries the RTL swap, so it maps straight to the
+        // edge the incoming page enters from.
+        transition.subtype = direction == .forward ? .fromRight : .fromLeft
+        transition.duration = nativeDuration / Double(max(speed, 1))
+        // Least-squares Bézier fit to UIKit's sine curve: within 0.08% of a page
+        // at every sampled frame.
+        transition.timingFunction = CAMediaTimingFunction(controlPoints: 0.365, 0, 0.635, 1)
+        transition.preferredFrameRateRange = frameRateRange
+        return transition
     }
 }
 

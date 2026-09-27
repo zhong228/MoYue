@@ -550,7 +550,7 @@ final class CoreTextPageEngine: PageRenderingProvider, LinkNavigationProviding, 
 
         if attributedBuilder.prefersLazyByteScan {
             let layout = _layouts[clampedSpine]
-            let charLen = layout?.attributedString.length ?? 0
+            let charLen = layout?.sourceLength ?? 0
             let chapterFraction: Double
             if charLen > 0 {
                 chapterFraction = min(1.0, max(0.0, Double(charOffset) / Double(charLen)))
@@ -585,7 +585,7 @@ final class CoreTextPageEngine: PageRenderingProvider, LinkNavigationProviding, 
 
         // Convert the current chapter's charOffset proportionally to bytes
         let currentChapterBytes = chapterByteSizes.indices.contains(spineIndex) ? chapterByteSizes[spineIndex] : 0
-        let currentChapterChars = layouts[spineIndex]?.attributedString.length ?? currentChapterBytes
+        let currentChapterChars = layouts[spineIndex]?.sourceLength ?? currentChapterBytes
         let scaledOffset: Int
         if currentChapterChars > 0 {
             scaledOffset = Int(Double(charOffset) / Double(currentChapterChars) * Double(currentChapterBytes))
@@ -606,7 +606,7 @@ final class CoreTextPageEngine: PageRenderingProvider, LinkNavigationProviding, 
             return nil
         }
         let characterCount = currentChapterCharacterCount
-            ?? _layouts[spineIndex]?.attributedString.length
+            ?? _layouts[spineIndex]?.sourceLength
         return contentUnitMap.metrics(
             spineIndex: spineIndex,
             localCharacterOffset: charOffset,
@@ -624,7 +624,7 @@ final class CoreTextPageEngine: PageRenderingProvider, LinkNavigationProviding, 
             let scaled = progress * Double(totalChapters)
             let idx = max(0, min(Int(scaled), totalChapters - 1))
             let chapterFraction = max(0.0, min(1.0, scaled - Double(idx)))
-            let charLen = layouts[idx]?.attributedString.length ?? 0
+            let charLen = layouts[idx]?.sourceLength ?? 0
             let charOffset = charLen > 0 ? Int(chapterFraction * Double(charLen)) : 0
             return (idx, charOffset)
         }
@@ -643,7 +643,7 @@ final class CoreTextPageEngine: PageRenderingProvider, LinkNavigationProviding, 
         for (i, size) in chapterByteSizes.enumerated() {
             if currentSum + size > targetByte {
                 let byteOffsetInChapter = targetByte - currentSum
-                let charLength = layouts[i]?.attributedString.length ?? size
+                let charLength = layouts[i]?.sourceLength ?? size
                 let charOffset = Int(Double(byteOffsetInChapter) / Double(max(1, size)) * Double(charLength))
                 return (i, charOffset)
             }
@@ -830,7 +830,7 @@ final class CoreTextPageEngine: PageRenderingProvider, LinkNavigationProviding, 
     func pageIndex(forSpine spineIndex: Int, charOffset: Int) -> Int {
         guard spinePageOffsets.indices.contains(spineIndex) else { return 0 }
         if let layout = _layouts[spineIndex] {
-            let localPage = layout.pageIndex(for: charOffset)
+            let localPage = layout.pageIndex(for: layout.displayOffset(forSource: charOffset))
             return spinePageOffsets[spineIndex] + localPage
         } else {
             // Rough estimate when not yet loaded: ~400 characters per page (conservative)
@@ -845,7 +845,7 @@ final class CoreTextPageEngine: PageRenderingProvider, LinkNavigationProviding, 
         // nil so callers take the placeholder path and wait for the full layout.
         if let layout = _layouts[position.spineIndex], layout.isPartial {
             let coveredEnd = layout.pageRanges.last.map { Int($0.location + $0.length) } ?? 0
-            if position.charOffset >= coveredEnd { return nil }
+            if position.charOffset == .max || layout.displayOffset(for: position) >= coveredEnd { return nil }
         }
         return CoreTextReadingPositionMapper.pageIndex(
             for: position,
@@ -878,10 +878,7 @@ final class CoreTextPageEngine: PageRenderingProvider, LinkNavigationProviding, 
               localPage < layout.pageRanges.count else {
             return CoreTextReadingPosition.chapterStart(spineIndex)
         }
-        return CoreTextReadingPosition(
-            spineIndex: spineIndex,
-            charOffset: Int(layout.pageRanges[localPage].location)
-        )
+        return layout.readingPosition(atDisplay: Int(layout.pageRanges[localPage].location))
     }
 
     func charOffset(forPage page: Int) -> (spineIndex: Int, charOffset: Int) {
@@ -890,7 +887,7 @@ final class CoreTextPageEngine: PageRenderingProvider, LinkNavigationProviding, 
               localPage < layout.pageRanges.count else {
             return (spineIndex, 0)
         }
-        return (spineIndex, Int(layout.pageRanges[localPage].location))
+        return (spineIndex, layout.sourceOffset(forDisplay: Int(layout.pageRanges[localPage].location)))
     }
 
     func pageViewController(for position: CoreTextReadingPosition) -> UIViewController {
@@ -1184,7 +1181,9 @@ final class CoreTextPageEngine: PageRenderingProvider, LinkNavigationProviding, 
                     ReaderPerfTrace.end(firstPageTrace)
                     return abort
                 }
-                let firstPageLayout = firstPageResult.layout.withUpdatedAppearance(
+                var paginatedFirstPage = firstPageResult.layout
+                paginatedFirstPage.translation = buildResult.translation
+                let firstPageLayout = paginatedFirstPage.withUpdatedAppearance(
                     textColor: themeTextColor,
                     backgroundColor: themeBackgroundColor,
                     readerBackgroundImage: currentReaderBackgroundImage(),
@@ -1232,7 +1231,8 @@ final class CoreTextPageEngine: PageRenderingProvider, LinkNavigationProviding, 
         }
 
         let fullLayoutStart = ProcessInfo.processInfo.systemUptime
-        let layout = await paginationManager.paginate(request).layout
+        var layout = await paginationManager.paginate(request).layout
+        layout.translation = buildResult.translation
         if let abort = abortReason(generation: generation) { return abort }
         SourcePerfTrace.record(
             "coreText.fullLayout",
@@ -1660,10 +1660,7 @@ _layouts.removeAll()
             }
         }
         vc.pageBars = pageBars(forGlobalPage: globalPage)
-        let readingPosition = CoreTextReadingPosition(
-            spineIndex: spineIndex,
-            charOffset: Int(layout.pageRanges[localPage].location)
-        )
+        let readingPosition = layout.readingPosition(atDisplay: Int(layout.pageRanges[localPage].location))
         vc.configure(
             layout: layout,
             localPage: localPage,
