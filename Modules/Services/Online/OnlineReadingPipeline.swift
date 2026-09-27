@@ -735,69 +735,31 @@ actor ChapterFetchManager {
             if visited.contains(urlStr) { break }
             visited.insert(urlStr)
 
-            do {
-                let result = try await webViewFetcher.fetchContentWithNextPage(
-                    url: url,
-                    headers: headers,
-                    timeout: AppConfig.webViewFetchTimeout,
-                    jsWait: 1.5
-                )
-                if !result.content.isEmpty {
-                    let cleaned = BookSourceFetcher.cleanChapterContent(result.content)
-                    if !allContent.isEmpty { allContent += "\n" }
-                    allContent += cleaned
-                    // First page obtained: notify reader immediately, don't wait for subsequent pages
-                    if visited.count == 1 {
-                        progressHandler?(allContent)
-                    }
+            // A Cloudflare page ends up here as `cloudflareChallengeRequired`, like any other
+            // failure: nothing opens a verification page by itself (Legado never does). The
+            // reader passes the check from the reading menu's 開啟網頁.
+            let result = try await webViewFetcher.fetchContentWithNextPage(
+                url: url,
+                headers: headers,
+                timeout: AppConfig.webViewFetchTimeout,
+                jsWait: 1.5
+            )
+            if !result.content.isEmpty {
+                let cleaned = BookSourceFetcher.cleanChapterContent(result.content)
+                if !allContent.isEmpty { allContent += "\n" }
+                allContent += cleaned
+                // First page obtained: notify reader immediately, don't wait for subsequent pages
+                if visited.count == 1 {
+                    progressHandler?(allContent)
                 }
-                if let next = result.nextPageURL {
-                    guard let nextURL = URL(string: next) else {
-                        throw FetchError.invalidURL(next)
-                    }
-                    currentURL = nextURL
-                } else {
-                    currentURL = nil
+            }
+            if let next = result.nextPageURL {
+                guard let nextURL = URL(string: next) else {
+                    throw FetchError.invalidURL(next)
                 }
-            } catch let err as FetchError {
-                if case .cloudflareChallengeRequired(let urlStr) = err,
-                    let challengeURL = URL(string: urlStr)
-                {
-                    // If the user cancels the CF challenge, give up immediately (avoid loop)
-                    do {
-                        _ = try await CloudflareChallengePresenter.present(url: challengeURL)
-                    } catch {
-                        throw error
-                    }
-                    do {
-                        let result = try await webViewFetcher.fetchContentWithNextPage(
-                            url: url,
-                            headers: headers,
-                            timeout: AppConfig.webViewFetchTimeout,
-                            jsWait: 1.5
-                        )
-                        if !result.content.isEmpty {
-                            let cleaned = BookSourceFetcher.cleanChapterContent(result.content)
-                            if !allContent.isEmpty { allContent += "\n" }
-                            allContent += cleaned
-                            if visited.count == 1 { progressHandler?(allContent) }
-                        }
-                        if let next = result.nextPageURL {
-                            guard let nextURL = URL(string: next) else {
-                                throw FetchError.invalidURL(next)
-                            }
-                            currentURL = nextURL
-                        } else {
-                            currentURL = nil
-                        }
-                    } catch {
-                        throw error
-                    }
-                } else {
-                    throw err
-                }
-            } catch {
-                throw error
+                currentURL = nextURL
+            } else {
+                currentURL = nil
             }
         }
         if currentURL != nil {

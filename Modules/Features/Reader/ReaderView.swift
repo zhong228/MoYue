@@ -438,7 +438,10 @@ struct ReaderView: View {
     }
 
     var extraReaderHorizontalInset: CGFloat {
-        usesReadableReaderWidth ? DSLayout.readerRegularExtraHorizontalInset : 0
+        ReaderReadableWidthPolicy.extraInset(
+            pageWidth: currentReaderRenderSize.width,
+            usesReadableWidth: usesReadableReaderWidth
+        )
     }
 
     var effectivePageMarginH: CGFloat {
@@ -483,11 +486,10 @@ struct ReaderView: View {
         return max(0, page - readerPageStep)
     }
 
-    /// Composed two-page spreads can't render a native page-curl (the spine sits in
-    /// the centre, which UIPageViewController only supports when it owns both pages),
-    /// so fall back to slide in double-page mode to keep tap/swipe turns animated.
+    /// A double-column spread turns as one sheet, using the same LTR/RTL outer
+    /// spine as a single page. Keep the user's selected animation in either mode.
     var effectivePageTurnStyle: PageTurnStyle {
-        isDoublePageSpreadActive && settings.pageTurnStyle == .curl ? .slide : settings.pageTurnStyle
+        settings.pageTurnStyle
     }
 
     private var readerPageViewIdentity: String {

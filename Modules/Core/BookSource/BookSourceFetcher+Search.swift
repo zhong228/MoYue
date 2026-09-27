@@ -99,17 +99,19 @@ extension BookSourceFetcher {
         }
         let mergedHeaders = source.parsedHeaders.merging(requestSpec.headers) { _, new in new }
 
-        var html: String
+        let html: String
         do {
             if source.needsWebView || requestSpec.useWebView {
                 let jsWait = requestSpec.webViewDelayMs > 0 ? TimeInterval(requestSpec.webViewDelayMs) / 1000.0 : nil
-                html = try await Self.fetchViaWebView(url: url, headers: mergedHeaders, jsWait: jsWait)
+                let rendered = try await Self.fetchViaWebView(url: url, headers: mergedHeaders, jsWait: jsWait)
+                html = await SourceScriptThread.run {
+                    self.pipeline.applyLoginCheck(renderedHTML: rendered, url: url, source: source)
+                }
             } else {
-                html = try await fetchHTML(
+                html = try await fetchStageHTML(
                     url: url, method: requestSpec.method, body: requestSpec.body,
                     headers: mergedHeaders, baseURL: source.cleanedBookSourceURL,
                     bodyCharset: requestSpec.charset,
-                    allowInteractiveChallengeOn503: false,
                     source: source)
             }
         } catch let err as FetchError {
@@ -130,17 +132,13 @@ extension BookSourceFetcher {
             return []
         }
 
-        html = pipeline.applyLoginCheck(
-            html: html,
-            baseURL: url.absoluteString,
-            source: source
-        )
-
         let books: [OnlineBook]
         do {
-            books = try pipeline.parseSearchResults(
-                html: html, baseURL: url.absoluteString, source: source,
-                earlyFilter: earlyFilter)
+            books = try await SourceScriptThread.run {
+                try self.pipeline.parseSearchResults(
+                    html: html, baseURL: url.absoluteString, source: source,
+                    earlyFilter: earlyFilter)
+            }
         } catch {
             onHasMore?(false)
             return []
@@ -150,8 +148,10 @@ extension BookSourceFetcher {
             let hasMoreRule = source.ruleSearch.hasMoreRule
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !hasMoreRule.isEmpty {
-                onHasMore(BookSourceSession.session(for: source).withBridge {
-                    $0.evaluateHasMoreRule(hasMoreRule, html: html)
+                onHasMore(await SourceScriptThread.run {
+                    BookSourceSession.session(for: source).withBridge {
+                        $0.evaluateHasMoreRule(hasMoreRule, html: html)
+                    }
                 })
             } else if books.isEmpty {
                 // Legado's blank-rule fallback: an empty list page means no more.

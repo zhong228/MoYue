@@ -434,7 +434,7 @@ struct AudiobookDetailView: View {
                     .font(DSFont.headline)
                 Spacer()
                 if !chapters.isEmpty {
-                    Text("\(chapters.count) " + localized("章"))
+                    Text(String(format: localized("%d 章"), chapters.count))
                         .font(DSFont.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -524,7 +524,7 @@ struct AudiobookDetailView: View {
                 Divider().padding(.leading, DSSpacing.lg)
                 Button { play(chapterIndex: resumeChapterIndex) } label: {
                     HStack {
-                        Text(localized("共") + " \(chapters.count) " + localized("章"))
+                        Text(String(format: localized("共 %d 章"), chapters.count))
                         Spacer()
                         Image(systemName: "chevron.right").font(DSFont.caption)
                     }

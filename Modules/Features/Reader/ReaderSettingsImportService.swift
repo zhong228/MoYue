@@ -119,6 +119,10 @@ enum ReaderSettingsImportService {
             try Data(contentsOf: url),
             assetStore: .shared
         )
+        return try plan(from: payload)
+    }
+
+    static func plan(from payload: ReaderStylePackagePayload) throws -> ReaderSettingsImportPlan {
         switch payload.kind {
         case .readerSettings:
             let bundle = try payload.decode(ReaderSettingsBundle.self)

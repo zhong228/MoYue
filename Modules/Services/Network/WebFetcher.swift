@@ -1,19 +1,20 @@
 import Foundation
 
-typealias CloudflareChallengeHandler = @Sendable (URL) async throws -> String
+/// A response as it arrived, status included — see `WebFetcher.fetchPage`.
+struct FetchedPage {
+    let request: URLRequest
+    let data: Data
+    let response: URLResponse
+    let latencyMs: Int
+
+    var statusCode: Int { (response as? HTTPURLResponse)?.statusCode ?? 200 }
+}
 
 actor WebFetcher {
     static let shared = WebFetcher()
 
     /// Nonisolated so the request/response path can run off the actor's executor.
-    /// Only the Cloudflare challenge state below is genuinely actor-protected.
     nonisolated private let session: URLSession
-    private var cloudflareChallengeHandler: CloudflareChallengeHandler?
-
-    /// Per-host Cloudflare challenge barrier. When a challenge is in progress for a
-    /// host, subsequent requests that also receive a CF error await this task instead
-    /// of each launching their own challenge UI (thundering-herd prevention).
-    private var pendingChallenges: [String: Task<Void, Error>] = [:]
 
     init(session: URLSession? = nil) {
         if let session {
@@ -34,24 +35,71 @@ actor WebFetcher {
         }
     }
 
-    func setCloudflareChallengeHandler(_ handler: CloudflareChallengeHandler?) {
-        cloudflareChallengeHandler = handler
-    }
-
     /// `nonisolated` on purpose. Request building and — above all — response decoding
     /// are pure work that used to run on the actor's serial executor, so every book
     /// source in a search fan-out decoded its HTML one at a time behind the others.
-    /// Only the Cloudflare branches below hop onto the actor, and only when a
-    /// challenge is actually detected.
+    ///
+    /// A response comes back as the site sent it. This used to take every 403 and 503 —
+    /// and any page with Cloudflare markers — for a Cloudflare challenge and open a
+    /// full-screen verification page from wherever the request came from: a chapter, the
+    /// launch-time update, a 50,000-source 書源驗證 run, which then sat waiting for someone
+    /// to solve it. Legado (both Legado-E and MD3) never opens a page on its own: the
+    /// source's JS calls `java.startBrowserAwait`, or the reader opens the page from the
+    /// reading menu (開啟網頁).
     nonisolated func fetchHTML(
         url: URL,
         method: String,
         body: String?,
         headers: [String: String],
         baseURL: String,
-        bodyCharset: String? = nil,
-        allowInteractiveChallengeOn503: Bool = true
+        bodyCharset: String? = nil
     ) async throws -> String {
+        let page = try await fetchPage(
+            url: url, method: method, body: body,
+            headers: headers, baseURL: baseURL, bodyCharset: bodyCharset
+        )
+        do {
+            if !(200...299).contains(page.statusCode) {
+                throw nonSuccessStatus(page.statusCode, url: url, latencyMs: page.latencyMs)
+            }
+
+            guard let html = HTMLResponseDecoder.decode(data: page.data, response: page.response) else {
+                throw FetchError.encodingError
+            }
+
+            WebCrawlerDebugger.logResponse(
+                url: url.absoluteString,
+                statusCode: page.statusCode,
+                htmlBody: html
+            )
+            ReaderTelemetry.shared.log(
+                "fetch_done",
+                attributes: [
+                    "url": String(url.absoluteString.prefix(120)),
+                    "statusCode": "\(page.statusCode)",
+                    "bytes": "\((page.response as? HTTPURLResponse)?.expectedContentLength ?? Int64(html.utf8.count))",
+                    "latencyMs": "\(page.latencyMs)",
+                ]
+            )
+            return html
+        } catch {
+            WebCrawlerDebugger.logError(error, url: url.absoluteString)
+            throw error
+        }
+    }
+
+    /// One exchange, built exactly as `fetchHTML` builds it, with the status left to the
+    /// caller: a non-2xx response comes back instead of being thrown. A source's
+    /// `loginCheckJs` reads that response — its login wall, its Cloudflare page — before
+    /// anything decides it failed (`BookSourceFetcher.fetchStageHTML`).
+    nonisolated func fetchPage(
+        url: URL,
+        method: String,
+        body: String?,
+        headers: [String: String],
+        baseURL: String,
+        bodyCharset: String? = nil
+    ) async throws -> FetchedPage {
         let request = await buildRequest(
             url: url, method: method, body: body,
             headers: headers, baseURL: baseURL, bodyCharset: bodyCharset
@@ -77,43 +125,7 @@ actor WebFetcher {
                 try await self.session.data(for: request)
             }
             let latencyMs = Int((CFAbsoluteTimeGetCurrent() - fetchStart) * 1000)
-
-            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-                return try await handleNonSuccessStatus(
-                    http.statusCode, request: request, url: url, host: host,
-                    allowCFChallenge: allowInteractiveChallengeOn503, latencyMs: latencyMs
-                )
-            }
-
-            guard let html = HTMLResponseDecoder.decode(data: data, response: response) else {
-                throw FetchError.encodingError
-            }
-
-            if allowInteractiveChallengeOn503,
-                LegadoJSBridge.isCloudflareChallengedBody(html),
-                let challengeHandler = await self.cloudflareChallengeHandler
-            {
-                return try await retryAfterCloudflareChallenge(
-                    handler: challengeHandler, originalRequest: request, url: url, host: host
-                )
-            }
-
-            WebCrawlerDebugger.logResponse(
-                url: url.absoluteString,
-                statusCode: (response as? HTTPURLResponse)?.statusCode ?? 200,
-                htmlBody: html
-            )
-            ReaderTelemetry.shared.log(
-                "fetch_done",
-                attributes: [
-                    "url": String(url.absoluteString.prefix(120)),
-                    "statusCode": "\((response as? HTTPURLResponse)?.statusCode ?? 200)",
-                    "bytes": "\((response as? HTTPURLResponse)?.expectedContentLength ?? Int64(html.utf8.count))",
-                    "latencyMs": "\(latencyMs)",
-                ]
-            )
-            return html
-
+            return FetchedPage(request: request, data: data, response: response, latencyMs: latencyMs)
         } catch {
             WebCrawlerDebugger.logError(error, url: url.absoluteString)
             throw error
@@ -190,27 +202,8 @@ actor WebFetcher {
         return request
     }
 
-    /// Handles a non-2xx HTTP status code. Triggers Cloudflare challenge on 503/403
-    /// if a handler is registered; otherwise throws `FetchError.httpError`.
-    private func handleNonSuccessStatus(
-        _ statusCode: Int,
-        request: URLRequest,
-        url: URL,
-        host: String,
-        allowCFChallenge: Bool,
-        latencyMs: Int
-    ) async throws -> String {
-        let isCFError = (statusCode == 503 || statusCode == 403) && allowCFChallenge
-        if isCFError {
-            WebCrawlerDebugger.logError(FetchError.httpError(statusCode), url: url.absoluteString)
-            guard let challengeHandler = cloudflareChallengeHandler else {
-                throw FetchError.cloudflareChallengeRequired(url.absoluteString)
-            }
-            return try await retryAfterCloudflareChallenge(
-                handler: challengeHandler, originalRequest: request, url: url, host: host
-            )
-        }
-
+    /// A non-2xx response, logged and turned into `FetchError.httpError`.
+    nonisolated private func nonSuccessStatus(_ statusCode: Int, url: URL, latencyMs: Int) -> FetchError {
         let err = FetchError.httpError(statusCode)
         WebCrawlerDebugger.logError(err, url: url.absoluteString)
         ReaderTelemetry.shared.log(
@@ -221,63 +214,7 @@ actor WebFetcher {
                 "latencyMs": "\(latencyMs)",
             ]
         )
-        throw err
-    }
-
-    /// Presents a Cloudflare challenge, harvests the resulting cookies, then replays
-    /// the original request with those cookies injected.
-    ///
-    /// A per-host barrier prevents a thundering herd: if a challenge is already in
-    /// progress for `host`, this method awaits it instead of launching a second one.
-    /// At most one challenge UI is shown per host at any given time.
-    private func retryAfterCloudflareChallenge(
-        handler: @escaping CloudflareChallengeHandler,
-        originalRequest: URLRequest,
-        url: URL,
-        host: String
-    ) async throws -> String {
-        try await resolveCloudflareChallenge(handler: handler, url: url, host: host)
-
-        // Forced re-read, not the mirror: the challenge WebView has just written the
-        // clearance cookie and this retry must carry exactly that value, so it must
-        // not race the observer callback that refreshes the mirror.
-        let retryCookies = await WebViewCookieMirror.shared.refreshedCookies(for: host)
-        var retryRequest = originalRequest
-        let retryCookieHeader = cookieHeaderString(from: retryCookies) ?? cookieHeader(for: url)
-        retryRequest.setValue(retryCookieHeader, forHTTPHeaderField: "Cookie")
-
-        let (retryData, retryResponse) = try await PerHostSemaphore.shared.withLock(host: host) { [retryRequest] in
-            try await self.session.data(for: retryRequest)
-        }
-        guard let html = HTMLResponseDecoder.decode(data: retryData, response: retryResponse) else {
-            throw FetchError.emptyContent
-        }
-        return html
-    }
-
-    /// Ensures exactly one Cloudflare challenge UI runs per host at a time.
-    /// Concurrent callers for the same host await the first challenge task;
-    /// once it resolves (success or failure) they all proceed to retry with
-    /// the freshly harvested CF cookies.
-    private func resolveCloudflareChallenge(
-        handler: @escaping CloudflareChallengeHandler,
-        url: URL,
-        host: String
-    ) async throws {
-        if let existing = pendingChallenges[host] {
-            try await existing.value
-            return
-        }
-
-        let challengeTask = Task<Void, Error> { _ = try await handler(url) }
-        pendingChallenges[host] = challengeTask
-        do {
-            try await challengeTask.value
-            pendingChallenges.removeValue(forKey: host)
-        } catch {
-            pendingChallenges.removeValue(forKey: host)
-            throw error
-        }
+        return err
     }
 
     nonisolated private func cookieHeaderString(from cookies: [HTTPCookie]) -> String? {

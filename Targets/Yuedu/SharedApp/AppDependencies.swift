@@ -8,8 +8,7 @@ protocol WebContentFetching {
         body: String?,
         headers: [String: String],
         baseURL: String,
-        bodyCharset: String?,
-        allowInteractiveChallengeOn503: Bool
+        bodyCharset: String?
     ) async throws -> String
 }
 
@@ -182,8 +181,7 @@ struct LiveWebContentFetcher: WebContentFetching {
         body: String?,
         headers: [String: String],
         baseURL: String,
-        bodyCharset: String?,
-        allowInteractiveChallengeOn503: Bool
+        bodyCharset: String?
     ) async throws -> String {
         try await webFetcher.fetchHTML(
             url: url,
@@ -191,8 +189,7 @@ struct LiveWebContentFetcher: WebContentFetching {
             body: body,
             headers: headers,
             baseURL: baseURL,
-            bodyCharset: bodyCharset,
-            allowInteractiveChallengeOn503: allowInteractiveChallengeOn503
+            bodyCharset: bodyCharset
         )
     }
 }

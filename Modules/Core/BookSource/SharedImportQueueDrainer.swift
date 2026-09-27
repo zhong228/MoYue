@@ -33,18 +33,22 @@ final class SharedImportQueueDrainer: ObservableObject {
         var importedBookSourceCount = 0
         var importedRSSCount = 0
         var importedReplaceRuleCount = 0
+        var bookToOpen: UUID?
 
         mutating func record(_ result: ImportResult) {
             importedCount += result.count
             switch result.category {
             case .book:
                 importedBookCount += result.count
+                if let bookID = result.bookID { bookToOpen = bookID }
             case .bookSource:
                 importedBookSourceCount += result.count
             case .rss:
                 importedRSSCount += result.count
             case .replaceRule:
                 importedReplaceRuleCount += result.count
+            case .customization:
+                break // The presented import flow reports its own applied result.
             }
         }
 
@@ -91,11 +95,13 @@ final class SharedImportQueueDrainer: ObservableObject {
         case bookSource
         case rss
         case replaceRule
+        case customization
     }
 
     struct ImportResult: Equatable {
         var count: Int
         var category: ImportCategory
+        var bookID: UUID?
     }
 
     enum ImportError: LocalizedError {
@@ -125,9 +131,84 @@ final class SharedImportQueueDrainer: ObservableObject {
     /// this to show an alert, then resets it to `nil` after dismissal.
     @Published var lastOutcome: Outcome?
 
+    struct ReaderRequest: Identifiable, Equatable {
+        let id = UUID()
+        let bookID: UUID
+    }
+    @Published private(set) var readerRequest: ReaderRequest?
+    @Published private(set) var activeImportCount = 0
+    private var openingURLs: Set<URL> = []
+    @Published private(set) var customizationRequests: [SharedCustomizationDocument] = []
+
+    var customizationRequest: SharedCustomizationDocument? { customizationRequests.first }
+
+    func didPresentCustomization(requestID: UUID) {
+        customizationRequests.removeAll { $0.id == requestID }
+    }
+
+    /// A shared book-source pack that has been parsed but not written: it waits for the user
+    /// to review it in the import confirmation list, exactly as a shared customization file
+    /// waits for its own sheet. Handing the app a file is a request to import, not permission
+    /// to overwrite whatever it happens to collide with.
+    struct BookSourceReviewRequest: Identifiable {
+        let id = UUID()
+        let sources: [BookSource]
+    }
+
+    @Published private(set) var bookSourceReviewRequests: [BookSourceReviewRequest] = []
+
+    var bookSourceReviewRequest: BookSourceReviewRequest? { bookSourceReviewRequests.first }
+
+    func didPresentBookSourceReview(requestID: UUID) {
+        bookSourceReviewRequests.removeAll { $0.id == requestID }
+    }
+
+    func didPresentReader(requestID: UUID) {
+        if readerRequest?.id == requestID { readerRequest = nil }
+    }
+
+    /// Document handoff arrives in the main app, including on a cold launch.
+    /// Keep provider access alive through the durable import; never move/delete
+    /// the provider's original file. The queue and Open In share classification.
+    @discardableResult
+    func openFile(_ url: URL) async -> Outcome {
+        guard url.isFileURL, openingURLs.insert(url).inserted else {
+            return Outcome(importedCount: 0, failureCount: 0)
+        }
+        activeImportCount += 1
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer {
+            if scoped { url.stopAccessingSecurityScopedResource() }
+            openingURLs.remove(url)
+            activeImportCount -= 1
+        }
+        var outcome = Outcome(importedCount: 0, failureCount: 0)
+        do {
+            outcome.record(try await importFilePayload(url, suggestedFilename: url.lastPathComponent))
+        } catch {
+            outcome.recordFailure()
+            AppLogger.error("Document import failed", error: error)
+        }
+        publish(outcome)
+        return outcome
+    }
+
+    private func publish(_ outcome: Outcome) {
+        guard outcome.importedCount > 0 || outcome.failureCount > 0 else { return }
+        if let bookID = outcome.bookToOpen {
+            readerRequest = ReaderRequest(bookID: bookID)
+        }
+        // Successful book imports open the reader without an extra confirmation.
+        // Source/RSS/rule imports and failures still receive their normal result.
+        lastOutcome = outcome.bookToOpen != nil && outcome.failureCount == 0
+            && outcome.importedCount == outcome.importedBookCount ? nil : outcome
+    }
+
     private let defaults: UserDefaults?
     private let payloadDirectoryURL: URL?
-    private let importData: (Data) throws -> Int
+    /// Injected only by tests that want the write to happen inline. Production leaves it
+    /// `nil` so a shared pack goes through the confirmation list instead.
+    private let importDataOverride: ((Data) throws -> Int)?
     private let fetchURL: (URL) async throws -> Data
     private let importBookFileOverride: ((URL) async throws -> Int)?
     private let importOPMLData: (Data) throws -> Int
@@ -139,9 +220,7 @@ final class SharedImportQueueDrainer: ObservableObject {
     init(
         defaults: UserDefaults? = UserDefaults(suiteName: SharedImportQueueDrainer.appGroupID),
         payloadDirectoryURL: URL? = SharedImportQueueDrainer.defaultPayloadDirectoryURL(),
-        importData: @escaping (Data) throws -> Int = {
-            try BookSourceStore.shared.importFromData($0, fileExtension: "json")
-        },
+        importData: ((Data) throws -> Int)? = nil,
         fetchURL: @escaping (URL) async throws -> Data = {
             try await URLSession.shared.data(from: $0).0
         },
@@ -160,7 +239,7 @@ final class SharedImportQueueDrainer: ObservableObject {
     ) {
         self.defaults = defaults
         self.payloadDirectoryURL = payloadDirectoryURL
-        self.importData = importData
+        self.importDataOverride = importData
         self.fetchURL = fetchURL
         self.importBookFileOverride = importBookFile
         self.importOPMLData = importOPMLData
@@ -186,7 +265,11 @@ final class SharedImportQueueDrainer: ObservableObject {
             return Outcome(importedCount: 0, failureCount: 0)
         }
         isDraining = true
-        defer { isDraining = false }
+        activeImportCount += 1
+        defer {
+            isDraining = false
+            activeImportCount -= 1
+        }
 
         var outcome = Outcome(importedCount: 0, failureCount: 0)
 
@@ -194,9 +277,7 @@ final class SharedImportQueueDrainer: ObservableObject {
         await drainLegacyBookSourceDataQueue(defaults: defaults, outcome: &outcome)
         await drainLegacyBookSourceURLQueue(defaults: defaults, outcome: &outcome)
 
-        if outcome.importedCount > 0 || outcome.failureCount > 0 {
-            lastOutcome = outcome
-        }
+        publish(outcome)
         return outcome
     }
 
@@ -225,7 +306,12 @@ final class SharedImportQueueDrainer: ObservableObject {
         defaults.removeObject(forKey: Self.bookSourcesQueueKey)
         for data in jsonQueue {
             do {
-                outcome.record(.init(count: try importData(data), category: .bookSource))
+                outcome.record(
+                    .init(
+                        count: try importBookSources(data, fileExtension: "json"),
+                        category: .bookSource
+                    )
+                )
             } catch {
                 outcome.recordFailure()
                 AppLogger.error("Shared book-source JSON import failed", error: error)
@@ -245,7 +331,12 @@ final class SharedImportQueueDrainer: ObservableObject {
             }
             do {
                 let data = try await fetchURL(url)
-                outcome.record(.init(count: try importData(data), category: .bookSource))
+                outcome.record(
+                    .init(
+                        count: try importBookSources(data, fileExtension: "json"),
+                        category: .bookSource
+                    )
+                )
             } catch {
                 outcome.recordFailure()
                 AppLogger.network(
@@ -298,6 +389,9 @@ final class SharedImportQueueDrainer: ObservableObject {
         )
 
         switch classification {
+        case .customization(let kind):
+            customizationRequests.append(.init(data: try Data(contentsOf: url), kind: kind))
+            return .init(count: 0, category: .customization)
         case .bookSource(let ext):
             let data = try Data(contentsOf: url)
             return .init(count: try importBookSources(data, fileExtension: ext), category: .bookSource)
@@ -307,12 +401,16 @@ final class SharedImportQueueDrainer: ObservableObject {
             return .init(count: try importLegadoRSSData(Data(contentsOf: url)), category: .rss)
         case .replaceRules:
             return .init(count: try importReplaceRuleData(Data(contentsOf: url)), category: .replaceRule)
-        case .localBook:
-            guard let staged = restagedIfRenamed(url, suggestedFilename: suggestedFilename) else {
-                return .init(count: try await importBookFile(url), category: .book)
+        case .localBook(let ext):
+            let name = SharedImportPayloadClassifier.stagedFilename(
+                suggestedFilename: suggestedFilename ?? url.lastPathComponent,
+                fileExtension: ext
+            )
+            guard let staged = try restagedIfRenamed(url, suggestedFilename: name) else {
+                return try await importBookFile(url)
             }
             defer { try? FileManager.default.removeItem(at: staged.deletingLastPathComponent()) }
-            return .init(count: try await importBookFile(staged), category: .book)
+            return try await importBookFile(staged)
         }
     }
 
@@ -328,6 +426,9 @@ final class SharedImportQueueDrainer: ObservableObject {
         )
 
         switch classification {
+        case .customization(let kind):
+            customizationRequests.append(.init(data: data, kind: kind))
+            return .init(count: 0, category: .customization)
         case .bookSource(let ext):
             return .init(count: try importBookSources(data, fileExtension: ext), category: .bookSource)
         case .rssOPML:
@@ -343,78 +444,33 @@ final class SharedImportQueueDrainer: ObservableObject {
                 suggestedFilename: suggestedFilename
             )
             defer { try? FileManager.default.removeItem(at: tempURL.deletingLastPathComponent()) }
-            return .init(count: try await importBookFile(tempURL), category: .book)
+            return try await importBookFile(tempURL)
         }
     }
 
     private func importBookSources(_ data: Data, fileExtension: String) throws -> Int {
-        if fileExtension.lowercased() == "json" {
-            return try importData(data)
+        if let importDataOverride, fileExtension.lowercased() == "json" {
+            return try importDataOverride(data)
         }
-        return try BookSourceStore.shared.importFromData(data, fileExtension: fileExtension)
+        // Parse now so a malformed pack still fails here and is reported as a failure, then
+        // hand the result to the confirmation list. Returning 0 keeps this out of the
+        // "成功匯入 N 個項目" tally — nothing has been written yet — and `publish` skips the
+        // alert entirely when a drain carried nothing but sources to review.
+        let sources = try BookSourceStore.shared.parseForImport(
+            data: data,
+            fileExtension: fileExtension
+        )
+        bookSourceReviewRequests.append(BookSourceReviewRequest(sources: sources))
+        return 0
     }
 
-    private func importBookFile(_ url: URL) async throws -> Int {
+    private func importBookFile(_ url: URL) async throws -> ImportResult {
         if let importBookFileOverride {
-            return try await importBookFileOverride(url)
+            return .init(count: try await importBookFileOverride(url), category: .book)
         }
-        guard let bookStore else {
-            throw ImportError.missingBookStore
-        }
-
-        let ext = url.pathExtension.lowercased()
-        if ext == "epub" {
-            _ = try await bookStore.importEpub(url: url)
-            return 1
-        }
-
-        if LocalPDFArchive.supports(url) {
-            _ = try await bookStore.importLocalPDF(url: url)
-            return 1
-        }
-
-        if LocalAudiobookArchive.supports(url) {
-            _ = try await bookStore.importLocalAudiobook(url: url)
-            return 1
-        }
-
-        if ext == "zip" {
-            if await LocalAudiobookArchive.zipContainsAudio(url) {
-                _ = try await bookStore.importLocalAudiobook(url: url)
-            } else {
-                _ = try await bookStore.importLocalManga(url: url)
-            }
-            return 1
-        }
-
-        if LocalMangaArchive.supports(url) {
-            _ = try await bookStore.importLocalManga(url: url)
-            return 1
-        }
-
-        let parsed = try await BookParserRegistry.parse(url: url)
-        let fallbackTitle = url.deletingPathExtension().lastPathComponent
-        let title = parsed.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let author = parsed.author.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedTitle = title.isEmpty ? fallbackTitle : title
-        let resolvedAuthor: String
-        if author.isEmpty || author == "Unknown Author" || author == "未知作者" {
-            resolvedAuthor = localized("未知作者")
-        } else {
-            resolvedAuthor = author
-        }
-
-        if ext == "md" || ext == "markdown" {
-            _ = try bookStore.importMarkdown(url: url, title: resolvedTitle, author: resolvedAuthor)
-        } else {
-            _ = try bookStore.importWeb(
-                content: parsed.storageText,
-                title: resolvedTitle,
-                author: resolvedAuthor,
-                sourceURL: "local"
-            )
-        }
-        return 1
+        guard let bookStore else { throw ImportError.missingBookStore }
+        let book = try await LocalBookImportService.importBook(at: url, store: bookStore)
+        return .init(count: 1, category: .book, bookID: book.id)
     }
 
     private func effectiveFileExtension(for url: URL, suggestedFilename: String?) -> String {
@@ -455,7 +511,7 @@ final class SharedImportQueueDrainer: ObservableObject {
 
     /// Re-stage a queued file whose on-disk name isn't the name it was shared with,
     /// for the same reason `writeTemporaryPayload` keeps the suggested name.
-    private func restagedIfRenamed(_ url: URL, suggestedFilename: String?) -> URL? {
+    private func restagedIfRenamed(_ url: URL, suggestedFilename: String?) throws -> URL? {
         guard let suggestedFilename, !suggestedFilename.isEmpty,
               suggestedFilename != url.lastPathComponent else { return nil }
         let directory = FileManager.default.temporaryDirectory
@@ -468,12 +524,13 @@ final class SharedImportQueueDrainer: ObservableObject {
         } catch {
             AppLogger.error("Shared import could not restage \(suggestedFilename)", error: error)
             try? FileManager.default.removeItem(at: directory)
-            return nil
+            throw error
         }
     }
 }
 
 enum SharedImportPayloadClassification: Equatable {
+    case customization(SharedCustomizationKind)
     case bookSource(fileExtension: String)
     case rssOPML
     case rssLegadoJSON
@@ -482,10 +539,8 @@ enum SharedImportPayloadClassification: Equatable {
 }
 
 enum SharedImportPayloadClassifier {
-    private static let directLocalBookExtensions = Set([
-        "epub", "pdf", "cbz", "zip",
-        "mp3", "m4a", "m4b", "aac", "flac", "wav"
-    ])
+    private static let directLocalBookExtensions = LocalBookImportService.supportedExtensions
+        .subtracting(textLocalBookExtensions)
 
     private static let textLocalBookExtensions = Set([
         "txt", "md", "markdown", "json"
@@ -497,6 +552,8 @@ enum SharedImportPayloadClassifier {
         suggestedFilename: String?
     ) throws -> SharedImportPayloadClassification {
         let ext = normalizedExtension(fileExtension, suggestedFilename: suggestedFilename)
+        if ext == "yuedustyle" { return .customization(.nativePackage) }
+        if ext == "qitheme" { return .customization(.qiTheme) }
 
         if directLocalBookExtensions.contains(ext) {
             return .localBook(fileExtension: ext)
@@ -532,6 +589,8 @@ enum SharedImportPayloadClassifier {
         suggestedFilename: String?
     ) throws -> SharedImportPayloadClassification {
         let ext = normalizedExtension(fileExtension, suggestedFilename: suggestedFilename)
+        if ext == "yuedustyle" { return .customization(.nativePackage) }
+        if ext == "qitheme" { return .customization(.qiTheme) }
 
         if ["yds", "xbs", "mrs"].contains(ext) {
             return .bookSource(fileExtension: ext)
@@ -557,6 +616,9 @@ enum SharedImportPayloadClassifier {
                     return .localBook(fileExtension: fallbackExt)
                 }
                 throw error
+            }
+            if SharedCustomizationKind.isAppearanceJSON(root) {
+                return .customization(.appearanceJSON)
             }
             if looksLikeBookSourceRoot(root) {
                 return .bookSource(fileExtension: ext.isEmpty ? "json" : ext)
@@ -587,16 +649,17 @@ enum SharedImportPayloadClassifier {
         guard !trimmed.isEmpty, trimmed != ".", trimmed != ".." else {
             return "\(UUID().uuidString).\(fileExtension)"
         }
-        return (trimmed as NSString).pathExtension.isEmpty
-            ? "\(trimmed).\(fileExtension)"
-            : trimmed
+        let existingExtension = (trimmed as NSString).pathExtension
+        if existingExtension.lowercased() == fileExtension.lowercased() { return trimmed }
+        let stem = existingExtension.isEmpty ? trimmed : (trimmed as NSString).deletingPathExtension
+        return "\(stem).\(fileExtension)"
     }
 
     static func normalizedLocalBookExtension(_ ext: String, suggestedFilename: String?) -> String {
         let normalized = normalizedExtension(ext, suggestedFilename: suggestedFilename)
         if normalized == "markdown" { return "markdown" }
         if normalized.isEmpty { return "txt" }
-        return normalized
+        return LocalBookImportService.supportedExtensions.contains(normalized) ? normalized : "txt"
     }
 
     private static func normalizedExtension(_ ext: String, suggestedFilename: String?) -> String {

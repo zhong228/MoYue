@@ -1,9 +1,20 @@
 import Foundation
+import UniformTypeIdentifiers
 
 /// Shared local-file use case; receiving a file never creates an alternate
 /// parser or reader pipeline. Callers retain ownership of staging and cleanup.
 @MainActor
 enum LocalBookImportService {
+    nonisolated static let supportedExtensions: Set<String> = [
+        "epub", "pdf", "txt", "md", "markdown", "json", "cbz", "zip",
+        "mp3", "m4a", "m4b", "aac", "flac", "wav"
+    ]
+
+    static var supportedContentTypes: [UTType] {
+        Array(Set(supportedExtensions.compactMap { UTType(filenameExtension: $0) }))
+            .sorted { $0.identifier < $1.identifier }
+    }
+
     static func importBook(at url: URL, title: String? = nil, author: String? = nil, store: BookStore) async throws -> ReadingBook {
         try Task.checkCancellation()
         var book: ReadingBook

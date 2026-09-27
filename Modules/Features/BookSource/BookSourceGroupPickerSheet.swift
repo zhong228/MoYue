@@ -106,7 +106,8 @@ struct BookSourceGroupPickerSheet: View {
                                 }
                             }
                             .accessibilityLabel(candidate.name)
-                            .accessibilityValue("\(candidate.count) " + localized("個書源"))
+                            .accessibilityValue(
+                                String(format: localized("%d 個書源"), candidate.count))
                         }
                     }
                     .interfaceSectionSurface()
@@ -118,7 +119,7 @@ struct BookSourceGroupPickerSheet: View {
                             select(newGroupName)
                         } label: {
                             Label(
-                                localized("新增分組") + "「\(newGroupName)」",
+                                String(format: localized("新增分組「%@」"), newGroupName),
                                 systemImage: "folder.badge.plus"
                             )
                             .foregroundColor(DSColor.accent)

@@ -3,35 +3,55 @@ import SwiftUI
 /// Which failure bucket the results list is filtered to (Legado failure categories).
 private enum ResultFilter: Hashable { case all, ruleMissing, parseFailed, environment }
 
+/// Rows of the result sheet, in order.
+private enum CheckListItem: Hashable {
+    case progress
+    case failureFilter
+    case resultsHeader
+    /// Index into `BookSourceHealthChecker.items`.
+    case result(Int)
+    case summary
+}
+
 struct BookSourceCheckView: View {
     @ObservedObject var checker: BookSourceHealthChecker
     @Environment(\.dismiss) private var dismiss
     @State private var filter: ResultFilter = .all
 
-    private var failedItems: [BookSourceCheckItem] {
-        checker.items.filter { $0.isFinished && !$0.overallPass }
-    }
-    private var ruleMissingCount: Int {
-        failedItems.filter { $0.failureCategory?.bucket == .ruleMissing }.count
-    }
-    private var parseFailedCount: Int {
-        failedItems.filter { $0.failureCategory?.bucket == .parseFailed }.count
-    }
-    private var environmentCount: Int {
-        failedItems.filter { $0.failureCategory?.bucket == .environment }.count
+    private var failedCount: Int { checker.failedIndices.count }
+
+    private func count(_ bucket: FailureCategory.Bucket) -> Int {
+        checker.failedIndicesByBucket[bucket]?.count ?? 0
     }
 
-    private var visibleItems: [BookSourceCheckItem] {
+    /// Rows for the current filter. The checker tallies failures as sources finish; this
+    /// used to filter the whole run five times per render — per publication, over every
+    /// item of a 50,000-source run.
+    private var listItems: [CheckListItem] {
+        var items: [CheckListItem] = [.progress]
+        if failedCount > 0 {
+            items.append(.failureFilter)
+        }
+        items.append(.resultsHeader)
         switch filter {
         case .all:
-            return checker.items
+            items.append(contentsOf: checker.items.indices.lazy.map(CheckListItem.result))
         case .ruleMissing:
-            return failedItems.filter { $0.failureCategory?.bucket == .ruleMissing }
+            items.append(contentsOf: rows(for: .ruleMissing))
         case .parseFailed:
-            return failedItems.filter { $0.failureCategory?.bucket == .parseFailed }
+            items.append(contentsOf: rows(for: .parseFailed))
         case .environment:
-            return failedItems.filter { $0.failureCategory?.bucket == .environment }
+            items.append(contentsOf: rows(for: .environment))
         }
+        if !checker.isRunning, !checker.items.isEmpty {
+            items.append(.summary)
+        }
+        return items
+    }
+
+    /// Failed rows in run order (the checker records them in completion order).
+    private func rows(for bucket: FailureCategory.Bucket) -> [CheckListItem] {
+        (checker.failedIndicesByBucket[bucket] ?? []).sorted().map(CheckListItem.result)
     }
 
     var body: some View {
@@ -96,33 +116,45 @@ struct BookSourceCheckView: View {
 
     // MARK: - Result List
 
+    /// Only the rows on screen are built — see `HostedCollectionList`. Each publication
+    /// refreshes the visible rows; the row order changes only with the filter.
     private var resultList: some View {
-        List {
-            Section {
-                progressCard
-                    .listRowSeparator(.hidden)
-                if !failedItems.isEmpty {
-                    failureFilterSection
-                        .listRowSeparator(.hidden)
+        HostedCollectionList(
+            items: listItems,
+            // `cancel()` flips `isRunning` without a publication; the progress card and the
+            // stage dots still have to repaint.
+            contentVersion: checker.publicationVersion &* 2 + (checker.isRunning ? 1 : 0),
+            showsSeparator: { item in
+                if case .result = item { return true }
+                return false
+            },
+            usesSystemMargins: { _ in true },
+            drawsCellSurface: { item in
+                switch item {
+                case .progress, .failureFilter, .result: return true
+                case .resultsHeader, .summary: return false
                 }
             }
-            .interfaceSectionSurface()
-
-            Section {
-                ForEach(visibleItems) { item in
-                    resultRow(item: item)
-                }
-            } header: {
+        ) { item in
+            switch item {
+            case .progress:
+                progressCard
+            case .failureFilter:
+                failureFilterSection
+            case .resultsHeader:
                 Text(localized("驗證結果"))
                     .font(DSFont.headline)
                     .foregroundColor(DSColor.textPrimary)
-                    .textCase(nil)
-            } footer: {
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityAddTraits(.isHeader)
+            case .result(let index):
+                if checker.items.indices.contains(index) {
+                    BookSourceCheckResultRow(item: checker.items[index])
+                }
+            case .summary:
                 summaryFooter
             }
-            .interfaceSectionSurface()
         }
-        .listStyle(.plain)
     }
 
     private var progressCard: some View {
@@ -159,16 +191,18 @@ struct BookSourceCheckView: View {
             // so the capsules came out at four different widths and wrapped their
             // text into 1–3 lines, turning the narrow ones into circles. Grid gives
             // every tile the same width and the same height as the tallest one.
-            Grid(horizontalSpacing: DSSpacing.sm, verticalSpacing: 0) {
-                GridRow {
-                    filterChip(.all, icon: "line.3.horizontal.circle",
-                               label: localized("全部"), count: failedItems.count)
-                    filterChip(.ruleMissing, icon: "wrench.and.screwdriver",
-                               label: localized("規則缺失"), count: ruleMissingCount)
-                    filterChip(.parseFailed, icon: "text.badge.xmark",
-                               label: localized("解析失效"), count: parseFailedCount)
-                    filterChip(.environment, icon: "network.slash",
-                               label: localized("環境問題"), count: environmentCount)
+            SourceFilterButtonGroup {
+                Grid(horizontalSpacing: DSSpacing.sm, verticalSpacing: 0) {
+                    GridRow {
+                        filterChip(.all, icon: "line.3.horizontal.circle",
+                                   label: localized("全部"), count: failedCount)
+                        filterChip(.ruleMissing, icon: "wrench.and.screwdriver",
+                                   label: localized("規則缺失"), count: count(.ruleMissing))
+                        filterChip(.parseFailed, icon: "text.badge.xmark",
+                                   label: localized("解析失效"), count: count(.parseFailed))
+                        filterChip(.environment, icon: "network.slash",
+                                   label: localized("環境問題"), count: count(.environment))
+                    }
                 }
             }
         }
@@ -186,38 +220,35 @@ struct BookSourceCheckView: View {
         }
     }
 
-    // MARK: - Row
+    // MARK: - Footer
 
-    @ViewBuilder
-    private func healthIcon(_ item: BookSourceCheckItem) -> some View {
-        if !item.isFinished {
-            if item.status == .testing {
-                ProgressView().scaleEffect(0.7)
-            } else {
-                Circle()
-                    .fill(DSColor.textDisabled.opacity(0.5))
-                    .frame(width: 10, height: 10)
+    private var summaryFooter: some View {
+        VStack(alignment: .leading, spacing: DSSpacing.xs) {
+            Text(
+                String(
+                    format: localized("共 %1$d 個書源，通過 %2$d 個"),
+                    checker.items.count, checker.passedCount)
+            )
+            if let summary = checker.lastSummary {
+                Text(summary)
             }
-        } else if item.overallPass {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(DSColor.success)
-                .font(DSFont.subheadline)
-        } else if item.health == .contentError {
-            Image(systemName: "doc.text.fill")
-                .foregroundColor(DSColor.warning)
-                .font(DSFont.subheadline)
-        } else {
-            Image(systemName: "antenna.radiowaves.left.and.right")
-                .foregroundColor(DSColor.warning)
-                .font(DSFont.subheadline)
         }
+        .dsSectionFooter()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, DSSpacing.sm)
     }
+}
 
-    @ViewBuilder
-    private func resultRow(item: BookSourceCheckItem) -> some View {
+// MARK: - Result Row
+
+/// One source's five-stage result. Its own `View` struct, built only while on screen.
+private struct BookSourceCheckResultRow: View {
+    let item: BookSourceCheckItem
+
+    var body: some View {
         VStack(alignment: .leading, spacing: DSSpacing.sm) {
             HStack(spacing: DSSpacing.sm) {
-                healthIcon(item)
+                healthIcon
                 Text(
                     item.source.bookSourceName.isEmpty
                         ? localized("未命名書源") : item.source.bookSourceName
@@ -243,28 +274,53 @@ struct BookSourceCheckView: View {
                 .foregroundColor(DSColor.textSecondary)
             }
 
-            stageProgressRow(item: item)
+            stageProgressRow
         }
         .padding(.vertical, DSSpacing.sm)
     }
 
-    private func stageProgressRow(item: BookSourceCheckItem) -> some View {
+    @ViewBuilder
+    private var healthIcon: some View {
+        if !item.isFinished {
+            if item.status == .testing {
+                ProgressView().scaleEffect(0.7)
+            } else {
+                Circle()
+                    .fill(DSColor.textDisabled.opacity(0.5))
+                    .frame(width: 10, height: 10)
+            }
+        } else if item.overallPass {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(DSColor.success)
+                .font(DSFont.subheadline)
+        } else if item.health == .contentError {
+            Image(systemName: "doc.text.fill")
+                .foregroundColor(DSColor.warning)
+                .font(DSFont.subheadline)
+        } else {
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .foregroundColor(DSColor.warning)
+                .font(DSFont.subheadline)
+        }
+    }
+
+    private var stageProgressRow: some View {
         HStack(alignment: .top, spacing: 0) {
             ForEach(ValidationStage.allCases) { stage in
                 if stage.rawValue > 0 {
                     Rectangle()
-                        .fill(connectorColor(item: item, before: stage))
+                        .fill(connectorColor(before: stage))
                         .frame(height: 1)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 5)
                         .padding(.horizontal, 2)
                 }
-                stageColumn(item: item, stage: stage)
+                stageColumn(stage)
             }
         }
     }
 
-    private func stageColumn(item: BookSourceCheckItem, stage: ValidationStage) -> some View {
+    private func stageColumn(_ stage: ValidationStage) -> some View {
         let outcome = item.outcome(stage)
         return VStack(spacing: 3) {
             stageDot(outcome.status)
@@ -295,7 +351,7 @@ struct BookSourceCheckView: View {
         }
     }
 
-    private func connectorColor(item: BookSourceCheckItem, before stage: ValidationStage) -> Color {
+    private func connectorColor(before stage: ValidationStage) -> Color {
         guard let previous = ValidationStage(rawValue: stage.rawValue - 1) else {
             return DSColor.textDisabled.opacity(0.3)
         }
@@ -303,33 +359,15 @@ struct BookSourceCheckView: View {
             ? DSColor.success.opacity(0.5)
             : DSColor.textDisabled.opacity(0.3)
     }
-
-    // MARK: - Footer
-
-    @ViewBuilder
-    private var summaryFooter: some View {
-        if !checker.isRunning, !checker.items.isEmpty {
-            let passed = checker.items.filter { $0.overallPass }.count
-            VStack(alignment: .leading, spacing: DSSpacing.xs) {
-                Text(
-                    "\(localized("共")) \(checker.items.count) \(localized("個書源，"))\(localized("通過")) \(passed) \(localized("個"))"
-                )
-                if let summary = checker.lastSummary {
-                    Text(summary)
-                }
-            }
-            .dsSectionFooter()
-            .padding(.top, DSSpacing.sm)
-        }
-    }
 }
 
 // MARK: - Failure Filter Chip
 
-/// One failure-bucket tile. Selected state keeps its accent fill but the label
-/// weight stays fixed, so tapping never changes the text's appearance — only the
-/// fill color. Sized to fill its grid cell in both axes so all four tiles line up
-/// no matter how long the localized label is.
+/// One failure-bucket tile: the same system glass button as 書源管理's pages
+/// (`sourceFilterButtonStyle`), shaped as a rounded tile because it holds two lines.
+/// The label weight stays fixed, so tapping never changes the text — only the button's
+/// material. Sized to fill its grid cell in both axes so all four tiles line up no
+/// matter how long the localized label is.
 private struct FailureFilterChip: View {
     let icon: String
     let label: String
@@ -354,15 +392,11 @@ private struct FailureFilterChip: View {
                     .multilineTextAlignment(.center)
                     .minimumScaleFactor(0.8)
             }
-            .foregroundColor(selected ? .white : DSColor.textSecondary)
-            .padding(.horizontal, DSSpacing.xs)
-            .padding(.vertical, DSSpacing.sm)
+            .padding(.vertical, DSSpacing.xs)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // Chips stay opaque — same neutral fill as `DSChip` and 書源管理's filter chips.
-            .background(selected ? DSColor.accent : DSColor.neutralControlFill)
-            .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .sourceFilterButtonStyle(
+            selected: selected, shape: .roundedRectangle(radius: DSRadius.lg))
         .accessibilityLabel(label)
         .accessibilityValue("\(count)")
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
@@ -373,18 +407,41 @@ private struct FailureFilterChip: View {
     VStack(alignment: .leading, spacing: DSSpacing.sm) {
         Text(localized("失敗類型細分"))
             .font(DSFont.headline)
-        Grid(horizontalSpacing: DSSpacing.sm, verticalSpacing: 0) {
-            GridRow {
-                FailureFilterChip(icon: "line.3.horizontal.circle",
-                                  label: localized("全部"), count: 19, selected: true) {}
-                FailureFilterChip(icon: "wrench.and.screwdriver",
-                                  label: localized("規則缺失"), count: 1, selected: false) {}
-                FailureFilterChip(icon: "text.badge.xmark",
-                                  label: localized("解析失效"), count: 13, selected: false) {}
-                FailureFilterChip(icon: "network.slash",
-                                  label: localized("環境問題"), count: 5, selected: false) {}
+        SourceFilterButtonGroup {
+            Grid(horizontalSpacing: DSSpacing.sm, verticalSpacing: 0) {
+                GridRow {
+                    FailureFilterChip(icon: "line.3.horizontal.circle",
+                                      label: localized("全部"), count: 19, selected: true) {}
+                    FailureFilterChip(icon: "wrench.and.screwdriver",
+                                      label: localized("規則缺失"), count: 1, selected: false) {}
+                    FailureFilterChip(icon: "text.badge.xmark",
+                                      label: localized("解析失效"), count: 13, selected: false) {}
+                    FailureFilterChip(icon: "network.slash",
+                                      label: localized("環境問題"), count: 5, selected: false) {}
+                }
             }
         }
+    }
+    .padding()
+}
+
+#Preview("驗證結果列") {
+    var failed = BookSourceCheckItem(
+        source: BookSource(bookSourceUrl: "https://example.com", bookSourceName: "示例書源"))
+    failed.stages = [
+        StageOutcome(status: .pass, summary: "「我的」12 本"),
+        StageOutcome(status: .skipped, summary: "—"),
+        StageOutcome(status: .pass, summary: "搜索《示例》"),
+        StageOutcome(status: .fail, summary: "目錄失效"),
+        StageOutcome(status: .skipped, summary: "—"),
+    ]
+    failed.responseTime = 1_234
+    failed.failureCategory = .tocEmpty
+    let passed = BookSourceCheckItem(
+        source: BookSource(bookSourceUrl: "https://example.org", bookSourceName: "通過的書源"))
+    return VStack(alignment: .leading, spacing: DSSpacing.lg) {
+        BookSourceCheckResultRow(item: failed)
+        BookSourceCheckResultRow(item: passed)
     }
     .padding()
 }

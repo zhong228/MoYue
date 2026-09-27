@@ -112,6 +112,55 @@ struct ContentView: View {
         }
         .iPadAdaptiveRootTabStyle()
         .rootTabBarMinimizeStyle()
+        .background {
+            ImportedBookPresentation(
+                request: importDrainer.lastOutcome == nil ? importDrainer.readerRequest : nil,
+                store: store,
+                subscriptionStore: subscriptionStore,
+                didPresent: importDrainer.didPresentReader(requestID:),
+                customizationRequest: importDrainer.lastOutcome == nil ? importDrainer.customizationRequest : nil,
+                didPresentCustomization: importDrainer.didPresentCustomization(requestID:)
+            )
+            .frame(width: 0, height: 0)
+        }
+        .sheet(
+            item: Binding(
+                get: {
+                    // An outcome alert takes precedence, same ordering as the customization
+                    // handoff above.
+                    importDrainer.lastOutcome == nil ? importDrainer.bookSourceReviewRequest : nil
+                },
+                set: { request in
+                    guard request == nil,
+                          let id = importDrainer.bookSourceReviewRequest?.id else { return }
+                    importDrainer.didPresentBookSourceReview(requestID: id)
+                }
+            )
+        ) { request in
+            BookSourceImportReviewHost(
+                sources: request.sources,
+                onFinish: { count in
+                    importDrainer.didPresentBookSourceReview(requestID: request.id)
+                    // Report through the drainer's own alert rather than a second mechanism.
+                    importDrainer.lastOutcome = SharedImportQueueDrainer.Outcome(
+                        importedCount: count,
+                        failureCount: 0,
+                        importedBookSourceCount: count
+                    )
+                },
+                onCancel: {
+                    importDrainer.didPresentBookSourceReview(requestID: request.id)
+                }
+            )
+        }
+        .overlay(alignment: .bottom) {
+            if importDrainer.activeImportCount > 0 {
+                ProgressView(localized("匯入中，請稍候…"))
+                    .padding(DSSpacing.md)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: DSRadius.md))
+                    .padding(DSSpacing.md)
+            }
+        }
         .alert(
             localized("匯入"),
             isPresented: Binding(
@@ -187,12 +236,12 @@ struct ContentView: View {
         let imported = outcome.importedCount
         let failed = outcome.failureCount
         if imported > 0 && failed == 0 {
-            return localized("成功匯入") + " \(imported) " + localized("個項目")
+            return String(format: localized("成功匯入 %d 個項目"), imported)
         } else if imported > 0 {
-            return localized("成功匯入") + " \(imported) " + localized("個項目")
-                + "，\(failed) " + localized("個失敗")
+            return String(
+                format: localized("成功匯入 %1$d 個項目，%2$d 個失敗"), imported, failed)
         } else {
-            return "\(failed) " + localized("個項目匯入失敗")
+            return String(format: localized("%d 個項目匯入失敗"), failed)
         }
     }
 

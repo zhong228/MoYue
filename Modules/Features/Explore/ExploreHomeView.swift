@@ -968,9 +968,9 @@ private struct HistoryRow: View {
     static func relativeTime(_ date: Date) -> String {
         let seconds = Int(Date().timeIntervalSince(date))
         if seconds < 60 { return localized("剛剛") }
-        if seconds < 3600 { return "\(seconds / 60) " + localized("分鐘前") }
-        if seconds < 86400 { return "\(seconds / 3600) " + localized("小時前") }
-        if seconds < 86400 * 7 { return "\(seconds / 86400) " + localized("天前") }
+        if seconds < 3600 { return String(format: localized("%d 分鐘前"), seconds / 60) }
+        if seconds < 86400 { return String(format: localized("%d 小時前"), seconds / 3600) }
+        if seconds < 86400 * 7 { return String(format: localized("%d 天前"), seconds / 86400) }
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy/MM/dd"
         return formatter.string(from: date)

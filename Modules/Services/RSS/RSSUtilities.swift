@@ -28,7 +28,7 @@ enum RSSFeedDiscovery {
     }
 
     static func feedURLs(inHTML data: Data, baseURL: URL) -> [URL] {
-        guard let html = String(data: data, encoding: .utf8),
+        guard let html = HTMLResponseDecoder.decode(data: data, response: nil),
               let document = try? SwiftSoup.parse(html, baseURL.absoluteString) else {
             return fallbackFeedURLs(for: baseURL)
         }
@@ -244,7 +244,7 @@ enum RSSFaviconResolver {
                !(200...299).contains(httpResponse.statusCode) {
                 return []
             }
-            guard let html = String(data: data, encoding: .utf8) else {
+            guard let html = HTMLResponseDecoder.decode(data: data, response: response) else {
                 return []
             }
             return htmlIconURLs(in: html, pageURL: homepageURL)

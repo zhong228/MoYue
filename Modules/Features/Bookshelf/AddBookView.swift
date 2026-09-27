@@ -106,13 +106,9 @@ struct FileImportTab: View {
             .padding()
         }
         .softScrollEdges()
-        .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [
-            .plainText, UTType(filenameExtension: "md") ?? .plainText,
-            UTType(filenameExtension: "markdown") ?? .plainText, .json, .epub, .pdf,
-            UTType(filenameExtension: "cbz") ?? .data, .zip, .audio,
-            .mpeg4Audio, UTType(filenameExtension: "m4b") ?? .audio,
-            UTType(filenameExtension: "flac") ?? .audio
-        ], allowsMultipleSelection: true) { result in
+        .fileImporter(isPresented: $showFilePicker,
+                      allowedContentTypes: LocalBookImportService.supportedContentTypes,
+                      allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls):
                 guard !urls.isEmpty else { return }
@@ -230,11 +226,14 @@ struct URLImportTab: View {
                             .padding(12).background(Color.secondary.opacity(0.15))
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                         if let preview = fetchedPreviewText {
-                            Text(localized("已抓取約") + " \(preview.count) " + localized("字"))
+                            Text(String(format: localized("已抓取約 %d 字"), preview.count))
                                 .font(DSFont.caption).foregroundColor(DSColor.textSecondary)
                         }
                         if !detectedTOCRefs.isEmpty {
-                            Text(localized("偵測到章節目錄：") + " \(detectedTOCRefs.count) " + localized("章，將以線上書模式導入"))
+                            Text(
+                                String(
+                                    format: localized("偵測到章節目錄：%d 章，將以線上書模式導入"),
+                                    detectedTOCRefs.count))
                                 .font(DSFont.caption)
                                 .foregroundColor(DSColor.textSecondary)
                         }
@@ -291,8 +290,7 @@ struct URLImportTab: View {
                     body: nil,
                     headers: [:],
                     baseURL: url.absoluteString,
-                    bodyCharset: nil,
-                    allowInteractiveChallengeOn503: false
+                    bodyCharset: nil
                 )
                 let text = WebNovelParser.extractContent(html: html, pageURL: url.absoluteString)
                 let refs = WebNovelParser.parseTOCRefs(html: html, pageURL: url.absoluteString)

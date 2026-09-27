@@ -10,19 +10,29 @@ import Combine
 // confirms, the handler downloads and imports via the same `BookSourceStore`
 // path the in-app WebView importer uses, and reports the result.
 //
-// Same path as WebView import: `BookSourceStore.shared.importFromData`. There
-// is no second cache/loader for this concern.
+// Same store path as every other importer, through `BookSourceImportCoordinator`:
+// parse, review, then write the selected rows. There is no second cache/loader/decoder
+// for this concern.
 @MainActor
 final class BookSourceDeepLinkHandler: ObservableObject {
     enum Phase: Equatable {
         case idle
         case confirming(sourceURL: URL)
+        /// Downloading and parsing. Nothing is written in this phase.
         case importing
+        /// The parsed pack is on screen in the confirmation list, awaiting the user's picks.
+        /// The plan itself lives on `coordinator`; a phase has to stay `Equatable`.
+        case reviewing
         case succeeded(count: Int)
         case failed(message: String)
     }
 
     @Published private(set) var phase: Phase = .idle
+
+    /// Holds the confirmation list and its import options. A deep link can arrive while
+    /// 書源管理 is nowhere on screen, so this route owns its own coordinator rather than
+    /// reaching for that screen's.
+    let coordinator = BookSourceImportCoordinator()
 
     /// Entry point from `.onOpenURL`. Non-import URLs are silently dropped.
     /// A new import URL replaces a finished (succeeded/failed) phase, but is
@@ -45,8 +55,25 @@ final class BookSourceDeepLinkHandler: ObservableObject {
     }
 
     func cancel() {
-        guard case .confirming = phase else { return }
-        phase = .idle
+        switch phase {
+        case .confirming:
+            phase = .idle
+        case .reviewing:
+            coordinator.cancel()
+            phase = .idle
+        default:
+            return
+        }
+    }
+
+    /// Writes the rows ticked in the confirmation list.
+    func commitReview() {
+        guard case .reviewing = phase else { return }
+        do {
+            phase = .succeeded(count: try coordinator.confirmImport())
+        } catch {
+            phase = .failed(message: error.localizedDescription)
+        }
     }
 
     /// Dismiss the result state and close the sheet.
@@ -62,8 +89,11 @@ final class BookSourceDeepLinkHandler: ObservableObject {
                 return
             }
             let ext = sourceURL.pathExtension.isEmpty ? "json" : sourceURL.pathExtension
-            let count = try BookSourceStore.shared.importFromData(data, fileExtension: ext)
-            phase = .succeeded(count: count)
+            // Parse only. The user picks what to keep in the confirmation list, so a link
+            // can no longer overwrite sources without showing what it contains.
+            let sources = try BookSourceStore.shared.parseForImport(data: data, fileExtension: ext)
+            coordinator.present(sources: sources)
+            phase = .reviewing
         } catch {
             phase = .failed(message: error.localizedDescription)
         }

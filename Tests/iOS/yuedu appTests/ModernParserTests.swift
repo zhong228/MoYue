@@ -2716,18 +2716,159 @@ struct JSCoreEngineTests {
         #expect(result == "sid456")
     }
 
-    @Test("startBrowserAwait returns captured body")
+    @Test("startBrowserAwait with refetchAfterSuccess false returns the page's HTML")
     func startBrowserAwaitReturnsBody() {
         let engine = JSCoreEngine()
-        engine.browserPresentHandler = { _, _, completion in
+        engine.browserPresentHandler = { _, completion in
             completion("<html>done</html>")
         }
 
         let result = engine.evaluate(
-            "java.startBrowserAwait('https://example.com', 'Title').body()"
+            "java.startBrowserAwait('https://example.com', 'Title', false).body()"
         )
 
         #expect(result == "<html>done</html>")
+    }
+
+    @Test("startBrowserAwait refetches the URL through the source's requests by default, as Legado does")
+    func startBrowserAwaitRefetchesByDefault() {
+        let engine = JSCoreEngine()
+        var presented: SourceBrowserRequest?
+        engine.browserPresentHandler = { request, completion in
+            presented = request
+            completion("<html>challenge page</html>")
+        }
+        var refetched: URL?
+        engine.networkHandler = { request in
+            refetched = request.url
+            return .bodyOnly(request: request, body: #"{"books":[]}"#)
+        }
+
+        let result = engine.evaluate(
+            "java.startBrowserAwait('https://api.example.com/search?q=1', 'Verify').body()"
+        )
+
+        #expect(result == #"{"books":[]}"#)
+        #expect(refetched?.absoluteString == "https://api.example.com/search?q=1")
+        #expect(presented?.awaitsResult == true)
+        #expect(presented?.title == "Verify")
+    }
+
+    @Test("a dismissed startBrowserAwait page throws into the script")
+    func startBrowserAwaitDismissedThrows() {
+        let engine = JSCoreEngine()
+        engine.browserPresentHandler = { _, completion in completion(nil) }
+
+        let result = engine.evaluate("""
+            (function () {
+                try { java.startBrowserAwait('https://example.com', 'Title'); return 'returned'; }
+                catch (e) { return 'threw'; }
+            })()
+            """)
+
+        #expect(result == "threw")
+    }
+
+    @Test("startBrowserAwait shows source-supplied html and, without refetch, returns the page")
+    func startBrowserAwaitShowsSuppliedHTML() {
+        let engine = JSCoreEngine()
+        var presented: SourceBrowserRequest?
+        engine.browserPresentHandler = { request, completion in
+            presented = request
+            completion("<html>settings saved</html>")
+        }
+
+        let result = engine.evaluate(
+            "java.startBrowserAwait('https://example.com/', '設定', false, '<form>settings</form>').body()"
+        )
+
+        #expect(result == "<html>settings saved</html>")
+        #expect(presented?.html == "<form>settings</form>")
+        #expect(presented?.url == "https://example.com/")
+    }
+
+    @Test("startBrowserAwait with html and refetch requests the URL, as the original Legado and MD3 do")
+    func startBrowserAwaitWithHTMLRefetches() {
+        let engine = JSCoreEngine()
+        engine.browserPresentHandler = { _, completion in completion("<html>page</html>") }
+        engine.networkHandler = { request in
+            .bodyOnly(request: request, body: "refetched \(request.url?.path ?? "")")
+        }
+
+        let result = engine.evaluate(
+            "java.startBrowserAwait('https://example.com/api', 'Verify', true, '<p>local</p>').body()"
+        )
+
+        #expect(result == "refetched /api")
+    }
+
+    @Test("startBrowser forwards source-supplied html without waiting")
+    func startBrowserForwardsHTML() {
+        let engine = JSCoreEngine()
+        var presented: SourceBrowserRequest?
+        engine.browserPresentHandler = { request, _ in presented = request }
+
+        _ = engine.evaluate("java.startBrowser('https://example.com/', '說明', '<p>help</p>')")
+
+        #expect(presented?.html == "<p>help</p>")
+        #expect(presented?.awaitsResult == false)
+        #expect(presented?.title == "說明")
+    }
+
+    @Test("getVerificationCode shows the image for the attached source and returns the code typed")
+    func getVerificationCodeReturnsTypedCode() {
+        let engine = JSCoreEngine()
+        engine.bookSource = BookSource(bookSourceUrl: "https://captcha.example", bookSourceName: "驗證碼書源")
+        var presented: SourceCaptchaRequest?
+        engine.captchaPresentHandler = { request, completion in
+            presented = request
+            completion("7K3Q")
+        }
+
+        let result = engine.evaluate("java.getVerificationCode('https://captcha.example/code.jpg?r=1')")
+
+        #expect(result == "7K3Q")
+        #expect(presented?.imageURL == "https://captcha.example/code.jpg?r=1")
+        #expect(presented?.sourceName == "驗證碼書源")
+        #expect(presented?.sourceURL == "https://captcha.example")
+    }
+
+    @Test("a dismissed or empty captcha throws into the script, as Legado does")
+    func getVerificationCodeWithoutAnswerThrows() {
+        let engine = JSCoreEngine()
+        let script = """
+            (function () {
+                try { java.getVerificationCode('https://captcha.example/code.jpg'); return 'returned'; }
+                catch (e) { return 'threw'; }
+            })()
+            """
+        engine.captchaPresentHandler = { _, completion in completion(nil) }
+        #expect(engine.evaluate(script) == "threw")
+        engine.captchaPresentHandler = { _, completion in completion("") }
+        #expect(engine.evaluate(script) == "threw")
+    }
+
+    @Test("a source page opens with the URL's option headers, then the source's headers and cookies")
+    func sourceBrowserRequestCarriesHeaders() throws {
+        let host = "https://browser-\(UUID().uuidString.prefix(8).lowercased()).example.com"
+        CookieStore.shared.set(url: host, cookie: "cf_clearance=abc")
+        defer { CookieStore.shared.remove(url: host) }
+        var source = BookSource(bookSourceUrl: host, bookSourceName: "browser request fixture")
+        source.header = #"{"User-Agent":"SourceUA/1.0","Referer":"\#(host)/"}"#
+        let engine = JSCoreEngine()
+        engine.bookSource = source
+
+        let plain = try #require(engine.sourceBrowserRequest(urlString: "\(host)/verify"))
+        #expect(plain.value(forHTTPHeaderField: "User-Agent") == "SourceUA/1.0")
+        #expect(plain.value(forHTTPHeaderField: "Cookie") == "cf_clearance=abc")
+
+        let withOptions = try #require(engine.sourceBrowserRequest(
+            urlString: #"\#(host)/verify, {"headers":{"User-Agent":"OptionUA/2.0"}}"#))
+        #expect(withOptions.url?.absoluteString == "\(host)/verify")
+        #expect(withOptions.value(forHTTPHeaderField: "User-Agent") == "OptionUA/2.0")
+        #expect(withOptions.value(forHTTPHeaderField: "Referer") == "\(host)/")
+
+        #expect(engine.sourceBrowserRequest(urlString: "data:text/html,<p>settings</p>") == nil)
     }
 
     @Test("four-argument showBrowser preserves source-authored page contract")
@@ -3287,6 +3428,11 @@ struct LegadoJSBridgeTests {
         #expect(decoded == "Hello")
     }
 
+    @Test("aaDecode maps fullwidth lowercase z")
+    func aaDecodeFullwidthLowercaseZ() {
+        #expect(LegadoJSBridge.aaDecode("\u{FF3A}\u{FF5A}") == "Zz")
+    }
+
     @Test("aaDecode handles empty input")
     func aaDecodeEmptyInput() {
         #expect(LegadoJSBridge.aaDecode("") == "")
@@ -3297,10 +3443,10 @@ struct LegadoJSBridgeTests {
         // Fullwidth chars and special Unicode in a typical obfuscated JS pattern
         let obfuscated = "\u{FF28}\u{0E31}\u{15AD}\u{FF29}\u{FF2A}\u{0E32}\u{14A6}"
         let decoded = LegadoJSBridge.aaDecode(obfuscated)
-        #expect(decoded.contains("H"))
-        #expect(decoded.contains("("))
-        #expect(decoded.contains("I"))
-        #expect(decoded.contains("J"))
+        // Compared whole: the unmapped Thai marks stay, and `contains("H")` compares
+        // graphemes — H followed by the combining U+0E31 is a different grapheme — so it
+        // could never hold, however the text decoded.
+        #expect(decoded == "H\u{0E31}(IJ\u{0E32}}")
     }
 
     @Test("java.axja exposed via JS bridge")

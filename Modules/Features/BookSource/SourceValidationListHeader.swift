@@ -56,31 +56,20 @@ struct SourceValidationBadge: View {
     }
 }
 
-/// Stats card + failure-filter chips shown at the top of the book-source list.
-/// Counts come from the last validation run; before any run the failure chips read 0.
+/// Stats card + page buttons shown at the top of the book-source list.
+/// Counts are computed by `BookSourceManagementModel` once per library or validation
+/// change — this used to scan every source four times per render, trimming each
+/// `exploreUrl` on the way. Before any run the failure pages read 0.
 struct SourceValidationListHeader: View {
-    let sources: [BookSource]
-    let healthById: [UUID: SourceValidationSummary]
+    let counts: BookSourceManagementModel.Counts
     @Binding var filter: ValidationListFilter
-    /// Grouped ⇄ flat layout switch, parked at the trailing end of the filter chips.
+    /// Grouped ⇄ flat layout switch, parked at the trailing end of the page buttons.
     @Binding var grouped: Bool
-
-    private var enabledCount: Int { sources.filter(\.enabled).count }
-    private var discoverCount: Int {
-        sources.filter {
-            $0.enabledExplore
-                && !$0.exploreUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }.count
-    }
-
-    private func healthCount(_ health: SourceHealth) -> Int {
-        sources.filter { healthById[$0.id]?.health == health }.count
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DSSpacing.md) {
             statsCard
-            filterChips
+            pageButtons
         }
         .padding(.vertical, DSSpacing.sm)
     }
@@ -90,10 +79,10 @@ struct SourceValidationListHeader: View {
             statRow(
                 icon: "checkmark.circle.fill",
                 title: localized("已啟用"),
-                value: "\(enabledCount) / \(sources.count)"
+                value: "\(counts.enabled) / \(counts.total)"
             )
             Divider()
-            statRow(icon: "safari.fill", title: localized("支持發現"), value: "\(discoverCount)")
+            statRow(icon: "safari.fill", title: localized("支持發現"), value: "\(counts.discover)")
         }
         .padding(.horizontal, DSSpacing.md)
         .padding(.vertical, DSSpacing.xs)
@@ -120,13 +109,31 @@ struct SourceValidationListHeader: View {
         .padding(.vertical, DSSpacing.sm)
     }
 
-    private var filterChips: some View {
+    /// 全部／抓取異常／正文異常 as system glass buttons. Each one is a page: switching
+    /// clears the selection, and the bottom bar's 全選 counts only the page on screen.
+    /// The buttons keep their natural width and scroll sideways once a large count
+    /// (「全部 50,000」), a longer language or an accessibility text size makes them wider
+    /// than the row — instead of wrapping into circles or truncating their counts.
+    private var pageButtons: some View {
         HStack(spacing: DSSpacing.sm) {
-            chip(.all, label: localized("全部"), count: sources.count)
-            chip(.fetchError, label: localized("抓取異常"), count: healthCount(.fetchError))
-            chip(.contentError, label: localized("正文異常"), count: healthCount(.contentError))
-            Spacer(minLength: 0)
+            ScrollView(.horizontal) {
+                SourceFilterButtonGroup {
+                    pageButtonRow
+                }
+                // Room for the glass edge inside the scroll view's clip.
+                .padding(.vertical, DSSpacing.xs)
+            }
+            .scrollIndicators(.hidden)
+            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             groupingToggle
+        }
+    }
+
+    private var pageButtonRow: some View {
+        HStack(spacing: DSSpacing.sm) {
+            pageButton(.all, label: localized("全部"), count: counts.total)
+            pageButton(.fetchError, label: localized("抓取異常"), count: counts.fetchError)
+            pageButton(.contentError, label: localized("正文異常"), count: counts.contentError)
         }
     }
 
@@ -150,23 +157,78 @@ struct SourceValidationListHeader: View {
         .accessibilityHint(localized("點兩下切換分組與不分組"))
     }
 
-    private func chip(_ value: ValidationListFilter, label: String, count: Int) -> some View {
+    /// A system button with a text label. The label keeps one weight in both states, so
+    /// choosing a page never changes the buttons' widths.
+    private func pageButton(_ value: ValidationListFilter, label: String, count: Int) -> some View {
         let selected = filter == value
         return Button {
             filter = value
         } label: {
             Text("\(label) \(count)")
-                .font(DSFont.subheadline.weight(selected ? .semibold : .regular))
-                .foregroundColor(selected ? .white : DSColor.textSecondary)
-                .padding(.horizontal, DSSpacing.md)
-                .padding(.vertical, DSSpacing.sm)
-                // Chips stay opaque at every 界面效果 setting — they are tappable controls,
-                // and a glass one over a page background loses the affordance. Same neutral
-                // fill as `DSChip`, which is the app's other filter-chip.
-                .background(selected ? DSColor.accent : DSColor.neutralControlFill)
-                .clipShape(Capsule())
+                .font(DSFont.subheadline)
+                .monospacedDigit()
+                .lineLimit(1)
         }
-        .buttonStyle(.plain)
+        .sourceFilterButtonStyle(selected: selected)
+        // VoiceOver could not tell which page was showing: the selected state was color only.
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+// MARK: - Filter buttons
+//
+// One look for the book-source filter choices: 書源管理's 全部／抓取異常／正文異常 pages
+// and 書源驗證's four 失敗類型細分 tiles.
+
+/// Holds a row of filter buttons. iOS 26 blends neighbouring glass shapes only inside
+/// one container; earlier systems just lay the buttons out.
+struct SourceFilterButtonGroup<Content: View>: View {
+    var spacing: CGFloat = DSSpacing.sm
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: spacing) {
+                content
+            }
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+extension View {
+    /// The selected choice: prominent (tinted) glass; the others: plain glass. Before
+    /// iOS 26 the system bordered styles are the same pair of controls without the
+    /// material.
+    @ViewBuilder
+    func sourceFilterButtonStyle(selected: Bool, shape: ButtonBorderShape = .capsule) -> some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            if selected {
+                buttonStyle(.glassProminent).buttonBorderShape(shape).tint(DSColor.accent)
+            } else {
+                buttonStyle(.glass).buttonBorderShape(shape)
+            }
+        } else {
+            legacySourceFilterButtonStyle(selected: selected, shape: shape)
+        }
+        #else
+        legacySourceFilterButtonStyle(selected: selected, shape: shape)
+        #endif
+    }
+
+    @ViewBuilder
+    private func legacySourceFilterButtonStyle(selected: Bool, shape: ButtonBorderShape) -> some View {
+        if selected {
+            buttonStyle(.borderedProminent).buttonBorderShape(shape).tint(DSColor.accent)
+        } else {
+            buttonStyle(.bordered).buttonBorderShape(shape)
+        }
     }
 }
 
@@ -174,8 +236,8 @@ struct SourceValidationListHeader: View {
     @Previewable @State var filter: ValidationListFilter = .all
     @Previewable @State var grouped = true
     SourceValidationListHeader(
-        sources: [BookSource(), BookSource()],
-        healthById: [:],
+        counts: BookSourceManagementModel.Counts(
+            total: 29, enabled: 29, discover: 27, fetchError: 3, contentError: 1),
         filter: $filter,
         grouped: $grouped
     )

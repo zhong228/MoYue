@@ -166,10 +166,24 @@ struct BookSourceFormLoginView: View {
         } message: { alert in
             Text(alert.detail)
         }
-        .sheet(isPresented: $showFanqieLogin) {
-            JsBridgeBrowserView(urlString: "https://fanqienovel.com", title: localized("番茄登入")) { _ in
-                showFanqieLogin = false
-            }
+        .sheet(isPresented: fanqiePresentationBinding(fullScreen: false)) {
+            fanqieLoginBrowser
+        }
+        .fullScreenCover(isPresented: fanqiePresentationBinding(fullScreen: true)) {
+            fanqieLoginBrowser
+        }
+    }
+
+    private func fanqiePresentationBinding(fullScreen: Bool) -> Binding<Bool> {
+        Binding(
+            get: { showFanqieLogin && (UIDevice.current.userInterfaceIdiom == .pad) == fullScreen },
+            set: { showFanqieLogin = $0 }
+        )
+    }
+
+    private var fanqieLoginBrowser: some View {
+        JsBridgeBrowserView(urlString: "https://fanqienovel.com", title: localized("番茄登入")) { _ in
+            showFanqieLogin = false
         }
     }
 
@@ -211,7 +225,7 @@ struct BookSourceFormLoginView: View {
         if rawUi.hasPrefix("@js:") || rawUi.hasPrefix("<js>") {
             let src = source
             Task.detached(priority: .userInitiated) {
-                let evaluation = Self.evaluateJsLoginUiResult(source: src)
+                let evaluation = await SourceScriptThread.run { Self.evaluateJsLoginUiResult(source: src) }
                 let parsed = LoginManager.shared.parseLoginUiResult(evaluation.json)
                 let stored = LoginManager.shared.getLoginInfo(sourceUrl: src.bookSourceUrl)
                 await MainActor.run {
@@ -247,9 +261,9 @@ struct BookSourceFormLoginView: View {
         let src = source
         let credentials = currentFormValues()
         Task.detached(priority: .utility) {
-            let labels = Self.resolveDynamicLoginLabels(
-                fields: fields, source: src, credentials: credentials
-            )
+            let labels = await SourceScriptThread.run {
+                Self.resolveDynamicLoginLabels(fields: fields, source: src, credentials: credentials)
+            }
             guard !labels.isEmpty else { return }
             await MainActor.run { self.fieldLabels.merge(labels) { _, new in new } }
         }
@@ -561,80 +575,56 @@ struct BookSourceFormLoginView: View {
 
         isLoading = true
         Task.detached(priority: .userInitiated) {
-            let engine = JSCoreEngine()
-            engine.bookSource = source
-            Self.configureLegadoRuntime(engine, source: source)
+            // The login script runs on `SourceScriptThread`: a page it opens with
+            // `java.startBrowserAwait` can stay up for minutes.
+            let lastError: String? = await SourceScriptThread.run {
+                let engine = JSCoreEngine()
+                engine.bookSource = source
+                Self.configureLegadoRuntime(engine, source: source)
 
-            // Wire browser pop-up for java.startBrowser / java.startBrowserAwait
-            engine.browserPresentHandler = { url, title, completion in
-                DispatchQueue.main.async {
-                    // Awaiting JS is blocked until this fires; the box guarantees it does,
-                    // including when the sheet is swiped away instead of dismissed by a button.
-                    let awaitBox = BrowserAwaitBox(completion)
-                    guard let topVC = BookSourceFormLoginView.topViewController() else {
-                        awaitBox.finish(nil); return
+                // java.startBrowser / java.startBrowserAwait open through
+                // `SourceBrowserPresenter`, the same as from any other script.
+
+                // Wire java.toast / java.longToast — shows a UIAlertController auto-dismiss
+                engine.toastHandler = { msg in
+                    Task { @MainActor in
+                        BookSourceFormLoginView.presentToastAlert(message: msg)
                     }
-                    // `topVC` weakly: a strong capture would form a presenter ⇄ presented
-                    // cycle that outlives dismissal, and the box's deinit is what releases
-                    // the JS thread when the sheet goes away without a button tap.
-                    let hostVC = UIHostingController(
-                        rootView: JsBridgeBrowserView(urlString: url, title: title) { [weak topVC] body in
-                            guard let topVC else { awaitBox.finish(body); return }
-                            topVC.dismiss(animated: true) {
-                                awaitBox.finish(body)
-                            }
-                        }
+                }
+                let bindings: [String: Any] = [
+                    "result": credentials,
+                    "baseUrl": source.bookSourceUrl
+                ]
+
+                // Extract JS body from loginUrl (strip @js: / <js>…</js>)
+                let js = LoginManager.shared.extractLoginJs(rawLogin) ?? rawLogin
+                let wrappedJS = """
+                \(js)
+                if (typeof login === 'function') {
+                    login.apply(this);
+                }
+                """
+
+                let result = engine.evaluate(wrappedJS, bindings: bindings)
+
+                // If JS returned a header JSON, persist it
+                if let resultStr = result,
+                   !resultStr.isEmpty,
+                   let data = resultStr.data(using: .utf8),
+                   let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+                    LoginManager.shared.storeLoginHeaders(
+                        sourceUrl: source.bookSourceUrl, headers: dict
                     )
-                    topVC.present(hostVC, animated: true)
+                } else {
+                    // Try reading putLoginHeader result from LoginManager (JS may have called java.put)
+                    let _ = LoginManager.shared.getLoginHeader(sourceUrl: source.bookSourceUrl)
                 }
-            }
-
-            // Wire java.toast / java.longToast — shows a UIAlertController auto-dismiss
-            engine.toastHandler = { msg in
-                Task { @MainActor in
-                    BookSourceFormLoginView.presentToastAlert(message: msg)
-                }
-            }
-
-            // Wire CF challenge: present CloudflareChallengeView and call done() when cookies are ready
-            engine.cloudflareChallengeHandler = { url, done in
-                Task { @MainActor in
-                    _ = try? await CloudflareChallengePresenter.present(url: url)
-                    done()
-                }
-            }
-            let bindings: [String: Any] = [
-                "result": credentials,
-                "baseUrl": source.bookSourceUrl
-            ]
-
-            // Extract JS body from loginUrl (strip @js: / <js>…</js>)
-            let js = LoginManager.shared.extractLoginJs(rawLogin) ?? rawLogin
-            let wrappedJS = """
-            \(js)
-            if (typeof login === 'function') {
-                login.apply(this);
-            }
-            """
-
-            let result = engine.evaluate(wrappedJS, bindings: bindings)
-
-            // If JS returned a header JSON, persist it
-            if let resultStr = result,
-               !resultStr.isEmpty,
-               let data = resultStr.data(using: .utf8),
-               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
-                LoginManager.shared.storeLoginHeaders(
-                    sourceUrl: source.bookSourceUrl, headers: dict
-                )
-            } else {
-                // Try reading putLoginHeader result from LoginManager (JS may have called java.put)
-                let _ = LoginManager.shared.getLoginHeader(sourceUrl: source.bookSourceUrl)
+                return engine.lastError
             }
 
             await MainActor.run {
                 isLoading = false
-                if let err = engine.lastError, !err.isEmpty {
+                if let err = lastError, !err.isEmpty {
                     menuAlert = MenuActionAlert(title: localized("操作失敗"), detail: err)
                 } else {
                     menuAlert = MenuActionAlert(
@@ -655,136 +645,117 @@ struct BookSourceFormLoginView: View {
         // run on the same engine; the source decides the display text, we only resolve it.
         let dynamicLabelFields = fields.filter(\.hasDynamicViewName)
 
+        // The menu action runs on `SourceScriptThread`: a page it opens with
+        // `java.startBrowserAwait` can stay up for minutes.
         Task.detached(priority: .userInitiated) {
-            let engine = Self.makeLoginEngine(source: source)
-            let spoke = MenuActionSpokeFlag()
+            await SourceScriptThread.run {
+                let engine = Self.makeLoginEngine(source: source)
+                let spoke = MenuActionSpokeFlag()
 
-            engine.browserPresentHandler = { url, title, completion in
-                spoke.fired = true
-                DispatchQueue.main.async {
-                    // Same contract as in runLoginJS: the awaiting JS thread is released
-                    // exactly once, whichever way the browser sheet goes away.
-                    let awaitBox = BrowserAwaitBox(completion)
-                    guard let topVC = BookSourceFormLoginView.topViewController() else {
-                        awaitBox.finish(nil); return
+                engine.browserPresentHandler = { request, completion in
+                    spoke.fired = true
+                    Task { @MainActor in
+                        SourceBrowserPresenter.present(request, completion: completion)
                     }
-                    // `topVC` weakly: a strong capture would form a presenter ⇄ presented
-                    // cycle that outlives dismissal, and the box's deinit is what releases
-                    // the JS thread when the sheet goes away without a button tap.
-                    let hostVC = UIHostingController(
-                        rootView: JsBridgeBrowserView(urlString: url, title: title) { [weak topVC] body in
-                            guard let topVC else { awaitBox.finish(body); return }
-                            topVC.dismiss(animated: true) {
-                                awaitBox.finish(body)
-                            }
-                        }
-                    )
-                    topVC.present(hostVC, animated: true)
                 }
-            }
-            engine.toastHandler = { msg in
-                spoke.fired = true
-                Task { @MainActor in
-                    BookSourceFormLoginView.presentToastAlert(message: msg)
+                engine.toastHandler = { msg in
+                    spoke.fired = true
+                    Task { @MainActor in
+                        BookSourceFormLoginView.presentToastAlert(message: msg)
+                    }
                 }
-            }
-            engine.cloudflareChallengeHandler = { url, done in
-                Task { @MainActor in
-                    _ = try? await CloudflareChallengePresenter.present(url: url)
-                    done()
-                }
-            }
-            // `changeMenu(tag)` does `source.put("menuTag", tag); java.reLoginView()`. Re-evaluate
-            // the menu JS (which now reads the new menuTag) and refresh the displayed buttons so
-            // multi-page source menus (起点's 评论设置 → 段评开关) can actually navigate.
-            engine.reLoginViewHandler = {
-                AppLogger.parse("⟐ reLoginView FIRED", context: [:])
-                let evaluation = Self.evaluateJsLoginUiResult(source: source)
-                // Keep the current menu if a source's refresh script fails; replacing it
-                // with an empty array would hide the only actionable controls.
-                guard let parsed = LoginManager.shared.parseLoginUiResult(evaluation.json) else {
-                    AppLogger.parse("⟐ reLoginView failed", context: [
-                        "error": evaluation.error ?? "invalid loginUi JSON"
+                // `changeMenu(tag)` does `source.put("menuTag", tag); java.reLoginView()`. Re-evaluate
+                // the menu JS (which now reads the new menuTag) and refresh the displayed buttons so
+                // multi-page source menus (起点's 评论设置 → 段评开关) can actually navigate.
+                engine.reLoginViewHandler = {
+                    AppLogger.parse("⟐ reLoginView FIRED", context: [:])
+                    let evaluation = Self.evaluateJsLoginUiResult(source: source)
+                    // Keep the current menu if a source's refresh script fails; replacing it
+                    // with an empty array would hide the only actionable controls.
+                    guard let parsed = LoginManager.shared.parseLoginUiResult(evaluation.json) else {
+                        AppLogger.parse("⟐ reLoginView failed", context: [
+                            "error": evaluation.error ?? "invalid loginUi JSON"
+                        ])
+                        return
+                    }
+                    AppLogger.parse("⟐ reLoginView", context: [
+                        "newFields": parsed.count,
+                        "names": parsed.prefix(8).map { $0.name }.joined(separator: "|")
                     ])
-                    return
-                }
-                AppLogger.parse("⟐ reLoginView", context: [
-                    "newFields": parsed.count,
-                    "names": parsed.prefix(8).map { $0.name }.joined(separator: "|")
-                ])
-                Task { @MainActor in
-                    self.fields = parsed
-                    self.fieldLabels = evaluation.labels
-                    self.values = Self.initialValues(
-                        for: parsed,
-                        stored: LoginManager.shared.getLoginInfo(sourceUrl: source.bookSourceUrl) ?? self.values
-                    )
-                }
-            }
-
-            let bindings: [String: Any] = [
-                "result": credentials,
-                "baseUrl": source.bookSourceUrl
-            ]
-            SourceAPIErrorLog.shared.clear(for: source.bookSourceUrl)
-            if source.bookSourceName.contains("书山聚合") {
-                let before = engine.evaluate("java.get('yunpara')") ?? "<nil>"
-                NSLog(
-                    "❖SHUSHAN TRACE❖ stage=menu.before action=%@ yunpara=%@ jsError=%@",
-                    action,
-                    before.isEmpty ? "<empty>" : before,
-                    engine.lastError ?? "none"
-                )
-            }
-            _ = engine.evaluate(combined, bindings: bindings)
-            if source.bookSourceName.contains("书山聚合") {
-                let actionError = engine.lastError
-                let after = engine.evaluate("java.get('yunpara')") ?? "<nil>"
-                NSLog(
-                    "❖SHUSHAN TRACE❖ stage=menu.after action=%@ yunpara=%@ actionError=%@",
-                    action,
-                    after.isEmpty ? "<empty>" : after,
-                    actionError ?? "none"
-                )
-            }
-
-            // Legado refreshes the menu's labels after an action (`upUiData`); a source's
-            // dynamic viewNames (e.g. 起点's 段评 state) can change because of it. Resolve
-            // them in the engine that just ran the action, so its state is still in scope.
-            if !dynamicLabelFields.isEmpty {
-                let labels = Self.evaluateDynamicLabels(
-                    dynamicLabelFields,
-                    engine: engine,
-                    credentials: credentials,
-                    source: source
-                )
-                if !labels.isEmpty {
-                    await MainActor.run {
-                        self.fieldLabels.merge(labels) { _, new in new }
+                    Task { @MainActor in
+                        self.fields = parsed
+                        self.fieldLabels = evaluation.labels
+                        self.values = Self.initialValues(
+                            for: parsed,
+                            stored: LoginManager.shared.getLoginInfo(sourceUrl: source.bookSourceUrl) ?? self.values
+                        )
                     }
                 }
-            }
 
-            // A menu action that finishes without saying anything is the failure mode
-            // this reports: 同人小说网's `registerByInvite()` returns early when its API
-            // answers `{"error":…}` (wrong/used 邀请码, rejected device id), so
-            // 「邀请码注册Token」 looked like a dead button. Only speak when the source
-            // itself stayed silent — its own toast is the better message when it has one.
-            guard !spoke.fired else { return }
-            let report: MenuActionAlert?
-            if let jsError = engine.lastError {
-                report = MenuActionAlert(title: localized("書源腳本錯誤"), detail: jsError)
-            } else if let failure = SourceAPIErrorLog.shared.last(for: source.bookSourceUrl) {
-                report = MenuActionAlert(
-                    title: localized("書源伺服器回應失敗"), detail: failure.displayText)
-            } else {
-                report = nil
+                let bindings: [String: Any] = [
+                    "result": credentials,
+                    "baseUrl": source.bookSourceUrl
+                ]
+                SourceAPIErrorLog.shared.clear(for: source.bookSourceUrl)
+                if source.bookSourceName.contains("书山聚合") {
+                    let before = engine.evaluate("java.get('yunpara')") ?? "<nil>"
+                    NSLog(
+                        "❖SHUSHAN TRACE❖ stage=menu.before action=%@ yunpara=%@ jsError=%@",
+                        action,
+                        before.isEmpty ? "<empty>" : before,
+                        engine.lastError ?? "none"
+                    )
+                }
+                _ = engine.evaluate(combined, bindings: bindings)
+                if source.bookSourceName.contains("书山聚合") {
+                    let actionError = engine.lastError
+                    let after = engine.evaluate("java.get('yunpara')") ?? "<nil>"
+                    NSLog(
+                        "❖SHUSHAN TRACE❖ stage=menu.after action=%@ yunpara=%@ actionError=%@",
+                        action,
+                        after.isEmpty ? "<empty>" : after,
+                        actionError ?? "none"
+                    )
+                }
+
+                // Legado refreshes the menu's labels after an action (`upUiData`); a source's
+                // dynamic viewNames (e.g. 起点's 段评 state) can change because of it. Resolve
+                // them in the engine that just ran the action, so its state is still in scope.
+                if !dynamicLabelFields.isEmpty {
+                    let labels = Self.evaluateDynamicLabels(
+                        dynamicLabelFields,
+                        engine: engine,
+                        credentials: credentials,
+                        source: source
+                    )
+                    if !labels.isEmpty {
+                        Task { @MainActor in
+                            self.fieldLabels.merge(labels) { _, new in new }
+                        }
+                    }
+                }
+
+                // A menu action that finishes without saying anything is the failure mode
+                // this reports: 同人小说网's `registerByInvite()` returns early when its API
+                // answers `{"error":…}` (wrong/used 邀请码, rejected device id), so
+                // 「邀请码注册Token」 looked like a dead button. Only speak when the source
+                // itself stayed silent — its own toast is the better message when it has one.
+                guard !spoke.fired else { return }
+                let report: MenuActionAlert?
+                if let jsError = engine.lastError {
+                    report = MenuActionAlert(title: localized("書源腳本錯誤"), detail: jsError)
+                } else if let failure = SourceAPIErrorLog.shared.last(for: source.bookSourceUrl) {
+                    report = MenuActionAlert(
+                        title: localized("書源伺服器回應失敗"), detail: failure.displayText)
+                } else {
+                    report = nil
+                }
+                guard let report else { return }
+                AppLogger.parse("⟐ menuButton silent", context: [
+                    "title": report.title, "detail": report.detail
+                ])
+                Task { @MainActor in self.menuAlert = report }
             }
-            guard let report else { return }
-            AppLogger.parse("⟐ menuButton silent", context: [
-                "title": report.title, "detail": report.detail
-            ])
-            Task { @MainActor in self.menuAlert = report }
         }
     }
 

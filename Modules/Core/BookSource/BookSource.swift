@@ -812,6 +812,33 @@ extension BookSource {
         !jsLib.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Legado checks each stage's first response with this script (`loginCheckJs`).
+    var hasLoginCheckJs: Bool {
+        !loginCheckJs.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Whether two sources carry the same rules and settings — everything except the
+    /// `lastUpdateTime` sync clock.
+    ///
+    /// Compared as sorted-key JSON. Without `.sortedKeys`, `JSONEncoder` orders keys
+    /// differently on every call, so two encodes of one unchanged source seldom matched:
+    /// re-importing a pack or re-saving an untouched source advanced the sync clock, and
+    /// closing an untouched source editor asked whether to discard changes.
+    func hasSameContent(as other: BookSource) -> Bool {
+        var lhs = self
+        var rhs = other
+        lhs.lastUpdateTime = 0
+        rhs.lastUpdateTime = 0
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        do {
+            return try encoder.encode(lhs) == encoder.encode(rhs)
+        } catch {
+            AppLogger.cache("BookSource could not be encoded for comparison", error: error)
+            return false
+        }
+    }
+
     func shouldUseLegadoRuntimeFetch(for ruleUrl: String? = nil) -> Bool {
         let url = ruleUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return url.hasPrefix("data:")

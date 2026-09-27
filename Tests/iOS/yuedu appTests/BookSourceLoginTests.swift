@@ -688,7 +688,7 @@ struct GuangYuLiveBookSourceTests {
         engine.toastHandler = { message in
             toasts.append(message)
         }
-        engine.browserPresentHandler = { _, _, completion in
+        engine.browserPresentHandler = { _, completion in
             completion("")
         }
 

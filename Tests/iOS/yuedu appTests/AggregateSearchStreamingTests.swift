@@ -7,11 +7,7 @@ struct AggregateSearchStreamingTests {
     @Test("gysearch all sources split into streamed subsource batches")
     func gysearchAllSourcesStreamsSubsourceBatches() async throws {
         AggregateSearchStreamingURLProtocol.reset()
-        URLProtocol.registerClass(AggregateSearchStreamingURLProtocol.self)
-        defer {
-            URLProtocol.unregisterClass(AggregateSearchStreamingURLProtocol.self)
-            AggregateSearchStreamingURLProtocol.reset()
-        }
+        defer { AggregateSearchStreamingURLProtocol.reset() }
 
         var source = BookSource()
         source.bookSourceName = "Streaming Aggregate"
@@ -56,7 +52,9 @@ struct AggregateSearchStreamingTests {
         }
 
         let recorder = StreamBatchRecorder()
-        let outcome = try await ModernParserBridge(source: source)
+        let outcome = try await ModernParserBridge(
+            source: source, requestSession: AggregateSearchStreamingURLProtocol.session()
+        )
             .searchBooksStreaming(keyword: "斗罗", page: 1) { books in
                 await recorder.append(books)
             }
@@ -73,11 +71,7 @@ struct AggregateSearchStreamingTests {
     @Test("qualified gysearch targets requested media and source")
     func qualifiedGysearchTargetsRequestedMediaAndSource() async throws {
         AggregateSearchStreamingURLProtocol.reset()
-        URLProtocol.registerClass(AggregateSearchStreamingURLProtocol.self)
-        defer {
-            URLProtocol.unregisterClass(AggregateSearchStreamingURLProtocol.self)
-            AggregateSearchStreamingURLProtocol.reset()
-        }
+        defer { AggregateSearchStreamingURLProtocol.reset() }
 
         var source = BookSource()
         source.bookSourceName = "Streaming Aggregate"
@@ -103,7 +97,9 @@ struct AggregateSearchStreamingTests {
         source.ruleSearch.author = "$.author"
         source.ruleSearch.bookUrl = "$.book_url"
 
-        _ = try await ModernParserBridge(source: source)
+        _ = try await ModernParserBridge(
+            source: source, requestSession: AggregateSearchStreamingURLProtocol.session()
+        )
             .searchBooksStreaming(keyword: "m:十日終焉@番茄", page: 1) { _ in }
 
         #expect(AggregateSearchStreamingURLProtocol.requestedSources == ["番茄"])
@@ -146,6 +142,15 @@ private final class AggregateSearchStreamingURLProtocol: URLProtocol {
         lock.lock()
         defer { lock.unlock() }
         return tabs
+    }
+
+    /// The sub-source requests are the source's own `java.ajax`, which goes through the
+    /// bridge's request session — a custom session, which never consults
+    /// `URLProtocol.registerClass`. The protocol has to be in the session's configuration.
+    static func session() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AggregateSearchStreamingURLProtocol.self]
+        return URLSession(configuration: configuration)
     }
 
     static func reset() {

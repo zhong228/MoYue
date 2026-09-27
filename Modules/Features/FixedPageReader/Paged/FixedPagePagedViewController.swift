@@ -9,6 +9,8 @@ import UIKit
 final class FixedPagePagedViewController: UIViewController, FixedPageModeReader,
     UIPageViewControllerDataSource, UIPageViewControllerDelegate {
 
+    private let controlTapDelegate = FixedPageReaderControlTapDelegate()
+
     weak var container: FixedPageReaderContainer?
 
     private let fixedPageReaderConfiguration: FixedPageReaderConfiguration
@@ -47,6 +49,7 @@ final class FixedPagePagedViewController: UIViewController, FixedPageModeReader,
         pageVC.didMove(toParent: self)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        tap.delegate = controlTapDelegate
         tap.numberOfTapsRequired = 1
         view.addGestureRecognizer(tap)
     }

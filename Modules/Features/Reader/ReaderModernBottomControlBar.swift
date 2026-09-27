@@ -197,6 +197,9 @@ struct ReaderModernBottomControlBar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // Derived from the item, not the label: the label is localized, so a
+        // UI test looking for 目錄 would only ever find it in one language.
+        .accessibilityIdentifier("reader_tool_\(item.rawValue)")
         .accessibilityLabel(label)
         .accessibilityAddTraits(active ? .isSelected : [])
     }

@@ -258,7 +258,7 @@ private final class IOS17SearchResultTableCell: UITableViewCell {
         authorLabel.isHidden = row.author.isEmpty
         introLabel.text = row.intro
         introLabel.isHidden = row.intro.isEmpty
-        sourceLabel.text = "\(row.sourceCount) " + localized("源")
+        sourceLabel.text = String(format: localized("%d 源"), row.sourceCount)
         audiobookBadge.isHidden = !row.showsAudiobookBadge
         sourceBadge.backgroundColor = UIColor(
             row.sourceCount > 1 ? DSColor.accent : DSColor.surfaceTertiary
@@ -274,7 +274,7 @@ private final class IOS17SearchResultTableCell: UITableViewCell {
             row.title,
             row.author,
             row.intro,
-            "\(row.sourceCount) " + localized("源"),
+            String(format: localized("%d 源"), row.sourceCount),
         ]
         .filter { !$0.isEmpty }
         .joined(separator: "，")

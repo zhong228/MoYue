@@ -2618,7 +2618,7 @@ class GlobalSettings: ObservableObject {
         let existingNames = Set(customAppearanceThemes.map(\.name))
         while existingNames.contains(custom.name) {
             index += 1
-            custom.name = localized("自訂主題") + " \(index)"
+            custom.name = String(format: localized("自訂主題 %d"), index)
         }
         customAppearanceThemes.append(custom)
         selectAppearanceTheme(id: custom.id, for: slot)

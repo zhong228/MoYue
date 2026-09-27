@@ -11,6 +11,8 @@ import UIKit
 final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReader,
     UICollectionViewDataSource, UICollectionViewDelegate {
 
+    private let controlTapDelegate = FixedPageReaderControlTapDelegate()
+
     weak var container: FixedPageReaderContainer?
 
     private let fixedPageReaderConfiguration: FixedPageReaderConfiguration
@@ -22,7 +24,13 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
 
     // Auto-scroll state
     private var autoScrollDisplayLink: CADisplayLink?
-    private(set) var isAutoScrolling = false
+    private(set) var isAutoScrolling = false {
+        didSet {
+            if oldValue != isAutoScrolling {
+                container?.readerAutoScrollStateChanged(isAutoScrolling)
+            }
+        }
+    }
     private var isPausedByTouch = false
 
     // Infinite scroll loading guards
@@ -42,6 +50,11 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     deinit {
+        autoScrollDisplayLink?.invalidate()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
         stopAutoScroll()
     }
 
@@ -60,6 +73,7 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
         view.addSubview(collectionView)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        tap.delegate = controlTapDelegate
         collectionView.addGestureRecognizer(tap)
 
         if fixedPageReaderConfiguration.isZoomEnabled {
@@ -67,6 +81,7 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
             collectionView.addGestureRecognizer(pinch)
 
             let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+            doubleTap.delegate = controlTapDelegate
             doubleTap.numberOfTapsRequired = 2
             tap.require(toFail: doubleTap)
             collectionView.addGestureRecognizer(doubleTap)

@@ -34,12 +34,15 @@ enum OnlineImageLoader {
     /// fetches. Chapter illustrations live on the source's own CDN, and those CDNs gate on the
     /// source's declared User-Agent/Referer just like cover art does — legado downloads them via
     /// `AnalyzeUrl(src, source = bookSource)` for exactly this reason. Empty = built-in UA.
+    /// `cachePolicy`: a captcha must come from the network every time — a cached one belongs
+    /// to a session the server has already dropped.
     static func load(
         src: String,
         renderWidth: CGFloat,
         bodyPointSize: CGFloat = 0,
         timeout: TimeInterval = 8,
         headers: [String: String] = [:],
+        cachePolicy: URLRequest.CachePolicy = .returnCacheDataElseLoad,
         decode: (@Sendable (Data, String) -> Data?)? = nil
     ) async -> UIImage? {
         let cleaned = cleanImageSource(src)
@@ -68,6 +71,7 @@ enum OnlineImageLoader {
                 renderWidth: renderWidth,
                 bodyPointSize: bodyPointSize,
                 headers: effectiveHeaders,
+                cachePolicy: cachePolicy,
                 decode: decode
             )
         }
@@ -87,6 +91,7 @@ enum OnlineImageLoader {
         renderWidth: CGFloat,
         bodyPointSize: CGFloat = 0,
         headers: [String: String] = [:],
+        cachePolicy: URLRequest.CachePolicy,
         decode: (@Sendable (Data, String) -> Data?)? = nil
     ) async -> UIImage? {
         if cleaned.hasPrefix("data:") {
@@ -103,6 +108,7 @@ enum OnlineImageLoader {
                 renderWidth: renderWidth,
                 bodyPointSize: bodyPointSize,
                 headers: headers,
+                cachePolicy: cachePolicy,
                 decode: decode
             )
         }
@@ -201,8 +207,18 @@ enum OnlineImageLoader {
                 baseURL: nil
             )
         }
-        let effectiveData = decode?(data, uri) ?? data
+        let effectiveData = await sourceDecodedBytes(data, src: uri, with: decode)
         return decodedImage(from: effectiveData)
+    }
+
+    /// The source's `imageDecode` script over downloaded bytes, on `SourceScriptThread` like all
+    /// source JS called from async code; the original bytes when there is no decoder or it
+    /// returns nothing.
+    private static func sourceDecodedBytes(
+        _ data: Data, src: String, with decode: (@Sendable (Data, String) -> Data?)?
+    ) async -> Data {
+        guard let decode else { return data }
+        return await SourceScriptThread.run { decode(data, src) } ?? data
     }
 
     /// Fetches a remote image. Falls back to SVG rasterization when the bytes are an SVG document.
@@ -211,13 +227,14 @@ enum OnlineImageLoader {
         renderWidth: CGFloat,
         bodyPointSize: CGFloat = 0,
         headers: [String: String] = [:],
+        cachePolicy: URLRequest.CachePolicy = .returnCacheDataElseLoad,
         decode: (@Sendable (Data, String) -> Data?)? = nil
     ) async -> UIImage? {
         guard let url = URL(string: urlString) else { return nil }
         // CRITICAL: the renderer loads images SEQUENTIALLY (await per node), so a single hung
         // remote image (段評 avatar/emoji, 版权页 photo) blocks the whole chapter → "infinite
         // loading". `URLSession.shared.data(from:)` inherits the 60s default; cap it hard.
-        var request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 10)
+        var request = URLRequest(url: url, cachePolicy: cachePolicy, timeoutInterval: 10)
         request.setValue(
             "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15",
             forHTTPHeaderField: "User-Agent"
@@ -256,7 +273,7 @@ enum OnlineImageLoader {
         }
         // Per-source imageDecode (encrypted-image sources); falls back to the
         // raw bytes so a broken rule degrades instead of blanking the image.
-        let effectiveData = decode?(data, urlString) ?? data
+        let effectiveData = await sourceDecodedBytes(data, src: urlString, with: decode)
         if let image = decodedImage(from: effectiveData) { return image }
         if let svg = String(data: effectiveData, encoding: .utf8), svg.contains("<svg") {
             // ⟐ bubble: REMOTE SVG bubbles never touch recognize() — they go straight to the

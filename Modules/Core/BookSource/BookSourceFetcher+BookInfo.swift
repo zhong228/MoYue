@@ -51,15 +51,17 @@ extension BookSourceFetcher {
             ) {
                 try await session.bridgeForAsyncOperations.fetch(ruleUrl: url)
             }
-            let info = try SourcePerfTrace.span("detail.parse", source.bookSourceName) {
-                try session.withBridge { bridge in
-                    try bridge.parseBookInfo(
-                        html: html,
-                        bookUrl: url,
-                        baseURL: finalUrl,
-                        source: source,
-                        runtimeVariables: runtimeVariables
-                    )
+            let info = try await SourceScriptThread.run {
+                try SourcePerfTrace.span("detail.parse", source.bookSourceName) {
+                    try session.withBridge { bridge in
+                        try bridge.parseBookInfo(
+                            html: html,
+                            bookUrl: url,
+                            baseURL: finalUrl,
+                            source: source,
+                            runtimeVariables: runtimeVariables
+                        )
+                    }
                 }
             }
             return saveBookInfoPackage(
@@ -73,22 +75,27 @@ extension BookSourceFetcher {
         let networkStart = ProcessInfo.processInfo.systemUptime
         let html: String
         if source.needsWebView {
-            html = try await Self.fetchViaWebView(url: bookURL, headers: source.parsedHeaders)
+            let rendered = try await Self.fetchViaWebView(url: bookURL, headers: source.parsedHeaders)
+            html = await SourceScriptThread.run {
+                self.pipeline.applyLoginCheck(renderedHTML: rendered, url: bookURL, source: source)
+            }
         } else {
-            html = try await fetchHTML(
+            html = try await fetchStageHTML(
                 url: bookURL, method: "GET", body: nil,
                 headers: source.parsedHeaders, baseURL: source.cleanedBookSourceURL,
                 source: source)
         }
         SourcePerfTrace.record("detail.network", source.bookSourceName, since: networkStart)
-        let info = try SourcePerfTrace.span("detail.parse", source.bookSourceName) {
-            try pipeline.parseBookInfo(
-                html: html,
-                bookUrl: url,
-                baseURL: bookURL.absoluteString,
-                source: source,
-                runtimeVariables: runtimeVariables
-            )
+        let info = try await SourceScriptThread.run {
+            try SourcePerfTrace.span("detail.parse", source.bookSourceName) {
+                try self.pipeline.parseBookInfo(
+                    html: html,
+                    bookUrl: url,
+                    baseURL: bookURL.absoluteString,
+                    source: source,
+                    runtimeVariables: runtimeVariables
+                )
+            }
         }
         let package = saveBookInfoPackage(
             info: info,

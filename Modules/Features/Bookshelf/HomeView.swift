@@ -521,7 +521,7 @@ struct HomeView: View {
                 Button(localized("取消"), role: .cancel) {}
             } message: {
                 if let b = bookToDelete {
-                    Text(localized("確定要從書架刪除") + "《\(b.title)》" + localized("嗎？"))
+                    Text(String(format: localized("確定要從書架刪除《%@》嗎？"), b.title))
                 }
             }
             .alert(localized("確認刪除"), isPresented: $showBulkDeleteAlert) {
@@ -534,7 +534,7 @@ struct HomeView: View {
                 }
                 Button(localized("取消"), role: .cancel) {}
             } message: {
-                Text(localized("確定要刪除") + " \(selectedBookIds.count) " + localized("本書嗎？"))
+                Text(String(format: localized("確定要刪除 %d 本書嗎？"), selectedBookIds.count))
             }
             .sheet(isPresented: $showAddToGroupSheet) {
                 AdaptiveSheetContainer(maxWidth: DSLayout.readableNarrowWidth) {
@@ -1691,7 +1691,7 @@ struct BulkAddToGroupSheet: View {
                 }
                 .interfaceSectionSurface()
                 Section {
-                    Text(localized("將套用到") + " \(bookCount) " + localized("本書"))
+                    Text(String(format: localized("將套用到 %d 本書"), bookCount))
                         .font(DSFont.footnote)
                         .foregroundColor(DSColor.textSecondary)
                 }

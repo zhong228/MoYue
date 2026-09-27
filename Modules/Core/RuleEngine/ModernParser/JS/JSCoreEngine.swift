@@ -94,22 +94,26 @@ class JSCoreEngine {
         didSet { bridge.getStringWithContentHandler = getStringWithContentHandler }
     }
 
-    /// Called when JS invokes `java.startBrowser` / `java.startBrowserAwait`.
-    /// Set this before evaluating login JS to enable interactive browser pop-ups.
-    var browserPresentHandler: ((String, String, @escaping (String?) -> Void) -> Void)? {
+    /// Called when JS invokes `java.startBrowser` / `java.startBrowserAwait`. Unset, pages
+    /// open through `LegadoJSBridge.sharedBrowserPresenter`.
+    var browserPresentHandler: ((SourceBrowserRequest, @escaping (String?) -> Void) -> Void)? {
         didSet { bridge.browserPresentHandler = browserPresentHandler }
+    }
+
+    /// Called when JS invokes `java.getVerificationCode`. Unset, the captcha opens through
+    /// `LegadoJSBridge.sharedCaptchaPresenter`.
+    var captchaPresentHandler: ((SourceCaptchaRequest, @escaping (String?) -> Void) -> Void)? {
+        didSet { bridge.captchaPresentHandler = captchaPresentHandler }
+    }
+
+    /// See `LegadoJSBridge.sourceBrowserRequest(urlString:)`.
+    func sourceBrowserRequest(urlString: String) -> URLRequest? {
+        bridge.sourceBrowserRequest(urlString: urlString)
     }
 
     /// Called for Legado's source-authored four-argument browser pages.
     var browserPagePresentHandler: ((LegadoBrowserPageRequest) -> Void)? {
         didSet { bridge.browserPagePresentHandler = browserPagePresentHandler }
-    }
-
-    /// Called when JS network requests hit a Cloudflare challenge.
-    /// Presents the CF bypass UI on the main thread and calls `done` when CF cookies are obtained.
-    /// Same DispatchSemaphore pattern as browserPresentHandler.
-    var cloudflareChallengeHandler: ((URL, @escaping () -> Void) -> Void)? {
-        didSet { bridge.cloudflareChallengeHandler = cloudflareChallengeHandler }
     }
 
     /// Called when JS invokes `java.reLoginView()` — re-render the source's custom login menu.
@@ -259,6 +263,9 @@ class JSCoreEngine {
         bridge.presentsAndroidIdentityProvider = { [weak self] in
             self?.bookSource?.presentsAndroidIdentity ?? false
         }
+        bridge.sourceIdentityProvider = { [weak self] in
+            (self?.bookSource?.bookSourceName ?? "", self?.bookSource?.bookSourceUrl ?? "")
+        }
         bridge.importScriptCacheProvider = { [weak self] in
             self?.cacheBridge
         }
@@ -319,7 +326,14 @@ class JSCoreEngine {
             group.leave()
         }
 
-        if group.wait(timeout: .now() + Self.jsTimeout) == .timedOut {
+        // The timeout stops runaway rule JS. A script parked in `java.startBrowserAwait` or
+        // `java.getVerificationCode` is waiting for the reader — a login, a Cloudflare check,
+        // a captcha — not stuck, and Legado waits for as long as that takes; resetting the
+        // engine under it threw away the script's state and its result. The sheet always
+        // ends (`BrowserAwaitBox`) — but it is shown on the main thread, so a caller blocking
+        // the main thread here keeps the timeout: waiting on would leave it unable to appear.
+        while group.wait(timeout: .now() + Self.jsTimeout) == .timedOut {
+            if bridge.isAwaitingUser, !Thread.isMainThread { continue }
             resetEngine()
             return .timedOut
         }
@@ -775,6 +789,40 @@ class JSCoreEngine {
                     return nativeShowBrowser(url, titleOrHTML);
                 };
             })();
+        """)
+        // Legado overloads `startBrowserAwait(url, title[, refetchAfterSuccess[, html]])` and
+        // `startBrowser(url, title[, html])` by arity, and JSExport cannot: the Swift overloads
+        // land on one JavaScript name, so which one a call reached — and whether an omitted
+        // `refetchAfterSuccess` meant Legado's `true` — was up to JavaScriptCore. An absent
+        // `html` crosses as "" (a JavaScript null would arrive as the string "null").
+        let startBrowserAwaitBlock: @convention(block) (String, String, Bool, String) -> LegadoStrResponse = {
+            [weak bridge] url, title, refetchAfterSuccess, html in
+            bridge?.startBrowserAwait(url, title, refetchAfterSuccess, html.isEmpty ? nil : html)
+                ?? LegadoStrResponse(url: url, body: "")
+        }
+        let startBrowserBlock: @convention(block) (String, String, String) -> Void = {
+            [weak bridge] url, title, html in
+            bridge?.startBrowser(url, title, html.isEmpty ? nil : html)
+        }
+        ctx.setObject(startBrowserAwaitBlock, forKeyedSubscript: "__yueduStartBrowserAwait" as NSString)
+        ctx.setObject(startBrowserBlock, forKeyedSubscript: "__yueduStartBrowser" as NSString)
+        ctx.evaluateScript("""
+            (function (nativeStartBrowserAwait, nativeStartBrowser) {
+                function text(value) { return String(value == null ? '' : value); }
+                java.startBrowserAwait = function (url, title, refetchAfterSuccess, html) {
+                    return nativeStartBrowserAwait(
+                        text(url),
+                        text(title),
+                        arguments.length < 3 ? true : !!refetchAfterSuccess,
+                        text(html)
+                    );
+                };
+                java.startBrowser = function (url, title, html) {
+                    nativeStartBrowser(text(url), text(title), text(html));
+                };
+            })(__yueduStartBrowserAwait, __yueduStartBrowser);
+            delete __yueduStartBrowserAwait;
+            delete __yueduStartBrowser;
         """)
         // JavaScriptCore performs an Objective-C receiver check when an exported
         // bridge method is called as a detached function (`const b64 =

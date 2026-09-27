@@ -411,12 +411,31 @@ final class BookSourceHealthChecker: ObservableObject {
     /// Measured response times awaiting a single batched write — see `flushRespondTimes`.
     private var pendingRespondTimes: [UUID: Int64] = [:]
     private let fetcher: any BookSourceHealthCheckFetching
+    /// Where measured response times and the post-run 停用／刪除 policy land.
+    private let store: BookSourceStore
 
-    init(fetcher: any BookSourceHealthCheckFetching = BookSourceFetcher.shared) {
+    init(
+        fetcher: any BookSourceHealthCheckFetching = BookSourceFetcher.shared,
+        store: BookSourceStore = .shared
+    ) {
         self.fetcher = fetcher
+        self.store = store
     }
 
     private(set) var finishedCount = 0
+    /// Running tallies kept in step with `items`, so the result sheet never filters the
+    /// whole run to count or list failures — it used to, five times per render, once per
+    /// publication, over every item of a 50,000-source run.
+    private(set) var passedCount = 0
+    /// Finished, failed items by index, in completion order.
+    private(set) var failedIndices: [Int] = []
+    private(set) var failedIndicesByBucket: [FailureCategory.Bucket: [Int]] = [:]
+    /// Bumped on every coalesced publication; lists key their row refresh off it.
+    private(set) var publicationVersion = 0
+    /// Sent right after each coalesced publication, with the new state already in place
+    /// (`objectWillChange` fires *before* `@Published` changes land, so it cannot be read
+    /// from synchronously).
+    let didPublish = PassthroughSubject<Void, Never>()
 
     static func publicationInterval(for sourceCount: Int) -> TimeInterval {
         if sourceCount >= 2_000 { return 1.0 }
@@ -453,6 +472,9 @@ final class BookSourceHealthChecker: ObservableObject {
         }
         items = sources.map { BookSourceCheckItem(source: $0) }
         finishedCount = 0
+        passedCount = 0
+        failedIndices = []
+        failedIndicesByBucket = [:]
         publicationTask?.cancel()
         publicationTask = nil
         publicationGate = SearchResultPublicationGate(
@@ -518,7 +540,6 @@ final class BookSourceHealthChecker: ObservableObject {
 
     /// After a full run, disable/delete bad sources and disable slow ones per the chosen policy.
     private func applyPolicy() {
-        let store = BookSourceStore.shared
         var disableIds: Set<UUID> = []
         var deleteIds: Set<UUID> = []
 
@@ -556,7 +577,9 @@ final class BookSourceHealthChecker: ObservableObject {
             publicationTask?.cancel()
             publicationTask = nil
             publicationGate.didPublish(at: now)
+            publicationVersion += 1
             objectWillChange.send()
+            didPublish.send()
 
         case .schedule(let delay):
             guard publicationTask == nil else { return }
@@ -611,12 +634,22 @@ final class BookSourceHealthChecker: ObservableObject {
             ? elapsed
             : Int64(policy.timeoutSeconds) * 1000 + elapsed
         finishedCount += 1
+        if items[index].isFinished {
+            if items[index].overallPass {
+                passedCount += 1
+            } else {
+                failedIndices.append(index)
+                if let bucket = items[index].failureCategory?.bucket {
+                    failedIndicesByBucket[bucket, default: []].append(index)
+                }
+            }
+        }
         requestItemsPublication()
     }
 
     private func flushRespondTimes() {
         guard !pendingRespondTimes.isEmpty else { return }
-        BookSourceStore.shared.setRespondTimes(pendingRespondTimes)
+        store.setRespondTimes(pendingRespondTimes)
         pendingRespondTimes.removeAll(keepingCapacity: true)
     }
 

@@ -39,6 +39,8 @@ extension BookSourceFetcher {
 
         let bridge = BookSourceSession.session(for: source).bridgeForAsyncOperations
         let (html, finalURL) = try await bridge.fetch(ruleUrl: rawURL, page: page)
-        return bridge.parseExploreResults(html: html, baseURL: finalURL, source: source)
+        return await SourceScriptThread.run {
+            bridge.parseExploreResults(html: html, baseURL: finalURL, source: source)
+        }
     }
 }

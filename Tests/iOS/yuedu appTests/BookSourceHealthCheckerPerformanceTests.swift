@@ -100,9 +100,15 @@ struct BookSourceHealthCheckerPerformanceTests {
         let checker = BookSourceHealthChecker(fetcher: fetcher)
         WebViewFetcher.shared.resetPerformanceMetrics()
         checker.prepare(sources: sources)
+        // Real JS contexts, WebViews and responses: the memory a device has to hold while
+        // 32 sources validate at once.
+        let sampler = FootprintSampler()
+        let footprintBefore = MemoryFootprint.current()
+        sampler.start()
         let startedAt = ContinuousClock.now
         await checker.runAll()
         let elapsed = ContinuousClock.now - startedAt
+        let footprintPeak = sampler.stop()
         let timing = await fetcher.snapshot()
         let webViewTiming = WebViewFetcher.shared.performanceSnapshot()
         let seconds = Double(elapsed.components.seconds)
@@ -113,7 +119,10 @@ struct BookSourceHealthCheckerPerformanceTests {
                 + "calls=\(timing.callCounts) stageSeconds=\(timing.stageSeconds) "
                 + "webViewPeak=\(webViewTiming.peakActiveCount) "
                 + "webViewQueued=\(webViewTiming.queuedLeaseCount) "
-                + "webViewQueueSeconds=\(String(format: "%.3f", webViewTiming.queuedLeaseSeconds))"
+                + "webViewQueueSeconds=\(String(format: "%.3f", webViewTiming.queuedLeaseSeconds)) "
+                + "footprintBeforeMB=\(footprintBefore / 1_000_000) "
+                + "footprintPeakMB=\(footprintPeak / 1_000_000) "
+                + "mainThreadStallMaxMs=\(sampler.maxMainThreadStallMs)"
         )
         let slowest = checker.items
             .sorted { $0.responseTime > $1.responseTime }
@@ -129,6 +138,9 @@ struct BookSourceHealthCheckerPerformanceTests {
             webViewPeakActive: webViewTiming.peakActiveCount,
             webViewQueuedLeaseCount: webViewTiming.queuedLeaseCount,
             webViewQueuedLeaseSeconds: webViewTiming.queuedLeaseSeconds,
+            footprintBeforeMB: footprintBefore / 1_000_000,
+            footprintPeakMB: footprintPeak / 1_000_000,
+            mainThreadStallMaxMs: sampler.maxMainThreadStallMs,
             slowestSources: Array(slowest)
         )
         let reportPath = ProcessInfo.processInfo.environment["HEALTH_CHECK_REPORT_PATH"]
@@ -371,6 +383,9 @@ private struct LiveTimingReport: Codable {
     let webViewPeakActive: Int
     let webViewQueuedLeaseCount: Int
     let webViewQueuedLeaseSeconds: Double
+    let footprintBeforeMB: Int64
+    let footprintPeakMB: Int64
+    let mainThreadStallMaxMs: Int
     let slowestSources: [SourceTime]
 }
 

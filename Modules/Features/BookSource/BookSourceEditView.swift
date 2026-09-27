@@ -286,7 +286,7 @@ struct BookSourceEditView: View {
     }
 
     private var isDirty: Bool {
-        !Self.sourcesEqual(source, original)
+        !source.hasSameContent(as: original)
     }
 
     private func attemptCancel() {
@@ -318,15 +318,6 @@ struct BookSourceEditView: View {
                 RuleAutoComplete.autoComplete(completed[keyPath: spec.keyPath], preRule: preRule, type: type)
         }
         return completed
-    }
-
-    private static func sourcesEqual(_ lhs: BookSource, _ rhs: BookSource) -> Bool {
-        var a = lhs
-        var b = rhs
-        a.lastUpdateTime = 0
-        b.lastUpdateTime = 0
-        let encoder = JSONEncoder()
-        return (try? encoder.encode(a)) == (try? encoder.encode(b))
     }
 
     // MARK: - 粘貼源 / 複製源

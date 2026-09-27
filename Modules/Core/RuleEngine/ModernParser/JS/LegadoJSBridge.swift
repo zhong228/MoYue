@@ -14,6 +14,37 @@ struct LegadoBrowserPageRequest: Equatable, Sendable {
     let configurationJSON: String
 }
 
+/// A page source JS asked to open: Legado `java.startBrowser` / `java.startBrowserAwait`.
+struct SourceBrowserRequest {
+    /// The URL as the source wrote it — possibly with Legado `,{options}`, or a `data:` page.
+    let url: String
+    let title: String
+    /// `url` carrying the source's headers, login headers and cookie jar, the way Legado's
+    /// `WebViewModel` loads it (`AnalyzeUrl(url, source).headerMap`). nil when `url` is not
+    /// http(s) — a `data:` page has nothing to send.
+    let urlRequest: URLRequest?
+    /// Opened by `java.startBrowserAwait`, whose script waits for the page. Legado calls this
+    /// `sourceVerificationEnable`: such a page finishes by itself once a Cloudflare challenge
+    /// on it clears.
+    let awaitsResult: Bool
+    /// Page HTML the source supplied (`startBrowser(url, title, html)`,
+    /// `startBrowserAwait(url, title, refetchAfterSuccess, html)`), shown with `url` as its
+    /// base instead of loading `url`.
+    var html: String? = nil
+}
+
+/// A code the source asks the reader to read off an image: Legado
+/// `java.getVerificationCode(imageUrl)`.
+struct SourceCaptchaRequest {
+    /// `http(s)` or `data:` — a few sources draw their code as an SVG data URI.
+    let imageURL: String
+    /// The source's headers and cookie jar for fetching the image. A captcha belongs to the
+    /// session that fetched it, and the source's next request carries that session.
+    let headers: [String: String]
+    let sourceName: String
+    let sourceURL: String
+}
+
 extension Notification.Name {
     /// A book source's JS asked the app to search for a keyword
     /// (`java.searchBook` / `java.open('search', …)`). `userInfo["keyword"]`.
@@ -116,7 +147,8 @@ struct LegadoHTTPResult {
     func setContent(_ content: JSValue, _ baseUrl: JSValue) -> String
     func getElements(_ ruleStr: String) -> [Any]
 
-    // Browser WebView (Legado startBrowser / startBrowserAwait)
+    // Browser WebView (Legado startBrowser / startBrowserAwait) and image captcha
+    func getVerificationCode(_ imageUrl: String) -> String
     func startBrowser(_ url: String, _ title: String)
     func startBrowserAwait(_ url: String, _ title: String) -> LegadoStrResponse
     func startBrowserAwait(_ url: String, _ title: String, _ refetchAfterSuccess: Bool) -> LegadoStrResponse
@@ -264,10 +296,91 @@ struct LegadoHTTPResult {
     /// Delegate for network requests.
     var networkHandler: ((URLRequest) -> LegadoHTTPResult?)?
 
-    /// Called when JS invokes `java.startBrowser(url, title)` or `java.startBrowserAwait(url, title, ...)`.
-    /// Receives (url, title, completion). Completion receives the page body (nil if no body captured).
-    /// For `startBrowserAwait` the bridge blocks jsQueue via DispatchSemaphore until completion is called.
-    var browserPresentHandler: ((String, String, @escaping (String?) -> Void) -> Void)?
+    /// Presents a page for `java.startBrowser` / `java.startBrowserAwait` (and two-argument
+    /// `showBrowser`). The completion receives the page's HTML once the user confirms it, nil
+    /// when the page was dismissed. For `startBrowserAwait` the bridge blocks jsQueue via
+    /// DispatchSemaphore until completion is called.
+    ///
+    /// Set only where a runtime presents its pages itself (the login menu, 段評 capture);
+    /// everywhere else `startBrowser` / `startBrowserAwait` use `sharedBrowserPresenter`.
+    var browserPresentHandler: ((SourceBrowserRequest, @escaping (String?) -> Void) -> Void)?
+
+    typealias BrowserPresenter = (SourceBrowserRequest, @escaping (String?) -> Void) -> Void
+
+    /// How any source runtime opens a page — search, a chapter, 書源驗證 — the way Legado's
+    /// `SourceVerificationHelp` starts its browser from wherever the script runs. The app
+    /// installs it once at launch.
+    static var sharedBrowserPresenter: BrowserPresenter? {
+        get {
+            sharedBrowserPresenterLock.lock()
+            defer { sharedBrowserPresenterLock.unlock() }
+            return _sharedBrowserPresenter
+        }
+        set {
+            sharedBrowserPresenterLock.lock()
+            defer { sharedBrowserPresenterLock.unlock() }
+            _sharedBrowserPresenter = newValue
+        }
+    }
+    nonisolated(unsafe) private static var _sharedBrowserPresenter: BrowserPresenter?
+    private static let sharedBrowserPresenterLock = NSLock()
+
+    private var browserPresenter: BrowserPresenter? {
+        browserPresentHandler ?? Self.sharedBrowserPresenter
+    }
+
+    /// Presents the captcha for `java.getVerificationCode`; the completion receives the code
+    /// the user entered, nil when they dismissed it. Unset, `sharedCaptchaPresenter` does.
+    var captchaPresentHandler: ((SourceCaptchaRequest, @escaping (String?) -> Void) -> Void)?
+
+    typealias CaptchaPresenter = (SourceCaptchaRequest, @escaping (String?) -> Void) -> Void
+
+    /// Installed at launch next to `sharedBrowserPresenter`.
+    static var sharedCaptchaPresenter: CaptchaPresenter? {
+        get {
+            sharedBrowserPresenterLock.lock()
+            defer { sharedBrowserPresenterLock.unlock() }
+            return _sharedCaptchaPresenter
+        }
+        set {
+            sharedBrowserPresenterLock.lock()
+            defer { sharedBrowserPresenterLock.unlock() }
+            _sharedCaptchaPresenter = newValue
+        }
+    }
+    nonisolated(unsafe) private static var _sharedCaptchaPresenter: CaptchaPresenter?
+
+    /// The attached source's name and URL, for the captcha sheet (which can 停用 or 刪除 it).
+    var sourceIdentityProvider: (() -> (name: String, url: String))?
+
+    /// Scripts parked waiting for the user — on a `startBrowserAwait` page or a captcha. The
+    /// engine's runaway-script timeout does not apply to them — see
+    /// `JSCoreEngine.onJSQueueWithTimeout`.
+    var isAwaitingUser: Bool {
+        awaitingUserLock.lock()
+        defer { awaitingUserLock.unlock() }
+        return awaitingUserCount > 0
+    }
+    private var awaitingUserCount = 0
+    private let awaitingUserLock = NSLock()
+
+    /// Blocks this script until `present` reports back, however long the user takes.
+    private func waitForUser(_ present: (@escaping (String?) -> Void) -> Void) -> String? {
+        let sem = DispatchSemaphore(value: 0)
+        var answer: String?
+        awaitingUserLock.lock()
+        awaitingUserCount += 1
+        awaitingUserLock.unlock()
+        present { value in
+            answer = value
+            sem.signal()
+        }
+        sem.wait()
+        awaitingUserLock.lock()
+        awaitingUserCount -= 1
+        awaitingUserLock.unlock()
+        return answer
+    }
 
     /// Called for source-authored HTML browser pages. Unlike the two-argument browser API,
     /// the second argument is page HTML (not a title), and the injected script wires the
@@ -296,10 +409,6 @@ struct LegadoHTTPResult {
     /// Called when JS invokes `java.setResponseBase64(data, mimeType)` — stores decoded audio data.
     /// Used by TTS `loginCheckJs` to extract base64 audio from JSON API responses.
     var setResponseBase64Handler: ((Data, String) -> Void)?
-
-    /// Called when JS issues a network request that hits a Cloudflare challenge.
-    /// Calls `done()` after CF cookies are obtained; jsQueue blocks via DispatchSemaphore until then.
-    var cloudflareChallengeHandler: ((URL, @escaping () -> Void) -> Void)?
 
     /// Book source headers (for JS network requests to use correct User-Agent etc.).
     ///
@@ -402,7 +511,23 @@ struct LegadoHTTPResult {
     /// back to their ASCII equivalents. Mirrors Legado's `StringUtils.aaDecode`.
     static func aaDecode(_ str: String) -> String {
         guard !str.isEmpty else { return str }
-        let pairs: [(UnicodeScalar, String)] = [
+        // Per Unicode scalar, as Legado's per-character replace works. Swift compares
+        // `String`s by grapheme cluster, so a mapped character followed by a combining mark
+        // (Ｈ + U+0E31) formed one cluster that `replacingOccurrences(of: "Ｈ")` never
+        // matched, and the obfuscated text came back half decoded.
+        var decoded = String.UnicodeScalarView()
+        for scalar in str.unicodeScalars {
+            if let replacement = aaDecodeTable[scalar] {
+                decoded.append(contentsOf: replacement.unicodeScalars)
+            } else {
+                decoded.append(scalar)
+            }
+        }
+        return String(decoded)
+    }
+
+    private static let aaDecodeTable: [Unicode.Scalar: String] = Dictionary(
+        [
             ("\u{203F}", "_"), ("\u{2040}", " "),
             ("\u{00A1}", "!"), ("\u{00A6}", "|"),
             ("\u{15AD}", "("), ("\u{15AE}", ")"),
@@ -419,7 +544,7 @@ struct LegadoHTTPResult {
             ("\u{2012}", "-"), ("\u{2013}", "-"),
             ("\u{2014}", "--"), ("\u{2015}", "--"),
             ("\u{2215}", "/"), ("\u{FF0F}", "/"),
-            ("\u{FF3A}", "Z"), ("\u{FF3A}", "z"),
+            ("\u{FF3A}", "Z"), ("\u{FF5A}", "z"),
             ("\u{FF21}", "A"), ("\u{FF41}", "a"),
             ("\u{FF22}", "B"), ("\u{FF42}", "b"),
             ("\u{FF23}", "C"), ("\u{FF43}", "c"),
@@ -451,16 +576,9 @@ struct LegadoHTTPResult {
             ("\u{FF16}", "6"), ("\u{FF17}", "7"),
             ("\u{FF18}", "8"), ("\u{FF19}", "9"),
             ("\u{02C8}", "'"),
-        ]
-        var result = str
-        for (scalar, replacement) in pairs {
-            result = result.replacingOccurrences(
-                of: String(scalar),
-                with: replacement
-            )
-        }
-        return result
-    }
+        ],
+        uniquingKeysWith: { first, _ in first }
+    )
 
     func ajaxAll(_ urlArray: [String]) -> [LegadoStrResponse] {
         guard !urlArray.isEmpty else { return [] }
@@ -848,19 +966,31 @@ struct LegadoHTTPResult {
 
     // MARK: Browser & Toast (Legado java.startBrowser / startBrowserAwait / toast)
 
-    /// Opens a browser WebView without blocking JS execution.
+    /// Opens a page without waiting for it — Legado `SourceVerificationHelp.startBrowser`
+    /// with `saveResult = false`.
     func startBrowser(_ url: String, _ title: String) {
-        browserPresentHandler?(url, title) { _ in /* fire and forget */ }
+        startBrowser(url, title, nil)
     }
 
-    /// Opens a browser WebView and blocks the JS thread (jsQueue) until the user closes it.
-    /// Returns a `LegadoStrResponse` with `.body()` and `.url` for JS consumption.
-    /// Mirrors Legado's `java.startBrowserAwait(url, title): StrResponse`.
+    /// Legado `java.startBrowser(url, title, html)`: `html` is shown with `url` as its base.
+    func startBrowser(_ url: String, _ title: String, _ html: String?) {
+        browserPresenter?(browserRequest(url: url, title: title, awaitsResult: false, html: html)) { _ in }
+    }
+
+    /// Legado `java.startBrowserAwait(url, title)`: `refetchAfterSuccess` defaults to true.
     func startBrowserAwait(_ url: String, _ title: String) -> LegadoStrResponse {
-        return startBrowserAwait(url, title, false)
+        startBrowserAwait(url, title, true)
     }
 
-    /// Opens a browser WebView and blocks the JS thread, with optional refetch-after-success.
+    /// Opens a page and blocks the JS thread until the user is done with it — Legado's
+    /// `SourceVerificationHelp.getVerificationResult`, which both Legado-E and MD3 run from
+    /// any script: search, a chapter, 書源驗證.
+    ///
+    /// When the page is confirmed (✓, or a Cloudflare challenge on it clearing),
+    /// `refetchAfterSuccess` requests `url` again through the source's own requests — now
+    /// carrying the cookies the page earned — and returns that response; otherwise the
+    /// page's HTML comes back. That is how a source gets the JSON API behind a challenge
+    /// rather than the challenge page's markup.
     ///
     /// Waits for the actual dismissal — no deadline. A settings page (光遇's 书源设置,
     /// where the user ticks 默认搜索网站) is easily open for minutes; the old 60s cap
@@ -872,32 +1002,128 @@ struct LegadoHTTPResult {
     /// exactly like Legado does, instead of handing back an empty page: source JS wraps
     /// this call in try/catch precisely so it can skip saving when the user didn't confirm.
     func startBrowserAwait(_ url: String, _ title: String, _ refetchAfterSuccess: Bool) -> LegadoStrResponse {
-        guard let handler = browserPresentHandler else {
+        startBrowserAwait(url, title, refetchAfterSuccess, nil)
+    }
+
+    /// Legado `java.startBrowserAwait(url, title, refetchAfterSuccess, html)`: the page shows
+    /// `html` with `url` as its base. `refetchAfterSuccess` still requests `url` — the
+    /// original Legado and MD3 refetch whenever it is set; only Legado-E hands `html` back.
+    func startBrowserAwait(
+        _ url: String, _ title: String, _ refetchAfterSuccess: Bool, _ html: String?
+    ) -> LegadoStrResponse {
+        guard let presenter = browserPresenter else {
             return throwBrowserCancelled(url: url)
         }
-        let sem = DispatchSemaphore(value: 0)
-        var capturedBody: String?
-        handler(url, title) { body in
-            capturedBody = body
-            sem.signal()
-        }
-        sem.wait()
-        guard let body = capturedBody else {
+        // The page is presented on the main thread, so waiting for it there could never
+        // end. Legado refuses the same way (`check(!isMainThread)`).
+        guard !Thread.isMainThread else {
+            AppLogger.parse("startBrowserAwait called on the main thread", context: ["url": String(url.prefix(200))])
             return throwBrowserCancelled(url: url)
         }
-        return LegadoStrResponse(url: url, body: body)
+        let request = browserRequest(url: url, title: title, awaitsResult: true, html: html)
+        guard let body = waitForUser({ presenter(request, $0) }) else {
+            return throwBrowserCancelled(url: url)
+        }
+        guard refetchAfterSuccess else {
+            return LegadoStrResponse(url: url, body: body)
+        }
+        return LegadoStrResponse(result: performRequestResult(url))
+    }
+
+    private func browserRequest(
+        url: String, title: String, awaitsResult: Bool, html: String? = nil
+    ) -> SourceBrowserRequest {
+        SourceBrowserRequest(
+            url: url,
+            title: title,
+            urlRequest: sourceBrowserRequest(urlString: url),
+            awaitsResult: awaitsResult,
+            html: html
+        )
+    }
+
+    /// Legado `java.getVerificationCode(imageUrl)` — `SourceVerificationHelp
+    /// .getVerificationResult(useBrowser = false)`: shows the image with a text field and
+    /// blocks the script until the user answers. Legado throws when nothing came back
+    /// (`验证结果为空`), so a dismissed sheet or an empty answer throws here too.
+    func getVerificationCode(_ imageUrl: String) -> String {
+        guard let presenter = captchaPresentHandler ?? Self.sharedCaptchaPresenter else {
+            return throwIntoScript("getVerificationCode: no captcha presenter")
+        }
+        guard !Thread.isMainThread else {
+            AppLogger.parse("getVerificationCode called on the main thread", context: ["url": String(imageUrl.prefix(200))])
+            return throwIntoScript("getVerificationCode: called on the main thread")
+        }
+        let identity = sourceIdentityProvider?() ?? (name: "", url: "")
+        let request = SourceCaptchaRequest(
+            imageURL: imageUrl,
+            headers: sourceBrowserRequest(urlString: imageUrl)?.allHTTPHeaderFields ?? [:],
+            sourceName: identity.name,
+            sourceURL: identity.url
+        )
+        guard let code = waitForUser({ presenter(request, $0) }), !code.isEmpty else {
+            return throwIntoScript("getVerificationCode: no code entered")
+        }
+        return code
+    }
+
+    /// The request a source's page opens with, as Legado's `WebViewModel` builds it: the
+    /// URL's own `,{"headers":…}` options, then the source's headers and login headers (the
+    /// same set `java.ajax` sends), then the cookie jar. nil for anything but http(s).
+    func sourceBrowserRequest(urlString: String) -> URLRequest? {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let address = AnalyzeUrl.stripOptions(from: trimmed)
+        guard let url = URL(string: address),
+              let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme) else { return nil }
+        var request = URLRequest(url: url)
+        if address.count < trimmed.count {
+            for (key, value) in Self.optionHeaders(String(trimmed.dropFirst(address.count))) {
+                request.setValue(value, forHTTPHeaderField: key)
+            }
+        }
+        for (key, value) in sourceHeaders where request.value(forHTTPHeaderField: key) == nil {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        if request.value(forHTTPHeaderField: "Cookie") == nil {
+            let jar = CookieStore.shared.get(url: url.absoluteString)
+            if !jar.isEmpty { request.setValue(jar, forHTTPHeaderField: "Cookie") }
+        }
+        return request
+    }
+
+    /// The `headers` of a Legado URL option block (`,{"headers":{…}}`): a map, or the same
+    /// map as a JSON string.
+    private static func optionHeaders(_ optionSuffix: String) -> [String: String] {
+        guard let start = optionSuffix.firstIndex(of: "{"),
+              let options = AnalyzeUrl.parseOptionDictionary(String(optionSuffix[start...])) else {
+            return [:]
+        }
+        let raw: Any?
+        if let text = options["headers"] as? String {
+            raw = AnalyzeUrl.parseOptionDictionary(text)
+        } else {
+            raw = options["headers"]
+        }
+        guard let headers = raw as? [String: Any] else { return [:] }
+        return headers.reduce(into: [:]) { result, entry in
+            result[entry.key] = "\(entry.value)"
+        }
     }
 
     /// Raise a JS exception at the `java.startBrowserAwait(...)` call site. The returned
     /// value is never consumed: the exception propagates as soon as the bridge call returns.
     private func throwBrowserCancelled(url: String) -> LegadoStrResponse {
-        if let context = JSContext.current() {
-            context.exception = JSValue(
-                newErrorFromMessage: "startBrowserAwait: dismissed without confirmation",
-                in: context
-            )
-        }
+        _ = throwIntoScript("startBrowserAwait: dismissed without confirmation")
         return LegadoStrResponse(url: url, body: "")
+    }
+
+    /// Raises `message` as a JS exception at the current bridge call site.
+    private func throwIntoScript(_ message: String) -> String {
+        if let context = JSContext.current() {
+            context.exception = JSValue(newErrorFromMessage: message, in: context)
+        }
+        return ""
     }
 
     /// Show a short toast. Delegates to `toastHandler` on MainThread.
@@ -1555,9 +1781,10 @@ struct LegadoHTTPResult {
         #endif
     }
 
-    /// Opens a URL in browser without returning body.
+    /// Opens a URL in browser without returning body. Only a runtime that presents its own
+    /// pages (段評 capture) shows it; it does not fall back to `sharedBrowserPresenter`.
     func showBrowser(_ url: String, _ title: String) {
-        browserPresentHandler?(url, title) { _ in }
+        browserPresentHandler?(browserRequest(url: url, title: title, awaitsResult: false)) { _ in }
     }
 
     func showReadingBrowser(_ url: String, _ title: String) {
@@ -1965,48 +2192,19 @@ struct LegadoHTTPResult {
         sourceHeaders.forEach { request.setValue($1, forHTTPHeaderField: $0) }
 
         var responseResult: LegadoHTTPResult?
-        // Use a long timeout: if a CF handler is registered, the user may need to solve CAPTCHA.
-        let timeoutSeconds: Double = cloudflareChallengeHandler != nil ? 120 : requestTimeoutSeconds
         let semaphore = DispatchSemaphore(value: 0)
 
-        let task = Self.requestSession.dataTask(with: request) { [weak self] data, response, _ in
-            guard let data = data else { semaphore.signal(); return }
-            let body = Self.decodeData(data, response: response)
-
-            let isCF =
-                Self.isCloudflareChallenged(body, response: response)
-                || Self.isCloudflareChallengedBody(body)
-            guard isCF, let self, let handler = self.cloudflareChallengeHandler, let reqURL = request.url else {
-                if isCF {
-                    #if DEBUG
-                    print("[JSBridge] ⚠️ CF detected for \(urlStr) — no handler, returning empty")
-                    #endif
-                } else {
-                    responseResult = LegadoHTTPResult.make(request: request, data: data, response: response)
-                }
-                semaphore.signal()
-                return
+        // The response goes back to the source as it came — a Cloudflare challenge page
+        // included, as in Legado. A source whose site is protected checks the body itself
+        // and calls `java.startBrowserAwait`; blanking the page here hid it from that check.
+        let task = Self.requestSession.dataTask(with: request) { data, response, _ in
+            if let data {
+                responseResult = LegadoHTTPResult.make(request: request, data: data, response: response)
             }
-
-            // Present the CF challenge UI on the main thread; signal cfSem via done() callback.
-            let cfSem = DispatchSemaphore(value: 0)
-            DispatchQueue.main.async {
-                handler(reqURL) { cfSem.signal() }
-            }
-            cfSem.wait()  // cookies are now in HTTPCookieStorage.shared
-
-            // Retry once without CF check (cookies are fresh).
-            let retrySem = DispatchSemaphore(value: 0)
-            Self.requestSession.dataTask(with: request) { retryData, retryResp, _ in
-                defer { retrySem.signal() }
-                guard let retryData else { return }
-                responseResult = LegadoHTTPResult.make(request: request, data: retryData, response: retryResp)
-            }.resume()
-            _ = retrySem.wait(timeout: .now() + 15)
             semaphore.signal()
         }
         task.resume()
-        _ = semaphore.wait(timeout: .now() + timeoutSeconds)
+        _ = semaphore.wait(timeout: .now() + requestTimeoutSeconds)
         return responseResult ?? .bodyOnly(request: request, body: "")
     }
 
@@ -2020,28 +2218,9 @@ struct LegadoHTTPResult {
         HTMLResponseDecoder.decode(data: data, response: response) ?? ""
     }
 
-    /// Returns true when the response body looks like a Cloudflare challenge page.
-    /// Returning an empty string from performRequest prevents `JSON.parse` from crashing
-    /// with `SyntaxError` on the raw HTML protection page.
-    static func isCloudflareChallenged(_ body: String, response: URLResponse?) -> Bool {
-        let http = response as? HTTPURLResponse
-        let status = http?.statusCode ?? 200
-        // CF typically returns 403 or 503 with recognisable markers
-        if status != 403 && status != 503 && status != 429 { return false }
-        let markers = [
-            "cf-browser-verification",
-            "cf_chl_prog",
-            "Checking if the site connection is secure",
-            "checking your browser",
-            "_cf_chl_",
-            "cf-challenge",
-        ]
-        let lower = body.lowercased()
-        return markers.contains(where: { lower.contains($0.lowercased()) })
-    }
-
     /// Returns true when the body alone (regardless of HTTP status) looks like a CF page.
-    /// Used for HTTP 200 responses that smuggle a CF challenge in the body.
+    /// Nothing opens a challenge because of it — Legado never does — it only keeps such a
+    /// page from being cached as a script or taken for a rendered page.
     static func isCloudflareChallengedBody(_ body: String) -> Bool {
         // Use only unambiguous, CF-specific fingerprints to minimise false positives.
         let specificMarkers = [

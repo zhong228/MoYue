@@ -19,7 +19,10 @@ struct BookSourceListView: View {
     var embedsNavigationStack = true
 
     @EnvironmentObject private var bookStore: BookStore
-    @ObservedObject private var store = BookSourceStore.shared
+    /// Not observed: everything the screen draws from the library comes from `model`, which
+    /// rebuilds once per library change instead of once per render.
+    private let store: BookSourceStore
+    @StateObject private var model: BookSourceManagementModel
     @ObservedObject private var gs = GlobalSettings.shared
     @State private var showAdd = false
     @State private var editingSource: BookSource? = nil
@@ -32,6 +35,11 @@ struct BookSourceListView: View {
     @State private var importError: String? = nil
     @State private var importSuccess: String? = nil
     @State private var showNetworkImport = false
+    /// Owns the import confirmation list for every manual route into this screen.
+    @StateObject private var importCoordinator = BookSourceImportCoordinator()
+    /// Parsed sources waiting for the sheet in front of them to finish dismissing before the
+    /// confirmation list can be presented. Same ordering constraint as 書源驗證 below.
+    @State private var queuedImportSources: [BookSource]?
     @State private var importURLString = ""
     @State private var networkImportLoading = false
     @State private var showLegacyImportChooser = false
@@ -41,23 +49,21 @@ struct BookSourceListView: View {
     @State private var variableEditingSource: BookSource? = nil
     @Environment(\.presentationMode) var dismiss
 
-    @State private var selectedIds: Set<UUID> = []
-    @State private var searchText = ""
     @State private var showDeleteConfirm = false
     @State private var showMoreMenu = false
     @State private var showSourceCheck = false
-    @State private var showCheckOptions = false
-    @State private var pendingCheckSources: [BookSource] = []
-    @State private var pendingStartPolicy: BookSourceCheckPolicy? = nil
+    /// The sources a 書源驗證 options sheet was opened for, frozen when it was opened and
+    /// handed to the sheet as its item. The sheet used to read a separate `@State` array
+    /// that `body` never read, so SwiftUI built the sheet from the previous render's
+    /// snapshot — the first time, an empty array: 「將對 0 個書源」 and a disabled 開始驗證.
+    @State private var pendingCheck: PendingSourceCheck? = nil
+    /// Set by 開始驗證; the run starts once the options sheet has fully dismissed.
+    @State private var confirmedCheck: ConfirmedSourceCheck? = nil
     @State private var showGroupByDomainConfirm = false
     // Shared instance so a check keeps running in the background after this screen is dismissed.
-    @ObservedObject private var healthChecker = BookSourceHealthChecker.shared
+    @ObservedObject private var healthChecker: BookSourceHealthChecker
     @State private var checkToast: String? = nil
-    @State private var validationFilter: ValidationListFilter = .all
     @State private var showDisclaimer = false
-    /// Set by 置頂／置底 so the list follows the row to its new position.
-    @State private var scrollTargetId: UUID? = nil
-    @StateObject private var groupExpansion = BookSourceGroupExpansionStore()
     /// Pending 重命名分組 / 移動到新分組 text entry, plus its draft name.
     @State private var groupNaming: PendingGroupNaming? = nil
     @State private var groupNameText = ""
@@ -71,34 +77,40 @@ struct BookSourceListView: View {
     /// management is pushed before iOS 18, so this sheet is a first-level
     /// presentation. See `MenuShareLinkPresentationPolicy`.
     @State private var pendingExport: PendingShareExport<BookSourceExportFile>? = nil
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// `store` and `healthChecker` are injectable so scale tests can drive a
+    /// 50,000-source library without touching the user's own.
+    init(
+        embedsNavigationStack: Bool = true,
+        store: BookSourceStore = .shared,
+        healthChecker: BookSourceHealthChecker? = nil
+    ) {
+        let healthChecker = healthChecker ?? .shared
+        self.embedsNavigationStack = embedsNavigationStack
+        self.store = store
+        _healthChecker = ObservedObject(wrappedValue: healthChecker)
+        _model = StateObject(
+            wrappedValue: BookSourceManagementModel(store: store, healthChecker: healthChecker))
+    }
+
+    /// What 書源驗證 runs on: the selection, or every enabled source when nothing is selected.
     private var checkSources: [BookSource] {
-        if !selectedIds.isEmpty {
-            store.sources.filter { selectedIds.contains($0.id) }
+        let selected = model.selectedIDs
+        if !selected.isEmpty {
+            return store.sources.filter { selected.contains($0.id) }
         } else {
-            store.sources.filter { $0.enabled }
+            return store.sources.filter { $0.enabled }
         }
     }
 
-    private var displayedSources: [BookSource] {
-        switch validationFilter {
-        case .all:
-            return filteredSources
-        case .fetchError:
-            return filteredSources.filter { healthChecker.healthById[$0.id]?.health == .fetchError }
-        case .contentError:
-            return filteredSources.filter { healthChecker.healthById[$0.id]?.health == .contentError }
-        }
+    private struct PendingSourceCheck: Identifiable {
+        let id = UUID()
+        let sources: [BookSource]
     }
 
-    private var filteredSources: [BookSource] {
-        if searchText.isEmpty { return store.sources }
-        let q = searchText.lowercased()
-        return store.sources.filter {
-            $0.bookSourceName.lowercased().contains(q) || $0.bookSourceUrl.lowercased().contains(q)
-                || $0.bookSourceGroup.lowercased().contains(q)
-        }
+    private struct ConfirmedSourceCheck {
+        let policy: BookSourceCheckPolicy
+        let sources: [BookSource]
     }
 
     /// A group snapshot frozen at the moment its menu item was tapped, so the delete alert
@@ -139,46 +151,7 @@ struct BookSourceListView: View {
     /// Legado keeps sources with an empty `bookSourceGroup` in a built-in default group;
     /// mirror that instead of scattering them as bare rows.
     private var defaultGroupName: String {
-        localized("默認分組")
-    }
-
-    /// Group layout: the 置頂 group first, then the named `bookSourceGroup` groups (pinned
-    /// sources excluded — they live in the pin groups now), then the 置底 group. Pin groups
-    /// keep array order, which is pinnedAt newest-first. Group members are accumulated per
-    /// name, so interleaved sources of the same group render under one contiguous header.
-    private var displayedGroups: [BookSourceRowGroup] {
-        let topPinned = displayedSources.filter { store.pinRecord(for: $0.id)?.position == .top }
-        let bottomPinned = displayedSources.filter { store.pinRecord(for: $0.id)?.position == .bottom }
-        var groups: [BookSourceRowGroup] = []
-        if !topPinned.isEmpty {
-            groups.append(BookSourceRowGroup(
-                id: BookSourceRowGroup.topPinnedID, name: localized("置頂組"), sources: topPinned))
-        }
-        var names: [String] = []
-        var byName: [String: [BookSource]] = [:]
-        for source in displayedSources where store.pinRecord(for: source.id) == nil {
-            let name = source.bookSourceGroup.trimmingCharacters(in: .whitespacesAndNewlines)
-            let key = name
-            if byName[key] == nil { names.append(key) }
-            byName[key, default: []].append(source)
-        }
-        groups.append(contentsOf: names.map {
-            BookSourceRowGroup(
-                id: $0.isEmpty ? BookSourceRowGroup.defaultGroupID : $0,
-                name: $0.isEmpty ? defaultGroupName : $0, sources: byName[$0] ?? [])
-        })
-        if !bottomPinned.isEmpty {
-            groups.append(BookSourceRowGroup(
-                id: BookSourceRowGroup.bottomPinnedID, name: localized("置底組"),
-                sources: bottomPinned))
-        }
-        return groups
-    }
-
-    /// Searching flattens the grouped layout so matching sources stay visible no matter
-    /// which group they belong to; the filter row's grouping toggle flattens it on demand.
-    private var usesGroupedLayout: Bool {
-        searchText.isEmpty && gs.bookSourceListGrouped
+        model.defaultGroupName
     }
 
     var body: some View {
@@ -196,7 +169,7 @@ struct BookSourceListView: View {
     private var managementContent: some View {
         AdaptiveSheetContainer(maxWidth: DSLayout.readableWideWidth) {
                 VStack(spacing: 0) {
-                    if store.sources.isEmpty {
+                    if model.counts.total == 0 {
                         emptyView
                     } else {
                         sourceList
@@ -212,7 +185,7 @@ struct BookSourceListView: View {
             .toolbarTitleDisplayMode(.inline)
             .pageBackgroundToolbar(for: .settings)
             .searchable(
-                text: $searchText,
+                text: $model.searchText,
                 placement: .navigationBarDrawer(displayMode: .always),
                 prompt: localized("搜索書源")
             )
@@ -240,18 +213,21 @@ struct BookSourceListView: View {
                         }
                         Divider()
                         Menu {
-                            if !selectedIds.isEmpty {
+                            if !model.selectedIDs.isEmpty {
                                 BookSourceExportShareLink(
                                     label: localized("匯出選中"),
                                     filenameLabel: localized("選中書源"),
-                                    sources: store.sources.filter { selectedIds.contains($0.id) },
+                                    sources: { [model, store] in
+                                        let selected = model.selectedIDs
+                                        return store.sources.filter { selected.contains($0.id) }
+                                    },
                                     onHandoff: { pendingExport = $0 }
                                 )
                             }
                             BookSourceExportShareLink(
                                 label: localized("匯出全部"),
                                 filenameLabel: localized("全部書源"),
-                                sources: store.sources,
+                                sources: { [store] in store.sources },
                                 onHandoff: { pendingExport = $0 }
                             )
                             Divider()
@@ -260,7 +236,7 @@ struct BookSourceListView: View {
                             } label: {
                                 Label(localized("複製選中到剪貼簿"), systemImage: "doc.on.doc")
                             }
-                            .disabled(selectedIds.isEmpty)
+                            .disabled(model.selectedIDs.isEmpty)
                             Button {
                                 copyAllToPasteboard()
                             } label: {
@@ -345,7 +321,7 @@ struct BookSourceListView: View {
             }
             .sheet(
                 isPresented: $showImport,
-                onDismiss: presentBookSourceFileImporterAfterSheetDismissal
+                onDismiss: handleImportSheetDismissal
             ) {
                 AdaptiveSheetContainer(maxWidth: DSLayout.readablePanelWidth) {
                     importSheet
@@ -356,10 +332,20 @@ struct BookSourceListView: View {
                 allowedContentTypes: bookSourceImportContentTypes,
                 onCompletion: handleBookSourceImportFile
             )
-            .sheet(isPresented: $showNetworkImport) {
+            .sheet(
+                isPresented: $showNetworkImport,
+                onDismiss: presentQueuedImportReview
+            ) {
                 AdaptiveSheetContainer(maxWidth: DSLayout.readablePanelWidth) {
                     networkImportSheet
                 }
+            }
+            .sheet(item: $importCoordinator.pending) { _ in
+                BookSourceImportReviewSheet(
+                    coordinator: importCoordinator,
+                    onConfirm: commitImportReview,
+                    onCancel: { importCoordinator.cancel() }
+                )
             }
             .sheet(item: $loginSource) { src in
                 if src.loginUi.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -405,21 +391,16 @@ struct BookSourceListView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showCheckOptions, onDismiss: {
-                // Start (and open the results sheet) only AFTER the options sheet has fully
-                // dismissed — presenting a second sheet on the same frame as the first dismisses
-                // is unreliable in SwiftUI.
-                if let policy = pendingStartPolicy {
-                    pendingStartPolicy = nil
-                    startCheck(with: policy, sources: pendingCheckSources)
-                }
-            }) {
+            // Start (and open the results sheet) only AFTER the options sheet has fully
+            // dismissed — presenting a second sheet on the same frame as the first dismisses
+            // is unreliable in SwiftUI.
+            .sheet(item: $pendingCheck, onDismiss: startConfirmedCheck) { pending in
                 AdaptiveSheetContainer(maxWidth: DSLayout.readablePanelWidth) {
                     BookSourceCheckOptionsView(
-                        sourceCount: pendingCheckSources.count,
+                        sourceCount: pending.sources.count,
                         initialPolicy: healthChecker.policy
                     ) { policy in
-                        pendingStartPolicy = policy
+                        confirmedCheck = ConfirmedSourceCheck(policy: policy, sources: pending.sources)
                     }
                 }
             }
@@ -435,7 +416,7 @@ struct BookSourceListView: View {
                     let changed = store.groupByDomain()
                     withAnimation {
                         importSuccess =
-                            localized("已按域名分組") + " \(changed) " + localized("個書源")
+                            String(format: localized("已按域名分組 %d 個書源"), changed)
                     }
                 }
             } message: {
@@ -447,7 +428,10 @@ struct BookSourceListView: View {
                     deleteSelected()
                 }
             } message: {
-                Text(localized("確定要刪除選中的") + " \(selectedIds.count) " + localized("個書源嗎？"))
+                Text(
+                    String(
+                        format: localized("確定要刪除選中的 %d 個書源嗎？"),
+                        model.selectedIDs.count))
             }
             .alert(
                 groupNaming?.title ?? localized("分組名稱"),
@@ -479,8 +463,9 @@ struct BookSourceListView: View {
             } message: {
                 if let pending = deletingGroup {
                     Text(
-                        localized("確定要刪除分組") + "「\(pending.name)」" + localized("及其中的")
-                            + " \(pending.sourceIds.count) " + localized("個書源嗎？"))
+                        String(
+                            format: localized("確定要刪除分組「%1$@」及其中的 %2$d 個書源嗎？"),
+                            pending.name, pending.sourceIds.count))
                 }
             }
             .alert(
@@ -526,9 +511,6 @@ struct BookSourceListView: View {
                 if !gs.sourceDisclaimerAccepted {
                     showDisclaimer = true
                 }
-            }
-            .onChange(of: store.sources.map(\.id)) { _, sourceIds in
-                selectedIds.formIntersection(Set(sourceIds))
             }
 
     }
@@ -587,90 +569,58 @@ struct BookSourceListView: View {
 
     // MARK: - Source List
 
+    /// Rows are built only while on screen — see `HostedCollectionList` for why this is not
+    /// a SwiftUI `List` any more. The rows themselves are unchanged SwiftUI views.
     private var sourceList: some View {
         let rowActions = self.rowActions
         let groupActions = self.groupActions
-        return ScrollViewReader { proxy in
-            List {
-                Section {
-                    SourceValidationListHeader(
-                        sources: store.sources,
-                        healthById: healthChecker.healthById,
-                        filter: $validationFilter,
-                        grouped: $gs.bookSourceListGrouped
+        return HostedCollectionList(
+            items: model.items,
+            contentVersion: model.contentVersion,
+            animatesItemChanges: model.animatesItemChange,
+            scrollRequest: model.scrollRequest,
+            showsSeparator: { item in
+                if case .source = item { return true }
+                return false
+            },
+            usesSystemMargins: { $0 == .header },
+            // Every row wears the 毛玻璃／分組卡片／透明度 surface across the whole cell, like
+            // a `List` row's `interfaceSectionSurface()`. The header stays clear: its stats
+            // card and page buttons paint their own.
+            drawsCellSurface: { $0 != .header }
+        ) { item in
+            switch item {
+            case .header:
+                SourceValidationListHeader(
+                    counts: model.counts,
+                    filter: $model.filter,
+                    grouped: $gs.bookSourceListGrouped
+                )
+            case .group(let id):
+                if let group = model.group(id) {
+                    BookSourceGroupHeaderRow(
+                        group: group,
+                        expanded: model.isExpanded(id),
+                        actions: groupActions
+                    )
+                    .padding(.horizontal, DSSpacing.md)
+                }
+            case .source(let id):
+                if let source = model.source(for: id) {
+                    BookSourceRow(
+                        source: source,
+                        isSelected: model.isSelected(id),
+                        pin: model.pin(for: id),
+                        health: healthChecker.healthById[id],
+                        defaultGroupName: defaultGroupName,
+                        actions: rowActions
                     )
                 }
-                .listRowSeparator(.hidden)
-                // Clear, not a surface: `statsCard` and the filter chips paint their own,
-                // so a row background here would put a second full-width slab behind them
-                // — the block that read as an opaque header above a see-through list.
-                .listRowBackground(Color.clear)
-
-                if usesGroupedLayout {
-                    // Plain header row + conditional child rows instead of `DisclosureGroup`:
-                    // SwiftUI pins its disclosure indicator to the trailing edge on iOS and
-                    // offers no way to move it (row insets shift the label, not the chevron),
-                    // and a custom `DisclosureGroupStyle` would collapse the whole group into
-                    // one List row — losing per-source separators, insets, and lazy rows.
-                    ForEach(displayedGroups) { group in
-                        BookSourceGroupHeaderRow(
-                            group: group,
-                            expanded: groupExpansion.isExpanded(group.id),
-                            actions: groupActions
-                        )
-                        .listRowInsets(
-                            EdgeInsets(
-                                top: 0, leading: DSSpacing.md, bottom: 0, trailing: DSSpacing.md))
-                        .listRowSeparator(.hidden)
-                        .interfaceSectionSurface()
-
-                        if groupExpansion.isExpanded(group.id) {
-                            ForEach(group.sources) { source in
-                                sourceRowListEntry(source, actions: rowActions)
-                            }
-                        }
-                    }
-                } else {
-                    ForEach(displayedSources) { source in
-                        sourceRowListEntry(source, actions: rowActions)
-                    }
-                }
-            }
-            .listStyle(.plain)
-            // Hiding the list's own background is only half of it: a `.plain` row still
-            // paints an opaque `systemBackground` unless it is handed a row background,
-            // which left the source rows as a white slab between the glass search bar
-            // above and the toolbar below. Every row instead wears `interfaceSectionSurface`,
-            // so the list follows 毛玻璃／分組卡片／透明度 like the rest of the screen. Same
-            // treatment in 語音朗讀設定, which is built from the same list + bottom-bar shell.
-            .scrollContentBackground(.hidden)
-            .onChange(of: scrollTargetId) { _, target in
-                guard let target else { return }
-                withAnimation(reduceMotion ? nil : DSAnimation.standard) {
-                    proxy.scrollTo(target, anchor: .center)
-                }
-                scrollTargetId = nil
             }
         }
-    }
-
-    /// Only the row modifiers live here — the row itself is `BookSourceRow`, a separate
-    /// `View` struct so `List` defers building its menus and rotor actions until the row
-    /// scrolls in. See the note at the top of `BookSourceRowViews.swift`.
-    private func sourceRowListEntry(
-        _ source: BookSource, actions: BookSourceRowActions
-    ) -> some View {
-        BookSourceRow(
-            source: source,
-            isSelected: selectedIds.contains(source.id),
-            pin: store.pinRecord(for: source.id)?.position,
-            health: healthChecker.healthById[source.id],
-            defaultGroupName: defaultGroupName,
-            actions: actions
-        )
-        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-        .listRowSeparator(.visible)
-        .interfaceSectionSurface()
+        // Scroll under the navigation and search bars like a `List` does; the collection
+        // view insets its content by the safe area it now overlaps.
+        .ignoresSafeArea(.container, edges: .top)
     }
 
     // MARK: - Row & Group Actions
@@ -679,7 +629,7 @@ struct BookSourceListView: View {
     /// a handful of closure retains instead of reaching back into this view's state.
     private var rowActions: BookSourceRowActions {
         BookSourceRowActions(
-            toggleSelection: { self.toggleSelection($0) },
+            toggleSelection: { self.model.toggleSelection($0) },
             toggleEnabled: { self.store.toggle(id: $0) },
             showInfo: { self.infoSource = $0 },
             test: { self.presentCheckOptions(for: [$0]) },
@@ -695,7 +645,7 @@ struct BookSourceListView: View {
             pinToBottom: { self.pinSourceToBottom($0) },
             unpin: { self.unpinSource($0, announcement: $1) },
             delete: { source in
-                self.selectedIds.remove(source.id)
+                self.model.deselect([source.id])
                 self.store.delete(id: source.id)
             }
         )
@@ -703,24 +653,19 @@ struct BookSourceListView: View {
 
     private var groupActions: BookSourceGroupActions {
         BookSourceGroupActions(
-            toggleExpansion: { self.toggleGroupExpansion($0) },
+            toggleExpansion: { self.model.toggleExpansion($0) },
             rename: { self.beginRenamingGroup($0) },
             pickMergeTarget: { self.beginPickingMergeTarget(for: $0) },
             setEnabled: { self.store.setEnabledByUser(ids: $0, enabled: $1) },
-            select: { self.selectedIds.formUnion($0) },
+            select: { self.model.select($0) },
             copyToPasteboard: { self.copyGroupToPasteboard($0) },
             export: { self.pendingExport = $0 },
             delete: { group in
                 self.deletingGroup = PendingGroupAction(
                     id: group.id, name: group.name, sourceIds: group.sourceIds)
-            }
+            },
+            resolveSources: { self.model.sources(for: $0) }
         )
-    }
-
-    private func toggleGroupExpansion(_ id: String) {
-        withAnimation(reduceMotion ? nil : DSAnimation.standard) {
-            groupExpansion.toggle(id)
-        }
     }
 
     // MARK: - Group Operations
@@ -732,7 +677,8 @@ struct BookSourceListView: View {
         groupNaming = PendingGroupNaming(
             id: group.id,
             title: localized("重命名分組"),
-            subtitle: group.name + " · \(group.sources.count) " + localized("個書源"),
+            subtitle: String(
+                format: localized("%1$@ · %2$d 個書源"), group.name, group.sourceIDs.count),
             sourceIds: group.sourceIds,
             currentName: group.name
         )
@@ -783,7 +729,8 @@ struct BookSourceListView: View {
         groupPicking = PendingGroupPick(
             id: group.id,
             title: localized("合併到其他分組"),
-            subtitle: group.name + " · \(group.sources.count) " + localized("個書源"),
+            subtitle: String(
+                format: localized("%1$@ · %2$d 個書源"), group.name, group.sourceIDs.count),
             sourceIds: group.sourceIds,
             candidates: groupCandidates(excluding: group.name),
             excluded: group.name,
@@ -801,47 +748,47 @@ struct BookSourceListView: View {
     /// Single write path for 重命名分組 and 合併到其他分組. The built-in default group has no
     /// stored name, so landing there means clearing `bookSourceGroup`.
     private func applyGroupName(_ name: String, to ids: Set<UUID>) {
-        withAnimation(reduceMotion ? nil : DSAnimation.standard) {
-            store.setGroup(name == defaultGroupName ? "" : name, ids: ids)
-        }
+        model.animateNextLibraryChange()
+        store.setGroup(name == defaultGroupName ? "" : name, ids: ids)
     }
 
     private func copyGroupToPasteboard(_ group: BookSourceRowGroup) {
-        let json = store.exportToJSON(ids: Array(group.sourceIds))
+        let json = store.exportToJSON(ids: group.sourceIDs)
         UIPasteboard.general.string = json
         withAnimation {
-            importSuccess =
-                localized("已複製") + " \(group.sources.count) " + localized("個書源到剪貼簿")
+            importSuccess = String(
+                format: localized("已複製 %d 個書源到剪貼簿"), group.sourceIDs.count)
         }
     }
 
     private func deleteGroup(_ pending: PendingGroupAction) {
-        selectedIds.subtract(pending.sourceIds)
-        withAnimation(reduceMotion ? nil : DSAnimation.standard) {
-            // Discard the removed count explicitly: without it the closure's implicit
-            // return makes `withAnimation` itself yield a value nobody reads.
-            _ = store.delete(ids: pending.sourceIds)
-        }
+        model.deselect(pending.sourceIds)
+        model.animateNextLibraryChange()
+        // Discard the removed count explicitly: the result is only for callers that report it.
+        _ = store.delete(ids: pending.sourceIds)
     }
 
     // MARK: - Bottom Toolbar
+
+    /// 全選 (本頁已選/本頁總數): every count and action here is scoped to the current page —
+    /// 全部／抓取異常／正文異常 plus the search text. 全選 on 抓取異常 used to select the whole
+    /// library, one tap away from deleting all of it.
     private var bottomToolbar: some View {
         HStack(spacing: 0) {
             Button {
-                toggleSelectAll()
+                model.toggleSelectAll()
             } label: {
                 HStack(spacing: 6) {
                     Image(
-                        systemName: selectedIds.count == filteredSources.count
-                            && !filteredSources.isEmpty
+                        systemName: model.isPageFullySelected
                             ? "checkmark.square.fill" : "square"
                     )
                     .font(DSFont.fixed(size: 18))
                     .foregroundColor(
-                        selectedIds.count == filteredSources.count && !filteredSources.isEmpty
+                        model.isPageFullySelected
                             ? DSColor.accent : Color(UIColor.systemGray3))
                     .accessibilityHidden(true)
-                    Text(localized("全選") + "(\(selectedIds.count)/\(store.sources.count))")
+                    Text(localized("全選") + "(\(model.pageSelectedCount)/\(model.pageCount))")
                         .font(DSFont.fixed(size: 13))
                         .foregroundColor(DSColor.textPrimary)
                 }
@@ -849,12 +796,12 @@ struct BookSourceListView: View {
             .buttonStyle(.plain)
             .padding(.leading, 16)
             .accessibilityLabel(localized("全選"))
-            .accessibilityValue("\(selectedIds.count)/\(store.sources.count)")
+            .accessibilityValue("\(model.pageSelectedCount)/\(model.pageCount)")
 
             Spacer()
 
             Button {
-                invertSelection()
+                model.invertSelection()
             } label: {
                 Text(localized("反選"))
                     .font(DSFont.fixed(size: 13))
@@ -868,20 +815,20 @@ struct BookSourceListView: View {
             Spacer().frame(width: 10)
 
             Button {
-                if !selectedIds.isEmpty {
+                if !model.selectedIDs.isEmpty {
                     showDeleteConfirm = true
                 }
             } label: {
                 Text(localized("刪除"))
                     .font(DSFont.fixed(size: 13))
-                    .foregroundColor(selectedIds.isEmpty ? .secondary : .red)
+                    .foregroundColor(model.selectedIDs.isEmpty ? .secondary : .red)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 7)
                     .background(Color(UIColor.systemGray5))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(.plain)
-            .disabled(selectedIds.isEmpty)
+            .disabled(model.selectedIDs.isEmpty)
 
             Spacer().frame(width: 10)
 
@@ -891,13 +838,13 @@ struct BookSourceListView: View {
                 } label: {
                     Label(localized("啟用選中"), systemImage: "checkmark.circle")
                 }
-                .disabled(selectedIds.isEmpty)
+                .disabled(model.selectedIDs.isEmpty)
                 Button {
                     disableSelected()
                 } label: {
                     Label(localized("停用選中"), systemImage: "xmark.circle")
                 }
-                .disabled(selectedIds.isEmpty)
+                .disabled(model.selectedIDs.isEmpty)
                 Divider()
                 Button {
                     presentCheckOptions()
@@ -939,63 +886,38 @@ struct BookSourceListView: View {
     /// view and announce the outcome for VoiceOver (the merged row can't show its new
     /// position on its own).
     private func pinSourceToTop(_ source: BookSource) {
-        withAnimation(reduceMotion ? nil : DSAnimation.standard) {
-            store.pinToTop(id: source.id)
-        }
-        scrollTargetId = source.id
+        model.animateNextLibraryChange()
+        model.revealAfterNextRebuild(source.id)
+        store.pinToTop(id: source.id)
         UIAccessibility.post(notification: .announcement, argument: localized("已置頂"))
     }
 
     private func pinSourceToBottom(_ source: BookSource) {
-        withAnimation(reduceMotion ? nil : DSAnimation.standard) {
-            store.pinToBottom(id: source.id)
-        }
-        scrollTargetId = source.id
+        model.animateNextLibraryChange()
+        model.revealAfterNextRebuild(source.id)
+        store.pinToBottom(id: source.id)
         UIAccessibility.post(notification: .announcement, argument: localized("已置底"))
     }
 
     private func unpinSource(_ source: BookSource, announcement: String) {
-        withAnimation(reduceMotion ? nil : DSAnimation.standard) {
-            store.unpin(id: source.id)
-        }
-        scrollTargetId = source.id
+        model.animateNextLibraryChange()
+        model.revealAfterNextRebuild(source.id)
+        store.unpin(id: source.id)
         UIAccessibility.post(notification: .announcement, argument: announcement)
     }
 
-    private func toggleSelection(_ id: UUID) {
-        if selectedIds.contains(id) {
-            selectedIds.remove(id)
-        } else {
-            selectedIds.insert(id)
-        }
-    }
-
-    private func toggleSelectAll() {
-        let allIds = Set(filteredSources.map { $0.id })
-        if selectedIds == allIds {
-            selectedIds.removeAll()
-        } else {
-            selectedIds = allIds
-        }
-    }
-
-    private func invertSelection() {
-        let allIds = Set(filteredSources.map { $0.id })
-        selectedIds = allIds.subtracting(selectedIds)
-    }
-
     private func deleteSelected() {
-        let idsToDelete = selectedIds
-        selectedIds.removeAll()
+        let idsToDelete = model.selectedIDs
+        model.clearSelection()
         store.delete(ids: idsToDelete)
     }
 
     private func enableSelected() {
-        store.setEnabledByUser(ids: selectedIds, enabled: true)
+        store.setEnabledByUser(ids: model.selectedIDs, enabled: true)
     }
 
     private func disableSelected() {
-        store.setEnabledByUser(ids: selectedIds, enabled: false)
+        store.setEnabledByUser(ids: model.selectedIDs, enabled: false)
     }
 
     private func presentCheckOptions() {
@@ -1005,8 +927,14 @@ struct BookSourceListView: View {
     /// 測試書源 for an explicit set — one row's menu, or the toolbar's selection/enabled set.
     private func presentCheckOptions(for sources: [BookSource]) {
         guard !sources.isEmpty else { return }
-        pendingCheckSources = sources
-        showCheckOptions = true
+        confirmedCheck = nil
+        pendingCheck = PendingSourceCheck(sources: sources)
+    }
+
+    private func startConfirmedCheck() {
+        guard let confirmed = confirmedCheck else { return }
+        confirmedCheck = nil
+        startCheck(with: confirmed.policy, sources: confirmed.sources)
     }
 
     private func startCheck(with policy: BookSourceCheckPolicy, sources: [BookSource]) {
@@ -1027,7 +955,7 @@ struct BookSourceListView: View {
         Task {
             await healthChecker.runAll()
             if !showSourceCheck {
-                let passed = healthChecker.items.filter { $0.overallPass }.count
+                let passed = healthChecker.passedCount
                 var msg = "\(localized("驗證完成"))：\(passed)/\(healthChecker.items.count) \(localized("通過"))"
                 if let summary = healthChecker.lastSummary {
                     msg += "，\(summary)"
@@ -1046,15 +974,21 @@ struct BookSourceListView: View {
     }
 
     private func copySelectedToPasteboard() {
-        let json = store.exportToJSON(ids: Array(selectedIds))
+        let json = store.exportToJSON(ids: Array(model.selectedIDs))
         UIPasteboard.general.string = json
-        withAnimation { importSuccess = localized("已複製") + " \(selectedIds.count) " + localized("個書源到剪貼簿") }
+        withAnimation {
+            importSuccess = String(
+                format: localized("已複製 %d 個書源到剪貼簿"), model.selectedIDs.count)
+        }
     }
 
     private func copyAllToPasteboard() {
         let json = store.exportToJSON()
         UIPasteboard.general.string = json
-        withAnimation { importSuccess = localized("已複製全部") + " \(store.sources.count) " + localized("個書源到剪貼簿") }
+        withAnimation {
+            importSuccess = String(
+                format: localized("已複製全部 %d 個書源到剪貼簿"), store.sources.count)
+        }
     }
 
     // MARK: - Empty State
@@ -1195,12 +1129,7 @@ struct BookSourceListView: View {
 
     private func doImportData(_ data: Data, ext: String) {
         do {
-            let count = try store.importFromData(data, fileExtension: ext)
-            withAnimation {
-                importSuccess = localized("成功匯入") + " \(count) " + localized("個書源")
-                importJSON = ""
-                showImport = false
-            }
+            queueImportReview(try store.parseForImport(data: data, fileExtension: ext))
         } catch {
             withAnimation { importError = error.localizedDescription }
         }
@@ -1210,11 +1139,47 @@ struct BookSourceListView: View {
         let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         do {
-            let count = try store.importFromJSON(trimmed)
+            queueImportReview(try store.parseForImport(json: trimmed))
+        } catch {
+            withAnimation { importError = error.localizedDescription }
+        }
+    }
+
+    // MARK: - Import Review
+
+    /// Nothing is written until the user confirms: every manual route parses, then shows the
+    /// confirmation list. When a sheet is still on screen the list has to wait for its real
+    /// `onDismiss` — presenting on the frame the previous sheet dismisses is unreliable, the
+    /// same constraint 書源驗證 works around above.
+    private func queueImportReview(_ sources: [BookSource]) {
+        importJSON = ""
+        if showImport || showNetworkImport {
+            queuedImportSources = sources
+            showImport = false
+            showNetworkImport = false
+        } else {
+            importCoordinator.present(sources: sources)
+        }
+    }
+
+    private func presentQueuedImportReview() {
+        guard let sources = queuedImportSources else { return }
+        queuedImportSources = nil
+        importCoordinator.present(sources: sources)
+    }
+
+    /// The import sheet dismisses for two different reasons — the user picked 從文件選取, or a
+    /// parsed pack is waiting for review. Only one is ever pending.
+    private func handleImportSheetDismissal() {
+        presentBookSourceFileImporterAfterSheetDismissal()
+        presentQueuedImportReview()
+    }
+
+    private func commitImportReview() {
+        do {
+            let count = try importCoordinator.confirmImport()
             withAnimation {
-                importSuccess = localized("成功匯入") + " \(count) " + localized("個書源")
-                importJSON = ""
-                showImport = false
+                importSuccess = String(format: localized("成功匯入 %d 個書源"), count)
             }
         } catch {
             withAnimation { importError = error.localizedDescription }
@@ -1295,8 +1260,8 @@ struct BookSourceListView: View {
                     withAnimation { importError = localized("無法解析伺服器回應") }
                     return
                 }
-                showNetworkImport = false
                 importURLString = ""
+                // `queueImportReview` closes this sheet and sequences the review list.
                 doImport(text)
             }
         }.resume()
@@ -1317,8 +1282,7 @@ struct BookSourceListView: View {
             return
         }
         do {
-            let count = try store.importFromJSON(trimmed)
-            withAnimation { importSuccess = localized("成功匯入") + " \(count) " + localized("個書源") }
+            queueImportReview(try store.parseForImport(json: trimmed))
         } catch {
             withAnimation { importError = error.localizedDescription }
         }

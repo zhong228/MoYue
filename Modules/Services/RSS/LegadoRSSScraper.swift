@@ -22,14 +22,14 @@ enum LegadoRSSScraper {
 
         let js = LegadoSortURLParser.jsBody(raw) ?? ""
         let sourceURL = source.url
-        let evaluated: String? = await Task.detached(priority: .userInitiated) {
+        let evaluated: String? = await SourceScriptThread.run {
             let jsEngine = JSCoreEngine()
             wireNetworkHandler(jsEngine)
             return jsEngine.evaluateIsolated(js, bindings: [
                 "baseUrl": sourceURL,
                 "baseURL": sourceURL
             ])
-        }.value
+        }
         return LegadoSortURLParser.entries(from: evaluated, fallbackURL: source.url)
     }
 
@@ -45,15 +45,19 @@ enum LegadoRSSScraper {
         let jsEngine = JSCoreEngine()
         wireNetworkHandler(jsEngine)
 
-        let analyzeUrl = AnalyzeUrl(
-            ruleUrl: entryURL,
-            page: page,
-            sourceHeader: source.header,
-            baseUrl: source.url,
-            jsEvaluator: { [weak jsEngine] js, bindings in
-                jsEngine?.evaluateIsolated(js, bindings: bindings)
-            }
-        )
+        // The URL and the rules run the source's JS: on `SourceScriptThread`, with only the
+        // network round-trip in between here.
+        let analyzeUrl = await SourceScriptThread.run { [jsEngine] in
+            AnalyzeUrl(
+                ruleUrl: entryURL,
+                page: page,
+                sourceHeader: source.header,
+                baseUrl: source.url,
+                jsEvaluator: { [weak jsEngine] js, bindings in
+                    jsEngine?.evaluateIsolated(js, bindings: bindings)
+                }
+            )
+        }
 
         let (body, finalURL) = try await fetchBody(
             analyzeUrl: analyzeUrl,
@@ -66,7 +70,20 @@ enum LegadoRSSScraper {
             reverse = true
             listRule.removeFirst()
         }
+        let articlesRule = listRule
+        let reversesArticles = reverse
+        return try await SourceScriptThread.run {
+            try parseArticles(
+                body: body, finalURL: finalURL, listRule: articlesRule,
+                reverse: reversesArticles, source: source, jsEngine: jsEngine
+            )
+        }
+    }
 
+    private static func parseArticles(
+        body: String, finalURL: String, listRule: String,
+        reverse: Bool, source: RSSSource, jsEngine: JSCoreEngine
+    ) throws -> [RSSItem] {
         let engine = ModernRuleEngine()
         engine.jsEvaluator = { [weak engine, weak jsEngine] jsCode, prevResult in
             guard let engine, let jsEngine else { return nil }
@@ -151,16 +168,25 @@ enum LegadoRSSScraper {
         let jsEngine = JSCoreEngine()
         wireNetworkHandler(jsEngine)
 
-        let analyzeUrl = AnalyzeUrl(
-            ruleUrl: normalizedRequestURL(articleLink),
-            sourceHeader: source.header,
-            baseUrl: source.url,
-            jsEvaluator: { [weak jsEngine] js, bindings in
-                jsEngine?.evaluateIsolated(js, bindings: bindings)
-            }
-        )
+        let analyzeUrl = await SourceScriptThread.run { [jsEngine] in
+            AnalyzeUrl(
+                ruleUrl: normalizedRequestURL(articleLink),
+                sourceHeader: source.header,
+                baseUrl: source.url,
+                jsEvaluator: { [weak jsEngine] js, bindings in
+                    jsEngine?.evaluateIsolated(js, bindings: bindings)
+                }
+            )
+        }
         let (body, finalURL) = try await fetchBody(analyzeUrl: analyzeUrl, headerJSON: source.header)
+        return await SourceScriptThread.run {
+            articleContent(body: body, finalURL: finalURL, contentRule: contentRule, jsEngine: jsEngine)
+        }
+    }
 
+    private static func articleContent(
+        body: String, finalURL: String, contentRule: String, jsEngine: JSCoreEngine
+    ) -> String? {
         let engine = ModernRuleEngine()
         engine.jsEvaluator = { [weak engine, weak jsEngine] jsCode, prevResult in
             guard let engine, let jsEngine else { return nil }
@@ -235,47 +261,16 @@ enum LegadoRSSScraper {
             throw ScraperError.httpError
         }
 
-        guard let body = decodeBody(data, charsetOption: analyzeUrl.charset, response: response) else {
+        // The book sources' decoder, as Legado reads RSS through the same `getStrResponse`:
+        // the `charset` option decides when present; otherwise the page's charset is detected
+        // (header, `<meta>`, GBK/Big5 scoring) rather than tried as UTF-8 then GBK.
+        guard let body = HTMLResponseDecoder.decode(
+            data: data, response: response, declaredCharset: analyzeUrl.charset
+        ) else {
             throw ScraperError.encodingError
         }
         let finalURL = (response.url ?? requestURL).absoluteString
         return (body, finalURL)
-    }
-
-    /// Decode response data: rule charset option → HTTP charset → UTF-8 → GB18030.
-    static func decodeBody(_ data: Data, charsetOption: String?, response: URLResponse?) -> String? {
-        if let charset = charsetOption, !charset.isEmpty {
-            if let s = String(data: data, encoding: encodingFromCharset(charset)) { return s }
-        }
-        if let textEncodingName = response?.textEncodingName {
-            let cfEncoding = CFStringConvertIANACharSetNameToEncoding(textEncodingName as CFString)
-            if cfEncoding != kCFStringEncodingInvalidId {
-                let encoding = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(cfEncoding))
-                if let s = String(data: data, encoding: encoding) { return s }
-            }
-        }
-        if let s = String(data: data, encoding: .utf8) { return s }
-        if let s = String(data: data, encoding: encodingFromCharset("gbk")) { return s }
-        return nil
-    }
-
-    private static func encodingFromCharset(_ charset: String) -> String.Encoding {
-        switch charset.lowercased() {
-        case "gbk", "gb2312", "gb18030":
-            return String.Encoding(
-                rawValue: CFStringConvertEncodingToNSStringEncoding(
-                    CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
-                )
-            )
-        case "big5":
-            return String.Encoding(
-                rawValue: CFStringConvertEncodingToNSStringEncoding(
-                    CFStringEncoding(CFStringEncodings.big5.rawValue)
-                )
-            )
-        default:
-            return .utf8
-        }
     }
 
     // MARK: - Helpers

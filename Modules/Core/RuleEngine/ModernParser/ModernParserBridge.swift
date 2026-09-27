@@ -77,6 +77,11 @@ class ModernParserBridge {
 
     private let loginManager: LoginManager
     private let runtimeStateStore: BookSourceRuntimeStateStore
+    /// Where the source's own JS requests go (`java.ajax`, `java.connect`, …). Production
+    /// shares `LegadoJSBridge.requestSession`; a test hands in a session whose configuration
+    /// carries its URLProtocol, because only `URLSession.shared` consults
+    /// `URLProtocol.registerClass`.
+    private let requestSession: URLSession
     let sourceRuleData: BookSourceRuleData
     private var runtimeBookScope: RuleData?
     private var runtimeChapterScope: RuleData?
@@ -88,10 +93,11 @@ class ModernParserBridge {
 
     // MARK: - Init
 
-    init(source: BookSource) {
+    init(source: BookSource, requestSession: URLSession = LegadoJSBridge.requestSession) {
         self.sourceRuleData = BookSourceRuleData(source: source)
         self.loginManager = LoginManager.shared
         self.runtimeStateStore = BookSourceRuntimeStateStore.shared
+        self.requestSession = requestSession
         // No JSContext here on purpose — see `jsEngine`.
     }
 
@@ -166,15 +172,11 @@ class ModernParserBridge {
     }
 
     /// Resolve authentication after the source's click action has finished, using
-    /// the same runtime and header precedence as chapter/JS network requests.
+    /// the same runtime and header precedence as chapter/JS network requests. One
+    /// builder for every page a source opens: `java.startBrowserAwait` uses it too.
     func sourceBrowserRequest(urlString: String) -> URLRequest? {
-        guard let url = URL(string: urlString),
-              let scheme = url.scheme?.lowercased(),
-              ["http", "https"].contains(scheme) else { return nil }
         evaluateJsLibIfNeeded()
-        var request = URLRequest(url: url)
-        applySourceAuthentication(to: &request)
-        return request
+        return jsEngine.sourceBrowserRequest(urlString: urlString)
     }
 
     private func applySourceAuthentication(to request: inout URLRequest) {
@@ -276,6 +278,7 @@ class ModernParserBridge {
     private func wireJSEngine(_ engine: JSCoreEngine) {
         engine.bookSource = sourceRuleData.source
         let sourceName = sourceRuleData.source.bookSourceName
+        let requestSession = self.requestSession
 
         engine.errorHandler = { [weak self] msg, script in
             self?.debugObserver?(.jsExecuted(
@@ -515,16 +518,18 @@ class ModernParserBridge {
                     ownsReviewRequest = true
                 }
             }
-            let task = LegadoJSBridge.requestSession.dataTask(with: request) { data, response, error in
+            let task = requestSession.dataTask(with: request) { data, response, error in
                 if let httpResponse = response as? HTTPURLResponse {
                     responseStatusCode = httpResponse.statusCode
                     responseFinalURL = httpResponse.url?.absoluteString
                 }
                 responseError = error
                 if let data {
-                    let encoding = Self.encodingFromCharset(analyzeUrl.charset)
-                    result = String(data: data, encoding: encoding)
-                        ?? String(data: data, encoding: .utf8)
+                    // The same decoder as every other response: the `charset` option decides
+                    // when present; otherwise the page's charset is detected, not assumed UTF-8.
+                    result = HTMLResponseDecoder.decode(
+                        data: data, response: response, declaredCharset: analyzeUrl.charset
+                    )
                 }
                 sem.signal()
             }
@@ -676,7 +681,7 @@ class ModernParserBridge {
             // Pool at 16/host: this handler is ALWAYS set for the online reader, so plain 段評
             // ajaxAll requests land here — URLSession.shared would re-cap them at 6/host (why the
             // ajaxAll throttle raise alone left `⏱ chapter.jsNet` unchanged).
-            let task = LegadoJSBridge.requestSession.dataTask(with: request) { data, response, error in
+            let task = requestSession.dataTask(with: request) { data, response, error in
                 statusCode = (response as? HTTPURLResponse)?.statusCode
                 transportError = error
                 responseResult = LegadoHTTPResult.make(request: request, data: data, response: response)
@@ -798,7 +803,7 @@ class ModernParserBridge {
         }
 
         let started = ProcessInfo.processInfo.systemUptime
-        let task = LegadoJSBridge.requestSession.dataTask(with: request) { data, response, _ in
+        let task = requestSession.dataTask(with: request) { data, response, _ in
             let statusCode = (response as? HTTPURLResponse)?.statusCode
             let body = data.flatMap { String(data: $0, encoding: .utf8) }
             let usable = statusCode.map({ (200..<300).contains($0) }) == true
@@ -965,7 +970,7 @@ class ModernParserBridge {
     /// Presents URLs that source JS opens via `java.showBrowser` / `java.startBrowser`.
     /// Reading a 段評 bubble's click action means running the source's JS and seeing where it
     /// wants to send the user, so this has to be reachable from outside the parsing pipeline.
-    var browserPresentHandler: ((String, String, @escaping (String?) -> Void) -> Void)? {
+    var browserPresentHandler: ((SourceBrowserRequest, @escaping (String?) -> Void) -> Void)? {
         get { jsEngine.browserPresentHandler }
         set { jsEngine.browserPresentHandler = newValue }
     }
@@ -1638,7 +1643,9 @@ class ModernParserBridge {
             "搜索参数": Self.searchParamsPreview(from: finalUrl),
         ], hyp: "S1")
         // #endregion
-        return try parseSearchResults(html: body, baseURL: finalUrl, source: source)
+        return try await SourceScriptThread.run {
+            try self.parseSearchResults(html: body, baseURL: finalUrl, source: source)
+        }
     }
 
     func searchBooksStreaming(
@@ -1674,7 +1681,10 @@ class ModernParserBridge {
             return (books, true)
         }
 
-        return (try parseSearchResults(html: body, baseURL: finalUrl, source: source), false)
+        let books = try await SourceScriptThread.run {
+            try self.parseSearchResults(html: body, baseURL: finalUrl, source: source)
+        }
+        return (books, false)
     }
 
     private struct AggregateSearchPlan {
@@ -1751,7 +1761,9 @@ class ModernParserBridge {
         onBatch: @escaping @Sendable ([OnlineBook]) async -> Void
     ) async -> [OnlineBook] {
         let maxConcurrentSubsources = min(4, plan.sourceKeys.count)
-        let pool = AggregateBridgePool(source: source, observer: debugObserver)
+        let pool = AggregateBridgePool(
+            source: source, observer: debugObserver, requestSession: requestSession
+        )
         var allBooks: [OnlineBook] = []
 
         await withTaskGroup(of: [OnlineBook].self) { group in
@@ -1768,12 +1780,14 @@ class ModernParserBridge {
 
                 group.addTask {
                     guard !Task.isCancelled else { return [] }
-                    return pool.withBridge { bridge in
-                        (try? bridge.parseSearchResults(
-                            html: body,
-                            baseURL: baseURL,
-                            source: source
-                        )) ?? []
+                    return await SourceScriptThread.run {
+                        pool.withBridge { bridge in
+                            (try? bridge.parseSearchResults(
+                                html: body,
+                                baseURL: baseURL,
+                                source: source
+                            )) ?? []
+                        }
                     }
                 }
             }
@@ -1811,12 +1825,14 @@ class ModernParserBridge {
     private final class AggregateBridgePool: @unchecked Sendable {
         private let source: BookSource
         private let observer: ((RuleDebugEvent) -> Void)?
+        private let requestSession: URLSession
         private let lock = NSLock()
         private var idle: [ModernParserBridge] = []
 
-        init(source: BookSource, observer: ((RuleDebugEvent) -> Void)?) {
+        init(source: BookSource, observer: ((RuleDebugEvent) -> Void)?, requestSession: URLSession) {
             self.source = source
             self.observer = observer
+            self.requestSession = requestSession
         }
 
         func withBridge<T>(_ body: (ModernParserBridge) -> T) -> T {
@@ -1830,7 +1846,7 @@ class ModernParserBridge {
                 // Built outside the lock: construction can stand up a JSContext, and
                 // holding the lock through it would serialize the very lanes this
                 // pool exists to keep parallel.
-                let fresh = ModernParserBridge(source: source)
+                let fresh = ModernParserBridge(source: source, requestSession: requestSession)
                 fresh.debugObserver = observer
                 bridge = fresh
             }
@@ -1902,23 +1918,25 @@ class ModernParserBridge {
     func getBookInfo(url: String) async throws -> OnlineBook {
         let source = sourceRuleData.source
         let (body, finalUrl) = try await fetch(ruleUrl: url)
-        return try parseBookInfo(
-            html: body, bookUrl: url, baseURL: finalUrl, source: source
-        )
+        return try await SourceScriptThread.run {
+            try self.parseBookInfo(html: body, bookUrl: url, baseURL: finalUrl, source: source)
+        }
     }
 
     func getChapterList(url: String) async throws -> [OnlineChapterRef] {
         let source = sourceRuleData.source
         let (body, finalUrl) = try await fetch(ruleUrl: url)
-        return try parseTOC(html: body, baseURL: finalUrl, source: source)
+        return try await SourceScriptThread.run {
+            try self.parseTOC(html: body, baseURL: finalUrl, source: source)
+        }
     }
 
     func getContent(url: String) async throws -> String {
         let source = sourceRuleData.source
         let (body, finalUrl) = try await fetch(ruleUrl: url)
-        let payload = try parseChapterResult(
-            html: body, baseURL: finalUrl, source: source
-        )
+        let payload = try await SourceScriptThread.run {
+            try self.parseChapterResult(html: body, baseURL: finalUrl, source: source)
+        }
         return payload.content
     }
 
@@ -2000,6 +2018,11 @@ class ModernParserBridge {
     /// Mirrors Legado's exploreKinds(): JS may produce a rule string, JSON is
     /// decoded directly, and plain text is split into title::url kinds.
     func getExploreItems(page: Int = 1) async -> [DiscoverItem] {
+        await SourceScriptThread.run { self.exploreItems(page: page) }
+    }
+
+    /// `getExploreItems`' body: the explore rule — often JS — evaluated synchronously.
+    private func exploreItems(page: Int) -> [DiscoverItem] {
         ensureCloudSettingsIfNeeded()
         let source = sourceRuleData.source
         let rawExploreUrl = source.exploreUrl.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2362,17 +2385,26 @@ class ModernParserBridge {
 
     // MARK: - Network fetch using AnalyzeUrl
 
-    func applyLoginCheck(html: String, baseURL: String) -> String {
+    /// Legado `loginCheckJs` over one response, status and headers included. Every stage's
+    /// first request goes through it whatever its status — a source spots its login wall or
+    /// its Cloudflare page here and may hand back another response (for instance the one
+    /// `java.startBrowserAwait` fetched once the check was passed), which the stage then uses.
+    func applyLoginCheck(to response: LegadoStrResponse) -> LegadoStrResponse {
         let js = sourceRuleData.source.loginCheckJs
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !js.isEmpty else { return html }
+        guard !js.isEmpty else { return response }
         evaluateJsLibIfNeeded()
-        let response = LegadoStrResponse(url: baseURL, body: html)
         return jsEngine.evaluateResponseScript(
             js,
             response: response,
-            bindings: ["baseUrl": baseURL, "baseURL": baseURL]
-        ).body()
+            bindings: ["baseUrl": response.url, "baseURL": response.url]
+        )
+    }
+
+    /// `applyLoginCheck(to:)` for a body with no status to report — a page rendered in a
+    /// WebView — which the check sees as a 200.
+    func applyLoginCheck(html: String, baseURL: String) -> String {
+        applyLoginCheck(to: LegadoStrResponse(url: baseURL, body: html)).body()
     }
 
     /// Prime a site cookie that a source's discover endpoints read inline but never set themselves.
@@ -2432,6 +2464,68 @@ class ModernParserBridge {
     func fetch(
         ruleUrl: String, key: String? = nil, page: Int? = nil
     ) async throws -> (String, String) {
+        // Building the request runs source JS (jsLib, cloud settings, `@js:` URLs and
+        // templates) and so does reading the response (`loginCheckJs`, `bodyJs`). Both run on
+        // `SourceScriptThread` — a script there may stop for the reader — and only the
+        // network round-trip happens here.
+        let prepared = try await SourceScriptThread.run {
+            try self.prepareFetch(ruleUrl: ruleUrl, key: key, page: page)
+        }
+        let analyzeUrl: AnalyzeUrl
+        let request: URLRequest
+        switch prepared {
+        case .dataURI(let body, let finalURL):
+            return (body, finalURL)
+        case .network(let preparedURL, let preparedRequest):
+            analyzeUrl = preparedURL
+            request = preparedRequest
+        }
+
+        let (data, response): (Data, URLResponse)
+        do {
+            // Honor the source's `concurrentRate` budget (per-source anti-ban
+            // throttle) around the actual network round-trip only.
+            (data, response) = try await SourceRateLimit.run(source: sourceRuleData.source) {
+                try await withThrowingTaskGroup(
+                    of: (Data, URLResponse).self
+                ) { group in
+                    group.addTask {
+                        try await URLSession.shared.data(for: request)
+                    }
+                    group.addTask {
+                        try await Task.sleep(nanoseconds: 30_000_000_000)
+                        throw ModernParserBridgeError.timeout
+                    }
+                    guard let result = try await group.next() else {
+                        throw CancellationError()
+                    }
+                    group.cancelAll()
+                    return result
+                }
+            }
+        } catch is ModernParserBridgeError {
+            SourceAPIErrorLog.shared.record(
+                sourceUrl: sourceRuleData.source.bookSourceUrl,
+                requestUrl: request.url?.absoluteString,
+                statusCode: nil, body: nil, timedOut: true
+            )
+            WebCrawlerDebugger.logInfo("timeout after 30s", url: request.url?.absoluteString)
+            throw ModernParserBridgeError.timeout
+        }
+
+        return try await SourceScriptThread.run {
+            try self.finishFetch(data: data, response: response, request: request, analyzeUrl: analyzeUrl)
+        }
+    }
+
+    private enum PreparedFetch {
+        /// A `data:` rule URL answers itself.
+        case dataURI(body: String, finalURL: String)
+        case network(AnalyzeUrl, URLRequest)
+    }
+
+    /// `fetch`'s script half before the network: the rule URL resolved into a request.
+    private func prepareFetch(ruleUrl: String, key: String?, page: Int?) throws -> PreparedFetch {
         // The rule URL itself can be `@js:` calling into jsLib — a 發現頁 item's url is
         // literally `@js:getApiUrl('/novel/novels', {…})`. jsLib is evaluated when the
         // bridge is built, but a JS timeout resets the engine and only the paths that ask
@@ -2468,7 +2562,7 @@ class ModernParserBridge {
                 to: Self.bodyForDataURI(analyzeUrl),
                 baseURL: finalURL
             )
-            return (body, finalURL)
+            return .dataURI(body: body, finalURL: finalURL)
         }
 
         guard var request = analyzeUrl.toURLRequest() else {
@@ -2493,41 +2587,20 @@ class ModernParserBridge {
             method: request.httpMethod ?? "GET",
             headers: request.allHTTPHeaderFields ?? [:]
         )
-        let (data, response): (Data, URLResponse)
-        do {
-            // Honor the source's `concurrentRate` budget (per-source anti-ban
-            // throttle) around the actual network round-trip only.
-            (data, response) = try await SourceRateLimit.run(source: sourceRuleData.source) {
-                try await withThrowingTaskGroup(
-                    of: (Data, URLResponse).self
-                ) { group in
-                    group.addTask {
-                        try await URLSession.shared.data(for: request)
-                    }
-                    group.addTask {
-                        try await Task.sleep(nanoseconds: 30_000_000_000)
-                        throw ModernParserBridgeError.timeout
-                    }
-                    guard let result = try await group.next() else {
-                        throw CancellationError()
-                    }
-                    group.cancelAll()
-                    return result
-                }
-            }
-        } catch is ModernParserBridgeError {
-            SourceAPIErrorLog.shared.record(
-                sourceUrl: sourceRuleData.source.bookSourceUrl,
-                requestUrl: request.url?.absoluteString,
-                statusCode: nil, body: nil, timedOut: true
-            )
-            WebCrawlerDebugger.logInfo("timeout after 30s", url: request.url?.absoluteString)
-            throw ModernParserBridgeError.timeout
-        }
+        return .network(analyzeUrl, request)
+    }
 
-        let encoding = Self.encodingFromCharset(analyzeUrl.charset)
-        let decodedBody = String(data: data, encoding: encoding)
-            ?? String(data: data, encoding: .utf8) ?? ""
+    /// `fetch`'s script half after the network: decode, `loginCheckJs`, `bodyJs`.
+    private func finishFetch(
+        data: Data, response: URLResponse, request: URLRequest, analyzeUrl: AnalyzeUrl
+    ) throws -> (String, String) {
+        // One decoder with the native path: the source's `charset` option decides when it
+        // names one, as in Legado, and otherwise the charset is detected from the header, the
+        // document and the bytes. This used to assume UTF-8 without the option, which turned
+        // every GBK page that did not name its charset into "".
+        let decodedBody = HTMLResponseDecoder.decode(
+            data: data, response: response, declaredCharset: analyzeUrl.charset
+        ) ?? ""
         let capturedResult = LegadoHTTPResult.make(request: request, data: data, response: response)
         let sourceResponse = LegadoStrResponse(result: LegadoHTTPResult(
             requestURL: capturedResult.requestURL,
@@ -2538,18 +2611,7 @@ class ModernParserBridge {
             cookies: capturedResult.cookies,
             body: decodedBody
         ))
-        let loginCheck = sourceRuleData.source.loginCheckJs
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let checkedResponse = loginCheck.isEmpty
-            ? sourceResponse
-            : jsEngine.evaluateResponseScript(
-                loginCheck,
-                response: sourceResponse,
-                bindings: [
-                    "baseUrl": sourceResponse.url,
-                    "baseURL": sourceResponse.url,
-                ]
-            )
+        let checkedResponse = applyLoginCheck(to: sourceResponse)
         let body = checkedResponse.body()
         let finalUrl = checkedResponse.url
         if sourceRuleData.source.exploreUrl.contains("_csrfToken"),
@@ -2726,20 +2788,6 @@ class ModernParserBridge {
     private static func hexPreview(_ text: String, byteLimit: Int) -> String {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return "" }
         return data.prefix(byteLimit).map { String(format: "%02x", $0) }.joined(separator: " ")
-    }
-
-    private static func encodingFromCharset(_ charset: String?) -> String.Encoding {
-        guard let charset = charset?.lowercased() else { return .utf8 }
-        switch charset {
-        case "gbk", "gb2312", "gb18030":
-            return String.Encoding(
-                rawValue: CFStringConvertEncodingToNSStringEncoding(
-                    CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
-                )
-            )
-        default:
-            return .utf8
-        }
     }
 
     private static func bodyForDataURI(_ analyzeUrl: AnalyzeUrl) -> String {

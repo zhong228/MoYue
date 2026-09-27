@@ -61,6 +61,13 @@ struct JsBridgeBrowserView: View {
     let injectedJavaScript: String
     let sourceRunHandler: ((String) async throws -> String)?
     let sourceConfigurationUpdateHandler: ((String) -> Void)?
+    /// The source's User-Agent. Legado opens a source's page with it, and Cloudflare ties
+    /// `cf_clearance` to the User-Agent that solved the challenge: cleared under any other,
+    /// the cookie is useless to the source's own requests. nil keeps `SourceWebIdentity`.
+    let userAgent: String?
+    /// Legado's `sourceVerificationEnable` (a page `java.startBrowserAwait` waits for): once
+    /// a Cloudflare challenge on the page clears, the page finishes as if ✓ were tapped.
+    let finishesWhenChallengeClears: Bool
 
     init(
         urlString: String,
@@ -71,6 +78,8 @@ struct JsBridgeBrowserView: View {
         injectedJavaScript: String = "",
         sourceRunHandler: ((String) async throws -> String)? = nil,
         sourceConfigurationUpdateHandler: ((String) -> Void)? = nil,
+        userAgent: String? = nil,
+        finishesWhenChallengeClears: Bool = false,
         onDismiss: @escaping (_ body: String?) -> Void
     ) {
         self.urlString = urlString
@@ -81,6 +90,8 @@ struct JsBridgeBrowserView: View {
         self.injectedJavaScript = injectedJavaScript
         self.sourceRunHandler = sourceRunHandler
         self.sourceConfigurationUpdateHandler = sourceConfigurationUpdateHandler
+        self.userAgent = userAgent
+        self.finishesWhenChallengeClears = finishesWhenChallengeClears
         self.onDismiss = onDismiss
     }
 
@@ -132,10 +143,7 @@ struct JsBridgeBrowserView: View {
                                 ProgressView().scaleEffect(0.85)
                             } else {
                                 Button {
-                                    isSyncing = true
-                                    bridge.syncCookiesAndDismiss? { body in
-                                        onDismiss(body)
-                                    }
+                                    confirm()
                                 } label: {
                                     Label(localized("完成"), systemImage: "checkmark")
                                         .labelStyle(.iconOnly)
@@ -144,8 +152,21 @@ struct JsBridgeBrowserView: View {
                             }
                         }
                     }
+                    .onChange(of: bridge.challengeCleared) { _, cleared in
+                        if cleared, !isSyncing { confirm() }
+                    }
             }
         }
+    }
+
+    /// ✓: keep the page's cookies and hand its HTML back.
+    private func confirm() {
+        isSyncing = true
+        guard let sync = bridge.syncCookiesAndDismiss else {
+            onDismiss(nil)
+            return
+        }
+        sync { body in onDismiss(body) }
     }
 
     private var contentView: some View {
@@ -157,9 +178,11 @@ struct JsBridgeBrowserView: View {
                 sourceRunHandler: sourceRunHandler,
                 sourceConfigurationUpdateHandler: sourceConfigurationUpdateHandler,
                 bridge: bridge,
-                initialRequest: initialRequest
+                initialRequest: initialRequest,
+                userAgent: userAgent,
+                finishesWhenChallengeClears: finishesWhenChallengeClears
             )
-                .edgesIgnoringSafeArea(hidesToolbar ? .all : .bottom)
+                .edgesIgnoringSafeArea(hidesToolbar ? .all : [])
 
             // Full-screen state until the page delivers its first content.
             switch bridge.phase {
@@ -298,6 +321,8 @@ final class JsBridgeBrowserBridge: ObservableObject {
     @Published var progress: Double = 0
     @Published var phase: Phase = .loading
     @Published var errorText: String?
+    /// A Cloudflare challenge on the page has cleared (see `finishesWhenChallengeClears`).
+    @Published var challengeCleared = false
 }
 
 // MARK: - UIViewRepresentable
@@ -310,6 +335,8 @@ struct JsBridgeBrowserRepresentable: UIViewRepresentable {
     let sourceConfigurationUpdateHandler: ((String) -> Void)?
     let bridge: JsBridgeBrowserBridge
     var initialRequest: URLRequest? = nil
+    var userAgent: String? = nil
+    var finishesWhenChallengeClears = false
 
     static let sourceJavaPromptName = SourceWebUIDelegate.sourceBridgePromptName
 
@@ -464,6 +491,7 @@ struct JsBridgeBrowserRepresentable: UIViewRepresentable {
         config.websiteDataStore = .default()
         let prefs = WKWebpagePreferences()
         prefs.allowsContentJavaScript = true
+        prefs.preferredContentMode = SourceWebIdentity.contentMode(desktop: false)
         config.defaultWebpagePreferences = prefs
         // A captcha/OAuth widget that opens itself (not from a tap) is blocked before
         // the UI delegate is ever consulted unless script-opened windows are allowed.
@@ -491,7 +519,11 @@ struct JsBridgeBrowserRepresentable: UIViewRepresentable {
         }
 
         let wv = WKWebView(frame: .zero, configuration: config)
-        wv.customUserAgent = SourceWebIdentity.phoneUserAgent
+        SourceWebIdentity.apply(desktop: false, to: wv)
+        if let userAgent {
+            wv.customUserAgent = userAgent
+        }
+        context.coordinator.finishesWhenChallengeClears = finishesWhenChallengeClears
         wv.navigationDelegate = context.coordinator
         // `uiDelegate` is weak — the Coordinator owns it. Without it the page's
         // `window.open` / `alert` / `confirm` are dropped without a trace.
@@ -547,6 +579,9 @@ struct JsBridgeBrowserRepresentable: UIViewRepresentable {
         var progressObservation: NSKeyValueObservation?
         var sourceRunHandler: ((String) async throws -> String)?
         var sourceConfigurationUpdateHandler: ((String) -> Void)?
+        var finishesWhenChallengeClears = false
+        /// A page of this navigation history was a Cloudflare challenge.
+        private(set) var sawChallenge = false
         /// Strongly held: `WKWebView.uiDelegate` is weak.
         let uiDelegate = SourceWebUIDelegate()
         let clipboardBridge = SourceWebClipboardBridge()
@@ -724,6 +759,30 @@ struct JsBridgeBrowserRepresentable: UIViewRepresentable {
                 self?.bridge?.phase = .finished
             }
             syncCookiesAndDismiss(from: webView, completion: nil)
+            if finishesWhenChallengeClears {
+                checkCloudflareChallenge(in: webView)
+            }
+        }
+
+        /// Legado-E and MD3 both ask every finished page `!!window._cf_chl_opt` — the object
+        /// Cloudflare's challenge script defines — and finish the verification on the first
+        /// page after a challenge that no longer has it.
+        private func checkCloudflareChallenge(in webView: WKWebView) {
+            webView.evaluateJavaScript("!!window._cf_chl_opt") { [weak self] result, error in
+                guard let self else { return }
+                if let error {
+                    AppLogger.parse("source page Cloudflare check failed", context: [
+                        "error": error.localizedDescription
+                    ])
+                    return
+                }
+                if (result as? Bool) == true {
+                    self.sawChallenge = true
+                } else if self.sawChallenge {
+                    self.sawChallenge = false
+                    self.bridge?.challengeCleared = true
+                }
+            }
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -779,8 +838,12 @@ struct JsBridgeBrowserRepresentable: UIViewRepresentable {
                     }
                     do {
                         let ext = sourceURL.pathExtension.isEmpty ? "json" : sourceURL.pathExtension
-                        let count = try BookSourceStore.shared.importFromData(data, fileExtension: ext)
-                        self.presentImportResult(String(format: localized("成功匯入 %d 個書源"), count), in: webView)
+                        // Parse only; the confirmation list decides what gets written.
+                        let sources = try BookSourceStore.shared.parseForImport(
+                            data: data,
+                            fileExtension: ext
+                        )
+                        self.presentImportReview(sources, in: webView)
                     } catch {
                         self.presentImportResult(error.localizedDescription, in: webView)
                     }
@@ -789,14 +852,48 @@ struct JsBridgeBrowserRepresentable: UIViewRepresentable {
         }
 
         private func presentImportResult(_ message: String, in webView: WKWebView) {
-            guard let presenter = webView.window?.rootViewController else { return }
-            var top = presenter
-            while let presented = top.presentedViewController {
-                top = presented
-            }
+            guard let top = Self.topPresenter(in: webView) else { return }
             let alert = UIAlertController(title: localized("書源導入"), message: message, preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: localized("完成"), style: .default))
             top.present(alert, animated: true)
+        }
+
+        /// Shows the import confirmation list over the in-page browser. This importer lives in
+        /// a `WKWebView` coordinator with no SwiftUI sheet host, so the list is hosted in a
+        /// UIKit controller presented from the same presenter the result alert uses.
+        private func presentImportReview(_ sources: [BookSource], in webView: WKWebView) {
+            guard let top = Self.topPresenter(in: webView) else { return }
+            // The dismiss callbacks need the controller that does not exist yet when its own
+            // `rootView` is built. The box holds it weakly, so nothing retains a cycle.
+            final class PresentedControllerBox {
+                weak var controller: UIViewController?
+            }
+            let box = PresentedControllerBox()
+            let host = UIHostingController(
+                rootView: BookSourceImportReviewHost(
+                    sources: sources,
+                    onFinish: { [weak self] count in
+                        box.controller?.dismiss(animated: true) {
+                            self?.presentImportResult(
+                                String(format: localized("成功匯入 %d 個書源"), count),
+                                in: webView
+                            )
+                        }
+                    },
+                    onCancel: { box.controller?.dismiss(animated: true) }
+                )
+            )
+            box.controller = host
+            top.present(host, animated: true)
+        }
+
+        private static func topPresenter(in webView: WKWebView) -> UIViewController? {
+            guard let root = webView.window?.rootViewController else { return nil }
+            var top = root
+            while let presented = top.presentedViewController {
+                top = presented
+            }
+            return top
         }
 
         static func onlineImportSourceURL(from url: URL) -> URL? {

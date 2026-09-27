@@ -149,19 +149,21 @@ struct BookSourceParsingPipeline {
 
     // MARK: - loginCheckJs
 
-    /// Executes Legado `loginCheckJs` against a response-shaped `result` and
-    /// returns the original or source-replaced body after its side effects.
-    func applyLoginCheck(
-        html: String,
-        baseURL: String,
-        source: BookSource
-    ) -> String {
+    /// Executes Legado `loginCheckJs` against `response` and returns the original or the
+    /// source-replaced response after its side effects.
+    func applyLoginCheck(to response: LegadoStrResponse, source: BookSource) -> LegadoStrResponse {
         // Most sources declare no loginCheckJs; skipping the session lookup and its
         // parse lock keeps them off the bridge entirely on the search hot path.
-        guard !source.loginCheckJs.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else { return html }
+        guard source.hasLoginCheckJs else { return response }
         return BookSourceSession.session(for: source).withBridge { bridge in
-            bridge.applyLoginCheck(html: html, baseURL: baseURL)
+            bridge.applyLoginCheck(to: response)
         }
+    }
+
+    /// `applyLoginCheck(to:)` for a page rendered in a WebView, which has no status to
+    /// report: the check sees it as a 200.
+    func applyLoginCheck(renderedHTML html: String, url: URL, source: BookSource) -> String {
+        guard source.hasLoginCheckJs else { return html }
+        return applyLoginCheck(to: LegadoStrResponse(url: url.absoluteString, body: html), source: source).body()
     }
 }

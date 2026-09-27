@@ -30,8 +30,7 @@ extension BookSourceFetcher {
                     method: "GET",
                     body: nil,
                     headers: referer != nil ? ["Referer": referer!] : [:],
-                    baseURL: base,
-                    allowInteractiveChallengeOn503: false
+                    baseURL: base
                 )
             } catch {
                 break

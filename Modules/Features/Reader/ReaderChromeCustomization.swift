@@ -149,6 +149,7 @@ enum ReaderChromeActionItem: String, CaseIterable, Codable, Hashable, Identifiab
     case playback
     case aiAssistant
     case translation
+    case openWebPage
 
     var id: String { rawValue }
     var storageID: String { "action.\(rawValue)" }
@@ -161,13 +162,14 @@ enum ReaderChromeActionItem: String, CaseIterable, Codable, Hashable, Identifiab
         case .playback: return "聽書"
         case .aiAssistant: return "AI 助手"
         case .translation: return "AI 翻譯"
+        case .openWebPage: return "開啟網頁"
         }
     }
 
-    /// 經典 draws only these as floating circles; AI 助手 and AI 翻譯 sit in its top
-    /// 三橫線 menu instead. 現代's book card shows every action.
+    /// 經典 draws only these as floating circles; AI 助手, AI 翻譯 and 開啟網頁 sit in its
+    /// top 三橫線 menu instead. 現代's book card shows every action.
     var isClassicCircle: Bool {
-        self != .aiAssistant && self != .translation
+        self != .aiAssistant && self != .translation && self != .openWebPage
     }
 
     var defaultSystemImage: String {
@@ -178,6 +180,7 @@ enum ReaderChromeActionItem: String, CaseIterable, Codable, Hashable, Identifiab
         case .playback: return "headphones"
         case .aiAssistant: return "sparkles"
         case .translation: return "translate"
+        case .openWebPage: return "globe"
         }
     }
 
@@ -189,6 +192,7 @@ enum ReaderChromeActionItem: String, CaseIterable, Codable, Hashable, Identifiab
         case .playback: self = .playback
         case .aiAssistant: self = .aiAssistant
         case .translation: self = .translation
+        case .openWebPage: self = .openWebPage
         }
     }
 }

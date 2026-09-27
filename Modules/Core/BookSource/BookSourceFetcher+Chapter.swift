@@ -133,19 +133,39 @@ extension BookSourceFetcher {
         // #endregion
 
         let effectiveWebViewDelay = requestSpec.webViewDelayMs > 0 ? TimeInterval(requestSpec.webViewDelayMs) / 1000.0 : nil
-        let fetchChapterHTML: @Sendable (URL, String, String?) async throws -> String = { [self] targetURL, method, body in
+        // `checksLogin`: the chapter's first page — Legado runs `loginCheckJs` on that
+        // response (`fetchStageHTML`), a WebView-rendered one included, and not on next pages.
+        let fetchChapterHTML: @Sendable (URL, String, String?, Bool) async throws -> String = {
+            [self] targetURL, method, body, checksLogin in
             func fetchViaConfiguredTransport(preferWebView: Bool) async throws -> String {
                 if preferWebView {
+                    let rendered: String
                     if hasWebJs {
-                        return try await WebViewFetcher.shared.fetchHTMLWithCustomJS(
+                        rendered = try await WebViewFetcher.shared.fetchHTMLWithCustomJS(
                             url: targetURL,
                             headers: requestHeadersSnapshot,
                             jsAfterLoad: source.ruleContent.webJs,
                             timeout: 25,
                             jsWait: effectiveWebViewDelay ?? AppConfig.webViewExplicitJSWait
                         )
+                    } else {
+                        rendered = try await Self.fetchViaWebView(url: targetURL, headers: requestHeadersSnapshot, jsWait: effectiveWebViewDelay)
                     }
-                    return try await Self.fetchViaWebView(url: targetURL, headers: requestHeadersSnapshot, jsWait: effectiveWebViewDelay)
+                    guard checksLogin else { return rendered }
+                    return await SourceScriptThread.run {
+                        self.pipeline.applyLoginCheck(renderedHTML: rendered, url: targetURL, source: source)
+                    }
+                }
+                if checksLogin {
+                    return try await self.fetchStageHTML(
+                        url: targetURL,
+                        method: method,
+                        body: body,
+                        headers: requestHeadersSnapshot,
+                        baseURL: effectiveReferer,
+                        bodyCharset: requestSpec.charset,
+                        source: source
+                    )
                 }
                 return try await self.fetchHTML(
                     url: targetURL,
@@ -184,15 +204,17 @@ extension BookSourceFetcher {
                     content: content, title: "", sourceMatched: true, isPay: ref.isPay)
             }
             do {
-                let parsed = try SourcePerfTrace.span("chapter.parse", source.bookSourceName) {
-                    try pipeline.parseChapterResult(
-                        html: html,
-                        baseURL: baseURL,
-                        source: source,
-                        runtimeVariables: runtimeBox.get(),
-                        chapterRef: ref,
-                        nextChapterURL: ref.runtimeVariables?[Self.nextChapterRuntimeVariableKey]
-                    )
+                let parsed = try await SourceScriptThread.run {
+                    try SourcePerfTrace.span("chapter.parse", source.bookSourceName) {
+                        try self.pipeline.parseChapterResult(
+                            html: html,
+                            baseURL: baseURL,
+                            source: source,
+                            runtimeVariables: runtimeBox.get(),
+                            chapterRef: ref,
+                            nextChapterURL: ref.runtimeVariables?[Self.nextChapterRuntimeVariableKey]
+                        )
+                    }
                 }
                 if let runtimeVariables = parsed.runtimeVariables, !runtimeVariables.isEmpty {
                     runtimeBox.set(runtimeVariables)
@@ -216,18 +238,20 @@ extension BookSourceFetcher {
             }
         }
         let extractNextPages: @Sendable (String, String) async -> [String] = { [self] html, baseURL in
-            self.pipeline.extractNextContentURLs(
-                html: html,
-                baseURL: baseURL,
-                source: source,
-                runtimeVariables: runtimeBox.get()
-            )
+            await SourceScriptThread.run {
+                self.pipeline.extractNextContentURLs(
+                    html: html,
+                    baseURL: baseURL,
+                    source: source,
+                    runtimeVariables: runtimeBox.get()
+                )
+            }
         }
 
         let stagedRawHTML = try await SourcePerfTrace.spanAsync(
             "chapter.network", source.bookSourceName
         ) {
-            try await fetchChapterHTML(url, requestSpec.method, requestSpec.body)
+            try await fetchChapterHTML(url, requestSpec.method, requestSpec.body, true)
         }
 
         let buildResult = try await ChapterFetcher.shared.buildChapterPackage(
@@ -243,7 +267,7 @@ extension BookSourceFetcher {
             parsePage: parsePage,
             extractNextURLs: extractNextPages
         ) { nextPageURL in
-            try await fetchChapterHTML(nextPageURL, "GET", nil)
+            try await fetchChapterHTML(nextPageURL, "GET", nil, false)
         }
 
         try saveChapterPackageToCache(
@@ -285,16 +309,18 @@ extension BookSourceFetcher {
         ) {
             try await session.bridgeForAsyncOperations.fetch(ruleUrl: ref.url)
         }
-        let parsed = try SourcePerfTrace.span("chapter.parse", source.bookSourceName) {
-            try session.withBridge { bridge in
-                try bridge.parseChapterResult(
-                    html: html,
-                    baseURL: finalUrl,
-                    source: source,
-                    runtimeVariables: ref.runtimeVariables,
-                    chapterRef: ref,
-                    nextChapterURL: ref.runtimeVariables?[Self.nextChapterRuntimeVariableKey]
-                )
+        let parsed = try await SourceScriptThread.run {
+            try SourcePerfTrace.span("chapter.parse", source.bookSourceName) {
+                try session.withBridge { bridge in
+                    try bridge.parseChapterResult(
+                        html: html,
+                        baseURL: finalUrl,
+                        source: source,
+                        runtimeVariables: ref.runtimeVariables,
+                        chapterRef: ref,
+                        nextChapterURL: ref.runtimeVariables?[Self.nextChapterRuntimeVariableKey]
+                    )
+                }
             }
         }
         let content = await ChapterFetcher.shared.resolveContent(

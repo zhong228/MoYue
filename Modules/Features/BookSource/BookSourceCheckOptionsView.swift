@@ -35,7 +35,8 @@ struct BookSourceCheckOptionsView: View {
                         Text(localized("準備驗證"))
                             .font(DSFont.title2.weight(.bold))
                         Text(
-                            "\(localized("將對")) \(sourceCount) \(localized("個書源進行五階段驗證"))"
+                            String(
+                                format: localized("將對 %d 個書源進行五階段驗證"), sourceCount)
                         )
                         .font(DSFont.subheadline)
                         .foregroundColor(DSColor.textSecondary)

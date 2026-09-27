@@ -14,6 +14,10 @@ struct ImportedTTSSource: Identifiable, Codable, Equatable {
     let jsLib: String?
     let contentType: String?
     let concurrentRate: String?
+    /// Legado `HttpTTS.lastUpdateTime`: the author-declared update stamp, in milliseconds.
+    /// Used only to tell 「更新」 from 「已有」 in the import confirmation list. `0` means the
+    /// JSON declared none — see `TTSSourceJSONParser` for what it substitutes there.
+    let lastUpdateTime: Int64
 
     init(
         name: String,
@@ -25,7 +29,8 @@ struct ImportedTTSSource: Identifiable, Codable, Equatable {
         loginCheckJs: String? = nil,
         jsLib: String? = nil,
         contentType: String? = nil,
-        concurrentRate: String? = nil
+        concurrentRate: String? = nil,
+        lastUpdateTime: Int64 = 0
     ) {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedURL = urlTemplate.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -38,6 +43,7 @@ struct ImportedTTSSource: Identifiable, Codable, Equatable {
         self.jsLib = jsLib
         self.contentType = contentType
         self.concurrentRate = concurrentRate
+        self.lastUpdateTime = lastUpdateTime
         let stableID = sourceID?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.id = stableID?.isEmpty == false ? stableID! : "\(self.name)|\(trimmedURL)"
     }
@@ -45,6 +51,28 @@ struct ImportedTTSSource: Identifiable, Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case id, name, urlTemplate, headers
         case loginUi, loginUrl, loginCheckJs, jsLib, contentType, concurrentRate
+        case lastUpdateTime
+    }
+
+    /// Hand-written so a field added after release stays readable. The persisted form is one
+    /// `[ImportedTTSSource]` blob decoded with `try?`, so a single missing key would throw and
+    /// take *every* imported voice source with it — the synthesised decoder requires each
+    /// non-optional key to be present, including ones older builds never wrote.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        urlTemplate = try container.decode(String.self, forKey: .urlTemplate)
+        headers = try container.decodeIfPresent([String: String].self, forKey: .headers) ?? [:]
+        loginUi = try container.decodeIfPresent(String.self, forKey: .loginUi)
+        loginUrl = try container.decodeIfPresent(String.self, forKey: .loginUrl)
+        loginCheckJs = try container.decodeIfPresent(String.self, forKey: .loginCheckJs)
+        jsLib = try container.decodeIfPresent(String.self, forKey: .jsLib)
+        contentType = try container.decodeIfPresent(String.self, forKey: .contentType)
+        concurrentRate = try container.decodeIfPresent(String.self, forKey: .concurrentRate)
+        // Absent in anything stored before the import confirmation list shipped. `0` reads as
+        // "no declared stamp", which is exactly what those records are.
+        lastUpdateTime = try container.decodeIfPresent(Int64.self, forKey: .lastUpdateTime) ?? 0
     }
 }
 
@@ -63,6 +91,12 @@ enum TTSSourceJSONParser {
     static func parse(data: Data) throws -> [ImportedTTSSource] {
         let root = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
         let items = root.map(sourceItems(from:)) ?? lineDelimitedItems(from: data)
+        // Legado's `HttpTTS.fromJsonDoc` defaults a missing `lastUpdateTime` to *now* rather
+        // than 0, and that default is load-bearing: a pack without update stamps would
+        // otherwise compare equal to the local copy forever and the confirmation list would
+        // mark every row 「已有」, leaving a re-imported fix unchecked and silently skipped.
+        // Read once so every source in one pack shares a stamp.
+        let parsedAt = Int64(Date().timeIntervalSince1970 * 1000)
         var seen = Set<String>()
         let sources = items.compactMap { dictionary -> ImportedTTSSource? in
             guard let url = firstString(in: dictionary, keys: ["url", "ttsUrl", "sourceUrl"]),
@@ -79,6 +113,7 @@ enum TTSSourceJSONParser {
             let jsLib = firstString(in: dictionary, keys: ["jsLib"])
             let contentType = firstString(in: dictionary, keys: ["contentType"])
             let concurrentRate = firstString(in: dictionary, keys: ["concurrentRate"])
+            let lastUpdateTime = firstInt64(in: dictionary, keys: ["lastUpdateTime"]) ?? parsedAt
             let source = ImportedTTSSource(
                 name: name,
                 urlTemplate: url,
@@ -89,7 +124,8 @@ enum TTSSourceJSONParser {
                 loginCheckJs: loginCheckJs,
                 jsLib: jsLib,
                 contentType: contentType,
-                concurrentRate: concurrentRate
+                concurrentRate: concurrentRate,
+                lastUpdateTime: lastUpdateTime
             )
             let duplicateKey = source.urlTemplate
             guard !seen.contains(duplicateKey) else { return nil }
@@ -149,6 +185,21 @@ enum TTSSourceJSONParser {
             }
             if let number = candidate as? NSNumber {
                 return number.stringValue
+            }
+        }
+        return nil
+    }
+
+    /// Reads a millisecond timestamp that a pack may spell as a number or as a string.
+    private static func firstInt64(in dictionary: [String: Any], keys: [String]) -> Int64? {
+        for key in keys {
+            guard let candidate = value(for: key, in: dictionary) else { continue }
+            if let number = candidate as? NSNumber {
+                return number.int64Value
+            }
+            if let string = candidate as? String,
+               let parsed = Int64(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                return parsed
             }
         }
         return nil
@@ -514,13 +565,16 @@ final class CustomHTTPProvider: TTSAudioProvider {
 
         var request: URLRequest
         if isJSTemplate(template) {
-            request = try buildJSRequestOrThrow(
-                template: template,
-                text: text,
-                title: title,
-                rate: rate,
-                source: activeSource
-            )
+            let jsSource = activeSource
+            request = try await SourceScriptThread.run {
+                try self.buildJSRequestOrThrow(
+                    template: template,
+                    text: text,
+                    title: title,
+                    rate: rate,
+                    source: jsSource
+                )
+            }
         } else {
             guard let r = buildRequest(template: template, text: text, title: title, rate: rate) else {
                 ttsLog("[TTS][Provider] invalid url template=\(template)")
@@ -595,7 +649,10 @@ final class CustomHTTPProvider: TTSAudioProvider {
 
         if let source, let loginCheckJs = source.loginCheckJs, !loginCheckJs.isEmpty {
             let bodyStr = String(data: data, encoding: .utf8) ?? ""
-            if let processed = evaluateLoginCheckJs(loginCheckJs, responseBody: bodyStr, response: response) {
+            let processed = await SourceScriptThread.run {
+                self.evaluateLoginCheckJs(loginCheckJs, responseBody: bodyStr, response: response)
+            }
+            if let processed {
                 ttsLog("[TTS][Provider] loginCheckJs extracted \(processed.count) bytes of audio")
                 return processed
             }

@@ -153,9 +153,9 @@ okhttp3：MediaType.parse、RequestBody.create、Request.Builder、OkHttpClient
 | 项目 | 说明 |
 | --- | --- |
 | HTML 大小上限 | 超过 **4 MB** 的网页会被截断再解析（防内存爆掉） |
-| JS 执行 | JavaScriptCore；单次求值 30 秒超时，超时重置引擎；`eval()` 保留开启（Legado 混淆 jsLib 需要）；每段 JS 结果会自动处理 `result` 包装 |
+| JS 执行 | JavaScriptCore；单次求值 30 秒超时，超时重置引擎（停在 `java.startBrowserAwait` 等用户看网页时不算）；`eval()` 保留开启（Legado 混淆 jsLib 需要）；每段 JS 结果会自动处理 `result` 包装 |
 | `setContent` | `java.setContent(content, baseUrl)` 可用，主路径照样执行 |
-| Cloudflare 挑战 | 请求遇 403/503/429 且带 CF 特征时，会跳出人机验证页，通过后自动重试一次 |
+| Cloudflare 挑战 | 与 Legado 相同：网络请求不会自己跳验证页，响应照原样交给书源。书源 JS 调用 `java.startBrowserAwait(url, title[, refetchAfterSuccess])` 时打开网页（带书源标头与 UA）；页面上的 Cloudflare 挑战一通过就自动完成，`refetchAfterSuccess` 默认 `true`＝带着新 cookie 重抓原网址返回，`false`＝返回网页 HTML。阅读菜单「打开网页」可手动打开本章网页过验证 |
 | 段落缩排 | Legado 在 `replaceRegex` 后会自动每行补全形空格缩排，Yuedu **刻意不做**（可自行在替换规则加 `　　`） |
 | `respondTime`／`concurrentRate` | `respondTime` 作为 JS 网络请求（`java.ajax` 等）的超时（毫秒，下限 8 秒）；`concurrentRate` 做每源请求节流 |
 | 书源类型 | `bookSourceType` 0=文字、1=听书、2=漫画，决定内容路由，不会因此改用 WebView 传输 |

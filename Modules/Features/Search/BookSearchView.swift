@@ -207,17 +207,17 @@ struct BookSearchView: View {
                         .font(DSFont.fixed(size: 10))
                         .foregroundColor(.secondary)
                     if aggregator.progress.timedOut > 0 {
-                        Text(localized("超時") + " \(aggregator.progress.timedOut)")
+                        Text(String(format: localized("超時 %d"), aggregator.progress.timedOut))
                             .font(DSFont.fixed(size: 10))
                             .foregroundColor(.orange)
                     }
                     if aggregator.progress.failed > 0 {
-                        Text(localized("失敗") + " \(aggregator.progress.failed)")
+                        Text(String(format: localized("失敗 %d"), aggregator.progress.failed))
                             .font(DSFont.fixed(size: 10))
                             .foregroundColor(.red)
                     }
                     if aggregator.progress.skipped > 0 {
-                        Text(localized("暫跳") + " \(aggregator.progress.skipped)")
+                        Text(String(format: localized("暫跳 %d"), aggregator.progress.skipped))
                             .font(DSFont.fixed(size: 10))
                             .foregroundColor(.secondary)
                     }
@@ -386,7 +386,7 @@ struct BookSearchView: View {
             Spacer()
             Image(systemName: "magnifyingglass").font(DSFont.fixed(size: 48)).foregroundColor(
                 Color.secondary.opacity(0.3))
-            Text(localized("沒有找到") + "「\(submittedQuery)」").font(DSFont.headline)
+            Text(String(format: localized("沒有找到「%@」"), submittedQuery)).font(DSFont.headline)
             Text(localized("嘗試換個關鍵字，或切換書源")).font(DSFont.subheadline).foregroundColor(.secondary)
             Spacer()
         }
@@ -412,7 +412,8 @@ struct BookSearchView: View {
                         .font(DSFont.subheadline)
                         .foregroundStyle(DSColor.textSecondary)
                 }
-                Text(localized("已啟用") + " \(enabledSources.count) " + localized("個書源")).font(DSFont.caption)
+                Text(String(format: localized("已啟用 %d 個書源"), enabledSources.count))
+                    .font(DSFont.caption)
                     .foregroundColor(
                         Color.secondary.opacity(0.7))
             }
@@ -501,7 +502,7 @@ struct AggregatedResultRow: View {
             VStack(alignment: .trailing) {
                 HStack(spacing: 3) {
                     Image(systemName: "globe").font(DSFont.fixed(size: 9))
-                    Text("\(book.origins.count) " + localized("源"))
+                    Text(String(format: localized("%d 源"), book.origins.count))
                         .font(DSFont.fixed(size: 10, weight: .medium))
                         .lineLimit(1)
                 }
@@ -586,7 +587,8 @@ struct SourcePickerSheet: View {
                 .scrollContentBackground(.hidden)
             }
             .background(PageBackgroundView(scope: .bookshelf).ignoresSafeArea())
-            .navigationTitle(localized("選擇來源") + "（\(searchBook.origins.count) " + localized("個") + "）")
+            .navigationTitle(
+                String(format: localized("選擇來源（%d 個）"), searchBook.origins.count))
             .toolbarTitleDisplayMode(.inline)
             .pageBackgroundToolbar(for: .bookshelf)
             .toolbar {

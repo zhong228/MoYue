@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 @testable import yuedu_app
@@ -368,6 +369,179 @@ struct BookSourceStoreTests {
 
         #expect(exported.map(\.bookSourceUrl)
             == [sources[1].bookSourceUrl, sources[3].bookSourceUrl])
+    }
+
+    // MARK: - Large libraries (temporary stores; the shared library is untouched)
+
+    @Test("bulk writes publish once instead of once per source")
+    func bulkWritesPublishOnce() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BookSourceStoreBulk-\(UUID().uuidString)")
+        let store = BookSourceStore(directory: directory)
+        defer {
+            store.flushPendingWrites()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        store.replaceSourcesFromSync((0..<2_000).map(makeSource))
+        let ids = Set(store.sources.map(\.id))
+        var sends = 0
+        let subscription = store.objectWillChange.sink { sends += 1 }
+        defer { subscription.cancel() }
+
+        store.setRespondTimes(Dictionary(uniqueKeysWithValues: ids.map { ($0, Int64(1_234)) }))
+        #expect(sends == 1)
+        sends = 0
+        store.setEnabledByUser(ids: ids, enabled: false)
+        #expect(sends == 1)
+        sends = 0
+        store.setEnabled(ids: ids, enabled: true)
+        #expect(sends == 1)
+        sends = 0
+        store.setGroup("新分組", ids: ids)
+        #expect(sends == 1)
+        sends = 0
+        #expect(store.groupByDomain() == 2_000)
+        #expect(sends == 1)
+        sends = 0
+        store.toggle(id: store.sources[0].id)
+        #expect(sends == 1)
+
+        #expect(store.sources.allSatisfy { $0.respondTime == 1_234 })
+        #expect(store.sources.dropFirst().allSatisfy { $0.enabled })
+        #expect(store.sources[0].enabled == false)
+    }
+
+    @Test("bulk writes stay linear on a 20,000-source library")
+    func bulkWritesStayLinear() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BookSourceStoreLinear-\(UUID().uuidString)")
+        let store = BookSourceStore(directory: directory)
+        defer {
+            store.flushPendingWrites()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        store.replaceSourcesFromSync((0..<20_000).map(makeSource))
+        store.flushPendingWrites()
+        let ids = store.sources.map(\.id)
+
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        store.setRespondTimes(Dictionary(uniqueKeysWithValues: ids.enumerated().map {
+            ($0.element, Int64($0.offset))
+        }))
+        store.setEnabledByUser(ids: Set(ids), enabled: false)
+        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+        // Per-element writes to the `@Published` array took 117 s and 228 s here.
+        #expect(elapsed < 5, "bulk writes took \(elapsed) s")
+    }
+
+    @Test("a burst of edits persists the newest library")
+    func burstOfEditsPersistsTheNewestLibrary() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BookSourceStoreBurst-\(UUID().uuidString)")
+        let store = BookSourceStore(directory: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        store.replaceSourcesFromSync((0..<50).map(makeSource))
+
+        for index in 0..<5 {
+            store.toggle(id: store.sources[index].id)
+        }
+        store.pinToTop(id: store.sources[40].id)
+        store.flushPendingWrites()
+
+        let reloaded = BookSourceStore(directory: directory)
+        #expect(reloaded.sources.map(\.id) == store.sources.map(\.id))
+        #expect(reloaded.sources.map(\.enabled) == store.sources.map(\.enabled))
+        #expect(reloaded.pinRecord(for: store.sources[0].id)?.position == .top)
+    }
+
+    @Test("the streamed library file holds exactly the sources written")
+    func streamedLibraryMatchesOneShotEncode() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BookSourceStoreStream-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // ≈4 KB of rules each, so the write crosses the 1 MB chunk boundary several times.
+        let sources = (0..<1_200).map { index -> BookSource in
+            var source = makeSource(index: index)
+            source.bookSourceComment = String(repeating: "規則說明 \(index) ", count: 300)
+            return source
+        }
+        let url = directory.appendingPathComponent("book_sources.json")
+
+        try BookSourceStore.writeLibrary(sources, to: url)
+
+        // Compared through sorted keys: `JSONEncoder` orders keys differently on every call
+        // (the one-shot encode the writer replaced did too), so equal files are equal JSON,
+        // not equal bytes.
+        let written = try JSONDecoder().decode([BookSource].self, from: Data(contentsOf: url))
+        #expect(try sortedJSON(written) == sortedJSON(sources))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            == ["book_sources.json"], "no temporary file may be left behind")
+
+        try BookSourceStore.writeLibrary([], to: url)
+        #expect(try Data(contentsOf: url) == Data("[]".utf8))
+    }
+
+    @Test("a store reloads the library its streamed save wrote")
+    func storeReloadsStreamedSave() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BookSourceStoreStreamReload-\(UUID().uuidString)")
+        let store = BookSourceStore(directory: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        store.replaceSourcesFromSync((0..<300).map(makeSource))
+        store.flushPendingWrites()
+
+        let reloaded = BookSourceStore(directory: directory)
+        #expect(try sortedJSON(reloaded.sources) == sortedJSON(store.sources))
+    }
+
+    @Test("re-importing an unchanged pack keeps every source's sync clock")
+    func reimportingUnchangedPackKeepsTheClock() throws {
+        let store = BookSourceStore(directory: FileManager.default.temporaryDirectory
+            .appendingPathComponent("BookSourceStoreReimport-\(UUID().uuidString)"))
+        let pack = (0..<20).map { index -> BookSource in
+            var source = makeSource(index: index)
+            source.searchUrl = "https://example.com/search?q={{key}}&i=\(index)"
+            source.ruleSearch.bookList = ".book"
+            source.header = #"{"User-Agent":"Fixture"}"#
+            return source
+        }
+        store.replaceSourcesFromSync(pack.map { source -> BookSource in
+            var stamped = source
+            stamped.lastUpdateTime = 1_000
+            return stamped
+        })
+        var edited = pack[3]
+        edited.bookSourceComment = "改過了"
+
+        _ = try store.importFromJSON(try encodeSources(pack.enumerated().map { $0.offset == 3 ? edited : $0.element }))
+
+        let clocks = store.sources.map(\.lastUpdateTime)
+        #expect(clocks.filter { $0 == 1_000 }.count == 19, "unchanged sources must keep their clock")
+        #expect(store.sources.first { $0.bookSourceUrl == edited.bookSourceUrl }?.lastUpdateTime != 1_000)
+    }
+
+    @Test("hasSameContent ignores key order and the sync clock, not the rules")
+    func sameContentComparison() {
+        var source = makeSource(index: 1)
+        source.ruleSearch.bookList = ".book"
+        source.header = #"{"User-Agent":"Fixture"}"#
+        var reclocked = source
+        reclocked.lastUpdateTime = 42
+        var edited = source
+        edited.ruleSearch.bookList = ".other"
+
+        for _ in 0..<20 {
+            #expect(source.hasSameContent(as: source))
+        }
+        #expect(source.hasSameContent(as: reclocked))
+        #expect(!source.hasSameContent(as: edited))
+    }
+
+    private func sortedJSON(_ sources: [BookSource]) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return try encoder.encode(sources)
     }
 
     private func encodeSources(_ sources: [BookSource]) throws -> String {

@@ -30,7 +30,6 @@ struct SourceLoginWebView: View {
                     usesDesktopSite: usesDesktopSite,
                     bridge: bridge
                 )
-                    .edgesIgnoringSafeArea(.bottom)
                     .overlay(alignment: .top) {
                         // md3's `LinearProgressIndicator` — visible while the page loads.
                         if bridge.progress > 0 && bridge.progress < 1 {

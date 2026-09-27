@@ -29,6 +29,7 @@ final class FixedPageReaderState: ObservableObject {
     var onPrevChapter: (() -> Void)?
     var onReload: (() -> Void)?
     var onToggleAutoScroll: (() -> Void)?
+    var onStopAutoScroll: (() -> Void)?
 }
 
 struct FixedPageChapterListItem: Identifiable, Equatable {
@@ -62,6 +63,14 @@ struct FixedPageReaderView: View {
     @State private var showTouchZoneEditor = false
 
     var body: some View {
+        if readerNavigator == nil {
+            NavigationStack { readerContent }
+        } else {
+            readerContent
+        }
+    }
+
+    private var readerContent: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
@@ -85,6 +94,7 @@ struct FixedPageReaderView: View {
                 if state.showControls {
                     FixedPageReaderControlsOverlay(
                         state: state,
+                        isModal: readerNavigator == nil,
                         onClose: {
                             if let readerNavigator {
                                 readerNavigator.close()
@@ -107,19 +117,20 @@ struct FixedPageReaderView: View {
                             Spacer()
                             Button {
                                 state.onToggleAutoScroll?()
-                                state.isAutoScrolling.toggle()
                             } label: {
-                                Image(systemName: state.isAutoScrolling ? "pause.circle.fill" : "play.circle.fill")
-                                    .font(.system(size: 40))
-                                    .foregroundColor(.white)
-                                    .background(Circle().fill(Color.black.opacity(0.6)))
+                                Image(systemName: state.isAutoScrolling ? "pause.fill" : "play.fill")
+                                    .font(DSFont.bodyBold)
+                                    .foregroundStyle(DSColor.textPrimary)
+                                    .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
+                                    .contentShape(Rectangle())
                                     .accessibilityHidden(true)
                             }
+                            .background(.regularMaterial, in: Circle())
                             .accessibilityLabel(
                                 state.isAutoScrolling ? localized("暫停自動捲動") : localized("開始自動捲動")
                             )
                             .padding(.trailing, DSSpacing.lg)
-                            .padding(.bottom, state.showControls ? 85 : 36)
+                            .padding(.bottom, DSSpacing.lg)
                         }
                     }
                     .transition(.opacity)
@@ -137,6 +148,9 @@ struct FixedPageReaderView: View {
         }
         .animation(DSAnimation.fast, value: state.showControls)
         .toolbar(.hidden, for: .tabBar)
+        .navigationBarBackButtonHidden(true)
+        .toolbarTitleDisplayMode(.inline)
+        .toolbar(state.showControls ? .visible : .hidden, for: .navigationBar, .bottomBar)
         .statusBarHidden(!state.showControls)
         // Same immersive rule as the flowing reader: the home indicator fades with
         // the controls and comes back with them.
@@ -177,6 +191,9 @@ struct FixedPageReaderView: View {
             } else if phase == .active {
                 beginReadingStatsSession()
             }
+        }
+        .onChange(of: state.showChapterList) { _, isPresented in
+            if isPresented { state.onStopAutoScroll?() }
         }
         .sheet(isPresented: $state.showChapterList) {
             FixedPageChapterListView(state: state)
@@ -242,257 +259,258 @@ private struct FixedPageReaderRepresentable: UIViewControllerRepresentable {
 
 struct FixedPageReaderControlsOverlay: View {
     @ObservedObject var state: FixedPageReaderState
+    var isModal = true
     var onClose: () -> Void
     var onOpenTouchZoneEditor: () -> Void
+    @State private var showSettings = false
+    @State private var pendingTouchZoneEditor = false
+    /// iOS 17: the paywall a locked setting asked for, presented once settings is gone.
+    @State private var pendingPaywall: PremiumFeature?
+    @State private var paywallFeature: PremiumFeature?
 
     var body: some View {
-        VStack(spacing: 0) {
-            topBar
-            Spacer()
-            bottomBar
-        }
-        .ignoresSafeArea(edges: .top)
-    }
-
-    private var topBar: some View {
-        HStack(spacing: DSSpacing.sm) {
-            Button(action: onClose) {
-                Image(systemName: "chevron.left")
-                    .font(DSFont.fixed(size: 17, weight: .medium))
-                    .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
-                    .accessibilityHidden(true)
-            }
-            .accessibilityLabel(localized("返回"))
-            if !state.chapterListItems.isEmpty {
-                Button {
-                    state.showChapterList = true
-                } label: {
-                    Image(systemName: "list.bullet")
-                        .font(DSFont.fixed(size: 17, weight: .medium))
-                        .foregroundColor(.white)
-                        .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
-                        .contentShape(Rectangle())
-                        .accessibilityHidden(true)
+        GeometryReader { geometry in
+            Color.clear
+                .allowsHitTesting(false)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: onClose) {
+                            Label(localized(isModal ? "關閉" : "返回"), systemImage: isModal ? "xmark" : "chevron.left")
+                                .labelStyle(.iconOnly)
+                        }
+                    }
+                    ToolbarItem(placement: .topBarLeading) {
+                        if !state.chapterListItems.isEmpty {
+                            Button {
+                                state.onStopAutoScroll?()
+                                state.showChapterList = true
+                            } label: {
+                                Label(localized("目錄"), systemImage: "list.bullet")
+                                    .labelStyle(.iconOnly)
+                            }
+                        }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            state.onStopAutoScroll?()
+                            showSettings = true
+                        } label: {
+                            Label(localized("閱讀設定"), systemImage: "slider.horizontal.3")
+                                .labelStyle(.iconOnly)
+                        }
+                    }
+                    ToolbarItem(placement: .bottomBar) {
+                        // Like Aidoku, the progress control lives in the native toolbar.
+                        // Measure this window, including Split View, rather than the screen.
+                        bottomBar
+                            .frame(width: max(0, geometry.size.width - DSSpacing.xl * 2))
+                    }
                 }
-                .accessibilityLabel(localized("目錄"))
+        }
+        .navigationTitle(state.chapterTitle)
+        .sheet(isPresented: $showSettings, onDismiss: {
+            if pendingTouchZoneEditor {
+                pendingTouchZoneEditor = false
+                onOpenTouchZoneEditor()
             }
-            Text(state.chapterTitle)
-                .font(DSFont.fixed(size: 14, weight: .medium))
-                .foregroundColor(.white)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if let feature = pendingPaywall {
+                pendingPaywall = nil
+                paywallFeature = feature
+            }
+        }) {
             FixedPageReaderSettingsView(
-                fixedPageReaderConfiguration: state.fixedPageReaderConfiguration,
-                onSelectConfiguration: { state.onSetConfiguration?($0) },
-                onOpenTouchZoneEditor: onOpenTouchZoneEditor
+                state: state,
+                onOpenTouchZoneEditor: {
+                    pendingTouchZoneEditor = true
+                    showSettings = false
+                },
+                onOpenPaywall: ReaderSettingsPresentationPolicy.requiresFirstLevelImporter
+                    ? { feature in
+                        pendingPaywall = feature
+                        showSettings = false
+                    }
+                    : nil
             )
         }
-        .padding(.horizontal, DSSpacing.md)
-        .padding(.vertical, DSSpacing.sm)
-        .padding(.top, 44)
-        .background(.ultraThinMaterial)
+        .sheet(item: $paywallFeature) { feature in
+            PaywallView(highlightedFeature: feature)
+                .environmentObject(SubscriptionStore.shared)
+        }
     }
 
     private var isRTL: Bool {
         state.fixedPageReaderConfiguration.progression == .rightToLeft
     }
 
-    /// Shown under the page slider and spoken as its value: one source for both.
     private var pageIndicatorText: String {
-        String(
-            format: localized("第 %d / %d 頁"),
-            state.currentPage + 1,
-            max(state.totalPages, state.currentPage + 1)
-        )
+        String(format: localized("第 %d / %d 頁"), state.currentPage + 1,
+               max(state.totalPages, state.currentPage + 1))
     }
 
     private var bottomBar: some View {
-        VStack(spacing: DSSpacing.xs) {
-            if state.totalPages > 1 {
-                HStack(spacing: DSSpacing.md) {
-                    Button {
-                        if isRTL { state.onNextChapter?() } else { state.onPrevChapter?() }
-                    } label: {
-                        Image(systemName: isRTL ? "forward.end" : "backward.end")
-                            .foregroundColor(.white)
-                            .accessibilityHidden(true)
+        HStack(spacing: DSSpacing.sm) {
+            chapterButton(forward: false)
+            Slider(
+                value: Binding(
+                    get: {
+                        isRTL ? Double(max(0, state.totalPages - 1 - state.currentPage))
+                              : Double(state.currentPage)
+                    },
+                    set: { value in
+                        let page = Int(value.rounded())
+                        state.onJumpToPage?(isRTL ? state.totalPages - 1 - page : page)
                     }
-                    // A right-to-left book puts its next chapter on the left.
-                    .accessibilityLabel(isRTL ? localized("下一章") : localized("上一章"))
-                    Slider(
-                        value: Binding(
-                            get: {
-                                isRTL
-                                    ? Double(max(0, state.totalPages - 1 - state.currentPage))
-                                    : Double(state.currentPage)
-                            },
-                            set: { newValue in
-                                let target = isRTL
-                                    ? state.totalPages - 1 - Int(newValue.rounded())
-                                    : Int(newValue.rounded())
-                                state.onJumpToPage?(target)
-                            }
-                        ),
-                        in: 0...Double(max(1, state.totalPages - 1)),
-                        step: 1
-                    )
-                    .tint(.white)
-                    .accessibilityLabel(localized("閱讀進度"))
-                    .accessibilityValue(pageIndicatorText)
-                    Button {
-                        if isRTL { state.onPrevChapter?() } else { state.onNextChapter?() }
-                    } label: {
-                        Image(systemName: isRTL ? "backward.end" : "forward.end")
-                            .foregroundColor(.white)
-                            .accessibilityHidden(true)
-                    }
-                    .accessibilityLabel(isRTL ? localized("上一章") : localized("下一章"))
-                }
-                .padding(.horizontal, DSSpacing.md)
+                ),
+                in: 0...Double(max(1, state.totalPages - 1)),
+                step: 1
+            )
+            .disabled(state.totalPages <= 1)
+            .tint(DSColor.textPrimary)
+            .accessibilityLabel(localized("閱讀進度"))
+            .accessibilityValue(pageIndicatorText)
+            // The page number hangs off the slider instead of sitting under it
+            // in a VStack. Stacked, the two of them centre as a pair, which
+            // leaves the slider itself about 6pt above the bar's centre line;
+            // as an overlay it takes no height and the slider stays centred.
+            .overlay(alignment: .bottom) {
+                Text(pageIndicatorText)
+                    .font(DSFont.caption2)
+                    .foregroundStyle(DSColor.textSecondary)
+                    .fixedSize()
+                    .alignmentGuide(VerticalAlignment.bottom) { $0[VerticalAlignment.top] }
+                    .accessibilityHidden(true)
             }
-            Text(pageIndicatorText)
-                .font(DSFont.caption)
-                .foregroundColor(.white)
-                // The slider already speaks this as its value; skip the repeat while it is shown.
-                .accessibilityHidden(state.totalPages > 1)
+            chapterButton(forward: true)
         }
-        .padding(.top, DSSpacing.sm)
-        .padding(.bottom, 30)
-        .frame(maxWidth: .infinity)
-        .background(.ultraThinMaterial)
+        // Progress direction belongs to the book, independent of the app language.
+        .environment(\.layoutDirection, .leftToRight)
+        .frame(height: DSLayout.minimumTapTarget + DSSpacing.sm)
+    }
+
+    private func chapterButton(forward: Bool) -> some View {
+        let nextChapter = forward != isRTL
+        return Button {
+            if nextChapter { state.onNextChapter?() } else { state.onPrevChapter?() }
+        } label: {
+            Image(systemName: forward ? "forward.end" : "backward.end")
+                .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(DSColor.textPrimary)
+        .accessibilityLabel(nextChapter ? localized("下一章") : localized("上一章"))
     }
 }
 
 struct FixedPageReaderSettingsView: View {
-    let fixedPageReaderConfiguration: FixedPageReaderConfiguration
-    var onSelectConfiguration: (FixedPageReaderConfiguration) -> Void
+    @ObservedObject var state: FixedPageReaderState
     var onOpenTouchZoneEditor: () -> Void
-
+    /// iOS 17: hands the paywall to the controls overlay, which presents it once this
+    /// sheet is gone — a sheet asked for from inside this one can be dropped there
+    /// (`ReaderSettingsPresentationPolicy`). Nil where this view presents it itself.
+    var onOpenPaywall: ((PremiumFeature) -> Void)? = nil
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject private var subscriptionStore = SubscriptionStore.shared
+    @State private var paywallFeature: PremiumFeature?
+
+    private var configuration: FixedPageReaderConfiguration { state.fixedPageReaderConfiguration }
 
     var body: some View {
-        Menu {
-            // Section 1: Reading Mode
-            Section {
-                ForEach(FixedPageReadingMode.allCases, id: \.rawValue) { mode in
-                    Button {
-                        var updated = FixedPageReaderConfiguration.recommendedDefault(for: mode)
-                        // Preserve user toggles
-                        updated.cropBorders = fixedPageReaderConfiguration.cropBorders
-                        updated.isLiveTextEnabled = fixedPageReaderConfiguration.isLiveTextEnabled
-                        updated.pageSpreadLayout = fixedPageReaderConfiguration.pageSpreadLayout
-                        updated.pageOffset = fixedPageReaderConfiguration.pageOffset
-                        updated.splitWideImages = fixedPageReaderConfiguration.splitWideImages
-                        updated.pillarbox = fixedPageReaderConfiguration.pillarbox
-                        onSelectConfiguration(updated)
-                    } label: {
-                        Label(
-                            mode.localizedName,
-                            systemImage: fixedPageReaderConfiguration.mode == mode ? "checkmark" : mode.iconName
-                        )
-                    }
-                }
-            }
-
-            // Section 2: Paged mode specific options
-            if fixedPageReaderConfiguration.layout == .paged {
+        NavigationStack {
+            Form {
                 Section {
-                    ForEach(FixedPageReaderConfiguration.PageSpreadLayout.allCases, id: \.rawValue) { layout in
-                        Button {
-                            var config = fixedPageReaderConfiguration
-                            config.pageSpreadLayout = layout
-                            onSelectConfiguration(config)
-                        } label: {
-                            Label(
-                                spreadTitle(layout),
-                                systemImage: fixedPageReaderConfiguration.pageSpreadLayout == layout ? "checkmark" : spreadIcon(layout)
-                            )
+                    Picker(localized("閱讀模式"), selection: Binding(
+                        get: { configuration.mode },
+                        set: { mode in
+                            var updated = FixedPageReaderConfiguration.recommendedDefault(for: mode)
+                            updated.cropBorders = configuration.cropBorders
+                            updated.isLiveTextEnabled = configuration.isLiveTextEnabled
+                            updated.pageSpreadLayout = configuration.pageSpreadLayout
+                            updated.pageOffset = configuration.pageOffset
+                            updated.splitWideImages = configuration.splitWideImages
+                            updated.pillarbox = configuration.pillarbox
+                            state.onSetConfiguration?(updated)
+                        }
+                    )) {
+                        ForEach(FixedPageReadingMode.allCases, id: \.rawValue) { mode in
+                            Text(mode.localizedName).tag(mode)
                         }
                     }
-
-                    Button {
-                        var config = fixedPageReaderConfiguration
-                        config.pageOffset.toggle()
-                        onSelectConfiguration(config)
-                    } label: {
-                        Label(
-                            localized("封面單頁偏移"),
-                            systemImage: fixedPageReaderConfiguration.pageOffset ? "checkmark.square" : "square"
-                        )
-                    }
-
-                    Button {
-                        var config = fixedPageReaderConfiguration
-                        config.splitWideImages.toggle()
-                        onSelectConfiguration(config)
-                    } label: {
-                        Label(
-                            localized("自動切分雙頁大圖"),
-                            systemImage: fixedPageReaderConfiguration.splitWideImages ? "checkmark.square" : "square"
-                        )
-                    }
                 }
-            }
-
-            // Section 3: Webtoon mode specific options
-            if fixedPageReaderConfiguration.layout == .continuousVerticalScroll {
                 Section {
-                    Button {
-                        var config = fixedPageReaderConfiguration
-                        config.pillarbox.toggle()
-                        onSelectConfiguration(config)
-                    } label: {
-                        Label(
-                            localized("寬屏黑邊限制"),
-                            systemImage: fixedPageReaderConfiguration.pillarbox ? "checkmark.square" : "square"
-                        )
+                    if configuration.layout == .paged {
+                        Picker(localized("頁面顯示"), selection: binding(\.pageSpreadLayout)) {
+                            ForEach(FixedPageReaderConfiguration.PageSpreadLayout.allCases, id: \.rawValue) { layout in
+                                Text(spreadTitle(layout)).tag(layout)
+                            }
+                        }
+                        Toggle(localized("封面單頁偏移"), isOn: binding(\.pageOffset))
+                        Toggle(localized("自動切分雙頁大圖"), isOn: binding(\.splitWideImages))
+                    } else {
+                        Toggle(localized("寬屏黑邊限制"), isOn: binding(\.pillarbox))
+                    }
+                    Toggle(localized("自動裁切留白邊框"), isOn: binding(\.cropBorders))
+                    Toggle(localized("原文字選取與識別"), isOn: binding(\.isLiveTextEnabled))
+                }
+                if configuration.layout == .paged {
+                    Section {
+                        if ReaderPremiumVisibilityPolicy(isProActive: subscriptionStore.isProActive).showsTouchZoneEditor {
+                            Button(action: onOpenTouchZoneEditor) {
+                                Label(localized("翻頁區塊編輯"), systemImage: "hand.tap")
+                            }
+                        } else {
+                            // Seen without Pro too, locked (2026-09-27): the paywall, not the editor.
+                            Button {
+                                requestPaywall(.touchZoneEditor)
+                            } label: {
+                                HStack {
+                                    Label(localized("翻頁區塊編輯"), systemImage: "hand.tap")
+                                        .foregroundStyle(DSColor.textPrimary)
+                                    Spacer(minLength: DSSpacing.md)
+                                    Text(localized("需要 Pro"))
+                                        .foregroundStyle(DSColor.textSecondary)
+                                    Image(systemName: "lock.fill")
+                                        .font(DSFont.caption)
+                                        .foregroundStyle(DSColor.textSecondary)
+                                        .accessibilityHidden(true)
+                                }
+                            }
+                        }
                     }
                 }
             }
-
-            // Section 4: General enhancements
-            Section {
-                Button {
-                    var config = fixedPageReaderConfiguration
-                    config.cropBorders.toggle()
-                    onSelectConfiguration(config)
-                } label: {
-                    Label(
-                        localized("自動裁切留白邊框"),
-                        systemImage: fixedPageReaderConfiguration.cropBorders ? "checkmark.square" : "square"
-                    )
-                }
-
-                Button {
-                    var config = fixedPageReaderConfiguration
-                    config.isLiveTextEnabled.toggle()
-                    onSelectConfiguration(config)
-                } label: {
-                    Label(
-                        localized("原文字選取與識別"),
-                        systemImage: fixedPageReaderConfiguration.isLiveTextEnabled ? "checkmark.square" : "square"
-                    )
+            .navigationTitle(localized("閱讀設定"))
+            .toolbarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: {
+                        Label(localized("關閉"), systemImage: "xmark").labelStyle(.iconOnly)
+                    }
                 }
             }
-
-            // Section 5: Touch zone editor
-            if ReaderPremiumVisibilityPolicy(isProActive: subscriptionStore.isProActive).showsTouchZoneEditor,
-               fixedPageReaderConfiguration.layout == .paged {
-                Divider()
-                Button(action: onOpenTouchZoneEditor) {
-                    Label(localized("翻頁區塊編輯"), systemImage: "hand.tap")
-                }
+            .sheet(item: $paywallFeature) { feature in
+                PaywallView(highlightedFeature: feature)
+                    .environmentObject(subscriptionStore)
             }
-        } label: {
-            // A Label, not a bare Image: VoiceOver reads its title instead of the symbol name.
-            Label(localized("閱讀設定"), systemImage: "rectangle.portrait.on.rectangle.portrait")
-                .labelStyle(.iconOnly)
-                .font(DSFont.fixed(size: 17, weight: .medium))
-                .foregroundColor(.white)
-                .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
-                .contentShape(Rectangle())
         }
+    }
+
+    /// A locked control's paywall: from this sheet on iOS 18, from the controls overlay on
+    /// iOS 17 (`onOpenPaywall`) — the same split as the flowing reader's settings.
+    private func requestPaywall(_ feature: PremiumFeature) {
+        if let onOpenPaywall {
+            onOpenPaywall(feature)
+        } else {
+            paywallFeature = feature
+        }
+    }
+
+    private func binding<Value>(_ keyPath: WritableKeyPath<FixedPageReaderConfiguration, Value>) -> Binding<Value> {
+        Binding(get: { configuration[keyPath: keyPath] }, set: { value in
+            var updated = configuration
+            updated[keyPath: keyPath] = value
+            state.onSetConfiguration?(updated)
+        })
     }
 
     private func spreadTitle(_ layout: FixedPageReaderConfiguration.PageSpreadLayout) -> String {
@@ -500,14 +518,6 @@ struct FixedPageReaderSettingsView: View {
         case .single: return localized("單頁")
         case .double: return localized("雙頁")
         case .auto: return localized("自動雙頁")
-        }
-    }
-
-    private func spreadIcon(_ layout: FixedPageReaderConfiguration.PageSpreadLayout) -> String {
-        switch layout {
-        case .single: return "rectangle.portrait"
-        case .double: return "rectangle.split.2x1"
-        case .auto: return "rectangle.portrait.and.arrow.forward"
         }
     }
 }
@@ -574,8 +584,17 @@ struct FixedPageChapterListView: View {
         from: [OnlineChapterRef(index: 0, title: "第 1 話", url: "")]
     )
     state.totalPages = 24
-    return ZStack {
-        Color.black.ignoresSafeArea()
-        FixedPageReaderControlsOverlay(state: state, onClose: {}, onOpenTouchZoneEditor: {})
+    return NavigationStack {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            FixedPageReaderControlsOverlay(state: state, onClose: {}, onOpenTouchZoneEditor: {})
+        }
+        .toolbarTitleDisplayMode(.inline)
     }
+}
+
+#Preview("Settings") {
+    // Paged by default, so 翻頁區塊編輯 shows — locked unless Pro is active.
+    FixedPageReaderSettingsView(state: FixedPageReaderState(), onOpenTouchZoneEditor: {})
+        .environmentObject(SubscriptionStore.shared)
 }

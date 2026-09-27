@@ -17,11 +17,13 @@ protocol FixedPageModeReader: UIViewController {
     func goToPage(_ index: Int, animated: Bool)
 
     /// Auto-scroll toggle for webtoon mode.
+    func stopAutoScroll()
     func toggleAutoScroll()
     var isAutoScrolling: Bool { get }
 }
 
 extension FixedPageModeReader {
+    func stopAutoScroll() {}
     func toggleAutoScroll() {}
     var isAutoScrolling: Bool { false }
 }
@@ -31,6 +33,7 @@ protocol FixedPageReaderContainer: AnyObject {
     func reader(didMoveToPage page: Int, total: Int)
     func readerRequestsNextChapter()
     func readerRequestsPreviousChapter()
+    func readerAutoScrollStateChanged(_ isActive: Bool)
     func readerToggleControls()
     func readerToggleBookmark()
     func readerShowTableOfContents()
@@ -42,6 +45,7 @@ protocol FixedPageReaderContainer: AnyObject {
 }
 
 extension FixedPageReaderContainer {
+    func readerAutoScrollStateChanged(_ isActive: Bool) {}
     func readerAppendNextChapter() async -> [FixedPage]? { nil }
     func readerPrependPreviousChapter() async -> [FixedPage]? { nil }
 }

@@ -1,12 +1,12 @@
 import Foundation
 
 /// A book-scoped action offered by the reader chrome — refresh the chapter, change
-/// source, download, start narration, AI 助手, 翻譯. Which ones apply depends on the book
-/// (a local EPUB gets no download), so `ReaderView.readerSecondaryActions` builds the list
-/// once and every interface renders from it: 現代 shows them all in the book card behind
-/// the cover thumbnail; Apple Books makes AI 助手 a row of its pop-up menu and puts the
-/// rest in the action row under it; 經典 floats the non-AI ones as circles and keeps
-/// AI 助手 and 翻譯 in its top 三橫線 menu.
+/// source, download, start narration, AI 助手, 翻譯, 開啟網頁. Which ones apply depends on
+/// the book (a local EPUB gets no download), so `ReaderView.readerSecondaryActions` builds
+/// the list once and every interface renders from it: 現代 shows them all in the book card
+/// behind the cover thumbnail; Apple Books makes AI 助手 a row of its pop-up menu and puts
+/// the rest in the action row under it; 經典 floats refresh, change source, download and
+/// narration as circles and keeps the others in its top 三橫線 menu.
 struct ReaderSecondaryAction: Identifiable {
     enum ID: String {
         case playback
@@ -15,6 +15,7 @@ struct ReaderSecondaryAction: Identifiable {
         case refresh
         case aiAssistant
         case translation
+        case openWebPage
     }
 
     let id: ID

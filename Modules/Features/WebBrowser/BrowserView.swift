@@ -1033,7 +1033,10 @@ struct WebTOCSheet: View {
                             .font(DSFont.subheadline.weight(.medium))
                             .lineLimit(1)
                     }
-                    Text(localized("共偵測到") + " \(chapters.count) " + localized("章，選擇開始閱讀的章節"))
+                    Text(
+                        String(
+                            format: localized("共偵測到 %d 章，選擇開始閱讀的章節"),
+                            chapters.count))
                         .font(DSFont.caption)
                         .foregroundColor(.secondary)
                 }
@@ -1053,7 +1056,10 @@ struct WebTOCSheet: View {
                                 .font(DSFont.caption.monospacedDigit())
                                 .foregroundColor(.secondary)
                                 .frame(width: 36, alignment: .trailing)
-                            Text(chapters[idx].title.isEmpty ? localized("第") + " \(idx + 1) " + localized("章") : chapters[idx].title)
+                            Text(
+                                chapters[idx].title.isEmpty
+                                    ? String(format: localized("第 %d 章"), idx + 1)
+                                    : chapters[idx].title)
                                 .font(DSFont.body)
                                 .foregroundColor(.primary)
                                 .lineLimit(1)
@@ -1077,14 +1083,14 @@ struct WebTOCSheet: View {
                         OnlineChapterRef(
                             index: i,
                             title: ch.title.isEmpty
-                                ? localized("第") + " \(i + 1) " + localized("章")
+                                ? String(format: localized("第 %d 章"), i + 1)
                                 : ReaderHTMLUtilities.displayText(fromHTMLFragment: ch.title),
                             url: ch.url
                         )
                     }
                     onConfirm(refs, selectedIndex)
                 } label: {
-                    Text(localized("從第") + " \(selectedIndex + 1) " + localized("章開始閱讀"))
+                    Text(String(format: localized("從第 %d 章開始閱讀"), selectedIndex + 1))
                         .font(DSFont.fixed(size: 16, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)

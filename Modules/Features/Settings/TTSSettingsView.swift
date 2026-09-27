@@ -17,6 +17,11 @@ struct TTSSettingsView: View {
     @State private var isImportingSources = false
     @State private var showSourceFileImporter = false
     @State private var showNetworkImport = false
+    /// Parsed voice sources awaiting the user's picks in the confirmation list.
+    @State private var pendingSourceReview: PendingTTSSourceReview?
+    /// Held while the network-import sheet dismisses; presenting the list on the same frame
+    /// is unreliable, so it waits for that sheet's real `onDismiss`.
+    @State private var queuedSourceReview: [ImportedTTSSource]?
     @State private var showLegacyImportChooser = false
     @State private var legacyImportSequence =
         DismissalSequencedPresentation<TTSImportPresentationRoute>()
@@ -98,10 +103,26 @@ struct TTSSettingsView: View {
                     )
                 }
             }
-            .sheet(isPresented: $showNetworkImport) {
+            .sheet(
+                isPresented: $showNetworkImport,
+                onDismiss: presentQueuedSourceReview
+            ) {
                 AdaptiveSheetContainer(maxWidth: DSLayout.readablePanelWidth) {
                     networkImportSheet
                 }
+            }
+            .sheet(item: $pendingSourceReview) { review in
+                TTSSourceImportReviewHost(
+                    sources: review.sources,
+                    existing: gs.importedTTSSources,
+                    onFinish: { merged, count in
+                        gs.importedTTSSources = merged
+                        pendingSourceReview = nil
+                        sourceImportMessage = String(
+                            format: localized("已匯入 %d 個語音源"), count)
+                    },
+                    onCancel: { pendingSourceReview = nil }
+                )
             }
             .alert(
                 localized("語音源設定"),
@@ -778,10 +799,9 @@ struct TTSSettingsView: View {
                 return
             }
             let imported = try TTSSourceJSONParser.parse(data: data)
-            gs.importedTTSSources = mergeSources(existing: gs.importedTTSSources, imported: imported)
-            sourceImportMessage = String(format: localized("已載入 %d 個語音源"), imported.count)
             sourceListURL = ""
-            showNetworkImport = false
+            // `queueSourceReview` closes this sheet and sequences the confirmation list.
+            queueSourceReview(imported)
         } catch {
             sourceImportMessage = String(format: localized("載入失敗：%@"), error.localizedDescription)
         }
@@ -812,9 +832,7 @@ struct TTSSettingsView: View {
 
         do {
             let data = try Data(contentsOf: fileURL)
-            let imported = try TTSSourceJSONParser.parse(data: data)
-            gs.importedTTSSources = mergeSources(existing: gs.importedTTSSources, imported: imported)
-            sourceImportMessage = String(format: localized("已載入 %d 個語音源"), imported.count)
+            queueSourceReview(try TTSSourceJSONParser.parse(data: data))
         } catch {
             sourceImportMessage = String(format: localized("無法讀取語音源檔案：%@"), error.localizedDescription)
         }
@@ -825,16 +843,22 @@ struct TTSSettingsView: View {
         loginSource = source
     }
 
-    private func mergeSources(existing: [ImportedTTSSource], imported: [ImportedTTSSource]) -> [ImportedTTSSource] {
-        var merged = existing
-        var existingURLs = Set(existing.map(\.urlTemplate))
-        for source in imported where !existingURLs.contains(source.urlTemplate) {
-            merged.append(source)
-            existingURLs.insert(source.urlTemplate)
+    /// Nothing is written until the user confirms. The merge itself lives in
+    /// `TTSSourceImportMerge` — a source the library already holds is now replaced rather than
+    /// skipped, which is what made re-importing a corrected voice source do nothing.
+    private func queueSourceReview(_ sources: [ImportedTTSSource]) {
+        if showNetworkImport {
+            queuedSourceReview = sources
+            showNetworkImport = false
+        } else {
+            pendingSourceReview = PendingTTSSourceReview(sources: sources)
         }
-        return merged.sorted {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
+    }
+
+    private func presentQueuedSourceReview() {
+        guard let sources = queuedSourceReview else { return }
+        queuedSourceReview = nil
+        pendingSourceReview = PendingTTSSourceReview(sources: sources)
     }
 }
 
@@ -850,7 +874,7 @@ struct TTSSourceLoginView: View {
 
     @State private var fieldValues: [String: String] = [:]
     @State private var saved = false
-    @State private var engine: JSCoreEngine?
+    @State private var script: TTSLoginScript?
     @State private var fieldLabels: [String: String] = [:]
 
     private let fields: [LoginField]
@@ -870,78 +894,16 @@ struct TTSSourceLoginView: View {
         _fieldLabels = State(initialValue: parsed.literalViewNames)
     }
 
-    private func ensureEngine() -> JSCoreEngine {
-        if let e = engine { return e }
-        let e = JSCoreEngine()
-        let sourceId = source.id
-        e.sourceBridge.getLoginInfoMapHandler = {
-            LoginManager.shared.getLoginInfo(sourceUrl: sourceId) ?? [:]
+    /// The source's login scripts, built on first use. What a script stores with
+    /// `source.putLoginInfo` shows in the form at once.
+    private func loginScript() -> TTSLoginScript {
+        if let script { return script }
+        let values = $fieldValues
+        let made = TTSLoginScript(source: source) { info in
+            Task { @MainActor in values.wrappedValue = info }
         }
-        e.sourceBridge.putLoginInfoHandler = { info in
-            if let d = info.data(using: .utf8),
-               let dict = try? JSONSerialization.jsonObject(with: d) as? [String: String] {
-                LoginManager.shared.storeLoginInfo(sourceUrl: sourceId, info: dict)
-                Task { @MainActor in fieldValues = dict }
-            }
-        }
-        e.sourceBridge.putLoginHeaderHandler = { header in
-            if let d = header.data(using: .utf8),
-               let dict = try? JSONSerialization.jsonObject(with: d) as? [String: String] {
-                LoginManager.shared.storeLoginHeaders(sourceUrl: sourceId, headers: dict)
-            } else {
-                var info = LoginManager.shared.getLoginInfo(sourceUrl: sourceId) ?? [:]
-                info["__tts_header"] = header
-                LoginManager.shared.storeLoginInfo(sourceUrl: sourceId, info: info)
-            }
-        }
-        e.sourceBridge.getLoginHeaderHandler = {
-            if let info = LoginManager.shared.getLoginInfo(sourceUrl: sourceId),
-               let state = info["__tts_header"] { return state }
-            return LoginManager.shared.getLoginHeader(sourceUrl: sourceId)
-        }
-        e.sourceBridge.getVariableHandler = {
-            LoginManager.shared.getLoginInfo(sourceUrl: sourceId)?["__tts_variable"]
-        }
-        e.sourceBridge.setVariableHandler = { val in
-            var info = LoginManager.shared.getLoginInfo(sourceUrl: sourceId) ?? [:]
-            info["__tts_variable"] = val ?? ""
-            LoginManager.shared.storeLoginInfo(sourceUrl: sourceId, info: info)
-        }
-        e.sourceBridge.getKeyValueHandler = { key in
-            LoginManager.shared.getLoginInfo(sourceUrl: sourceId)?[key]
-        }
-        e.sourceBridge.putKeyValueHandler = { key, value in
-            var info = LoginManager.shared.getLoginInfo(sourceUrl: sourceId) ?? [:]
-            info[key] = value
-            LoginManager.shared.storeLoginInfo(sourceUrl: sourceId, info: info)
-        }
-        e.sourceBridge.getHeaderMapHandler = {
-            LoginManager.shared.getLoginHeaders(sourceUrl: sourceId)
-        }
-        e.sourceBridge.removeLoginInfoHandler = {
-            LoginManager.shared.clearLogin(sourceUrl: sourceId)
-        }
-        e.sourceBridge.removeLoginHeaderHandler = {
-            LoginManager.shared.clearLogin(sourceUrl: sourceId)
-        }
-        // Evaluate loginUrl JS first so functions (set, next, Style, etc.) are available to the
-        // loginUi button rows — this IS the explicit login action, which is the one place Legado
-        // runs `loginUrl`. But only when it is actually a script: 纳米AI TTS declares
-        // `loginUrl: "https://bot.n.cn/"`, and a bare URL fed to JavaScriptCore parses as the
-        // label `https:` followed by the comment `//bot.n.cn/` and then EOF —
-        // `SyntaxError: Unexpected end of script`, once per open, silently discarded.
-        if let loginJs = source.loginUrl.flatMap(LoginManager.shared.extractLoginJs),
-           !loginJs.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            _ = e.evaluate(loginJs, result: nil, bindings: [:])
-            if let error = e.lastError {
-                AppLogger.error("[TTS] 語音源 loginUrl JS 執行失敗", context: [
-                    "source": source.name,
-                    "error": error
-                ])
-            }
-        }
-        engine = e
-        return e
+        script = made
+        return made
     }
 
     /// Only shown when the source declares a page to sign in on. The captured cookie is stored
@@ -1017,22 +979,13 @@ struct TTSSourceLoginView: View {
     /// `name` until this resolves — Legado's async `evalUiJs(viewName)` semantics.
     private func resolveDynamicLabels() {
         guard fields.hasDynamicViewNames else { return }
-        let e = ensureEngine()
-        var labels: [String: String] = [:]
-        for field in fields where field.hasDynamicViewName {
-            guard let expression = field.viewName, !expression.isEmpty else { continue }
-            let value = e.evaluate(
-                expression,
-                result: fieldValues,
-                bindings: ["baseUrl": source.urlTemplate]
-            )
-            if let value, !value.isEmpty, value != "undefined", value != "null" {
-                labels[field.name] = value
-            } else {
-                labels[field.name] = field.name
-            }
+        let script = loginScript()
+        let fields = fields
+        let values = fieldValues
+        Task {
+            let labels = await script.labels(for: fields, values: values)
+            fieldLabels.merge(labels) { _, new in new }
         }
-        fieldLabels.merge(labels) { _, new in new }
     }
 
     private func saveLoginInfo() {
@@ -1068,31 +1021,34 @@ struct TTSSourceLoginView: View {
     private func handleButtonAction(_ field: LoginField) {
         guard let action = field.action else { return }
         LoginManager.shared.storeLoginInfo(sourceUrl: source.id, info: resolvedFormValues)
-        let e = ensureEngine()
-        // Execute button action in the JS context that has loginUrl functions loaded
-        if action.hasPrefix("@js:") || action.hasPrefix("<js>") {
-            let jsCode = action.hasPrefix("@js:")
-                ? String(action.dropFirst(4))
-                : String(action.dropFirst(4).dropLast(5))
-            _ = e.evaluate(jsCode, result: nil, bindings: [
-                "baseUrl": source.urlTemplate
-            ])
-        } else {
-            // Plain function call — execute in loginUrl JS context
-            _ = e.evaluate(action, result: nil, bindings: [
-                "baseUrl": source.urlTemplate
-            ])
+        let script = loginScript()
+        let sourceId = source.id
+        Task {
+            // Runs in the JS context that has the loginUrl functions loaded.
+            await script.run(action: action)
+            // Reload field values after JS may have modified them
+            if let updated = LoginManager.shared.getLoginInfo(sourceUrl: sourceId) {
+                fieldValues = updated
+            }
+            // The action may have changed what its own viewName reports (`upUiData` in
+            // Legado); refresh the dynamic labels on the engine that ran it.
+            resolveDynamicLabels()
         }
-        // Reload field values after JS may have modified them
-        if let updated = LoginManager.shared.getLoginInfo(sourceUrl: source.id) {
-            fieldValues = updated
-        }
-        // The action may have changed what its own viewName reports (`upUiData` in
-        // Legado); refresh the dynamic labels on the engine that ran it.
-        resolveDynamicLabels()
     }
 }
 
 #Preview {
     TTSSettingsView()
+}
+
+#Preview("TTS source login") {
+    TTSSourceLoginView(
+        source: ImportedTTSSource(
+            name: "Sample TTS",
+            urlTemplate: "https://tts.example/speak",
+            loginUi: #"[{"name":"Token","type":"text"},{"name":"Verify","type":"button","action":"verify()"}]"#,
+            loginUrl: "function verify() {}"
+        ),
+        onDismiss: {}
+    )
 }

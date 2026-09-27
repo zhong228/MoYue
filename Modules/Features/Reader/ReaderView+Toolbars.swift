@@ -99,16 +99,12 @@ extension ReaderView {
                     )
                 }
             },
-            menuActions: readerSecondaryActions.filter { Self.readerAIActionIDs.contains($0.id) },
+            menuActions: readerSecondaryActions.filter { !ReaderChromeActionItem($0.id).isClassicCircle },
             onOpenBookDetail: onlineBookDetail == nil ? nil : {
                 openOnlineBookDetail()
             }
         )
     }
-
-    /// The actions 經典 and Apple Books move out of their action rows: 經典 keeps them in
-    /// the top 三橫線 menu, Apple Books makes AI 助手 a menu row.
-    static let readerAIActionIDs: Set<ReaderSecondaryAction.ID> = [.aiAssistant, .translation]
 
     // MARK: - Bottom Bar
     var bottomBar: some View {
@@ -436,6 +432,17 @@ extension ReaderView {
             )
         }
 
+        if currentOnlineChapter != nil {
+            actions.append(
+                ReaderSecondaryAction(
+                    id: .openWebPage,
+                    icon: "globe",
+                    label: localized("開啟網頁"),
+                    action: { openCurrentChapterWebPage() }
+                )
+            )
+        }
+
         // Shown whatever the AI settings are: hiding it when unconfigured would leave a
         // reader with no way to discover the feature exists. The panel itself explains what
         // to fill in. Without Pro both are marked and open the paywall.
@@ -475,6 +482,35 @@ extension ReaderView {
         }
 
         return actions
+    }
+
+    private var currentOnlineChapter: OnlineChapterRef? {
+        guard let book, book.isOnline, let chapters = book.onlineChapters,
+              chapters.indices.contains(currentChapterIndex) else { return nil }
+        return chapters[currentChapterIndex]
+    }
+
+    /// 開啟網頁: the current chapter's page, opened with the source's headers and cookies the
+    /// way Legado's reading menu opens its chapter URL. This is where a reader gets past a
+    /// Cloudflare check or a login — nothing opens one by itself — and the cookies the page
+    /// leaves serve the source's next requests.
+    func openCurrentChapterWebPage() {
+        guard let book, let chapter = currentOnlineChapter else { return }
+        let source = book.bookSourceId.flatMap { id in
+            BookSourceStore.shared.sources.first { $0.id == id }
+        }
+        // Resolving the source's headers can run its JS (`@js:` header rules).
+        Task {
+            let urlRequest = await SourceScriptThread.run {
+                source.flatMap {
+                    BookSourceSession.session(for: $0).bridgeForAsyncOperations
+                        .sourceBrowserRequest(urlString: chapter.url)
+                } ?? URL(string: chapter.url).map { URLRequest(url: $0) }
+            }
+            let request = SourceBrowserRequest(
+                url: chapter.url, title: chapter.title, urlRequest: urlRequest, awaitsResult: false)
+            SourceBrowserPresenter.present(request) { _ in }
+        }
     }
 
     /// AI 助手, or the paywall without Pro.

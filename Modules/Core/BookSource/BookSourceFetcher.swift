@@ -148,7 +148,6 @@ final class BookSourceFetcher: @unchecked Sendable {
         url: URL, method: String, body: String?,
         headers: [String: String], baseURL: String,
         bodyCharset: String? = nil,
-        allowInteractiveChallengeOn503: Bool = true,
         source: BookSource? = nil
     ) async throws -> String {
         guard let source else {
@@ -158,8 +157,7 @@ final class BookSourceFetcher: @unchecked Sendable {
                 body: body,
                 headers: headers,
                 baseURL: baseURL,
-                bodyCharset: bodyCharset,
-                allowInteractiveChallengeOn503: allowInteractiveChallengeOn503
+                bodyCharset: bodyCharset
             )
         }
         return try await SourceRateLimit.run(source: source) {
@@ -169,10 +167,51 @@ final class BookSourceFetcher: @unchecked Sendable {
                 body: body,
                 headers: headers,
                 baseURL: baseURL,
-                bodyCharset: bodyCharset,
-                allowInteractiveChallengeOn503: allowInteractiveChallengeOn503
+                bodyCharset: bodyCharset
             )
         }
+    }
+
+    /// The first request of a stage — search, 詳情, 目錄's first page, 正文's first page.
+    ///
+    /// Legado (the original, Legado-E and MD3 alike) runs the source's `loginCheckJs` on that
+    /// response whatever its status, and the stage goes on with whatever the script hands
+    /// back. That is where sources notice their login wall or a Cloudflare page and call
+    /// `java.startBrowserAwait`; with the status thrown away first, a 403 never reached the
+    /// script. Next pages are not checked, as in Legado. A status that is still not 2xx after
+    /// the check is the stage's HTTP error, as it is without a check.
+    func fetchStageHTML(
+        url: URL, method: String, body: String?,
+        headers: [String: String], baseURL: String,
+        bodyCharset: String? = nil,
+        source: BookSource
+    ) async throws -> String {
+        guard source.hasLoginCheckJs else {
+            return try await fetchHTML(
+                url: url, method: method, body: body, headers: headers,
+                baseURL: baseURL, bodyCharset: bodyCharset, source: source
+            )
+        }
+        let page = try await SourceRateLimit.run(source: source) {
+            try await webFetcher.fetchPage(
+                url: url,
+                method: method,
+                body: body,
+                headers: headers,
+                baseURL: baseURL,
+                bodyCharset: bodyCharset
+            )
+        }
+        let response = LegadoStrResponse(
+            result: LegadoHTTPResult.make(request: page.request, data: page.data, response: page.response)
+        )
+        let checked = await SourceScriptThread.run {
+            self.pipeline.applyLoginCheck(to: response, source: source)
+        }
+        guard (200...299).contains(checked.code()) else {
+            throw FetchError.httpError(checked.code())
+        }
+        return checked.body()
     }
 
 }

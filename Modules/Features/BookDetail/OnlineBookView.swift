@@ -469,7 +469,7 @@ struct OnlineBookView: View {
                 Spacer()
                 if !chapters.isEmpty {
                     Button { showChapterList = true } label: {
-                        Text("\(chapters.count) " + localized("章"))
+                        Text(String(format: localized("%d 章"), chapters.count))
                             .font(DSFont.subheadline)
                             .foregroundStyle(.secondary)
                             .overlay(alignment: .bottom) {
@@ -563,7 +563,7 @@ struct OnlineBookView: View {
                 Divider().padding(.leading, DSSpacing.lg)
                 Button { showChapterList = true } label: {
                     HStack {
-                        Text(localized("共") + " \(chapters.count) " + localized("章"))
+                        Text(String(format: localized("共 %d 章"), chapters.count))
                         Spacer()
                         Image(systemName: "chevron.right").font(DSFont.caption)
                     }
@@ -1061,7 +1061,7 @@ private struct ChapterListSheet: View {
                         .font(DSFont.subheadline.weight(.medium))
                         .lineLimit(1)
                 }
-                Text(localized("共") + " \(chapters.count) " + localized("章"))
+                Text(String(format: localized("共 %d 章"), chapters.count))
                     .font(DSFont.caption)
                     .foregroundColor(.secondary)
             }

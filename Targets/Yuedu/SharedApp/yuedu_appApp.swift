@@ -29,7 +29,11 @@ struct yuedu_appApp: App {
             || bookStore.books.contains { $0.title.contains("红楼梦") }
         if exists { return }
         do {
-            let book = try await bookStore.importEpub(url: url)
+            // The generic importer, not importEpub: the same flag has to seed
+            // .cbz manga and .pdf for the screenshot harness, and it already
+            // dispatches on the extension.
+            let book = try await LocalBookImportService.importBook(
+                at: url, title: autoImportTitle, author: autoImportAuthor, store: bookStore)
             print("AUTO-IMPORT ok: \(book.title)")
         } catch {
             print("AUTO-IMPORT failed: \(error)")
@@ -37,8 +41,18 @@ struct yuedu_appApp: App {
     }
 
     nonisolated private static var autoImportFilename: String? {
+        argument(after: "-auto-import-epub")
+    }
+
+    /// Comics and PDFs take their title from the filename and leave the author
+    /// blank, which reads as "Unknown" on the shelf. These let the harness seed
+    /// the real ones.
+    nonisolated private static var autoImportTitle: String? { argument(after: "-auto-import-title") }
+    nonisolated private static var autoImportAuthor: String? { argument(after: "-auto-import-author") }
+
+    nonisolated private static func argument(after flag: String) -> String? {
         let args = ProcessInfo.processInfo.arguments
-        guard let idx = args.firstIndex(of: "-auto-import-epub"),
+        guard let idx = args.firstIndex(of: flag),
               args.indices.contains(idx + 1) else { return nil }
         return args[idx + 1]
     }
@@ -118,6 +132,13 @@ struct yuedu_appApp: App {
                 }
                 #endif
                 .onOpenURL { incomingURL in
+                    if incomingURL.isFileURL {
+                        let importer = SharedImportQueueDrainer.shared
+                        // A cold-launch URL may arrive before onAppear binds stores.
+                        importer.bind(bookStore: bookStore)
+                        Task { await importer.openFile(incomingURL) }
+                        return
+                    }
                     // Google Sign-In OAuth callback: hand off first so a Google
                     // sign-in round-trip completes. `handle(_:)` returns false
                     // for non-Google URLs, in which case we route to book-source
@@ -152,10 +173,10 @@ struct yuedu_appApp: App {
                         await AppDependencies.live.offlineDownloadManager
                             .reconcileInterruptedDownloads(store: bookStore)
                     }
+                    // Before anything runs a source: `java.startBrowser(Await)` opens its page
+                    // through this from any script — search, a chapter, 書源驗證.
+                    SourceBrowserPresenter.install()
                     Task {
-                        await WebFetcher.shared.setCloudflareChallengeHandler { url in
-                            try await CloudflareChallengePresenter.present(url: url)
-                        }
                         await ChapterUpdater.refreshAll(bookStore: bookStore, auto: true)
                     }
                     // Prime the WebView cookie mirror before the first source request

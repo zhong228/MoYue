@@ -84,6 +84,7 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
         state.onSetConfiguration = { [weak self] configuration in self?.changeConfiguration(configuration) }
         state.onNextChapter = { [weak self] in self?.loadNextChapter() }
         state.onPrevChapter = { [weak self] in self?.loadPreviousChapter() }
+        state.onStopAutoScroll = { [weak self] in self?.reader?.stopAutoScroll() }
         state.onToggleAutoScroll = { [weak self] in self?.reader?.toggleAutoScroll() }
         state.onReload = { [weak self] in
             guard let self else { return }
@@ -129,6 +130,7 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
     // MARK: Reader installation
 
     private func installReader() {
+        reader?.stopAutoScroll()
         reader?.willMove(toParent: nil)
         reader?.view.removeFromSuperview()
         reader?.removeFromParent()
@@ -423,7 +425,12 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
             excerpt: isSingleChapterDocumentBook ? String(format: localized("第 %d 頁"), page + 1) : ""
         )
     }
-    func readerShowTableOfContents() { state.showChapterList = true }
+    func readerAutoScrollStateChanged(_ isActive: Bool) { state.isAutoScrolling = isActive }
+
+    func readerShowTableOfContents() {
+        reader?.stopAutoScroll()
+        state.showChapterList = true
+    }
 
     func readerAppendNextChapter() async -> [FixedPage]? {
         guard !isSingleChapterDocumentBook else { return nil }

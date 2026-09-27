@@ -38,16 +38,6 @@ final class WebViewCookieMirror: @unchecked Sendable {
         return mirroredCookies(for: host) ?? []
     }
 
-    /// Cookies for `host` after forcing a fresh jar read.
-    ///
-    /// For the Cloudflare path only: the challenge WebView has just written the
-    /// clearance cookie and the retry must send exactly that value, so it cannot race
-    /// the observer callback that would otherwise refresh the mirror.
-    func refreshedCookies(for host: String) async -> [HTTPCookie] {
-        await refresh()
-        return mirroredCookies(for: host) ?? []
-    }
-
     /// Mirror lookup. `nil` means "not primed yet" — distinct from "primed, and this
     /// host has no cookies", so a cold-launch caller knows to prime instead of
     /// silently sending no Cookie header (which turns an authenticated source into

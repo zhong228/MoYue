@@ -97,6 +97,32 @@ enum HTMLResponseDecoder {
         return best?.text
     }
 
+    /// Decodes with `declaredCharset` when a source names one — Legado's `charset` URL option
+    /// decides, and as with Java's decoder, bytes that charset cannot map become U+FFFD rather
+    /// than failing the page — and detects the charset (`decode(data:response:)`) otherwise.
+    static func decode(data: Data, response: URLResponse?, declaredCharset: String?) -> String? {
+        let name = declaredCharset?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !name.isEmpty else { return decode(data: data, response: response) }
+        guard let declared = encoding(forIANA: name) else {
+            AppLogger.parse("unknown charset option; detecting the page's charset", context: ["charset": name])
+            return decode(data: data, response: response)
+        }
+        if let text = String(data: data, encoding: declared) { return text }
+        var converted: NSString?
+        var usedLossyConversion: ObjCBool = false
+        _ = NSString.stringEncoding(
+            for: data,
+            encodingOptions: [
+                .suggestedEncodingsKey: [declared.rawValue],
+                .useOnlySuggestedEncodingsKey: true,
+                .allowLossyKey: true,
+            ],
+            convertedString: &converted,
+            usedLossyConversion: &usedLossyConversion
+        )
+        return converted as String?
+    }
+
     /// True when `data` is valid UTF-8 **and** actually contains a multi-byte sequence.
     /// Pure ASCII is excluded on purpose: it decodes identically under every candidate here, so it
     /// carries no evidence about which one the server meant.

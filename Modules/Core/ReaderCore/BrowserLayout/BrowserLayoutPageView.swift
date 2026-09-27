@@ -934,7 +934,7 @@ final class BrowserLayoutPageViewController: UIViewController,
         }
         mediaAccessibilityActions = placements.map { placement in
             let title = placement.media.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return UIAccessibilityCustomAction(name: title.isEmpty ? localized("播放") : localized("播放") + " " + title) { [weak self] _ in
+            return UIAccessibilityCustomAction(name: title.isEmpty ? localized("播放") : String(format: localized("播放 %@"), title)) { [weak self] _ in
                 self?.inlineVideos.start(nodeID: placement.nodeID) ?? false
             }
         }

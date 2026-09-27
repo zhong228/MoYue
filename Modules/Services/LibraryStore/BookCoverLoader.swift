@@ -90,9 +90,9 @@ enum BookCoverLoader {
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { return nil }
         // Sources with `coverDecodeJs` serve encrypted cover bytes; decode falls
         // back to the raw data so a broken rule degrades, not disappears.
-        let effectiveData = CoverDecodeService.shared.decodedIfRegistered(
-            coverUrl: urlString, data: data
-        ) ?? data
+        let effectiveData = await SourceScriptThread.run {
+            CoverDecodeService.shared.decodedIfRegistered(coverUrl: urlString, data: data)
+        } ?? data
         guard let image = decodedCover(from: effectiveData) else { return nil }
 
         pipeline.storeNetworkImage(image, forKey: cacheKey)

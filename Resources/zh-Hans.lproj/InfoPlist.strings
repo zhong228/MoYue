@@ -3,6 +3,6 @@
 "Yuedu Reader Style" = "阅读样式";
 
 /* UTTypeDescription for exported diagnostic and book-source debug log files. */
-"Yuedu Log File" = "悦读日志文件";
+"Yuedu Log File" = "阅读日志文件";
 
 "NSLocalNetworkUsageDescription" = "用于连接局域网书库、接收 Calibre 发送的书籍，以及使用本地语音服务。";

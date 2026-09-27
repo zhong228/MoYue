@@ -120,14 +120,14 @@ struct LegadoMigrationView: View {
                 HStack {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
-                    Text(localized("書源：") + "\(result.sourcesImported) " + localized("個"))
+                    Text(String(format: localized("書源：%d 個"), result.sourcesImported))
                 }
             }
             if result.booksImported > 0 {
                 HStack {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
-                    Text(localized("書籍：") + "\(result.booksImported) " + localized("本"))
+                    Text(String(format: localized("書籍：%d 本"), result.booksImported))
                 }
             }
             if result.sourcesImported == 0 && result.booksImported == 0 && result.errors.isEmpty {

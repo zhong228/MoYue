@@ -13,25 +13,44 @@ struct BookSourceImportConfirmSheet: View {
     @ObservedObject var handler: BookSourceDeepLinkHandler
 
     var body: some View {
-        NavigationStack {
-            content
-                .navigationTitle(localized("匯入書源"))
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(localized("取消")) { handler.cancel() }
-                            .disabled(isBusy)
+        if case .reviewing = handler.phase {
+            // The confirmation list brings its own navigation chrome and needs the full
+            // height, so it replaces the compact sheet rather than nesting inside it.
+            reviewList
+        } else {
+            NavigationStack {
+                content
+                    .navigationTitle(localized("匯入書源"))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button(localized("取消")) { handler.cancel() }
+                                .disabled(isBusy)
+                        }
                     }
-                }
+            }
+            .presentationDetents(usesFullHeight ? [.large] : [.medium])
+            .interactiveDismissDisabled(isBusy)
         }
-        .presentationDetents([.medium])
-        .interactiveDismissDisabled(isBusy)
+    }
+
+    private var reviewList: some View {
+        BookSourceImportReviewSheet(
+            coordinator: handler.coordinator,
+            onConfirm: { handler.commitReview() },
+            onCancel: { handler.cancel() }
+        )
+        .onAppear { usesFullHeight = true }
     }
 
     private var isBusy: Bool {
         if case .importing = handler.phase { return true }
         return false
     }
+
+    /// The review list needs the full height, and the result that follows it must keep that
+    /// height — otherwise confirming an import snaps the sheet from full to half.
+    @State private var usesFullHeight = false
 
     @ViewBuilder
     private var content: some View {
@@ -42,6 +61,9 @@ struct BookSourceImportConfirmSheet: View {
             confirmingView(sourceURL: sourceURL)
         case .importing:
             importingView
+        case .reviewing:
+            // Handled above by `reviewList`.
+            EmptyView()
         case .succeeded(let count):
             resultView(
                 systemImage: "checkmark.circle.fill",

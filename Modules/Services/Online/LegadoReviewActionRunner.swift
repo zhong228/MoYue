@@ -57,14 +57,14 @@ actor LegadoReviewActionRunner {
         guard target.requiresSourceJS else { return target }
         guard target.sourceURL == source.bookSourceUrl else { throw ResolveError.sourceUnavailable }
         let js = target.sourceJS
-        let captured = await Task.detached(priority: .userInitiated) { () -> BrowserRequestSink.Value? in
+        let captured = await SourceScriptThread.run { () -> BrowserRequestSink.Value? in
             let session = BookSourceSession.session(for: source)
             let bridge = session.bridgeForAsyncOperations
             let sink = BrowserRequestSink()
             let previous = bridge.browserPresentHandler
             let previousPage = bridge.browserPagePresentHandler
-            bridge.browserPresentHandler = { url, title, completion in
-                sink.record(url: url, title: title)
+            bridge.browserPresentHandler = { request, completion in
+                sink.record(url: request.url, title: request.title)
                 // `startBrowserAwait` blocks a JS thread on this completion — always call it.
                 completion(nil)
             }
@@ -92,7 +92,7 @@ actor LegadoReviewActionRunner {
                 captured.request = bridge.sourceBrowserRequest(urlString: captured.url)
             }
             return captured
-        }.value
+        }
 
         guard let captured else {
             AppLogger.parse("⟐ reviewAction no destination", context: [
@@ -129,17 +129,19 @@ actor LegadoReviewActionRunner {
         _ script: String,
         sourceURL: String,
         actionContext: ReaderHTMLUtilities.LegadoSourceActionContext?
-    ) throws -> String {
+    ) async throws -> String {
         guard let source = BookSourceStore.shared.sources.first(
             where: { $0.bookSourceUrl == sourceURL }
         ) else {
             throw ResolveError.sourceUnavailable
         }
         let bridge = BookSourceSession.session(for: source).bridgeForAsyncOperations
-        if let actionContext {
-            return bridge.evaluateSourceAction(actionContext.replacingScript(script)) ?? ""
+        return await SourceScriptThread.run {
+            if let actionContext {
+                return bridge.evaluateSourceAction(actionContext.replacingScript(script)) ?? ""
+            }
+            return bridge.evaluateSourceScript(script) ?? ""
         }
-        return bridge.evaluateSourceScript(script) ?? ""
     }
 }
 

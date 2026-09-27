@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import Testing
 @testable import yuedu_app
 
@@ -13,4 +14,56 @@ struct FixedPageWebtoonAutoScrollTests {
         // The setting's floor still applies.
         #expect(abs(FixedPageWebtoonViewController.autoScrollStep(speedSetting: 0, frameInterval: 1.0 / 60) - 0.8) < 0.0001)
     }
+
+    @Test("reader taps ignore controls and their nested labels")
+    @MainActor
+    func readerTapExcludesControls() {
+        let page = UIView()
+        let button = UIButton(type: .system)
+        let nested = UIView()
+        let label = UILabel()
+        page.addSubview(button)
+        button.addSubview(nested)
+        nested.addSubview(label)
+        #expect(FixedPageReaderControlTapDelegate.acceptsReaderTap(on: page))
+        #expect(!FixedPageReaderControlTapDelegate.acceptsReaderTap(on: button))
+        #expect(!FixedPageReaderControlTapDelegate.acceptsReaderTap(on: label))
+    }
+
+    @Test("auto-scroll reports its actual state and stops when the reader disappears")
+    @MainActor
+    func autoScrollStateFollowsReader() {
+        let container = AutoScrollContainer()
+        let reader = FixedPageWebtoonViewController(
+            fixedPageReaderConfiguration: .recommendedDefault(for: .webtoon), targetWidth: 820
+        )
+        reader.container = container
+        reader.toggleAutoScroll()
+        #expect(reader.isAutoScrolling)
+        #expect(container.states == [true])
+        reader.startAutoScroll()
+        #expect(container.states == [true])
+        reader.stopAutoScroll()
+        #expect(!reader.isAutoScrolling)
+        #expect(container.states == [true, false])
+        reader.toggleAutoScroll()
+        reader.beginAppearanceTransition(false, animated: false)
+        reader.endAppearanceTransition()
+        #expect(!reader.isAutoScrolling)
+        #expect(container.states == [true, false, true, false])
+    }
+
+}
+
+
+@MainActor
+private final class AutoScrollContainer: FixedPageReaderContainer {
+    var states: [Bool] = []
+    func readerAutoScrollStateChanged(_ isActive: Bool) { states.append(isActive) }
+    func reader(didMoveToPage page: Int, total: Int) {}
+    func readerRequestsNextChapter() {}
+    func readerRequestsPreviousChapter() {}
+    func readerToggleControls() {}
+    func readerToggleBookmark() {}
+    func readerShowTableOfContents() {}
 }

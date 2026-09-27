@@ -19,6 +19,10 @@ import SwiftUI
 // The group-name submenus are gone for the same reason — they built one `Button` per group
 // per row, and ran a full pass over `BookSourceStore.sources` to do it. Both now open
 // `BookSourceGroupPickerSheet`, which asks `store.groupCounts(excluding:)` once, on open.
+//
+// Structs were not enough past a few thousand sources: `List` still ran the `ForEach`
+// closure for every element on every update. The rows are now hosted one cell at a time by
+// `HostedCollectionList`, and rows and groups carry ids instead of `BookSource` copies.
 
 /// One row group in the management list. Every displayed source belongs to exactly one
 /// group: pinned sources land in the built-in 置頂／置底 groups, the rest use their
@@ -33,7 +37,9 @@ struct BookSourceRowGroup: Identifiable {
 
     let id: String
     let name: String
-    let sources: [BookSource]
+    /// Member ids in display order. Ids, not `BookSource` values: a group of 20,000 sources
+    /// used to carry 20,000 copies of every rule string's storage header.
+    let sourceIDs: [UUID]
 
     /// 置頂／置底 are synthetic buckets built from pin state, not from `bookSourceGroup`.
     /// Renaming, merging, or deleting "the group" is meaningless for them, so their menu
@@ -42,9 +48,8 @@ struct BookSourceRowGroup: Identifiable {
         id == Self.topPinnedID || id == Self.bottomPinnedID
     }
 
-    /// Computed, not stored: it is only read inside the group menu, which is part of the
-    /// deferred `body`. Storing it would put an O(group size) pass back into construction.
-    var sourceIds: Set<UUID> { Set(sources.map(\.id)) }
+    /// Computed, not stored: it is only read by the group menu's actions when they run.
+    var sourceIds: Set<UUID> { Set(sourceIDs) }
 }
 
 /// Native share row for 匯出 …（儲存到「檔案」／AirDrop／…）. See `BookSourceExportFile` for
@@ -54,7 +59,9 @@ struct BookSourceRowGroup: Identifiable {
 struct BookSourceExportShareLink: View {
     let label: String
     let filenameLabel: String
-    let sources: [BookSource]
+    /// Resolved when the row is chosen, not when the menu is built: 匯出全部 over 50,000
+    /// sources used to copy the whole library into every render of the toolbar menu.
+    let sources: () -> [BookSource]
     /// Where the payload goes before iOS 18: the owning screen shows the share sheet
     /// from its own first-level presenter.
     let onHandoff: (PendingShareExport<BookSourceExportFile>) -> Void
@@ -64,7 +71,7 @@ struct BookSourceExportShareLink: View {
             label: label,
             makeExport: {
                 let file = BookSourceExportFile(
-                    filename: BookSourceExportFile.filename(for: filenameLabel), sources: sources)
+                    filename: BookSourceExportFile.filename(for: filenameLabel), sources: sources())
                 return PendingShareExport(title: label, name: file.filename, item: file)
             },
             onHandoff: onHandoff
@@ -286,7 +293,7 @@ struct BookSourceRow: View {
                 label: localized("匯出書源檔案"),
                 filenameLabel: source.bookSourceName.isEmpty
                     ? localized("未命名書源") : source.bookSourceName,
-                sources: [source],
+                sources: { [source] },
                 onHandoff: actions.export
             )
             Button {
@@ -458,6 +465,8 @@ struct BookSourceGroupActions {
     /// 匯出該分組 — same first-level share hand-off as `BookSourceRowActions.export`.
     var export: (PendingShareExport<BookSourceExportFile>) -> Void
     var delete: (BookSourceRowGroup) -> Void
+    /// Looks the members up when an export actually runs.
+    var resolveSources: ([UUID]) -> [BookSource]
 }
 
 /// 「› 分組名 12 ⋯」 — the chevron leads the title (Legado's layout) and the whole title
@@ -483,7 +492,7 @@ struct BookSourceGroupHeaderRow: View {
                         .font(DSFont.toolbarIcon)
                         .foregroundColor(.primary)
                         .lineLimit(1)
-                    Text("\(group.sources.count)")
+                    Text("\(group.sourceIDs.count)")
                         .font(DSFont.fixed(size: 12))
                         .foregroundColor(DSColor.textSecondary)
                         .monospacedDigit()
@@ -493,7 +502,7 @@ struct BookSourceGroupHeaderRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(group.name)，\(group.sources.count)")
+            .accessibilityLabel("\(group.name)，\(group.sourceIDs.count)")
             .accessibilityValue(localized(expanded ? "已展開" : "已收合"))
             .accessibilityHint(localized("點兩下展開或收合分組"))
             .accessibilityAddTraits(.isHeader)
@@ -538,7 +547,7 @@ struct BookSourceGroupHeaderRow: View {
             BookSourceExportShareLink(
                 label: localized("匯出該分組"),
                 filenameLabel: group.name,
-                sources: group.sources,
+                sources: { actions.resolveSources(group.sourceIDs) },
                 onHandoff: actions.export
             )
             Button {
@@ -607,27 +616,23 @@ private let previewActions = BookSourceRowActions(
     .listStyle(.plain)
 }
 
+private let previewGroupActions = BookSourceGroupActions(
+    toggleExpansion: { _ in }, rename: { _ in }, pickMergeTarget: { _ in },
+    setEnabled: { _, _ in }, select: { _ in }, copyToPasteboard: { _ in },
+    export: { _ in }, delete: { _ in }, resolveSources: { _ in [] })
+
 #Preview("分組表頭") {
     List {
         BookSourceGroupHeaderRow(
-            group: BookSourceRowGroup(
-                id: "常用", name: "常用",
-                sources: [previewSource(name: "A"), previewSource(name: "B")]),
+            group: BookSourceRowGroup(id: "常用", name: "常用", sourceIDs: [UUID(), UUID()]),
             expanded: true,
-            actions: BookSourceGroupActions(
-                toggleExpansion: { _ in }, rename: { _ in }, pickMergeTarget: { _ in },
-                setEnabled: { _, _ in }, select: { _ in }, copyToPasteboard: { _ in },
-                export: { _ in }, delete: { _ in })
+            actions: previewGroupActions
         )
         BookSourceGroupHeaderRow(
             group: BookSourceRowGroup(
-                id: BookSourceRowGroup.topPinnedID, name: "置頂組",
-                sources: [previewSource(name: "C")]),
+                id: BookSourceRowGroup.topPinnedID, name: "置頂組", sourceIDs: [UUID()]),
             expanded: false,
-            actions: BookSourceGroupActions(
-                toggleExpansion: { _ in }, rename: { _ in }, pickMergeTarget: { _ in },
-                setEnabled: { _, _ in }, select: { _ in }, copyToPasteboard: { _ in },
-                export: { _ in }, delete: { _ in })
+            actions: previewGroupActions
         )
     }
     .listStyle(.plain)
