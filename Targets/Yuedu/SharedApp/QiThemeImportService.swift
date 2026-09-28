@@ -5,10 +5,10 @@ extension AppearanceCustomizationBundle {
     /// Builds a bundle from already-translated parts rather than from a live snapshot.
     ///
     /// `QiThemeImportService` uses this so a foreign pack lands through the *same*
-    /// `importAppearanceCustomization` path as one of our own bundles — including the
-    /// ordering that path is careful about (themes before live page backgrounds, reader
-    /// background mode last). Re-implementing that ordering in the Qi importer is exactly
-    /// the second apply route this codebase keeps warning about.
+    /// `importAppearanceCustomization` path as one of our own bundles, rather than a
+    /// second apply route written for QiReader. It fills only `themes`: the bundle's own
+    /// fields are the *user's* look, restored as the layer every theme falls back to,
+    /// and nothing in a pack is the user's own.
     init(
         themes: [AppearanceThemeExportFile],
         pageBackgrounds: [String: PageBackgroundPayload]?,
@@ -154,9 +154,14 @@ enum QiThemeImportService {
         if disposition == .bindToTheme { extras.reading = reading }
         var themeFile = theme.themeFile
         themeFile?.extras = extras
+        // The pack's page backgrounds travel on its theme file only. Also passing them as
+        // the bundle's own `pageBackgrounds` wrote them into the live settings *before*
+        // the theme was selected — so the baseline that selection captured already held
+        // them, and choosing 默認 again kept the pack's background (山风 - 春水漾,
+        // 2026-09-28). It also stored every background image twice.
         let bundle = AppearanceCustomizationBundle(
             themes: themeFile.map { [$0] } ?? [],
-            pageBackgrounds: theme.pageBackgrounds.isEmpty ? nil : theme.pageBackgrounds,
+            pageBackgrounds: nil,
             tabIcons: nil,
             launchImageLight: nil,
             launchImageDark: nil,
