@@ -66,6 +66,17 @@ export function subscriptionRouter(context: GatewayContext): Router {
     }
   });
 
+  router.post("/testflight-access", requireAuth(context.auth), async (request, response, next) => {
+    try {
+      const user = authenticatedUser(request);
+      const result = await context.callables.call("verifyTestFlightAccess", user.uid, {});
+      if (typeof result.allowed !== "boolean") throw new ApiError("upstream-unavailable", "Invalid membership response.");
+      response.set("Cache-Control", "no-store").json({allowed: result.allowed});
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.post("/testflight-request", requireAuth(context.auth), async (request, response, next) => {
     try {
       const user = authenticatedUser(request);

@@ -74,6 +74,7 @@ struct SourceSearchSheet: View {
                             .interfaceSectionSurface()
                         }
                     }
+                    .softScrollEdges()
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
                 }

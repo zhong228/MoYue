@@ -50,6 +50,7 @@ struct RuntimeVariableEditorView: View {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .navigationTitle(title)
             .toolbarTitleDisplayMode(.inline)
             // The sections already carry `interfaceSectionSurface`, but the `Form` itself

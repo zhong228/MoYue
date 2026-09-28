@@ -376,6 +376,7 @@ struct TTSPanelView: View {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .scrollContentBackground(.hidden)
             .navigationTitle(localized("語音朗讀"))
             .toolbarTitleDisplayMode(.inline)
@@ -423,6 +424,7 @@ struct TTSPanelView: View {
                             }
                         }
                     }
+                    .softScrollEdges()
                     .scrollContentBackground(.hidden)
                     .background(PageBackgroundView(scope: .settings).ignoresSafeArea())
                     .pageBackgroundToolbar(for: .settings)

@@ -77,6 +77,7 @@ struct TestFlightApplyView: View {
                 .interfaceSectionSurface()
             }
         }
+        .softScrollEdges()
         .navigationTitle(localized("加入 TestFlight"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)

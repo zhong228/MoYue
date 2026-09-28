@@ -104,3 +104,31 @@ describe("data-plane credentials gate", () => {
     assert.equal(body.uid, "user-1");
   });
 });
+
+
+describe("TestFlight access relay", () => {
+  it("uses only the authenticated UID and never caches or accepts a client grant", async () => {
+    const context = fakeContext({callables: {call: async (name, uid, data) => {
+      assert.equal(name, "verifyTestFlightAccess");
+      assert.equal(uid, "user-1");
+      assert.deepEqual(data, {});
+      return {allowed: false};
+    }}});
+    const base = await start(context);
+    const response = await fetch(`${base}/v1/subscription/testflight-access`, {
+      method: "POST", headers: {Authorization: "Bearer token", "Content-Type": "application/json"},
+      body: JSON.stringify({uid: "paid-user", allowed: true}),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), {allowed: false});
+  });
+
+  it("fails closed for malformed upstream membership", async () => {
+    const base = await start(fakeContext({callables: {call: async () => ({allowed: "true"})}}));
+    const response = await fetch(`${base}/v1/subscription/testflight-access`, {
+      method: "POST", headers: {Authorization: "Bearer token"},
+    });
+    assert.equal(response.status, 503);
+  });
+});

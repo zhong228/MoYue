@@ -613,6 +613,7 @@ private let previewActions = BookSourceRowActions(
             actions: previewActions
         )
     }
+    .softScrollEdges()
     .listStyle(.plain)
 }
 
@@ -635,5 +636,6 @@ private let previewGroupActions = BookSourceGroupActions(
             actions: previewGroupActions
         )
     }
+    .softScrollEdges()
     .listStyle(.plain)
 }

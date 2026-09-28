@@ -223,6 +223,7 @@ struct BookSourceEditView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .listStyle(.insetGrouped)
     }
 
@@ -236,6 +237,7 @@ struct BookSourceEditView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .listStyle(.insetGrouped)
     }
 

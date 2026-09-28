@@ -93,6 +93,15 @@ final class FirebaseAccountBackend: AccountBackend {
             .call()
     }
 
+    func verifyTestFlightAccess() async throws -> Bool {
+        let result = try await Functions.functions(region: functionsRegion)
+            .httpsCallable("verifyTestFlightAccess").call()
+        guard let data = result.data as? [String: Any], let allowed = data["allowed"] as? Bool else {
+            throw AccountBackendError.invalidResponse
+        }
+        return allowed
+    }
+
     func requestTestFlightAccess(email: String) async throws -> TestFlightAccessResult {
         let result = try await Functions.functions(region: functionsRegion)
             .httpsCallable("requestTestFlightAccess")

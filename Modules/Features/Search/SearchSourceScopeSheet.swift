@@ -63,6 +63,7 @@ struct SearchSourceScopeSheet: View {
                     sourceSection
                 }
             }
+            .softScrollEdges()
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(PageBackgroundView(scope: .search).ignoresSafeArea())

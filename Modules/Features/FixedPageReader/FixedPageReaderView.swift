@@ -512,6 +512,7 @@ struct FixedPageReaderSettingsView: View {
                     }
                 }
             }
+            .softScrollEdges()
             .navigationTitle(localized("閱讀設定"))
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
@@ -581,6 +582,7 @@ struct FixedPageChapterListView: View {
                     .interfaceSectionSurface()
                     .id(item.index)
                 }
+                .softScrollEdges()
                 // Rows need their own transparent surface too — `scrollContentBackground`
                 // only clears the list container. docs/design.md §4.1.
                 .scrollContentBackground(.hidden)

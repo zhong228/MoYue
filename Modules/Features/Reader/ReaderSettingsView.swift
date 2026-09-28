@@ -97,6 +97,7 @@ struct ReaderSettingsView: View {
 
                     readerSettingsBackupSection
                 }
+                .softScrollEdges()
             }
             .themedAppSurface(for: .settings)
             .navigationTitle(localized("閱讀設定"))

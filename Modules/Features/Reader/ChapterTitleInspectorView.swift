@@ -30,6 +30,7 @@ struct ChapterTitleInspectorView: View {
                 )
             }
         }
+        .softScrollEdges()
         .sheet(isPresented: $showingAssetLibrary) {
             NavigationStack {
                 ReaderStyleAssetLibraryView(

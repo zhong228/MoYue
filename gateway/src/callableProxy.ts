@@ -18,6 +18,7 @@ export const CALLABLE_WHITELIST = [
   "bindSubscriptionPurchase",
   "deleteSubscriptionAccountData",
   "requestTestFlightAccess",
+  "verifyTestFlightAccess",
 ] as const;
 
 export type CallableName = (typeof CALLABLE_WHITELIST)[number];

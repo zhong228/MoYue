@@ -177,86 +177,60 @@ enum ReaderSettingsImportService {
         return !titleKeys.isDisjoint(with: keys) && layoutKeys.isDisjoint(with: keys)
     }
 
+    /// Writes the plan into the reader's current setup through the one reading-setup
+    /// writer that theme switches use too — so an import made while a bound theme is
+    /// selected lands on that theme, and one made under any other theme becomes the
+    /// user's own.
     @discardableResult
     static func apply(_ plan: ReaderSettingsImportPlan) throws -> ReaderSettingsImportSummary {
         guard !plan.isEmpty else { throw ReaderSettingsImportError.emptyFile }
+        try GlobalSettings.shared.writeReadingSettings(plan.readingSettings, origin: .userImport)
 
         var summary = ReaderSettingsImportSummary()
-        if let layout = plan.layout {
-            try applyLayout(layout)
-            summary.appliedLayout = true
-        }
-        if let style = plan.chapterTitleStyle {
-            ReaderConfig.shared.chapterTitleStyle = style
-            summary.appliedChapterTitleStyle = true
-        }
-        if let highlights = plan.regexHighlights {
-            GlobalSettings.shared.regexHighlightConfiguration = highlights
-            summary.appliedRegexHighlights = true
-        }
-        if let bubbleStyle = plan.dialogueBubbleStyle {
-            GlobalSettings.shared.dialogueBubbleStyle = bubbleStyle
-            summary.appliedDialogueBubbleStyle = true
-        }
+        summary.appliedLayout = plan.layout != nil
+        summary.appliedChapterTitleStyle = plan.chapterTitleStyle != nil
+        summary.appliedRegexHighlights = plan.regexHighlights != nil
+        summary.appliedDialogueBubbleStyle = plan.dialogueBubbleStyle != nil
         return summary
     }
+}
 
-    private static func applyLayout(_ preset: ReaderLayoutPreset) throws {
-        let settings = GlobalSettings.shared
-        let readerConfig = ReaderConfig.shared
-
-        // The header/footer layout goes first and can veto the whole apply: a
-        // partial import that changed the type size but silently dropped the bars
-        // is worse than a reported failure.
-        //
-        // Native presets retain both page scopes and every margin. Older presets
-        // and external theme packs still enter through the coordinate migration.
-        if let barLayout = preset.readerBarLayout ?? preset.readerOverlayLayout.map(ReaderBarLayoutMigration.snap),
-           !settings.saveReaderBarLayout(barLayout) {
-            throw ReaderOverlayLayoutPersistenceError.writeFailed
+extension ReaderSettingsImportPlan {
+    /// The plan as a reading setup: what 取代目前設定 writes live, and what
+    /// 隨主題切換 stores on the imported theme. The one place a layout preset is
+    /// translated into settings.
+    var readingSettings: AppearanceThemeReadingSettings {
+        var reading = AppearanceThemeReadingSettings()
+        if let preset = layout {
+            // Native presets retain both page scopes and every margin. Older presets
+            // and external theme packs still enter through the coordinate migration.
+            // Normalized the way storing it normalizes, so the stored value compares
+            // equal to what the reader ends up wearing.
+            reading.barLayout = (preset.readerBarLayout
+                ?? preset.readerOverlayLayout.map(ReaderBarLayoutMigration.snap))?
+                .normalized(preservingVersion: false)
+            reading.fontSize = preset.fontSize.map(Double.init)
+            reading.isBold = preset.isBold
+            reading.lineHeightMultiple = preset.lineHeightMultiple.map(Double.init)
+            reading.letterSpacing = preset.letterSpacing.map(Double.init)
+            reading.paragraphSpacingMultiplier = preset.paragraphSpacingMultiplier.map(Double.init)
+            reading.pageMarginH = preset.pageMarginH.map(Double.init)
+            reading.pageMarginV = preset.pageMarginV.map(Double.init)
+            reading.pageMarginTop = (preset.pageMarginTop ?? preset.pageMarginV).map(Double.init)
+            reading.pageMarginBottom = (preset.pageMarginBottom ?? preset.pageMarginV).map(Double.init)
+            reading.scrollMode = preset.scrollMode
+            // Scroll mode outranks the page animation, as in legado's `pageAnim`.
+            if preset.scrollMode != true {
+                reading.pageTurnStyle = preset.pageTurnStyle?.rawValue
+            }
+            // The preset's loose title fields are not carried: the renderer reads only
+            // `ChapterTitleStyle`, and those keys survive solely as a one-time migration
+            // source (`GlobalSettings.loadChapterTitleStyle`).
         }
-
-        if let fontSize = preset.fontSize {
-            readerConfig.fontSize = fontSize
-        }
-        if let isBold = preset.isBold {
-            readerConfig.readerFontBold = isBold
-        }
-        if let lineHeightMultiple = preset.lineHeightMultiple {
-            readerConfig.lineHeightMultiple = lineHeightMultiple
-        }
-        if let letterSpacing = preset.letterSpacing {
-            readerConfig.letterSpacing = letterSpacing
-        }
-        if let paragraphSpacingMultiplier = preset.paragraphSpacingMultiplier {
-            readerConfig.paragraphSpacingMultiplier = paragraphSpacingMultiplier
-        }
-        if let pageMarginH = preset.pageMarginH {
-            readerConfig.pageMarginH = pageMarginH
-        }
-        if let pageMarginV = preset.pageMarginV {
-            readerConfig.pageMarginV = pageMarginV
-        }
-        if let top = preset.pageMarginTop ?? preset.pageMarginV { readerConfig.pageMarginTop = top }
-        if let bottom = preset.pageMarginBottom ?? preset.pageMarginV { readerConfig.pageMarginBottom = bottom }
-        if let titleVisible = preset.titleVisible {
-            settings.readerTitleVisible = titleVisible
-        }
-        if let titleSize = preset.titleSize {
-            settings.readerTitleSize = Double(titleSize)
-        }
-        if let titleTopSpacing = preset.titleTopSpacing {
-            settings.readerTitleTopSpacing = Double(titleTopSpacing)
-        }
-        if let titleBottomSpacing = preset.titleBottomSpacing {
-            settings.readerTitleBottomSpacing = Double(titleBottomSpacing)
-        }
-        if let scrollMode = preset.scrollMode {
-            settings.scrollMode = scrollMode
-        }
-        if let pageTurnStyle = preset.pageTurnStyle, preset.scrollMode != true {
-            settings.pageTurnStyle = pageTurnStyle
-        }
+        reading.chapterTitleStyle = chapterTitleStyle
+        reading.regexHighlights = regexHighlights
+        reading.dialogueBubbleStyle = dialogueBubbleStyle
+        return reading
     }
 }
 

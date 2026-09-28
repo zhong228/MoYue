@@ -49,6 +49,7 @@ struct AICharacterListView: View {
             }
             addSection
         }
+        .softScrollEdges()
         .scrollContentBackground(.hidden)
         .navigationTitle(localized("人物卡"))
         .toolbarTitleDisplayMode(.inline)

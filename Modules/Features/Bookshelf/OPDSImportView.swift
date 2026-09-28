@@ -71,6 +71,7 @@ struct RemoteLibraryBrowserView: View {
                     .interfaceSectionSurface()
                 }
             }
+            .softScrollEdges()
             .overlay {
                 if connections.isEmpty && kind == .webDAV { emptyLibraryView }
             }
@@ -208,6 +209,7 @@ struct RemoteLibraryConnectionEditor: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .navigationTitle(localized(connection == nil ? "新增伺服器" : "編輯伺服器"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .bookshelf)
@@ -316,6 +318,7 @@ struct OPDSFeedView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .overlay {
             if isLoading && entries.isEmpty && loadError == nil {
                 ProgressView(localized("正在載入書庫"))

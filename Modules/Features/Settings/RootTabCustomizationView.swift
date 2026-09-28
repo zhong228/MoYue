@@ -31,6 +31,7 @@ struct RootTabCustomizationView: View {
                 iconSection(for: tab)
             }
         }
+        .softScrollEdges()
         .navigationTitle(localized("底部 Tab"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)

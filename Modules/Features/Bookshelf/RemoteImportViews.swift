@@ -42,6 +42,7 @@ struct WebDAVDirectoryView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .overlay {
             if isLoading && entries.isEmpty && loadError == nil {
                 ProgressView(localized("正在載入書庫"))

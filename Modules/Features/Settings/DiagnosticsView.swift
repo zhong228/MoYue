@@ -180,6 +180,7 @@ struct DiagnosticsView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .searchable(
             text: $searchText,
             placement: .navigationBarDrawer(displayMode: .always),

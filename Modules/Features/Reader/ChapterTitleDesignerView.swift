@@ -223,6 +223,7 @@ struct ChapterTitleDesignerView: View {
                 .interfaceSectionSurface()
             }
         }
+        .softScrollEdges()
     }
 
     private func insertionButton(_ token: String, label: String) -> some View {

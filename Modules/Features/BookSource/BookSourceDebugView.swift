@@ -73,6 +73,7 @@ struct BookSourceDebugView: View {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .navigationTitle(localized("書源除錯大師"))
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .settings)

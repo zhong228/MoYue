@@ -557,6 +557,7 @@ private struct ReaderCustomBackgroundOptionsView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(DSColor.groupedBackground)
@@ -654,6 +655,7 @@ private struct ReaderCustomBackgroundColorEditorView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .scrollContentBackground(.hidden)
         .background(DSColor.groupedBackground)
         .navigationTitle(localized("RGB 調色"))

@@ -105,6 +105,7 @@ struct ReaderCommentBubbleSettingsView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .navigationTitle(localized("氣泡設定"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)
@@ -529,6 +530,7 @@ private struct CommentBubbleStyleEditorView: View {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .navigationTitle(localized(draft.titleKey))
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .settings)

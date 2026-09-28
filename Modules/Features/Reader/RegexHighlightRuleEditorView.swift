@@ -73,6 +73,7 @@ struct RegexHighlightRuleEditorView: View {
                 cssSections
             }
         }
+        .softScrollEdges()
         .themedAppSurface(for: .settings)
         .navigationTitle(localized("編輯規則"))
         .toolbarTitleDisplayMode(.inline)

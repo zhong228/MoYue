@@ -187,6 +187,7 @@ struct RemoteLibraryBookDetailView: View {
                 .interfaceSectionSurface()
             }
         }
+        .softScrollEdges()
         .task(id: item.connectionID) {
             do {
                 writeCapabilities = try await dependencies.remoteLibraryWriting.capabilities(connectionID: item.connectionID, directoryURL: nil)

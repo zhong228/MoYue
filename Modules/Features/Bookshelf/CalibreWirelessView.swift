@@ -97,6 +97,7 @@ struct CalibreWirelessView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .navigationTitle(localized("電腦傳書"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .bookshelf)

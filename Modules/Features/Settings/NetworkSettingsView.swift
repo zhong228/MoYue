@@ -36,6 +36,7 @@ struct NetworkSettingsView: View {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .themedAppSurface(for: .settings)
             .navigationTitle(localized("網路設定"))
             .toolbarTitleDisplayMode(.inline)

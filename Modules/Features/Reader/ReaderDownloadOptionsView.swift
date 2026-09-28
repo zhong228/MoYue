@@ -94,6 +94,7 @@ struct ReaderDownloadOptionsView: View {
                     completedSections
                 }
             }
+            .softScrollEdges()
             .navigationTitle(localized("下載章節"))
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .settings)

@@ -259,6 +259,7 @@ struct TTSSettingsView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
     }
@@ -953,6 +954,7 @@ struct TTSSourceLoginView: View {
                     }
                 }
             }
+            .softScrollEdges()
             .navigationTitle(source.name)
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .settings)

@@ -71,6 +71,7 @@ struct GlobalFontSettingsView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .navigationTitle(localized("全局字體"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)

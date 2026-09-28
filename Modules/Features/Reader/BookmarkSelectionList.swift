@@ -65,6 +65,7 @@ struct BookmarkSelectionList: View {
                 }
             }
         }
+        .softScrollEdges()
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
     }

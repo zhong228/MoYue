@@ -38,6 +38,7 @@ struct ShareExportSheet<Item: Transferable>: View {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .navigationTitle(export.title)
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .settings)

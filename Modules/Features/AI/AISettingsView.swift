@@ -32,6 +32,7 @@ struct AIServiceEditorView: View {
                 testSection
                 if hasStoredKey { removeSection }
             }
+            .softScrollEdges()
             .themedAppSurface(for: .settings)
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle(localized("AI 服務"))
@@ -355,6 +356,7 @@ struct AISettingsView: View {
                     .interfaceSectionSurface()
                 }
             }
+            .softScrollEdges()
             .themedAppSurface(for: .settings)
             .navigationTitle(localized("AI 助手設定"))
             .toolbarTitleDisplayMode(.inline)

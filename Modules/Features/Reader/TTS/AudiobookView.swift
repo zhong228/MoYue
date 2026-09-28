@@ -364,6 +364,7 @@ struct AudiobookChapterListView: View {
                     .interfaceSectionSurface()
                     .id(chapter.index)
                 }
+                .softScrollEdges()
                 .onAppear { proxy.scrollTo(player.chapterIndex, anchor: .center) }
             }
             // Rows carry their own surface; the modifier below only clears the list
@@ -405,6 +406,7 @@ struct AudiobookSleepTimerView: View {
                     }
                 }
             }
+            .softScrollEdges()
             .scrollContentBackground(.hidden)
             .background(PageBackgroundView(scope: .settings).ignoresSafeArea())
             .pageBackgroundToolbar(for: .settings)

@@ -88,6 +88,7 @@ struct DefaultCoverSettingsView: View {
             coverLibrarySection(for: .light)
             coverLibrarySection(for: .dark)
         }
+        .softScrollEdges()
         .navigationTitle(localized("預設封面"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)

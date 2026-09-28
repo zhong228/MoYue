@@ -173,4 +173,5 @@ struct PaywallShowcase: View {
         }
         .padding()
     }
+    .softScrollEdges()
 }

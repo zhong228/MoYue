@@ -75,6 +75,7 @@ extension ReaderView {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .scrollContentBackground(.hidden)
             .background(PageBackgroundView(scope: .settings).ignoresSafeArea())
             .pageBackgroundToolbar(for: .settings)

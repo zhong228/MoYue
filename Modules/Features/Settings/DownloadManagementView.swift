@@ -42,6 +42,7 @@ struct DownloadManagementView: View {
                 activeDownloadsSection
                 downloadedBooksSection
             }
+            .softScrollEdges()
             .navigationTitle(localized("下載管理"))
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .settings)

@@ -38,6 +38,7 @@ struct ReaderDialogueBubbleSettingsView: View {
                 actionsSection
             }
         }
+        .softScrollEdges()
         .themedAppSurface(for: .settings)
         .navigationTitle(localized("對話氣泡"))
         .toolbarTitleDisplayMode(.inline)

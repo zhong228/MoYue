@@ -117,6 +117,7 @@ struct BookSourceImportOptionsView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .navigationTitle(localized("匯入選項"))

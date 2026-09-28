@@ -37,6 +37,7 @@ struct SharedCustomizationImportView: View {
                     ProgressView(localized("匯入中，請稍候…"))
                 }
             }
+            .softScrollEdges()
             .navigationTitle(localized("匯入"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -771,6 +771,7 @@ struct HomeView: View {
                 store.moveBooks(ids: movingIds, before: targetId)
             }
         }
+        .softScrollEdges()
         .listStyle(.plain)
         .environment(\.editMode, $editMode)
         .animation(.easeOut(duration: 0.25), value: sortedFilteredBooks.map(\.id))
@@ -1068,6 +1069,7 @@ struct EditBookSheet: View {
                     }
                     .interfaceSectionSurface()
                 }
+                .softScrollEdges()
                 .navigationTitle(localized("書籍資訊"))
                 .themedAppSurface(for: .bookshelf)
                 .alert(
@@ -1807,6 +1809,7 @@ struct BulkAddToGroupSheet: View {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .navigationTitle(localized("加入分組"))
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .bookshelf)
@@ -1856,6 +1859,7 @@ private func previewOnlineBook(hasUpdate: Bool) -> ReadingBook {
         BookRow(book: previewOnlineBook(hasUpdate: true), onTap: { _ in }, onEdit: {}, onDelete: {})
         BookRow(book: previewOnlineBook(hasUpdate: false), onTap: { _ in }, onEdit: {}, onDelete: {})
     }
+    .softScrollEdges()
     .listStyle(.plain)
 }
 

@@ -308,4 +308,5 @@ struct ImageSourcePickerCapsuleLabel: View {
             Label(localized("選擇圖片"), systemImage: "photo")
         }
     }
+    .softScrollEdges()
 }

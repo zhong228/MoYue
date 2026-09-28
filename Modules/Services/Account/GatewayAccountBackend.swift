@@ -97,6 +97,12 @@ final class GatewayAccountBackend: AccountBackend {
         try await store.authorizedSendVoid(request)
     }
 
+    func verifyTestFlightAccess() async throws -> Bool {
+        struct Response: Decodable { let allowed: Bool }
+        let request = GatewayRequest(method: "POST", path: "/v1/subscription/testflight-access")
+        return try await store.authorizedSend(request, as: Response.self).allowed
+    }
+
     func requestTestFlightAccess(email: String) async throws -> TestFlightAccessResult {
         struct Body: Encodable { let email: String }
         struct Response: Decodable {

@@ -28,6 +28,7 @@ struct AIBookshelfOrganizerView: View {
             case .review: review
             }
         }
+        .softScrollEdges()
         .themedAppSurface(for: .settings)
         .navigationTitle(localized("AI 整理書架"))
         .toolbarTitleDisplayMode(.inline)

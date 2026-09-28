@@ -55,6 +55,7 @@ struct TTSRoleCastView: View {
                 if !castElsewhere.isEmpty { elsewhereSection }
             }
         }
+        .softScrollEdges()
         .navigationTitle(localized("多角色朗讀"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)
@@ -291,6 +292,7 @@ struct TTSRoleVoicePickerView: View {
             case .bookSource: importedSourceSection
             }
         }
+        .softScrollEdges()
         .navigationTitle(speaker)
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)

@@ -30,6 +30,7 @@ struct AIWordLookupView: View {
                 .padding(.horizontal, DSSpacing.lg)
                 .padding(.vertical, DSSpacing.md)
             }
+            .softScrollEdges()
             .background(DSColor.background)
             .navigationTitle(localized("AI 查詞"))
             .toolbarTitleDisplayMode(.inline)

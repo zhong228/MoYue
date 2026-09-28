@@ -173,6 +173,7 @@ struct AIAssistantPanelView: View {
                     }
                     .padding(DSSpacing.lg)
                 }
+                .softScrollEdges()
                 .opensAtLatestMessage()
                 .accessibilityIdentifier("ai.chat.transcript")
                 .scrollDismissesKeyboard(.interactively)
@@ -314,6 +315,7 @@ struct AIAssistantPanelView: View {
             List {
                 Section { Text(citation.quote).textSelection(.enabled) } header: { Text(citation.sectionTitle ?? localized("原文")) }
             }
+            .softScrollEdges()
             .navigationTitle(localized("原文引用"))
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
@@ -365,6 +367,7 @@ struct AIChatHistoryView: View {
                 .swipeActions { Button(localized("刪除"), role: .destructive) { onDelete(session.id) } }
             }
         }
+        .softScrollEdges()
         .themedAppSurface(for: .settings)
         .navigationTitle(localized("對話列表"))
         .toolbarTitleDisplayMode(.inline)

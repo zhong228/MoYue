@@ -50,6 +50,7 @@ struct ReaderStyleAssetLibraryView: View {
                 }
             }
         }
+        .softScrollEdges()
         .navigationTitle(localized("素材庫"))
         .toolbarTitleDisplayMode(.inline)
         .toolbar {

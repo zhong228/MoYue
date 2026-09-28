@@ -91,6 +91,7 @@ struct AIRelationshipMapView: View {
                 .listRowBackground(Color.clear)
             }
         }
+        .softScrollEdges()
         .themedAppSurface(for: .settings)
         .navigationTitle(localized("人物關係圖"))
         .toolbarTitleDisplayMode(.inline)

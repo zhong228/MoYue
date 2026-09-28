@@ -92,6 +92,7 @@ struct SourceImportConfirmList<Source: ImportableSource, ExtraOptions: View>: Vi
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
         }

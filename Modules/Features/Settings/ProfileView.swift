@@ -246,6 +246,7 @@ struct SettingsView: View {
                     }
                     .interfaceSectionSurface()
                 }
+            .softScrollEdges()
             .themedAppSurface(for: .settings)
             .navigationTitle(localized("設定"))
             .toolbarTitleDisplayModeInlineLargeOrInline()
@@ -522,6 +523,7 @@ private struct AboutSupportView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .navigationTitle(localized("關於 Yuedu Reader"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)

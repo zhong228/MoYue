@@ -71,6 +71,7 @@ struct AIStatusView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .themedAppSurface(for: .settings)
         .navigationTitle(localized("AI 狀態與診斷"))
         .toolbarTitleDisplayMode(.inline)

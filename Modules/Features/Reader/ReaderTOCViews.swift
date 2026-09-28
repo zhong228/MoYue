@@ -339,6 +339,7 @@ struct ReaderTOCView: View {
                     chapterRow(chapter)
                 }
             }
+            .softScrollEdges()
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .contentMargins(.top, 0, for: .scrollContent)

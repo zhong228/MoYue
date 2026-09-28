@@ -99,7 +99,7 @@ struct yuedu_appApp: App {
     /// down naturally instead of fighting a separate `isPresented` flag.
     private var bookSourceImportSheetBinding: Binding<Bool> {
         Binding(
-            get: { bookSourceDeepLinkHandler.phase != .idle },
+            get: { TestFlightAccessController.shared.state.allowsUse && bookSourceDeepLinkHandler.phase != .idle },
             set: { presented in
                 if !presented, bookSourceDeepLinkHandler.phase != .idle {
                     bookSourceDeepLinkHandler.finish()
@@ -120,7 +120,7 @@ struct yuedu_appApp: App {
                     ContentView()
                 }
                 #else
-                ContentView()
+                TestFlightMembershipRoot { ContentView() }
                 #endif
             }
                 .environmentObject(bookStore)
@@ -133,6 +133,7 @@ struct yuedu_appApp: App {
                 #endif
                 .onOpenURL { incomingURL in
                     if incomingURL.isFileURL {
+                        guard TestFlightAccessController.shared.state.allowsUse else { return }
                         let importer = SharedImportQueueDrainer.shared
                         // A cold-launch URL may arrive before onAppear binds stores.
                         importer.bind(bookStore: bookStore)
@@ -147,6 +148,7 @@ struct yuedu_appApp: App {
                     if GIDSignIn.sharedInstance.handle(incomingURL) {
                         return
                     }
+                    guard TestFlightAccessController.shared.state.allowsUse else { return }
                     bookSourceDeepLinkHandler.handle(url: incomingURL)
                 }
                 .sheet(isPresented: bookSourceImportSheetBinding) {

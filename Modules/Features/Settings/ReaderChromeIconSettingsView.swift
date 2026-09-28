@@ -25,6 +25,7 @@ struct ReaderChromeIconSettingsView: View {
                 footerKey: "經典把刷新、換源、下載、聽書畫成浮在正文上的圓鈕，AI 助手和 AI 翻譯固定在頂部選單；現代全部放在點封面圓圈之後的書卡裡。原本就不適用這本書的動作仍然不會出現。"
             )
         }
+        .softScrollEdges()
         .scrollContentBackground(.hidden)
         .navigationTitle(localized("按鈕圖示"))
         .toolbarTitleDisplayMode(.inline)

@@ -526,5 +526,6 @@ private struct AIChatComposerMenuLabel: View {
         }
         .padding(DSSpacing.lg)
     }
+    .softScrollEdges()
     .background(DSColor.groupedBackground)
 }

@@ -94,6 +94,7 @@ struct RSSSmartFeedView: View {
                         }
                     }
                 }
+                .softScrollEdges()
                 .listStyle(.plain)
             }
         }
@@ -308,6 +309,7 @@ struct RSSFeedView: View {
                 }
             }
         }
+        .softScrollEdges()
         .listStyle(.plain)
         .refreshable {
             await refresh()
@@ -796,5 +798,6 @@ extension URL: @retroactive Identifiable {
         )
         .listRowInsets(EdgeInsets())
     }
+    .softScrollEdges()
     .listStyle(.plain)
 }

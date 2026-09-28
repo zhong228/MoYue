@@ -3,6 +3,7 @@ import {readFileSync} from "node:fs";
 import {resolve} from "node:path";
 
 import {
+  AppStoreServerAPIClient,
   Environment,
   JWSTransactionDecodedPayload,
   SignedDataVerifier,
@@ -12,6 +13,10 @@ import {FieldValue, Timestamp, getFirestore} from "firebase-admin/firestore";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 import {onRequest} from "firebase-functions/v2/https";
 import {logger} from "firebase-functions";
+import {onDocumentWritten} from "firebase-functions/v2/firestore";
+import {onSchedule} from "firebase-functions/v2/scheduler";
+import {verifyCurrentLifetimeMembership} from "./testFlightMembershipPolicy.js";
+import {shouldApplyTransaction} from "./transactionUpdatePolicy.js";
 import {defineSecret} from "firebase-functions/params";
 
 import {AppStoreConnectClient} from "./appStoreConnect.js";
@@ -76,6 +81,7 @@ interface PurchaseBindingDocument {
   productId: string;
   active: boolean;
   environment: string;
+  signedDate?: number;
   purchaseDate: Timestamp | null;
   expiresAt: Timestamp | null;
   revocationDate: Timestamp | null;
@@ -108,6 +114,135 @@ const appStoreConnectSecrets = [
   appStorePrivateKeySecret,
   testFlightGroupNameSecret,
 ];
+// App Store Server API requires an In-App Purchase key, separate from ASC's key.
+const serverIssuerId = defineSecret("APP_STORE_SERVER_ISSUER_ID");
+const serverKeyId = defineSecret("APP_STORE_SERVER_KEY_ID");
+const serverPrivateKey = defineSecret("APP_STORE_SERVER_PRIVATE_KEY");
+const serverSecrets = [serverIssuerId, serverKeyId, serverPrivateKey];
+const membershipSecrets = [...serverSecrets, ...appStoreConnectSecrets];
+
+function connectClient(): AppStoreConnectClient {
+  return new AppStoreConnectClient({
+    credentials: {
+      issuerId: appStoreIssuerIdSecret.value(), keyId: appStoreKeyIdSecret.value(),
+      privateKeyBase64: appStorePrivateKeySecret.value(),
+    },
+    appId: String(appAppleId),
+    groupName: testFlightGroupNameSecret.value() || defaultTestFlightGroupName,
+  });
+}
+
+async function latestProductionTransaction(id: string): Promise<JWSTransactionDecodedPayload> {
+  const client = new AppStoreServerAPIClient(
+    Buffer.from(serverPrivateKey.value(), "base64").toString("utf8"),
+    serverKeyId.value(), serverIssuerId.value(), bundleId, Environment.PRODUCTION
+  );
+  const result = await client.getTransactionInfo(id);
+  if (!result.signedTransactionInfo) throw new Error("Apple returned no signed transaction");
+  const transaction = await verifiers.get(Environment.PRODUCTION)!
+    .verifyAndDecodeTransaction(result.signedTransactionInfo);
+  if (transaction.transactionId !== id) throw new Error("Apple transaction identity mismatch");
+  return transaction;
+}
+
+/** Atomic ordering prevents old notifications/client JWS from restoring a refund. */
+async function storeBinding(data: PurchaseBindingDocument, freshFromApple = false): Promise<void> {
+  const reference = db.collection("purchaseBindings").doc(data.originalTransactionId);
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(reference);
+    const existing = snapshot.data() as PurchaseBindingDocument | undefined;
+    try {
+      assertBindingOwner(existing?.uid, data.uid);
+    } catch (error) {
+      throw new HttpsError("already-exists", (error as Error).message);
+    }
+    if (existing && existing.environment !== data.environment) throw new Error("Environment mismatch");
+    // A current Apple API answer can migrate a legacy record with no signedDate.
+    if (shouldApplyTransaction(existing, data, freshFromApple)) {
+      transaction.set(reference, data, {merge: true});
+    }
+  });
+}
+
+async function revokeManagedTestFlightAccess(uid: string): Promise<void> {
+  const ownerRef = db.collection("testflightProRequests").doc(uid);
+  const owner = (await ownerRef.get()).data() as TestFlightProRequestDocument | undefined;
+  if (!owner) return;
+  await ownerRef.update({status: "revocationPending", updatedAt: FieldValue.serverTimestamp()});
+  // Failure propagates: Firestore retries the event and the hourly audit also
+  // retries pending removals. Never report removal before Apple's 204 response.
+  await connectClient().revokeAppAccess(owner.email);
+  const batch = db.batch();
+  const status = {status: "revoked", updatedAt: FieldValue.serverTimestamp()};
+  batch.update(ownerRef, status);
+  batch.set(db.collection("testflightRequests").doc(owner.email), status, {merge: true});
+  await batch.commit();
+}
+
+async function hasCurrentLifetimePro(uid: string): Promise<boolean> {
+  return verifyCurrentLifetimeMembership(async () => {
+    const snapshot = await db.collection("purchaseBindings").where("uid", "==", uid).get();
+    return snapshot.docs.map(doc => doc.data() as PurchaseBindingDocument);
+  }, async binding => {
+    const current = await latestProductionTransaction(binding.transactionId);
+    assertTransactionCanBind(current, binding.appAccountToken);
+    if (current.originalTransactionId !== binding.originalTransactionId) throw new Error("Purchase identity mismatch");
+    await storeBinding(bindingData(current, uid, binding.appAccountToken), true);
+  });
+}
+
+export const verifyTestFlightAccess = onCall({region, secrets: serverSecrets}, async request => {
+  const uid = requireUid(request.auth);
+  return {allowed: await hasCurrentLifetimePro(uid)};
+});
+
+// Refund processing runs independently of the client and survives ASC outages.
+export const reconcileTestFlightMembership = onDocumentWritten({
+  document: "purchaseBindings/{id}", region, retry: true, secrets: appStoreConnectSecrets,
+}, async event => {
+  const uid = event.data?.after.data()?.uid ?? event.data?.before.data()?.uid;
+  if (typeof uid !== "string") return;
+  await recomputeEntitlement(uid);
+  const snapshot = await db.collection("purchaseBindings").where("uid", "==", uid).get();
+  const entitlement = summariseEnvironment(snapshot.docs.map(doc => doc.data() as PurchaseBindingDocument), productionEnvironment);
+  if (!entitlementGrantsTestFlight(entitlement.isProActive, entitlement.productIds)) {
+    await revokeManagedTestFlightAccess(uid);
+  }
+});
+
+// Reconciles existing members and missed Apple notifications, not just new refunds.
+export const auditTestFlightMembership = onSchedule({
+  schedule: "every 60 minutes", region, secrets: membershipSecrets, timeoutSeconds: 540,
+}, async () => {
+  const progress = db.collection("testflightAuditState").doc("cursor");
+  let cursor = (await progress.get()).data()?.lastUID as string | undefined;
+  const deadline = Date.now() + 420_000;
+  let failed = false;
+  for (;;) {
+    let query = db.collection("testflightProRequests").orderBy("__name__").limit(100);
+    if (cursor) query = query.startAfter(cursor);
+    const page = await query.get();
+    if (page.empty) {
+      await progress.set({lastUID: null});
+      break;
+    }
+    for (const doc of page.docs) {
+      if (doc.data().status === "revoked") continue;
+      try {
+        if (!await hasCurrentLifetimePro(doc.id)) await revokeManagedTestFlightAccess(doc.id);
+      } catch (error) {
+        failed = true;
+        logger.error("TestFlight membership audit failed", {uid: doc.id, error});
+      }
+    }
+    cursor = page.docs[page.docs.length - 1].id;
+    // Bounded runs resume the scan instead of starving later tester accounts.
+    await progress.set({lastUID: cursor});
+    if (Date.now() >= deadline) break;
+  }
+  if (failed) throw new Error("Some TestFlight memberships could not be reconciled");
+});
+
 /// Beta group created automatically if the configured group does not exist.
 const defaultTestFlightGroupName = "Yuedu 測試版";
 
@@ -135,10 +270,7 @@ function requireUid(
  * being guarded.
  */
 async function requireLifetimePro(uid: string): Promise<void> {
-  const snapshot = await db.collection("purchaseBindings").where("uid", "==", uid).get();
-  const bindings = snapshot.docs.map((document) => document.data() as PurchaseBindingDocument);
-  const entitlement = summariseEnvironment(bindings, productionEnvironment);
-  if (!entitlementGrantsTestFlight(entitlement.isProActive, entitlement.productIds)) {
+  if (!await hasCurrentLifetimePro(uid)) {
     throw new HttpsError(
       "permission-denied",
       "A lifetime Pro purchase is required to request TestFlight access."
@@ -221,6 +353,7 @@ function bindingData(
     productId,
     active: transactionIsActive(transaction),
     environment: String(transaction.environment),
+    ...(transaction.signedDate !== undefined ? {signedDate: transaction.signedDate} : {}),
     purchaseDate: timestamp(transaction.purchaseDate),
     expiresAt: timestamp(transaction.expiresDate),
     revocationDate: timestamp(transaction.revocationDate),
@@ -317,16 +450,12 @@ async function bindVerifiedTransaction(
   }
 
   const data = bindingData(transaction, uid, accountToken);
-  const reference = db.collection("purchaseBindings").doc(data.originalTransactionId);
-  await db.runTransaction(async (firestoreTransaction) => {
-    const snapshot = await firestoreTransaction.get(reference);
-    try {
-      assertBindingOwner(snapshot.data()?.uid, uid);
-    } catch (error) {
-      throw new HttpsError("already-exists", (error as Error).message);
-    }
-    firestoreTransaction.set(reference, data, {merge: true});
-  });
+  try {
+    await storeBinding(data, data.environment === productionEnvironment);
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("failed-precondition", (error as Error).message);
+  }
   // Answer with the entitlement for the environment this purchase came from, so
   // a TestFlight buyer is told they now have Pro rather than reading the App
   // Store entitlement they legitimately don't have.
@@ -338,16 +467,20 @@ export const getSubscriptionAccountToken = onCall({region}, async (request) => {
   return {token: await stableAccountToken(uid)};
 });
 
-export const bindSubscriptionPurchase = onCall({region}, async (request) => {
+export const bindSubscriptionPurchase = onCall({region, secrets: serverSecrets}, async (request) => {
   const uid = requireUid(request.auth);
   const signedTransaction = requireString(request.data?.signedTransaction, "signed transaction", 100_000);
   const accountToken = await stableAccountToken(uid);
-  const transaction = await verifyTransaction(signedTransaction);
+  let transaction = await verifyTransaction(signedTransaction);
+  if (transaction.environment === productionEnvironment) {
+    transaction = await latestProductionTransaction(requireString(transaction.transactionId, "transaction identifier", 128));
+  }
   return bindVerifiedTransaction(uid, accountToken, transaction);
 });
 
-export const deleteSubscriptionAccountData = onCall({region}, async (request) => {
+export const deleteSubscriptionAccountData = onCall({region, secrets: appStoreConnectSecrets}, async (request) => {
   const uid = requireUid(request.auth);
+  await revokeManagedTestFlightAccess(uid);
   const bindings = await db.collection("purchaseBindings").where("uid", "==", uid).get();
   const batch = db.batch();
   bindings.docs.forEach((document) => batch.delete(document.ref));
@@ -386,7 +519,7 @@ async function inviteTestFlightTester(email: string): Promise<TestFlightInviteSt
 }
 
 export const requestTestFlightAccess = onCall(
-  {region, secrets: appStoreConnectSecrets},
+  {region, secrets: membershipSecrets},
   async (request) => {
     const uid = requireUid(
       request.auth,
@@ -424,6 +557,14 @@ export const requestTestFlightAccess = onCall(
 
       const ownerDecision = decideTestFlightProRequest(owner?.email, email);
       if (ownerDecision === "alreadySubmitted") {
+        // A refund reversal or a new real purchase may restore the same seat.
+        // Never grant a second email/slot for this account.
+        if (owner?.status === "revoked" && existing?.uid === uid) {
+          const update = {status: "pending", updatedAt: FieldValue.serverTimestamp()};
+          transaction.update(ownerReference, update);
+          transaction.update(reference, update);
+          return {accepted: true, status: "pending"};
+        }
         return {accepted: false, status: owner?.status ?? existing?.status ?? "pending"};
       }
       if (ownerDecision === "differentEmail") {
@@ -444,6 +585,11 @@ export const requestTestFlightAccess = onCall(
     }
 
     const status = await inviteTestFlightTester(email);
+    // Refund may have arrived while Apple's invitation was in flight.
+    if (!await hasCurrentLifetimePro(uid)) {
+      await revokeManagedTestFlightAccess(uid);
+      throw new HttpsError("permission-denied", "Lifetime membership is no longer active.");
+    }
     const update = {status, updatedAt: FieldValue.serverTimestamp()};
     const batch = db.batch();
     batch.update(reference, update);
@@ -485,11 +631,11 @@ export const appStoreServerNotifications = onRequest({region}, async (request, r
       return;
     }
 
-    await reference.set(bindingData(transaction, existing.uid, existing.appAccountToken), {merge: true});
+    await storeBinding(bindingData(transaction, existing.uid, existing.appAccountToken));
     await recomputeEntitlement(existing.uid);
     response.sendStatus(204);
   } catch (error) {
     logger.error("App Store notification processing failed", error);
-    response.sendStatus(400);
+    response.sendStatus(500);
   }
 });

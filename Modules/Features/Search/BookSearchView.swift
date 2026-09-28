@@ -328,6 +328,7 @@ struct BookSearchView: View {
                 .listRowBackground(Color.clear)
             }
         }
+        .softScrollEdges()
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
     }
@@ -583,6 +584,7 @@ struct SourcePickerSheet: View {
                     .buttonStyle(.plain)
                     .listRowBackground(Color.clear)
                 }
+                .softScrollEdges()
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
             }

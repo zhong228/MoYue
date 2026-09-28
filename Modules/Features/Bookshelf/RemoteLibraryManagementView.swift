@@ -76,6 +76,7 @@ struct RemoteLibraryManagementView: View {
                 .interfaceSectionSurface()
             }
         }
+        .softScrollEdges()
         .navigationTitle(localized("管理遠端書庫"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .bookshelf)
@@ -179,6 +180,7 @@ struct RemoteLibraryBookEditor: View {
                 }.interfaceSectionSurface()
             }
         }
+        .softScrollEdges()
         .navigationTitle(localized("編輯遠端資料"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .bookshelf)

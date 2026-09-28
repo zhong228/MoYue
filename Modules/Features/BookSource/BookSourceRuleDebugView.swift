@@ -116,6 +116,7 @@ struct BookSourceRuleDebugView: View {
                             .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
                             .interfaceSectionSurface()
                     }
+                    .softScrollEdges()
                     .listStyle(.plain)
                 }
             }

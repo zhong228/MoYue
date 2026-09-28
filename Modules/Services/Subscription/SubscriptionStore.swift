@@ -660,6 +660,10 @@ final class SubscriptionStore: ObservableObject {
         await bindCurrentStoreKitEntitlementsToAccount()
     }
 
+    func testFlightAccessDidChange() {
+        recomputeEntitlement()
+    }
+
     private func recomputeEntitlement() {
         let hasPurchase = ProProduct.allCases.contains { purchasedProductIDs.contains($0.rawValue) }
         if storeKitIsProActive != hasPurchase { storeKitIsProActive = hasPurchase }
@@ -670,7 +674,8 @@ final class SubscriptionStore: ObservableObject {
             iCloud: iCloudIsProActive
         )
         #else
-        let nextIsProActive = SubscriptionAccessPolicy.isProActive(
+        let gate = TestFlightAccessController.shared
+        let nextIsProActive = gate.isTestFlight ? gate.state == .allowed : SubscriptionAccessPolicy.isProActive(
             storeKit: hasPurchase,
             account: accountIsProActive,
             iCloud: iCloudIsProActive

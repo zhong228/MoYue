@@ -55,6 +55,7 @@ struct ReaderTranslationSheet: View {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .themedAppSurface(for: .settings)
             .navigationTitle(localized("整章翻譯"))
             .toolbarTitleDisplayMode(.inline)

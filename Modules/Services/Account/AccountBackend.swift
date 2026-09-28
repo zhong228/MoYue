@@ -14,6 +14,7 @@ protocol AccountBackend: AnyObject {
     func accountToken() async throws -> UUID
     func bind(signedTransaction: String) async throws -> CachedSubscriptionEntitlement
     func deleteSubscriptionAccountData() async throws
+    func verifyTestFlightAccess() async throws -> Bool
     func requestTestFlightAccess(email: String) async throws -> TestFlightAccessResult
     func deleteRemoteData(uid: String) async throws
 }

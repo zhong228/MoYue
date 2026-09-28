@@ -50,6 +50,7 @@ struct ReplaceRuleListView: View {
                         }
                         .onMove { store.move(fromOffsets: $0, toOffset: $1) }
                     }
+                    .softScrollEdges()
                     .listStyle(.plain)
                     // `themedAppSurface` below only hides the *list's* background; a `.plain`
                     // row still paints its own opaque `systemBackground` unless handed one.
@@ -300,6 +301,7 @@ struct ReplaceRuleEditView: View {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .navigationTitle(rule.name.isEmpty ? localized("新增規則") : rule.name)
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .settings)

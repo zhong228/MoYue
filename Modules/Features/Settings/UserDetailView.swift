@@ -283,6 +283,7 @@ struct UserDetailView: View {
                 .interfaceSectionSurface()
             }
         }
+        .softScrollEdges()
         .listStyle(.insetGrouped)
         .themedAppSurface(for: .settings)
         .navigationTitle(localized("個人資料"))

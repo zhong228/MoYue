@@ -18,6 +18,7 @@ struct ICloudSyncView: View {
             actionsSection
             statusSection
         }
+        .softScrollEdges()
         .navigationTitle(localized("iCloud 同步"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)

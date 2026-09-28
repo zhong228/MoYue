@@ -432,8 +432,12 @@ extension AppearanceThemeExportFile {
     }
 
     private static func exportedExtras(_ extras: AppearanceThemeExtras?) -> AppearanceThemeExtras? {
-        guard var extras, extras.pageBackgrounds != nil else { return extras }
+        guard var extras, extras.pageBackgrounds != nil || extras.reading != nil else { return extras }
         extras.pageBackgrounds = nil
+        // The reading setup names this device's background file, custom bubble entry
+        // and chapter-title artwork — none of which exist on the importing device — so
+        // it stays behind rather than arriving as references to nothing.
+        extras.reading = nil
         return extras.isEmpty ? nil : extras
     }
 

@@ -165,4 +165,5 @@ struct PaywallPlanCard: View {
         }
         .padding()
     }
+    .softScrollEdges()
 }

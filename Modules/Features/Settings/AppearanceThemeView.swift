@@ -92,6 +92,7 @@ struct AppearanceThemeView: View {
             launchScreenSection
             pageAndThemeSections
         }
+        .softScrollEdges()
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .contentMargins(.bottom, DSSpacing.xxl * 2, for: .scrollContent)
@@ -1334,6 +1335,7 @@ private struct AppearanceReaderInterfaceView: View {
                 customizationSection(for: interface)
             }
         }
+        .softScrollEdges()
         .scrollContentBackground(.hidden)
         .navigationTitle(localized("閱讀界面"))
         .toolbarTitleDisplayMode(.inline)
@@ -1653,6 +1655,7 @@ private struct AppearanceThemeCustomizationView: View {
                     .interfaceSectionSurface()
             }
         }
+        .softScrollEdges()
         .scrollContentBackground(.hidden)
         .background(DSColor.groupedBackground)
         // Same rule as the theme grid: the appearance being edited is the

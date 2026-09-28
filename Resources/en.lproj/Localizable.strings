@@ -3369,3 +3369,13 @@
 "點兩下跳至本章開頭" = "Double tap to go to the start of this chapter";
 "點兩下跳至此頁" = "Double tap to go to this page";
 "在想記住的那一頁向下滑動，或點一下右上角的書籤按鈕。" = "On a page you want to keep, drag down — or tap the bookmark button at the top right.";
+
+// TestFlight membership verification
+"正在驗證測試資格" = "Verifying beta access";
+"測試版每次啟動或回到前景都需要連線驗證。本機書籍與閱讀進度會保留。" = "The beta requires online verification at launch and when returning to the foreground. Your local books and reading progress are preserved.";
+"切換帳號" = "Switch Account";
+"開啟 App Store 正式版" = "Open App Store Version";
+"TestFlight 使用資格" = "TestFlight Access";
+"請登入持有正式版永久會員的閱讀帳號，以使用測試版。" = "Sign in to the Yuedu account with an active lifetime purchase from the App Store to use the beta.";
+"此帳號沒有有效的正式版永久會員，已暫停測試版使用資格。若已退款，測試資格會一併取消。" = "This account has no active App Store lifetime membership. Beta access is suspended and is revoked if the purchase is refunded.";
+"目前無法連線驗證測試資格，請確認網路後重試。" = "Beta access could not be verified online. Check your connection and try again.";

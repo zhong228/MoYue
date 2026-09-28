@@ -37,6 +37,7 @@ struct AIBookSummaryView: View {
                 .interfaceSectionSurface()
             }
         }
+        .softScrollEdges()
         .themedAppSurface(for: .settings)
         .navigationTitle(localized("全書與分卷摘要"))
         .toolbarTitleDisplayMode(.inline)
@@ -202,6 +203,7 @@ struct AIBookSummaryView: View {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .themedAppSurface(for: .settings)
             .navigationTitle(localized("確認整理摘要"))
             .toolbarTitleDisplayMode(.inline)
@@ -275,6 +277,7 @@ private struct AIVolumeSummaryView: View {
                 .interfaceSectionSurface()
             }
         }
+        .softScrollEdges()
         .themedAppSurface(for: .settings)
         .navigationTitle(AIBookSummaryPlanner.title(of: volume))
         .toolbarTitleDisplayMode(.inline)

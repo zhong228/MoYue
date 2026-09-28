@@ -114,6 +114,7 @@ struct AICharacterMemoryView: View {
                     .dsSectionFooter()
             }
         }
+        .softScrollEdges()
         .themedAppSurface(for: .settings)
         .navigationTitle(localized("書中人物整理"))
         .toolbarTitleDisplayMode(.inline)
@@ -242,6 +243,7 @@ struct AICharacterMemoryView: View {
                     }.disabled(job.units.isEmpty)
                 }
             }
+            .softScrollEdges()
             .themedAppSurface(for: .settings)
             .navigationTitle(localized("確認人物建檔"))
             .toolbarTitleDisplayMode(.inline)
@@ -330,6 +332,7 @@ struct AIMemoryCardView: View {
             else { ContentUnavailableView(localized("此範圍尚無人物資料"), systemImage: "person.crop.circle") }
             if let error { Text(error).foregroundStyle(DSColor.destructive) }
         }
+        .softScrollEdges()
         .themedAppSurface(for: .settings)
         .navigationTitle(localized("人物經歷與證據"))
         .toolbarTitleDisplayMode(.inline)

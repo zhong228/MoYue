@@ -121,17 +121,38 @@ private struct InterfaceSurfaceModifier<SurfaceShape: Shape>: ViewModifier {
         return layer.isEmpty ? nil : layer
     }
 
+    /// Opacity of whatever is painted over the glass: 透明度 100% leaves the glass
+    /// untouched, and the paint fades in as it drops.
+    private var paintOpacity: Double {
+        1 - settings.interfaceGlassTransparency
+    }
+
     func body(content: Content) -> some View {
-        if let cardLayer {
-            // Artwork replaces the plain fill entirely — a card painting is the whole
-            // surface, and layering it over the themed colour would tint it.
+        if usesFrostedGlass {
+            // Card artwork is the card's *paint*, not what the card is made of. It used
+            // to replace the whole surface, so a pack carrying a plain white card
+            // background (山风 - 春水漾) left 分組卡片 and every floating control opaque
+            // white no matter how 毛玻璃 and 透明度 were set. The artwork now takes the
+            // plain fill's place over the glass and fades with 透明度 the same way.
+            if let cardLayer {
+                content
+                    .background(
+                        AppearanceCardArtwork(layer: cardLayer, paintOpacity: paintOpacity)
+                            .clipShape(shape)
+                    )
+                    .modifier(FrostedGlassBackground(shape: shape))
+            } else {
+                content
+                    // Fades in over the blur as 透明度 drops; invisible at 100%.
+                    .background(fill.opacity(paintOpacity), in: shape)
+                    .modifier(FrostedGlassBackground(shape: shape))
+            }
+        } else if let cardLayer {
+            // Without glass the artwork replaces the plain fill entirely — a card
+            // painting is the whole surface, and layering it over the themed colour
+            // would tint it.
             content
                 .background(AppearanceCardArtwork(layer: cardLayer).clipShape(shape))
-        } else if usesFrostedGlass {
-            content
-                // Fades in over the blur as 透明度 drops; invisible at 100%.
-                .background(fill.opacity(1 - settings.interfaceGlassTransparency), in: shape)
-                .modifier(FrostedGlassBackground(shape: shape))
         } else {
             content.background(fill, in: shape)
         }
@@ -143,16 +164,22 @@ private struct InterfaceSurfaceModifier<SurfaceShape: Shape>: ViewModifier {
 /// hairline border on top.
 private struct AppearanceCardArtwork: View {
     let layer: AppearanceCardBackgroundLayer
+    /// Scales the fill and the picture, never the border: over glass the paint fades
+    /// with 透明度, while the edge stays as crisp as the pack drew it.
+    var paintOpacity: Double = 1
 
     var body: some View {
         ZStack {
-            if let fillHex = layer.fillHex {
-                Color(uiColor: AppearanceThemePreset.hex(fillHex))
+            ZStack {
+                if let fillHex = layer.fillHex {
+                    Color(uiColor: AppearanceThemePreset.hex(fillHex))
+                }
+                if let image = artworkImage {
+                    imageView(image)
+                        .opacity(layer.imageOpacity)
+                }
             }
-            if let image = artworkImage {
-                imageView(image)
-                    .opacity(layer.imageOpacity)
-            }
+            .opacity(paintOpacity)
             if let borderHex = layer.borderHex, layer.borderWidth > 0 {
                 Rectangle()
                     .strokeBorder(
@@ -396,6 +423,7 @@ private struct InterfaceGlowModifier<SurfaceShape: Shape>: ViewModifier {
                     .listRowBackground(Color.clear)
             }
         }
+        .softScrollEdges()
         .scrollContentBackground(.hidden)
     }
 }

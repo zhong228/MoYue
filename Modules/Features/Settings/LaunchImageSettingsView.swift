@@ -48,6 +48,7 @@ struct LaunchImageSettingsView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .navigationTitle(localized("啟動圖"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)

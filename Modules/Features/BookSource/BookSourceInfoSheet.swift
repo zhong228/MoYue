@@ -98,6 +98,7 @@ struct BookSourceInfoSheet: View {
                     .interfaceSectionSurface()
                 }
             }
+            .softScrollEdges()
             .navigationTitle(localized("查看詳情"))
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .settings)

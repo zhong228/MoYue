@@ -48,6 +48,7 @@ struct ReaderBarLayoutEditorView: View {
             barSection(.footer)
             styleSection
         }
+        .softScrollEdges()
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(DSColor.groupedBackground)
@@ -149,6 +150,7 @@ struct ReaderBarLayoutEditorView: View {
                 .interfaceSectionSurface()
             }
         }
+        .softScrollEdges()
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(DSColor.groupedBackground)

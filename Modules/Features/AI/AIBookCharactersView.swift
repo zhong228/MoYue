@@ -79,6 +79,7 @@ struct AIBookCharactersView: View {
                 .interfaceSectionSurface()
             }
         }
+        .softScrollEdges()
         .searchable(text: $query, prompt: localized("搜尋目前範圍的人物"))
         .navigationTitle(localized("書中人物"))
         .toolbarTitleDisplayMode(.inline)
@@ -119,6 +120,7 @@ private struct AICharacterProfileView: View {
                 .interfaceSectionSurface()
             }
         }
+        .softScrollEdges()
         .themedAppSurface(for: .settings)
         .navigationTitle(profile.name)
         .toolbarTitleDisplayMode(.inline)

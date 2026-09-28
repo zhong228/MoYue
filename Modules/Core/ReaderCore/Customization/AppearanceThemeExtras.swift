@@ -209,6 +209,15 @@ struct AppearanceThemeExtras: Codable, Hashable, Sendable {
     /// user's import, not the theme, so they are rebuilt on apply.
     var readerChromeIcons: [String: String]?
 
+    /// The theme's own reading setup, or nil when the theme is not bound to one.
+    ///
+    /// Unlike every field above, nil is not merely "silent": on a *theme* it means edits
+    /// to reading settings do not belong to the theme at all, so they go to the user's
+    /// own setup instead (see `GlobalSettings.recordReadingSettingEdit`). On the
+    /// *baseline* it is the user's own setup — captured in full, so leaving a theme puts
+    /// every field back.
+    var reading: AppearanceThemeReadingSettings?
+
     init() {}
 
     /// True when the theme speaks for nothing — the common case for the built-in
@@ -233,6 +242,9 @@ struct AppearanceThemeExtras: Codable, Hashable, Sendable {
             && readerChromeColors?.isEmpty != false
             && readerChromeHiddenIDs?.isEmpty != false
             && readerChromeIcons?.isEmpty != false
+            // Bound with nothing recorded yet still counts: it decides where the next
+            // reading edit is recorded.
+            && reading == nil
     }
 }
 

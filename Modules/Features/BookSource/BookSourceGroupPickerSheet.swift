@@ -137,6 +137,7 @@ struct BookSourceGroupPickerSheet: View {
                     .listRowBackground(Color.clear)
                 }
             }
+            .softScrollEdges()
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .searchable(

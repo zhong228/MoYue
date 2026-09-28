@@ -60,12 +60,9 @@ const supportedProductIds = new Set([lifetimeProductId, monthlyProductId]);
 /**
  * Whether an entitlement may claim a TestFlight seat.
  *
- * Lifetime only, deliberately narrower than Pro itself. A TestFlight seat
- * cannot be taken back: the one-time slot in `testflightProRequests` is keyed
- * by uid and never released, and Apple keeps the tester in the beta group with
- * no revocation path here. A monthly plan could therefore buy a single month,
- * collect a permanent seat, and cancel. Widen this only alongside a working
- * revocation path for both the slot and the App Store Connect tester.
+ * Lifetime only, deliberately narrower than Pro itself. The same requirement
+ * applies when requesting a seat and every time a released beta enters the
+ * foreground. Refunds remove app access; the uid/email slot remains reserved.
  */
 export function entitlementGrantsTestFlight(
   isProActive: boolean,

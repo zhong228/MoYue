@@ -28,6 +28,7 @@ struct AICustomPromptListView: View {
                 .onMove { source, destination in update { $0.move(fromOffsets: source, toOffset: destination) } }
             }
         }
+        .softScrollEdges()
         .navigationTitle(localized("自訂提示詞"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)
@@ -93,6 +94,7 @@ private struct AICustomPromptEditor: View {
                 } header: { Text(localized("提示詞內容")) }
                 footer: { Text(localized("選文與閱讀內容會自動帶入，仍受對話的已讀範圍限制。")).dsSectionFooter() }
             }
+            .softScrollEdges()
             .alert(localized("無法儲存"), isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
                 Button(localized("確定"), role: .cancel) { failure = nil }
             } message: { Text(failure ?? "") }

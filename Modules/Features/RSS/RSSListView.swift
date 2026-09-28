@@ -1091,6 +1091,7 @@ private struct RSSOPMLImportSheet: View {
                 .interfaceSectionSurface()
 
             }
+            .softScrollEdges()
                 .navigationTitle(localized("匯入 OPML"))
                 .toolbarTitleDisplayMode(.inline)
                 .themedAppSurface(for: .rss)
@@ -1352,6 +1353,7 @@ private struct ImportLegadoJSONURLSheet: View {
                 .interfaceSectionSurface()
 
             }
+            .softScrollEdges()
             .navigationTitle(localized("從網址匯入 Legado JSON"))
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .rss)
@@ -1454,6 +1456,7 @@ private struct AddRSSSourceSheet: View {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .navigationTitle(localized("新增 RSS 訂閱"))
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .rss)
@@ -1552,6 +1555,7 @@ private struct AddRSSFolderSheet: View {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .navigationTitle(localized("新增資料夾"))
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .rss)
@@ -1602,6 +1606,7 @@ private struct RenameRSSFolderSheet: View {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .navigationTitle(localized("重新命名"))
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .rss)
@@ -1673,6 +1678,7 @@ private struct RSSSourceInfoSheet: View {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .navigationTitle(localized("取得資訊"))
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .rss)

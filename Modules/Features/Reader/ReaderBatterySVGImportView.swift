@@ -74,6 +74,7 @@ struct ReaderBatterySVGImportView: View {
                 }
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .listStyle(.insetGrouped)
             .themedAppSurface()
             .navigationTitle(localized("電量 SVG 模板"))

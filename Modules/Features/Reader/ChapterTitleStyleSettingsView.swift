@@ -47,6 +47,7 @@ struct ChapterTitleStyleSettingsView: View {
             }
             actionSection
         }
+        .softScrollEdges()
         .navigationTitle(localized("章節標題樣式"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)

@@ -243,6 +243,7 @@ struct ExploreHomeView: View {
             quickEntrySection
             recentSection
         }
+        .softScrollEdges()
         .scrollDismissesKeyboard(.immediately)
         // Without this the `Form` paints its own opaque grouped background over the
         // `PageBackgroundView` this screen already installs, so 網頁瀏覽 was the one
@@ -360,6 +361,7 @@ struct ExploreHomeView: View {
                             offsets.map { history.entries[$0] }.forEach(history.remove)
                         }
                     }
+                    .softScrollEdges()
                     .listStyle(.plain)
                 }
             }
@@ -416,6 +418,7 @@ struct ExploreHomeView: View {
                 .buttonStyle(.plain)
                 .interfaceSectionSurface()
             }
+            .softScrollEdges()
             .navigationTitle(localized("書源網站"))
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .explore)
@@ -896,6 +899,7 @@ private struct DiscoverSourcePickerView: View {
                     .id(source.id)
                 }
             }
+            .softScrollEdges()
             .overlay {
                 if filteredSources.isEmpty {
                     ContentUnavailableView.search(text: searchText)

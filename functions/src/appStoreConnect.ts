@@ -94,6 +94,16 @@ export class AppStoreConnectClient {
     return payload.data?.[0]?.id ?? null;
   }
 
+  /** Remove access to this app, including other groups/builds, not other apps. */
+  async revokeAppAccess(email: string): Promise<void> {
+    const testerId = await this.findBetaTesterByEmail(email);
+    if (testerId === null) return;
+    await this.request(`/betaTesters/${testerId}/relationships/apps`, {
+      method: "DELETE",
+      body: JSON.stringify({data: [{type: "apps", id: this.options.appId}]}),
+    });
+  }
+
   async createBetaTester(email: string, groupId: string): Promise<string> {
     const response = await this.request("/betaTesters", {
       method: "POST",

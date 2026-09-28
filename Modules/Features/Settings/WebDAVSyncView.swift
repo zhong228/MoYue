@@ -19,6 +19,7 @@ struct WebDAVSyncView: View {
             actionsSection
             statusSection
         }
+        .softScrollEdges()
         .navigationTitle(localized("WebDAV 同步"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)

@@ -1076,6 +1076,7 @@ struct WebTOCSheet: View {
                         idx == selectedIndex ? DSColor.accent.opacity(0.07) : Color.clear
                     )
                 }
+                .softScrollEdges()
                 .listStyle(.plain)
 
                 Button {

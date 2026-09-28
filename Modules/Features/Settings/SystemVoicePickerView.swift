@@ -131,6 +131,7 @@ struct SystemVoicePickerView: View {
                 .interfaceSectionSurface()
             }
         }
+        .softScrollEdges()
         .navigationTitle(localized("系統語音音色"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)

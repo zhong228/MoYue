@@ -77,6 +77,7 @@ struct ChapterTitleLayerListView: View {
             }
             .interfaceSectionSurface()
         }
+        .softScrollEdges()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) { EditButton() }
         }

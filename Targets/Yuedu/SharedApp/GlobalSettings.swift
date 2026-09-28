@@ -425,6 +425,25 @@ final class ReaderConfig: ObservableObject {
             .filter { [weak self] _ in self?.isApplyingGlobalSettings == false }
             .sink { theme in
                 theme.persist()
+                // The reading background is part of a theme's reading setup, and this
+                // is the only place it is written — `GlobalSettings` has no copy.
+                GlobalSettings.shared.recordReadingSettingEdit { $0.readerTheme = theme.rawValue }
+            }
+            .store(in: &cancellables)
+
+        // A theme switch or an import wrote the settings mirrored here. Without the
+        // reload an open reader keeps drawing the old values, and its next edit writes
+        // all of them back over the new ones (the layout sink sends every field).
+        NotificationCenter.default.publisher(for: .readingSettingsDidApply)
+            .sink { [weak self] _ in
+                // Every writer runs on the main thread (settings UI and the MainActor
+                // import services), so this reloads before the writer returns — callers
+                // may read `ReaderConfig` straight after an import.
+                guard Thread.isMainThread else {
+                    DispatchQueue.main.async { self?.syncFromGlobalSettings() }
+                    return
+                }
+                self?.syncFromGlobalSettings()
             }
             .store(in: &cancellables)
 
@@ -687,10 +706,16 @@ class GlobalSettings: ObservableObject {
         didSet { UserDefaults.standard.set(textConversion.rawValue, forKey: "yd_text_conv") }
     }
     @Published var lineHeightMultiple: Double {
-        didSet { UserDefaults.standard.set(lineHeightMultiple, forKey: "yd_line_height_multiple") }
+        didSet {
+            UserDefaults.standard.set(lineHeightMultiple, forKey: "yd_line_height_multiple")
+            recordReadingSettingEdit { $0.lineHeightMultiple = lineHeightMultiple }
+        }
     }
     @Published var scrollMode: Bool {
-        didSet { UserDefaults.standard.set(scrollMode, forKey: "yd_scroll_mode") }
+        didSet {
+            UserDefaults.standard.set(scrollMode, forKey: "yd_scroll_mode")
+            recordReadingSettingEdit { $0.scrollMode = scrollMode }
+        }
     }
     @Published var readerBrightness: Double {
         didSet { UserDefaults.standard.set(readerBrightness, forKey: "yd_reader_brightness") }
@@ -701,22 +726,40 @@ class GlobalSettings: ObservableObject {
         }
     }
     @Published var letterSpacing: Double {
-        didSet { UserDefaults.standard.set(letterSpacing, forKey: "yd_letter_spacing") }
+        didSet {
+            UserDefaults.standard.set(letterSpacing, forKey: "yd_letter_spacing")
+            recordReadingSettingEdit { $0.letterSpacing = letterSpacing }
+        }
     }
     @Published var paragraphSpacingMultiplier: Double {
-        didSet { UserDefaults.standard.set(paragraphSpacingMultiplier, forKey: "yd_paragraph_spacing_mult") }
+        didSet {
+            UserDefaults.standard.set(paragraphSpacingMultiplier, forKey: "yd_paragraph_spacing_mult")
+            recordReadingSettingEdit { $0.paragraphSpacingMultiplier = paragraphSpacingMultiplier }
+        }
     }
     @Published var pageMarginH: Double {
-        didSet { UserDefaults.standard.set(pageMarginH, forKey: "yd_page_margin_h") }
+        didSet {
+            UserDefaults.standard.set(pageMarginH, forKey: "yd_page_margin_h")
+            recordReadingSettingEdit { $0.pageMarginH = pageMarginH }
+        }
     }
     @Published var pageMarginTop: Double {
-        didSet { UserDefaults.standard.set(pageMarginTop, forKey: "yd_page_margin_top") }
+        didSet {
+            UserDefaults.standard.set(pageMarginTop, forKey: "yd_page_margin_top")
+            recordReadingSettingEdit { $0.pageMarginTop = pageMarginTop }
+        }
     }
     @Published var pageMarginBottom: Double {
-        didSet { UserDefaults.standard.set(pageMarginBottom, forKey: "yd_page_margin_bottom") }
+        didSet {
+            UserDefaults.standard.set(pageMarginBottom, forKey: "yd_page_margin_bottom")
+            recordReadingSettingEdit { $0.pageMarginBottom = pageMarginBottom }
+        }
     }
     @Published var pageMarginV: Double {
-        didSet { UserDefaults.standard.set(pageMarginV, forKey: "yd_page_margin_v") }
+        didSet {
+            UserDefaults.standard.set(pageMarginV, forKey: "yd_page_margin_v")
+            recordReadingSettingEdit { $0.pageMarginV = pageMarginV }
+        }
     }
     /// Per-reading-background body text color. Key = `ReaderTheme.rawValue`,
     /// value = RGB hex. A missing key means 跟隨主題: the background keeps the text
@@ -729,13 +772,20 @@ class GlobalSettings: ObservableObject {
                 readerTextColorOverrides.mapValues { Int($0) },
                 forKey: Self.readerTextColorOverridesKey
             )
+            recordReadingSettingEdit { $0.textColorOverrides = readerTextColorOverrides }
         }
     }
     @Published var footerBottomPadding: Double {
-        didSet { UserDefaults.standard.set(footerBottomPadding, forKey: "yd_footer_bottom_padding") }
+        didSet {
+            UserDefaults.standard.set(footerBottomPadding, forKey: "yd_footer_bottom_padding")
+            recordReadingSettingEdit { $0.footerBottomPadding = footerBottomPadding }
+        }
     }
     @Published var footerTextGap: Double {
-        didSet { UserDefaults.standard.set(footerTextGap, forKey: "yd_footer_text_gap") }
+        didSet {
+            UserDefaults.standard.set(footerTextGap, forKey: "yd_footer_text_gap")
+            recordReadingSettingEdit { $0.footerTextGap = footerTextGap }
+        }
     }
     // DEPRECATED loose title fields. The single source of truth for the
     // in-content chapter title is `chapterTitleStyle` below; these are retained
@@ -757,7 +807,10 @@ class GlobalSettings: ObservableObject {
     /// Full chapter-title style (size/spacing/weight/alignment/split/fonts) — the
     /// authoritative in-content title description consumed by the renderer.
     @Published var chapterTitleStyle: ChapterTitleStyle {
-        didSet { Self.saveChapterTitleStyle(chapterTitleStyle) }
+        didSet {
+            Self.saveChapterTitleStyle(chapterTitleStyle)
+            recordReadingSettingEdit { $0.chapterTitleStyle = chapterTitleStyle }
+        }
     }
     /// User-saved chapter-title presets ("我的預設"). Built-ins live in code.
     @Published private(set) var chapterTitleCustomPresets: [ChapterTitleStylePreset] {
@@ -765,23 +818,41 @@ class GlobalSettings: ObservableObject {
     }
     /// Reader header (頁眉): the info band above the text in paged mode.
     @Published var readerHeaderVisible: Bool {
-        didSet { UserDefaults.standard.set(readerHeaderVisible, forKey: "yd_reader_header_visible") }
+        didSet {
+            UserDefaults.standard.set(readerHeaderVisible, forKey: "yd_reader_header_visible")
+            recordReadingSettingEdit { $0.headerVisible = readerHeaderVisible }
+        }
     }
     @Published var readerHeaderTopPadding: Double {
-        didSet { UserDefaults.standard.set(readerHeaderTopPadding, forKey: "yd_reader_header_top_padding") }
+        didSet {
+            UserDefaults.standard.set(readerHeaderTopPadding, forKey: "yd_reader_header_top_padding")
+            recordReadingSettingEdit { $0.headerTopPadding = readerHeaderTopPadding }
+        }
     }
     @Published var readerHeaderTextGap: Double {
-        didSet { UserDefaults.standard.set(readerHeaderTextGap, forKey: "yd_reader_header_text_gap") }
+        didSet {
+            UserDefaults.standard.set(readerHeaderTextGap, forKey: "yd_reader_header_text_gap")
+            recordReadingSettingEdit { $0.headerTextGap = readerHeaderTextGap }
+        }
     }
     @Published var readerHeaderHorizontalPadding: Double {
-        didSet { UserDefaults.standard.set(readerHeaderHorizontalPadding, forKey: "yd_reader_header_h_padding") }
+        didSet {
+            UserDefaults.standard.set(readerHeaderHorizontalPadding, forKey: "yd_reader_header_h_padding")
+            recordReadingSettingEdit { $0.headerHorizontalPadding = readerHeaderHorizontalPadding }
+        }
     }
     /// Reader footer (頁腳): the page/progress/clock band below the text in paged mode.
     @Published var readerFooterVisible: Bool {
-        didSet { UserDefaults.standard.set(readerFooterVisible, forKey: "yd_reader_footer_visible") }
+        didSet {
+            UserDefaults.standard.set(readerFooterVisible, forKey: "yd_reader_footer_visible")
+            recordReadingSettingEdit { $0.footerVisible = readerFooterVisible }
+        }
     }
     @Published var readerFooterHorizontalPadding: Double {
-        didSet { UserDefaults.standard.set(readerFooterHorizontalPadding, forKey: "yd_reader_footer_h_padding") }
+        didSet {
+            UserDefaults.standard.set(readerFooterHorizontalPadding, forKey: "yd_reader_footer_h_padding")
+            recordReadingSettingEdit { $0.footerHorizontalPadding = readerFooterHorizontalPadding }
+        }
     }
     /// Placement of each header field, keyed by `ReaderHeaderField.rawValue`
     /// with `ReaderHeaderFieldPosition.rawValue` values. Fields without an
@@ -812,7 +883,9 @@ class GlobalSettings: ObservableObject {
     /// That one survives only as the format `.qitheme` packs and exported presets
     /// arrive in — free coordinates get snapped onto slots on the way in, and are
     /// never rendered.
-    @Published private(set) var readerBarLayout: ReaderBarLayout
+    @Published private(set) var readerBarLayout: ReaderBarLayout {
+        didSet { recordReadingSettingEdit { $0.barLayout = readerBarLayout } }
+    }
     /// Merge clock for the iCloud-synced bar layout. Advances only when *this
     /// device's user* edits the layout, never when a sync applies a remote one —
     /// otherwise every sync would re-stamp the record as newest and the two
@@ -830,7 +903,10 @@ class GlobalSettings: ObservableObject {
         }
     }
     @Published var pageTurnStyle: PageTurnStyle {
-        didSet { UserDefaults.standard.set(pageTurnStyle.rawValue, forKey: "yd_page_turn_style") }
+        didSet {
+            UserDefaults.standard.set(pageTurnStyle.rawValue, forKey: "yd_page_turn_style")
+            recordReadingSettingEdit { $0.pageTurnStyle = pageTurnStyle.rawValue }
+        }
     }
     @Published var readerSpreadMode: ReaderSpreadMode {
         didSet { UserDefaults.standard.set(readerSpreadMode.rawValue, forKey: "yd_reader_spread_mode") }
@@ -862,31 +938,39 @@ class GlobalSettings: ObservableObject {
     /// appearance (light → last light theme, dark → night). Selecting a specific
     /// theme from the menu turns this off. Applied live in `ReaderView`.
     @Published var readerFollowSystemTheme: Bool {
-        didSet { UserDefaults.standard.set(readerFollowSystemTheme, forKey: "yd_reader_follow_system_theme") }
+        didSet {
+            UserDefaults.standard.set(readerFollowSystemTheme, forKey: "yd_reader_follow_system_theme")
+            recordReadingSettingEdit { $0.followsSystemTheme = readerFollowSystemTheme }
+        }
     }
     @Published var readerTextUnderlineDecorationEnabled: Bool {
         didSet {
             UserDefaults.standard.set(readerTextUnderlineDecorationEnabled, forKey: Self.readerTextUnderlineDecorationKey)
+            recordReadingSettingEdit { $0.textUnderline = currentTextUnderlineSettings }
         }
     }
     @Published var readerTextUnderlineDecorationColorHex: UInt32 {
         didSet {
             UserDefaults.standard.set(Int(readerTextUnderlineDecorationColorHex), forKey: Self.readerTextUnderlineDecorationColorHexKey)
+            recordReadingSettingEdit { $0.textUnderline = currentTextUnderlineSettings }
         }
     }
     @Published var readerTextUnderlineStyle: ReaderTextUnderlineStyle {
         didSet {
             UserDefaults.standard.set(readerTextUnderlineStyle.rawValue, forKey: Self.readerTextUnderlineStyleKey)
+            recordReadingSettingEdit { $0.textUnderline = currentTextUnderlineSettings }
         }
     }
     @Published var readerTextUnderlineThickness: Double {
         didSet {
             UserDefaults.standard.set(readerTextUnderlineThickness, forKey: Self.readerTextUnderlineThicknessKey)
+            recordReadingSettingEdit { $0.textUnderline = currentTextUnderlineSettings }
         }
     }
     @Published var readerTextUnderlineOffset: Double {
         didSet {
             UserDefaults.standard.set(readerTextUnderlineOffset, forKey: Self.readerTextUnderlineOffsetKey)
+            recordReadingSettingEdit { $0.textUnderline = currentTextUnderlineSettings }
         }
     }
     /// Tint quoted dialogue (「」『』"" '') in the theme accent color. Applied as a
@@ -930,6 +1014,7 @@ class GlobalSettings: ObservableObject {
                 return
             }
             Self.saveRegexHighlightConfiguration(sanitized)
+            recordReadingSettingEdit { $0.regexHighlights = sanitized }
         }
     }
     /// 對話氣泡 — the block-level dialogue treatment. Off by default; the inline
@@ -942,6 +1027,7 @@ class GlobalSettings: ObservableObject {
                 return
             }
             Self.saveDialogueBubbleStyle(sanitized)
+            recordReadingSettingEdit { $0.dialogueBubbleStyle = sanitized }
         }
     }
     @Published private(set) var readerStyleAssetRevision: UInt64 = 0
@@ -967,11 +1053,13 @@ class GlobalSettings: ObservableObject {
     @Published var commentBubbleFollowsSourceSVG: Bool {
         didSet {
             UserDefaults.standard.set(commentBubbleFollowsSourceSVG, forKey: Self.commentBubbleFollowsSourceSVGKey)
+            recordReadingSettingEdit { $0.commentBubble = currentCommentBubbleSettings }
         }
     }
     @Published var commentBubblePresetMode: ReaderCommentBubblePresetMode {
         didSet {
             UserDefaults.standard.set(commentBubblePresetMode.rawValue, forKey: Self.commentBubblePresetModeKey)
+            recordReadingSettingEdit { $0.commentBubble = currentCommentBubbleSettings }
         }
     }
     @Published private(set) var commentBubbleCustomStyles: [ReaderCommentBubbleCustomStyle] {
@@ -982,6 +1070,7 @@ class GlobalSettings: ObservableObject {
     @Published private(set) var commentBubbleSelectedCustomStyleID: UUID? {
         didSet {
             Self.saveCommentBubbleSelectedCustomStyleID(commentBubbleSelectedCustomStyleID)
+            recordReadingSettingEdit { $0.commentBubble = currentCommentBubbleSettings }
         }
     }
     /// iCloud merge clock for the bubble *selection* record. Advances ONLY on
@@ -1018,6 +1107,7 @@ class GlobalSettings: ObservableObject {
                 commentBubbleScale = sanitized
             } else {
                 UserDefaults.standard.set(commentBubbleScale, forKey: Self.commentBubbleScaleKey)
+                recordReadingSettingEdit { $0.commentBubble = currentCommentBubbleSettings }
             }
         }
     }
@@ -1028,12 +1118,14 @@ class GlobalSettings: ObservableObject {
                 commentBubbleTextScale = sanitized
             } else {
                 UserDefaults.standard.set(commentBubbleTextScale, forKey: Self.commentBubbleTextScaleKey)
+                recordReadingSettingEdit { $0.commentBubble = currentCommentBubbleSettings }
             }
         }
     }
     @Published var readerCustomBackgroundMode: ReaderCustomBackgroundMode {
         didSet {
             UserDefaults.standard.set(readerCustomBackgroundMode.rawValue, forKey: Self.readerCustomBackgroundModeKey)
+            recordReadingSettingEdit { $0.customBackground = currentCustomBackgroundSettings }
         }
     }
     @Published var readerCustomBackgroundColorHex: UInt32? {
@@ -1043,6 +1135,7 @@ class GlobalSettings: ObservableObject {
             } else {
                 UserDefaults.standard.removeObject(forKey: Self.readerCustomBackgroundColorHexKey)
             }
+            recordReadingSettingEdit { $0.customBackground = currentCustomBackgroundSettings }
         }
     }
     @Published var readerCustomBackgroundImageFileName: String? {
@@ -1052,6 +1145,7 @@ class GlobalSettings: ObservableObject {
             } else {
                 UserDefaults.standard.removeObject(forKey: Self.readerCustomBackgroundImageFileNameKey)
             }
+            recordReadingSettingEdit { $0.customBackground = currentCustomBackgroundSettings }
         }
     }
 
@@ -1116,6 +1210,7 @@ class GlobalSettings: ObservableObject {
             // writers of `ReaderConfig.theme` that disagree whenever the user
             // maps an appearance to something other than the system default.
             if appearanceBindReaderTheme { readerFollowSystemTheme = false }
+            recordReadingSettingEdit { $0.bindsAppearanceReaderTheme = appearanceBindReaderTheme }
         }
     }
     /// Reading theme applied while 綁定閱讀主題 is on and the system is in light
@@ -1126,6 +1221,7 @@ class GlobalSettings: ObservableObject {
                 appearanceBoundLightReaderTheme,
                 forKey: Self.appearanceBoundLightReaderThemeKey
             )
+            recordReadingSettingEdit { $0.boundLightReaderTheme = appearanceBoundLightReaderTheme }
         }
     }
     /// Reading theme applied while 綁定閱讀主題 is on and the system is in dark
@@ -1136,6 +1232,7 @@ class GlobalSettings: ObservableObject {
                 appearanceBoundDarkReaderTheme,
                 forKey: Self.appearanceBoundDarkReaderThemeKey
             )
+            recordReadingSettingEdit { $0.boundDarkReaderTheme = appearanceBoundDarkReaderTheme }
         }
     }
 
@@ -1331,6 +1428,7 @@ class GlobalSettings: ObservableObject {
             } else {
                 UserDefaults.standard.removeObject(forKey: "yd_reader_font_postscript")
             }
+            recordReadingSettingEdit { $0.fontPostScript = selectedReaderFontPostScript ?? "" }
         }
     }
 
@@ -1361,11 +1459,17 @@ class GlobalSettings: ObservableObject {
     // MARK: - Reader Font (persisted across sessions)
 
     @Published var readerFontBold: Bool {
-        didSet { UserDefaults.standard.set(readerFontBold, forKey: "yd_reader_font_bold") }
+        didSet {
+            UserDefaults.standard.set(readerFontBold, forKey: "yd_reader_font_bold")
+            recordReadingSettingEdit { $0.isBold = readerFontBold }
+        }
     }
 
     @Published var readerFontSize: Double {
-        didSet { UserDefaults.standard.set(readerFontSize, forKey: "yd_reader_font_size") }
+        didSet {
+            UserDefaults.standard.set(readerFontSize, forKey: "yd_reader_font_size")
+            recordReadingSettingEdit { $0.fontSize = readerFontSize }
+        }
     }
 
     /// The one allowed range for the reader body font size, in points. Every editor and
@@ -2207,6 +2311,35 @@ class GlobalSettings: ObservableObject {
         stampCommentBubbleSelectionSyncClock()
     }
 
+    /// Adds or replaces a style in the shared library *without* wearing it — an
+    /// imported pack whose bubble belongs to its theme rather than to the live setup.
+    func storeCommentBubbleCustomStyle(_ style: ReaderCommentBubbleCustomStyle) {
+        commentBubbleCustomStyles = ReaderCommentBubbleCustomStyleLibrary.uniqued(
+            ReaderCommentBubbleCustomStyleLibrary.upserting(style, into: commentBubbleCustomStyles)
+        )
+    }
+
+    /// Wears one bubble choice as a unit, the way a theme or an import sets it. The
+    /// custom entry is validated like `selectCommentBubbleCustomStyle`: a choice naming a
+    /// style the library no longer holds falls back to the built-in bubble rather than
+    /// to a custom mode with nothing to draw.
+    func applyCommentBubbleChoice(
+        presetMode: ReaderCommentBubblePresetMode,
+        customStyleID: UUID?,
+        stampsSyncClock: Bool
+    ) {
+        let validID = ReaderCommentBubbleCustomStyleLibrary.validatedSelectedID(
+            customStyleID,
+            in: commentBubbleCustomStyles
+        )
+        let mode: ReaderCommentBubblePresetMode =
+            presetMode == .custom && validID == nil ? .builtin : presetMode
+        let changed = commentBubbleSelectedCustomStyleID != validID || commentBubblePresetMode != mode
+        if commentBubbleSelectedCustomStyleID != validID { commentBubbleSelectedCustomStyleID = validID }
+        if commentBubblePresetMode != mode { commentBubblePresetMode = mode }
+        if changed, stampsSyncClock { stampCommentBubbleSelectionSyncClock() }
+    }
+
     /// Applies the iCloud-merged bubble style list (per-item last-write-wins).
     /// Does NOT re-stamp `updatedAt` — the merged values carry their own merge
     /// clock from the winning device.
@@ -2434,6 +2567,16 @@ class GlobalSettings: ObservableObject {
     @discardableResult
     func saveReaderBarLayout(_ proposedLayout: ReaderBarLayout) -> Bool {
         persistReaderBarLayout(proposedLayout, stampsSyncClock: true)
+    }
+
+    /// A theme switch or an import laying a stored layout over the live one. Same
+    /// persistence as an edit; a theme switch passes `stampsSyncClock: false`, since it
+    /// is this device changing *which* layout it wears rather than the user editing
+    /// one — stamping would push the theme's layout to every other device as the
+    /// newest edit.
+    @discardableResult
+    func writeReaderBarLayout(_ layout: ReaderBarLayout, stampsSyncClock: Bool) -> Bool {
+        persistReaderBarLayout(layout, stampsSyncClock: stampsSyncClock)
     }
 
     /// Applies the iCloud-merged bar layout. Deliberately does **not** stamp the

@@ -44,6 +44,7 @@ struct SourceCaptchaView: View {
                     }
                 }
             }
+            .softScrollEdges()
             .navigationTitle(localized("輸入驗證碼"))
             .toolbarTitleDisplayMode(.inline)
             .toolbar {

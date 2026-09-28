@@ -146,6 +146,37 @@ describe("App Store Connect client", () => {
     });
   });
 
+  it("revokes all access to this app without deleting the tester from other apps", async () => {
+    const calls: RecordedCall[] = [];
+    const client = new AppStoreConnectClient({
+      credentials: testCredentials(), appId: "6772972358", groupName: "beta",
+      fetchImpl: mockFetch((url, init) => {
+        calls.push({url, method: init?.method ?? "GET", body: init?.body as string | undefined});
+        if (url.includes("?filter[email]")) return jsonResponse({data: [{id: "tester-1"}]});
+        return new Response(null, {status: 204});
+      }),
+    });
+    await client.revokeAppAccess("member@example.com");
+    assert.equal(calls[1].url, "https://api.appstoreconnect.apple.com/v1/betaTesters/tester-1/relationships/apps");
+    assert.equal(calls[1].method, "DELETE");
+    assert.deepEqual(JSON.parse(calls[1].body!), {data: [{type: "apps", id: "6772972358"}]});
+  });
+
+  it("handles an already absent tester and reports failed removal", async () => {
+    const options = {credentials: testCredentials(), appId: "6772972358", groupName: "beta"};
+    let calls = 0;
+    await new AppStoreConnectClient({...options, fetchImpl: mockFetch(() => {
+      calls++;
+      return jsonResponse({data: []});
+    })}).revokeAppAccess("member@example.com");
+    assert.equal(calls, 1);
+    const client = new AppStoreConnectClient({...options, fetchImpl: mockFetch((url) => {
+      if (url.includes("?filter[email]")) return jsonResponse({data: [{id: "tester-1"}]});
+      return jsonResponse({errors: []}, 503);
+    })});
+    await assert.rejects(client.revokeAppAccess("member@example.com"), /failed: 503/);
+  });
+
   it("throws with the API error detail on a failed response", async () => {
     const fetchImpl = mockFetch(() => {
       return jsonResponse({errors: [{detail: "bad request"}]}, 400);

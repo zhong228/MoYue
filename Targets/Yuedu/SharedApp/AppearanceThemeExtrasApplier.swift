@@ -79,7 +79,15 @@ extension GlobalSettings {
 
         if activeExtrasOwnerThemeID != nil {
             if appearanceExtrasBaseline == nil {
-                appearanceExtrasBaseline = currentAppearanceExtrasSnapshot()
+                var baseline = currentAppearanceExtrasSnapshot()
+                baseline.reading = currentReadingSettingsSnapshot()
+                appearanceExtrasBaseline = baseline
+            } else if var baseline = appearanceExtrasBaseline, baseline.reading == nil {
+                // A baseline written before reading could follow a theme. No theme has
+                // ever applied a reading setup on top of it, so what is live now is still
+                // the user's own — capture it before one does.
+                baseline.reading = currentReadingSettingsSnapshot()
+                appearanceExtrasBaseline = baseline
             }
             // A theme is a sparse override of the user's original settings, not of
             // the preceding theme. Restore first so omitted fields cannot carry
@@ -216,6 +224,16 @@ extension GlobalSettings {
                     )
                 }
                 .sorted { $0.itemID < $1.itemID }
+        }
+        if let reading = extras.reading {
+            do {
+                try writeReadingSettings(reading, origin: .theme)
+            } catch {
+                // `.theme` writes report a failed header/footer store by logging and
+                // carry on; nothing else throws. Kept explicit so a future throwing
+                // field cannot vanish here.
+                AppLogger.error("⟐ theme reading setup not fully applied", error: error)
+            }
         }
     }
 }

@@ -65,6 +65,7 @@ struct DismissalSequencedActionChooser<Route: Hashable>: View {
                 }
                 .disabled(!action.isEnabled)
             }
+            .softScrollEdges()
             .navigationTitle(title)
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .settings)

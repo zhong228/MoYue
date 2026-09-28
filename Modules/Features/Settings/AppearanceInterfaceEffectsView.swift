@@ -58,6 +58,7 @@ struct AppearanceInterfaceEffectsView: View {
                 .interfaceSectionSurface()
             }
         }
+        .softScrollEdges()
         .scrollContentBackground(.hidden)
         .navigationTitle(localized("界面效果"))
         .toolbarTitleDisplayMode(.inline)
