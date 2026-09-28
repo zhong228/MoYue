@@ -146,6 +146,15 @@ final class SharedImportQueueDrainer: ObservableObject {
         customizationRequests.removeAll { $0.id == requestID }
     }
 
+    /// Keeps the bottom 匯入中 indicator up while a shared customization file is read —
+    /// the stretch between Open In and the first question asked about it, during which
+    /// nothing else is on screen.
+    func trackingCustomizationRead<Value>(_ read: () async throws -> Value) async rethrows -> Value {
+        activeImportCount += 1
+        defer { activeImportCount -= 1 }
+        return try await read()
+    }
+
     /// A shared book-source pack that has been parsed but not written: it waits for the user
     /// to review it in the import confirmation list, exactly as a shared customization file
     /// waits for its own sheet. Handing the app a file is a request to import, not permission

@@ -28,11 +28,12 @@ struct AppearanceThemeView: View {
     @State private var showThemeImporter = false
     @State private var showResetPageBackgroundConfirm = false
     @State private var screenAlert: ThemeScreenAlert?
-    /// A parsed QiReader pack waiting on the user's answer about replacing their
-    /// hand-placed header/footer widgets. Held here rather than applied immediately so
-    /// the question is asked *after* the file parsed and *before* anything lands — the
-    /// same contract 匯入閱讀設定 uses.
+    /// A parsed QiReader pack waiting on the user's answer about its reading setup. Held
+    /// here rather than applied immediately so the question is asked *after* the file
+    /// parsed and *before* anything lands — the same contract 匯入閱讀設定 uses.
     @State private var pendingQiTheme: PendingQiThemeImport?
+    /// The 匯入完成 sheet, up from the moment an import starts writing.
+    @State private var importProgress: CustomizationImportProgress?
     /// Appearance slot the theme grid edits, once the user picks one by hand.
     /// nil means "whatever the device is showing", which is also the only
     /// behaviour available while 單獨設定深色主題 is off.
@@ -114,6 +115,11 @@ struct AppearanceThemeView: View {
         .sheet(item: $paywallFeature) { feature in
             PaywallView(highlightedFeature: feature)
                 .environmentObject(subscriptionStore)
+        }
+        .sheet(item: $importProgress) { progress in
+            CustomizationImportOverviewView(progress: progress) {
+                importProgress = nil
+            }
         }
         .navigationDestination(isPresented: $showCustomizer) {
             if let editingCustomThemeID {
@@ -996,24 +1002,8 @@ struct AppearanceThemeView: View {
             allowsMultipleSelection: false,
             onCompletion: handleThemeImport
         )
-        .alert(
-            localized("套用匯入的頁首頁尾？"),
-            isPresented: Binding(
-                get: { pendingQiTheme != nil },
-                set: { if !$0 { pendingQiTheme = nil } }
-            ),
-            presenting: pendingQiTheme
-        ) { pending in
-            Button(localized("套用")) {
-                pendingQiTheme = nil
-                applyQiTheme(pending.theme, includeOverlayLayout: true)
-            }
-            Button(localized("略過")) {
-                pendingQiTheme = nil
-                applyQiTheme(pending.theme, includeOverlayLayout: false)
-            }
-        } message: { _ in
-            Text(localized("這會取代目前的頁首頁尾組件、位置與正文保留空間。選擇「略過」會匯入外觀包的其他部分。"))
+        .customizationImportPrompt($pendingQiTheme, prompt: \.prompt) { pending, reading in
+            applyQiTheme(pending.theme, reading: reading)
         }
 
         themeActionRow(titleKey: "重置為默認") {
@@ -1122,10 +1112,14 @@ struct AppearanceThemeView: View {
             Task { @MainActor in
                 do {
                     let summary = try await settings.importAppearanceCustomizationPackage(from: data)
-                    screenAlert = ThemeScreenAlert(
-                        title: localized("導入主題"),
-                        message: summary.localizedDescription
-                    )
+                    let selected = summary.themes > 0
+                        ? settings.customAppearanceThemes.first { $0.id == settings.appearanceThemeID }
+                        : nil
+                    // Up only once the import has finished — after an `await`, so never
+                    // while the document picker is still on its way out.
+                    importProgress = CustomizationImportProgress(phase: .finished(
+                        CustomizationImportOverview(appearance: summary, selectedTheme: selected)
+                    ))
                 } catch let error as AppearanceThemeImportError {
                     showImportFailure(localized(error.messageKey))
                 } catch {
@@ -1146,10 +1140,15 @@ struct AppearanceThemeView: View {
         Task { @MainActor in
             do {
                 let theme = try await QiThemeImportService.load(data)
-                if theme.overlayLayout != nil {
-                    pendingQiTheme = PendingQiThemeImport(theme: theme)
+                let readingParts = QiThemeImportService.readingParts(of: theme)
+                if readingParts.isEmpty {
+                    // Nothing about reading to decide: the pack is only a look.
+                    applyQiTheme(theme, reading: .bindToTheme)
                 } else {
-                    applyQiTheme(theme, includeOverlayLayout: false)
+                    pendingQiTheme = PendingQiThemeImport(
+                        theme: theme,
+                        prompt: .themePack(named: theme.name, readingParts: readingParts)
+                    )
                 }
             } catch let error as QiThemeImportError {
                 showImportFailure(error.errorDescription ?? localized("匯入主題失敗。"))
@@ -1159,19 +1158,19 @@ struct AppearanceThemeView: View {
         }
     }
 
-    private func applyQiTheme(_ theme: QiThemeImport, includeOverlayLayout: Bool) {
+    private func applyQiTheme(_ theme: QiThemeImport, reading: ReadingSettingsDisposition) {
+        // Installing a pack's font takes a moment; the sheet shows it happening.
+        let progress = CustomizationImportProgress()
+        importProgress = progress
         Task { @MainActor in
             do {
-                let outcome = try await QiThemeImportService.apply(
-                    theme,
-                    includeOverlayLayout: includeOverlayLayout
-                )
-                screenAlert = ThemeScreenAlert(
-                    title: localized("導入主題"),
-                    message: outcome.localizedDescription
-                )
+                let outcome = try await QiThemeImportService.apply(theme, reading: reading)
+                progress.phase = .finished(CustomizationImportOverview(qiTheme: outcome))
             } catch {
-                showImportFailure(localized("匯入主題失敗。"))
+                AppLogger.error("⟐ qitheme import failed", error: error)
+                progress.phase = .failed(
+                    (error as? LocalizedError)?.errorDescription ?? localized("匯入主題失敗。")
+                )
             }
         }
     }
@@ -1582,6 +1581,15 @@ private struct AppearanceThemeCustomizationView: View {
         )
     }
 
+    /// Binding captures the reading setup on screen; unbinding hands the user's own back
+    /// when this theme is the selected one (`setThemeBindsReadingSettings`).
+    private var readingBinding: Binding<Bool> {
+        Binding(
+            get: { settings.themeBindsReadingSettings(id: themeID) },
+            set: { settings.setThemeBindsReadingSettings($0, themeID: themeID) }
+        )
+    }
+
     var body: some View {
         Form {
             if let theme = themeBinding {
@@ -1620,6 +1628,19 @@ private struct AppearanceThemeCustomizationView: View {
                     .frame(maxWidth: .infinity)
                     .listRowBackground(Color.clear)
                 }
+
+                // Whether reading follows this theme. Its own section: it changes what
+                // switching themes does to the reader, not how this theme looks.
+                Section {
+                    Toggle(localized("閱讀設定隨主題切換"), isOn: readingBinding)
+                        .font(DSFont.body)
+                } footer: {
+                    Text(localized(settings.themeBindsReadingSettings(id: themeID)
+                        ? "這個主題記住了自己的閱讀設定，換到其他主題時會換回你原本的設定。關閉會捨棄這個主題的閱讀設定。"
+                        : "開啟後，這個主題會記住目前的字體、排版、頁首頁尾與閱讀背景等設定，並跟著主題切換。"))
+                        .dsSectionFooter()
+                }
+                .interfaceSectionSurface()
 
                 // This theme's own actions. Export is a row rather than a
                 // long-press menu item because a `ShareLink` inside a context
@@ -1844,8 +1865,9 @@ private enum PageBackgroundColorSlot {
     }
 }
 
-/// A parsed QiReader pack held between the overlay-overwrite question and the apply.
+/// A parsed QiReader pack held between the reading-setup question and the apply.
 struct PendingQiThemeImport: Identifiable {
     let id = UUID()
     let theme: QiThemeImport
+    let prompt: CustomizationImportPrompt
 }

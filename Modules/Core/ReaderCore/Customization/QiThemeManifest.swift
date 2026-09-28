@@ -71,6 +71,9 @@ struct QiThemeManifest: Decodable, Sendable {
 
     // Reader chrome
     var readerBottomToolbarStyle: String?
+    /// Keyed by QiReader's toolbar function (`chapterList`, `search`, `settings`,
+    /// `speech`), not by position.
+    var readerToolbarIcons: [String: QiThemeIcon]?
     var readerToolbarIconSize: Double?
     var readerToolbarCardsFollowAppearance: Bool?
     var progressBarsFollowAppearance: Bool?

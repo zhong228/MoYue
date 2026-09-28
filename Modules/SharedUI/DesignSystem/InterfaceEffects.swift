@@ -173,6 +173,7 @@ private struct AppearanceCardArtwork: View {
             ZStack {
                 if let fillHex = layer.fillHex {
                     Color(uiColor: AppearanceThemePreset.hex(fillHex))
+                        .opacity(layer.fillOpacity)
                 }
                 if let image = artworkImage {
                     imageView(image)

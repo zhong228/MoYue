@@ -119,7 +119,12 @@ struct ContentView: View {
                 subscriptionStore: subscriptionStore,
                 didPresent: importDrainer.didPresentReader(requestID:),
                 customizationRequest: importDrainer.lastOutcome == nil ? importDrainer.customizationRequest : nil,
-                didPresentCustomization: importDrainer.didPresentCustomization(requestID:)
+                didPresentCustomization: importDrainer.didPresentCustomization(requestID:),
+                readCustomization: { [importDrainer] document in
+                    try await importDrainer.trackingCustomizationRead {
+                        try await SharedCustomizationImportService.load(document)
+                    }
+                }
             )
             .frame(width: 0, height: 0)
         }

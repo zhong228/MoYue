@@ -278,6 +278,97 @@ struct QiThemeImporterTests {
         ))
     }
 
+    @Test("reading-toolbar icons land on the reader buttons that do the same thing")
+    func mapsReaderToolbarIcons() async throws {
+        let root = UUID().uuidString
+        let png = try Self.pngData()
+        let manifest: [String: Any] = [
+            "id": root,
+            "name": "工具列",
+            "readerToolbarIcons": [
+                "chapterList": ["type": "custom", "imageFileName": "icons/rtb_chapterList.png"],
+                "settings": ["type": "custom", "imageFileName": "icons/rtb_settings.png"],
+                "speech": ["type": "custom", "imageFileName": "icons/rtb_speech.png"],
+                // No button of ours opens search, so this one is reported and dropped.
+                "search": ["type": "custom", "imageFileName": "icons/rtb_search.png"],
+            ],
+        ]
+        let archive = try await makeArchive([
+            "\(root)/manifest.json": try JSONSerialization.data(withJSONObject: manifest),
+            "\(root)/icons/rtb_chapterList.png": png,
+            "\(root)/icons/rtb_settings.png": png,
+            "\(root)/icons/rtb_speech.png": png,
+            "\(root)/icons/rtb_search.png": png,
+        ])
+        let result = try await QiThemeImporter.parse(archive)
+
+        #expect(Set(result.readerChromeIcons.map(\.itemID)) == [
+            ReaderChromeToolItem.tableOfContents.storageID,
+            ReaderChromeToolItem.settings.storageID,
+            ReaderChromeActionItem.playback.storageID,
+        ])
+        #expect(result.notes.contains(String(
+            format: localized("閱讀工具列的「%@」圖示在本 App 沒有對應的按鈕，已略過。"),
+            localized("書內搜尋")
+        )))
+    }
+
+    @Test("the importer's toolbar ids are the reader's own button ids")
+    func readerToolbarIDsMatchTheReaderButtons() {
+        #expect(QiThemeImporter.readerChromeItemID(for: "chapterList")
+            == ReaderChromeToolItem.tableOfContents.storageID)
+        #expect(QiThemeImporter.readerChromeItemID(for: "settings")
+            == ReaderChromeToolItem.settings.storageID)
+        #expect(QiThemeImporter.readerChromeItemID(for: "speech")
+            == ReaderChromeActionItem.playback.storageID)
+        #expect(QiThemeImporter.readerChromeItemID(for: "search") == nil)
+    }
+
+    @Test("a colour-only card background keeps the pack's opacity on the colour")
+    func cardBackgroundOpacityReachesTheFill() async throws {
+        let root = UUID().uuidString
+        // 山风 - 春水漾's card: white at 85%, no artwork.
+        let manifest: [String: Any] = [
+            "id": root,
+            "name": "春水漾",
+            "cardBackground": [
+                "isEnabled": true,
+                "backgroundOpacity": 0.85,
+                "lightBackgroundColorHex": "FFFFFF",
+                "darkBackgroundColorHex": "1C1C1E",
+                "lightBorderColorHex": "E5E5EA",
+                "borderWidth": 0.7,
+                "lightLayout": ["opacity": 1],
+            ],
+        ]
+        let archive = try await makeArchive([
+            "\(root)/manifest.json": try JSONSerialization.data(withJSONObject: manifest),
+        ])
+        let card = try #require(try await QiThemeImporter.parse(archive).cardBackground)
+        #expect(abs(card.light.fillOpacity - 0.85) < 0.0001)
+        #expect(abs(card.dark.fillOpacity - 0.85) < 0.0001)
+    }
+
+    @Test("a card layer stored before fill opacity existed reads it back from where the importer put it")
+    func legacyCardLayerRecoversFillOpacity() throws {
+        let colourOnly = #"{"mode":"stretch","sliceTop":0,"sliceLeft":0,"sliceBottom":0,"sliceRight":0,"imageOpacity":0.85,"fillHex":16777215,"borderWidth":0.7,"borderOpacity":1}"#
+        let decoded = try JSONDecoder().decode(AppearanceCardBackgroundLayer.self, from: Data(colourOnly.utf8))
+        #expect(abs(decoded.fillOpacity - 0.85) < 0.0001)
+
+        // With artwork the stored value also carries the picture's own opacity, so the
+        // fill stays as it was drawn before.
+        let withArtwork = #"{"imageFileName":"cardbg.png","mode":"stretch","sliceTop":0,"sliceLeft":0,"sliceBottom":0,"sliceRight":0,"imageOpacity":0.5,"fillHex":16777215,"borderWidth":0,"borderOpacity":1}"#
+        let artwork = try JSONDecoder().decode(AppearanceCardBackgroundLayer.self, from: Data(withArtwork.utf8))
+        #expect(artwork.fillOpacity == 1)
+
+        // Round trip: once written, the value is stored as itself.
+        let reencoded = try JSONDecoder().decode(
+            AppearanceCardBackgroundLayer.self,
+            from: JSONEncoder().encode(decoded)
+        )
+        #expect(abs(reencoded.fillOpacity - 0.85) < 0.0001)
+    }
+
     // MARK: - Reader preset
 
     @Test("translates the reading preset into legado readConfig keys")

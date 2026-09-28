@@ -29,10 +29,12 @@ struct LocalReaderScenarioTests {
         case "theme":
             let path = try #require(scenario.themePath)
             let parsed = try await QiThemeImportService.load(Data(contentsOf: URL(fileURLWithPath: path)))
-            let result = try await QiThemeImportService.apply(parsed, includeOverlayLayout: true)
+            let result = try await QiThemeImportService.apply(parsed, reading: .replaceCurrent)
             GlobalSettings.shared.pageTurnStyle = .curl
             #expect(!result.appearance.isEmpty)
-            try result.localizedDescription.write(to: directory.appendingPathComponent("scenario-result.txt"), atomically: true, encoding: .utf8)
+            let overview = CustomizationImportOverview(qiTheme: result)
+            let summary = (overview.appearanceItems + overview.readingItems).map(\.title) + result.notes
+            try summary.joined(separator: "\n").write(to: directory.appendingPathComponent("scenario-result.txt"), atomically: true, encoding: .utf8)
         default: Issue.record("Unknown local scenario")
         }
     }

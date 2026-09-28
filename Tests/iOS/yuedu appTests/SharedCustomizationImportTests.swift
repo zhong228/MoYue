@@ -60,7 +60,7 @@ struct SharedCustomizationImportTests {
             let plan = try await SharedCustomizationImportService.load(document)
             guard case .reader(let readerPlan) = plan else { Issue.record("Style routed to appearance"); return }
             #expect(!readerPlan.isEmpty)
-            _ = try await SharedCustomizationImportService.apply(plan, includeOverlayLayout: true)
+            _ = try await SharedCustomizationImportService.apply(plan, reading: .replaceCurrent)
             if let style = readerPlan.chapterTitleStyle { #expect(ReaderConfig.shared.chapterTitleStyle == style) }
             if let rules = readerPlan.regexHighlights { #expect(GlobalSettings.shared.regexHighlightConfiguration == rules) }
         }
@@ -80,21 +80,48 @@ struct SharedCustomizationImportTests {
         try await applyAppearance(document)
     }
 
-    @Test("QiTheme overlay replacement honors both user choices", arguments: [false, true])
-    func qiOverlayChoice(includeOverlay: Bool) async throws {
+    @Test("A QiReader pack's reading setup goes where the user's answer says",
+          arguments: [ReadingSettingsDisposition.bindToTheme, .replaceCurrent])
+    func qiReadingChoice(disposition: ReadingSettingsDisposition) async throws {
         let settings = GlobalSettings.shared
         let saved = settings.readerBarLayout
-        defer { _ = settings.saveReaderBarLayout(saved) }
+        let savedThemes = settings.customAppearanceThemes
+        let savedID = settings.appearanceThemeID
+        let savedBaseline = settings.appearanceExtrasBaseline
+        defer {
+            settings.appearanceThemeID = GlobalSettings.defaultAppearanceThemeID
+            settings.customAppearanceThemes = savedThemes
+            _ = settings.saveReaderBarLayout(saved)
+            settings.appearanceExtrasBaseline = savedBaseline
+            settings.appearanceThemeID = savedID
+        }
+        settings.appearanceThemeID = GlobalSettings.defaultAppearanceThemeID
         let overlay = ReaderOverlayLayout(components: [], contentReservations: .init(top: 31, bottom: 42))
         let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(overlay))
         let config = try JSONSerialization.data(withJSONObject: ["readerOverlayLayout": object])
-        let theme = QiThemeImport(name: "Overlay Fixture", themeFile: nil,
-                                  layoutConfig: config, overlayLayout: overlay)
-        let plan = SharedCustomizationImportService.Plan.qiTheme(theme)
-        #expect(plan.overwritesOverlayLayout)
-        #expect(plan.canSkipOverlayLayout)
-        _ = try await SharedCustomizationImportService.apply(plan, includeOverlayLayout: includeOverlay)
-        #expect(settings.readerBarLayout == (includeOverlay ? ReaderBarLayoutMigration.snap(overlay).normalized() : saved))
+        let pack = QiThemeImport(name: "Overlay Fixture", themeFile: AppearanceThemeExportFile(customTheme: theme()),
+                                 layoutConfig: config, overlayLayout: overlay)
+        let plan = SharedCustomizationImportService.Plan.qiTheme(pack)
+        // The question names the whole reading setup and offers both answers.
+        let prompt = try #require(plan.prompt)
+        #expect(prompt.choices == .bindOrReplace)
+        #expect(prompt.message.contains(localized(ReadingSetupPart.headerFooter.titleKey)))
+
+        let overview = try await SharedCustomizationImportService.apply(plan, reading: disposition)
+        let imported = ReaderBarLayoutMigration.snap(overlay).normalized(preservingVersion: false)
+        #expect(settings.readerBarLayout == imported)
+        #expect(overview.readingItems.map(\.id).contains(ReadingSetupPart.headerFooter.titleKey))
+
+        // Leaving the pack's theme is where the two answers differ.
+        settings.appearanceThemeID = GlobalSettings.defaultAppearanceThemeID
+        switch disposition {
+        case .bindToTheme:
+            #expect(overview.readingPlacement == .theme(name: "Shared Theme Fixture"))
+            #expect(settings.readerBarLayout == saved)
+        case .replaceCurrent:
+            #expect(overview.readingPlacement == .own)
+            #expect(settings.readerBarLayout == imported)
+        }
     }
 
     @Test("Broken packages report failure instead of becoming a book", arguments: ["qitheme", "yuedustyle"])
@@ -110,7 +137,7 @@ struct SharedCustomizationImportTests {
         let document = try await receive(Data(#"{"format":"yuedu-appearance-theme"}"#.utf8), extension: "json")
         let plan = try await SharedCustomizationImportService.load(document)
         await #expect(throws: (any Error).self) {
-            _ = try await SharedCustomizationImportService.apply(plan, includeOverlayLayout: false)
+            _ = try await SharedCustomizationImportService.apply(plan, reading: .bindToTheme)
         }
     }
 
@@ -163,7 +190,8 @@ struct SharedCustomizationImportTests {
             settings.customAppearanceThemes = savedThemes
         }
         let plan = try await SharedCustomizationImportService.load(document)
-        _ = try await SharedCustomizationImportService.apply(plan, includeOverlayLayout: false)
+        #expect(plan.prompt == nil)
+        _ = try await SharedCustomizationImportService.apply(plan, reading: .bindToTheme)
         let imported = try #require(settings.customAppearanceThemes.last)
         #expect(imported.name == "Shared Theme Fixture")
         #expect(settings.appearanceThemeID == imported.id)

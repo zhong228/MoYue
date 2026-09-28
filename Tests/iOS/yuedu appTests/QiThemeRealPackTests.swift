@@ -130,4 +130,36 @@ struct QiThemeRealPackTests {
         #expect(overlay.chapterOpeningComponents.count == 1)
         #expect(overlay.components.count == 2)
     }
+
+    @Test("parses 山风 - 春水漾 — the whole reading setup, the card colour and the toolbar icons")
+    @MainActor
+    func parsesChunshuiyang() async throws {
+        guard let data = Self.packData("山风 - 春水漾") else { return }
+        let result = try await QiThemeImporter.parse(data)
+
+        #expect(result.name == "山风 - 春水漾")
+        // The question before import has to name all of it — this pack is where
+        // 「套用匯入的頁首頁尾？」 undersold a whole reading setup.
+        let parts = QiThemeImportService.readingParts(of: result)
+        for part in [ReadingSetupPart.font, .layout, .pageTurn, .headerFooter,
+                     .chapterTitle, .background, .commentBubble] {
+            #expect(parts.contains(part), "missing \(part)")
+        }
+
+        // Its cards are white at 85%, not opaque white.
+        let card = try #require(result.cardBackground)
+        #expect(card.light.fillHex == 0xFFFFFF)
+        #expect(abs(card.light.fillOpacity - 0.85) < 0.0001)
+
+        // Three of its four toolbar icons have a button here; search does not.
+        #expect(Set(result.readerChromeIcons.map(\.itemID)) == [
+            ReaderChromeToolItem.tableOfContents.storageID,
+            ReaderChromeToolItem.settings.storageID,
+            ReaderChromeActionItem.playback.storageID,
+        ])
+        #expect(result.notes.contains(String(
+            format: localized("閱讀工具列的「%@」圖示在本 App 沒有對應的按鈕，已略過。"),
+            localized("書內搜尋")
+        )))
+    }
 }

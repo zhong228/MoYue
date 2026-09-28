@@ -24,6 +24,10 @@ struct AppearanceCardBackgroundLayer: Codable, Hashable, Sendable {
     var imageOpacity: Double
     /// Painted under the artwork, and used alone when there is no artwork.
     var fillHex: UInt32?
+    /// The pack's background opacity for `fillHex`. QiReader's 春水漾 draws its cards
+    /// white at 85%, so the page background shows faintly through them; drawn opaque,
+    /// every card was a flat white slab.
+    var fillOpacity: Double
     var borderHex: UInt32?
     var borderWidth: Double
     var borderOpacity: Double
@@ -37,6 +41,7 @@ struct AppearanceCardBackgroundLayer: Codable, Hashable, Sendable {
         sliceRight: Double = 0,
         imageOpacity: Double = 1,
         fillHex: UInt32? = nil,
+        fillOpacity: Double = 1,
         borderHex: UInt32? = nil,
         borderWidth: Double = 0,
         borderOpacity: Double = 1
@@ -53,6 +58,7 @@ struct AppearanceCardBackgroundLayer: Codable, Hashable, Sendable {
         self.sliceRight = trailing
         self.imageOpacity = min(max(imageOpacity, 0), 1)
         self.fillHex = fillHex.map { $0 & 0xFFFFFF }
+        self.fillOpacity = min(max(fillOpacity.isFinite ? fillOpacity : 1, 0), 1)
         self.borderHex = borderHex.map { $0 & 0xFFFFFF }
         self.borderWidth = min(max(borderWidth, 0), 12)
         self.borderOpacity = min(max(borderOpacity, 0), 1)
@@ -72,20 +78,31 @@ struct AppearanceCardBackgroundLayer: Codable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case imageFileName, mode, sliceTop, sliceLeft, sliceBottom, sliceRight
-        case imageOpacity, fillHex, borderHex, borderWidth, borderOpacity
+        case imageOpacity, fillHex, fillOpacity, borderHex, borderWidth, borderOpacity
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        let imageFileName = try c.decodeIfPresent(String.self, forKey: .imageFileName)
+        let imageOpacity = try c.decodeIfPresent(Double.self, forKey: .imageOpacity) ?? 1
+        // Stored before `fillOpacity` existed. The only writer of card backgrounds is
+        // the QiReader importer, which folded the pack's background opacity into
+        // `imageOpacity` — so on a layer with no artwork that value is exactly the
+        // fill's opacity, and nothing else could have set it. A layer *with* artwork
+        // keeps its opaque fill: there the value also carries the artwork's own
+        // opacity and cannot be split back out. Re-importing the pack stores both.
+        // Can go once no build older than this one can have written a card layer.
+        let legacyFillOpacity = imageFileName == nil ? imageOpacity : 1
         self.init(
-            imageFileName: try c.decodeIfPresent(String.self, forKey: .imageFileName),
+            imageFileName: imageFileName,
             mode: try c.decodeIfPresent(Mode.self, forKey: .mode) ?? .stretch,
             sliceTop: try c.decodeIfPresent(Double.self, forKey: .sliceTop) ?? 0,
             sliceLeft: try c.decodeIfPresent(Double.self, forKey: .sliceLeft) ?? 0,
             sliceBottom: try c.decodeIfPresent(Double.self, forKey: .sliceBottom) ?? 0,
             sliceRight: try c.decodeIfPresent(Double.self, forKey: .sliceRight) ?? 0,
-            imageOpacity: try c.decodeIfPresent(Double.self, forKey: .imageOpacity) ?? 1,
+            imageOpacity: imageOpacity,
             fillHex: try c.decodeIfPresent(UInt32.self, forKey: .fillHex),
+            fillOpacity: try c.decodeIfPresent(Double.self, forKey: .fillOpacity) ?? legacyFillOpacity,
             borderHex: try c.decodeIfPresent(UInt32.self, forKey: .borderHex),
             borderWidth: try c.decodeIfPresent(Double.self, forKey: .borderWidth) ?? 0,
             borderOpacity: try c.decodeIfPresent(Double.self, forKey: .borderOpacity) ?? 1

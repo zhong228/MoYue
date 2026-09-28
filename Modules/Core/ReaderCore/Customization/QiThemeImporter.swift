@@ -40,6 +40,12 @@ struct QiThemeImport: Sendable {
         var image: ImageFile
     }
 
+    struct ReaderChromeIconImport: Sendable {
+        /// The reader button's storage id (`tool.tableOfContents`, `action.playback`…).
+        var itemID: String
+        var image: ImageFile
+    }
+
     struct FontImport: Sendable {
         var data: Data
         var originalFileName: String
@@ -70,6 +76,7 @@ struct QiThemeImport: Sendable {
     var themeFile: AppearanceThemeExportFile?
     var pageBackgrounds: [String: AppearanceThemeExportFile.PageBackgroundPayload] = [:]
     var tabIcons: [TabIconImport] = []
+    var readerChromeIcons: [ReaderChromeIconImport] = []
     var tabIconSize: Double?
     var hidesTabLabels: Bool?
     var defaultCovers: [ImageFile] = []
@@ -239,6 +246,27 @@ enum QiThemeImporter {
         result.tabIconSize = manifest.tabIconSize
         result.hidesTabLabels = manifest.hideTabText
 
+        // Reading-toolbar icons. Theirs are keyed by what the button does, so each one
+        // lands on our button that does the same thing. Sorted so the notes read the
+        // same every time.
+        for (item, icon) in (manifest.readerToolbarIcons ?? [:]).sorted(by: { $0.key < $1.key }) {
+            guard let itemID = readerChromeItemID(for: item) else {
+                notes.append(String(
+                    format: localized("閱讀工具列的「%@」圖示在本 App 沒有對應的按鈕，已略過。"),
+                    readerToolbarItemName(item)
+                ))
+                continue
+            }
+            guard icon.type?.lowercased() == "custom",
+                  let file = icon.imageFileName,
+                  let image = imageFile(at: file, rootURL: rootURL) else {
+                continue
+            }
+            result.readerChromeIcons.append(
+                QiThemeImport.ReaderChromeIconImport(itemID: itemID, image: image)
+            )
+        }
+
         // Covers & splash.
         result.defaultCovers = (manifest.coverImageFiles ?? []).compactMap {
             imageFile(at: $0, rootURL: rootURL)
@@ -381,6 +409,8 @@ enum QiThemeImporter {
             sliceRight: fraction(insets?.right, over: width),
             imageOpacity: (layout?.opacity ?? 1) * opacity,
             fillHex: fillHex,
+            // The pack's background opacity covers the colour too, not just the picture.
+            fillOpacity: opacity,
             borderHex: borderHex,
             borderWidth: card.borderWidth ?? 0,
             borderOpacity: card.borderOpacity ?? 1
@@ -450,6 +480,29 @@ enum QiThemeImporter {
         case "search": return "search"
         case "settings": return "settings"
         default: return nil
+        }
+    }
+
+    /// QiReader's reading-toolbar functions against our reader buttons, as the
+    /// `ReaderChromeToolItem` / `ReaderChromeActionItem` storage ids — spelled out so
+    /// this layer does not reach into the reader's feature code; a test pins them to the
+    /// real items. `search` has no button of its own here: in-book search opens from
+    /// the reader's menu, so its icon has nowhere to go.
+    static func readerChromeItemID(for qiItem: String) -> String? {
+        switch qiItem {
+        case "chapterList": return "tool.tableOfContents"
+        case "settings": return "tool.settings"
+        case "speech": return "action.playback"
+        default: return nil
+        }
+    }
+
+    /// How a skipped toolbar function is named in the note — the user never saw
+    /// QiReader's key, only the button.
+    private static func readerToolbarItemName(_ qiItem: String) -> String {
+        switch qiItem {
+        case "search": return localized("書內搜尋")
+        default: return qiItem
         }
     }
 

@@ -2,7 +2,7 @@ import Foundation
 import UniformTypeIdentifiers
 
 /// What a file picked by 匯入閱讀設定 turned out to contain, before anything is
-/// written. Loading and applying are separate so the header/footer overwrite can
+/// written. Loading and applying are separate so replacing the reading setup can
 /// be confirmed with the user *after* the file parsed and *before* it lands.
 struct ReaderSettingsImportPlan {
     var layout: ReaderLayoutPreset?
@@ -15,12 +15,6 @@ struct ReaderSettingsImportPlan {
     /// What the file asked for but could not be reproduced exactly. Reported
     /// alongside the success message so a lossy conversion is never silent.
     var notes: [String] = []
-
-    /// Header/footer components and positions are hand-placed; replacing them
-    /// wholesale is the one part of an import worth confirming first.
-    var overwritesOverlayLayout: Bool {
-        layout?.readerOverlayLayout != nil
-    }
 
     var isEmpty: Bool {
         layout == nil && chapterTitleStyle == nil && regexHighlights == nil

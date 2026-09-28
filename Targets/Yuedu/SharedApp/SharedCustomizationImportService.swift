@@ -35,17 +35,26 @@ enum SharedCustomizationImportService {
         case reader(ReaderSettingsImportPlan)
         case qiTheme(QiThemeImport)
 
-        var overwritesOverlayLayout: Bool {
+        /// The question to ask before anything is written, or nil when there is nothing
+        /// to decide: a look only adds a theme, and a settings file without a layout
+        /// changes no more than its own name says.
+        @MainActor
+        var prompt: CustomizationImportPrompt? {
             switch self {
-            case .appearance: false
-            case .reader(let plan): plan.overwritesOverlayLayout
-            case .qiTheme(let theme): theme.overlayLayout != nil
+            case .appearance:
+                return nil
+            case .reader(let plan):
+                guard plan.layout != nil else { return nil }
+                return .readingSettings(
+                    named: plan.name,
+                    parts: ReadingSetupPart.parts(in: plan.readingSettings),
+                    ownerThemeName: GlobalSettings.shared.readingSettingsOwnerTheme?.name
+                )
+            case .qiTheme(let theme):
+                let parts = QiThemeImportService.readingParts(of: theme)
+                guard !parts.isEmpty else { return nil }
+                return .themePack(named: theme.name, readingParts: parts)
             }
-        }
-
-        var canSkipOverlayLayout: Bool {
-            if case .qiTheme = self { return true }
-            return false
         }
     }
 
@@ -68,17 +77,27 @@ enum SharedCustomizationImportService {
         }
     }
 
-    static func apply(_ plan: Plan, includeOverlayLayout: Bool) async throws -> String {
+    /// - Parameter reading: the answer to `plan.prompt`. Only a theme pack asks the
+    ///   question; the other plans have nowhere else to put a reading setup.
+    static func apply(
+        _ plan: Plan,
+        reading: ReadingSettingsDisposition
+    ) async throws -> CustomizationImportOverview {
+        let settings = GlobalSettings.shared
         switch plan {
         case .appearance(let data):
-            return try GlobalSettings.shared.importAppearanceCustomization(from: data).localizedDescription
+            let summary = try settings.importAppearanceCustomization(from: data)
+            let selected = summary.themes > 0
+                ? settings.customAppearanceThemes.first { $0.id == settings.appearanceThemeID }
+                : nil
+            return CustomizationImportOverview(appearance: summary, selectedTheme: selected)
         case .reader(let plan):
-            let result = try ReaderSettingsImportService.apply(plan)
-            return ([result.localizedDescription] + plan.notes).joined(separator: "\n\n")
+            try ReaderSettingsImportService.apply(plan)
+            return CustomizationImportOverview(readingSettings: plan, placement: .current)
         case .qiTheme(let theme):
-            return try await QiThemeImportService.apply(
-                theme, includeOverlayLayout: includeOverlayLayout
-            ).localizedDescription
+            return CustomizationImportOverview(
+                qiTheme: try await QiThemeImportService.apply(theme, reading: reading)
+            )
         }
     }
 }

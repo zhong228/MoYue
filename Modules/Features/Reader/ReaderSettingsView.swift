@@ -69,6 +69,10 @@ struct ReaderSettingsView: View {
                 // text looks like, how it is spaced, where it sits on the page,
                 // then the surrounding chrome and one-off utilities.
                 Form {
+                    if let owner = settings.readingSettingsOwnerTheme {
+                        readingSettingsOwnerSection(owner)
+                    }
+
                     if supportsUserFont || supportsFontSize {
                         textSection
                     }
@@ -426,6 +430,29 @@ struct ReaderSettingsView: View {
         case .doublePage: return "雙頁"
         case .auto: return "單頁"
         }
+    }
+
+    /// Shown only while the selected theme carries its own reading setup. Every edit on
+    /// this page then lands on that theme, and switching themes swaps the whole page —
+    /// neither of which the page itself would otherwise give away.
+    private func readingSettingsOwnerSection(_ owner: AppearanceCustomTheme) -> some View {
+        Section {
+            LabeledContent {
+                Text(owner.name)
+                    .font(DSFont.body)
+                    .foregroundStyle(DSColor.textSecondary)
+            } label: {
+                HStack(spacing: 16) {
+                    SettingSymbolIcon(systemName: "paintpalette")
+                    Text(localized("跟著主題"))
+                        .font(DSFont.body)
+                }
+            }
+        } footer: {
+            Text(localized("這裡的改動會存進這個主題；換到其他主題時，會換回你自己的閱讀設定。"))
+                .dsSectionFooter()
+        }
+        .interfaceSectionSurface()
     }
 
     private var textSection: some View {

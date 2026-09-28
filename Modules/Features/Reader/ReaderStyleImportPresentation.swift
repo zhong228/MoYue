@@ -98,6 +98,8 @@ private struct ReaderStyleImportPresentationModifier: ViewModifier {
     @State private var activeRoute: ReaderStyleImportRoute?
     @State private var pendingPlan: PendingPlan?
     @State private var alert: ReaderStyleImportAlert?
+    /// The 匯入完成 sheet: what the file changed and where it landed.
+    @State private var importProgress: CustomizationImportProgress?
 
     func body(content: Content) -> some View {
         content
@@ -113,21 +115,8 @@ private struct ReaderStyleImportPresentationModifier: ViewModifier {
             .onChanged(of: route) { newValue in
                 if let newValue { activeRoute = newValue }
             }
-            .alert(
-                localized("套用匯入的頁首頁尾？"),
-                isPresented: Binding(
-                    get: { pendingPlan != nil },
-                    set: { if !$0 { pendingPlan = nil } }
-                ),
-                presenting: pendingPlan
-            ) { pending in
-                Button(localized("套用")) {
-                    pendingPlan = nil
-                    apply(pending.plan)
-                }
-                Button(localized("取消"), role: .cancel) { pendingPlan = nil }
-            } message: { _ in
-                Text(localized("這會取代目前的頁首頁尾組件、位置與正文保留空間。"))
+            .customizationImportPrompt($pendingPlan, prompt: \.prompt) { pending, _ in
+                apply(pending.plan)
             }
             .alert(item: $alert) { alert in
                 Alert(
@@ -135,6 +124,11 @@ private struct ReaderStyleImportPresentationModifier: ViewModifier {
                     message: Text(alert.message),
                     dismissButton: .default(Text(localized("確定")))
                 )
+            }
+            .sheet(item: $importProgress) { progress in
+                CustomizationImportOverviewView(progress: progress) {
+                    importProgress = nil
+                }
             }
     }
 
@@ -153,11 +147,22 @@ private struct ReaderStyleImportPresentationModifier: ViewModifier {
                 guard !plan.isEmpty else {
                     throw ReaderSettingsImportError.emptyFile
                 }
-                guard plan.overwritesOverlayLayout else {
+                // A layout replaces the whole reading setup — type, spacing, margins,
+                // page turn, header/footer — so it is confirmed first, in words that say
+                // so. A page's own 匯入 (章節標題、正則高亮、對話氣泡) never carries one and
+                // changes only what that page is about.
+                guard plan.layout != nil else {
                     apply(plan)
                     return
                 }
-                pendingPlan = PendingPlan(plan: plan)
+                pendingPlan = PendingPlan(
+                    plan: plan,
+                    prompt: .readingSettings(
+                        named: plan.name,
+                        parts: ReadingSetupPart.parts(in: plan.readingSettings),
+                        ownerThemeName: GlobalSettings.shared.readingSettingsOwnerTheme?.name
+                    )
+                )
             } catch {
                 alert = ReaderStyleImportAlert(
                     titleKey: "匯入失敗",
@@ -171,17 +176,13 @@ private struct ReaderStyleImportPresentationModifier: ViewModifier {
         do {
             let summary = try ReaderSettingsImportService.apply(plan)
             onApplied(summary)
-            let name = plan.name
-            var message = name?.isEmpty == false
-                ? String(format: localized("已匯入「%@」：%@"), name!, summary.localizedDescription)
-                : summary.localizedDescription
-            // A converted file that lost something says so here. Silence would
-            // leave the user comparing the result against the original with no
-            // idea which differences are ours.
-            if !plan.notes.isEmpty {
-                message += "\n\n" + plan.notes.joined(separator: "\n")
-            }
-            alert = ReaderStyleImportAlert(titleKey: "匯入成功", message: message)
+            // The import lands on whatever setup is current: a bound theme's, or the
+            // user's own. The sheet says which, and lists what a converted file lost —
+            // silence would leave the user comparing the result against the original
+            // with no idea which differences are ours.
+            importProgress = CustomizationImportProgress(phase: .finished(
+                CustomizationImportOverview(readingSettings: plan, placement: .current)
+            ))
         } catch {
             alert = ReaderStyleImportAlert(
                 titleKey: "匯入失敗",
@@ -193,5 +194,6 @@ private struct ReaderStyleImportPresentationModifier: ViewModifier {
     private struct PendingPlan: Identifiable {
         let id = UUID()
         let plan: ReaderSettingsImportPlan
+        let prompt: CustomizationImportPrompt
     }
 }

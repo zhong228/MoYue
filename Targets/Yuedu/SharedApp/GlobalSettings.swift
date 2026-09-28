@@ -2901,6 +2901,17 @@ class GlobalSettings: ObservableObject {
             }
     }
 
+    /// Same check for the reader's 按鈕圖示. A theme pack's toolbar icons live on the
+    /// theme and in its pack original (重置此主題), so replacing one while wearing the
+    /// theme must not delete the file the original still needs. Lives here for the same
+    /// reason as the tab-icon check: the reference list is private to this file.
+    func isReaderChromeIconFileReferenced(_ fileName: String) -> Bool {
+        readerChromeIcons.contains { $0.fileName == fileName }
+            || appearanceExtrasFileReferences.contains {
+                $0.readerChromeIcons?.values.contains(fileName) ?? false
+            }
+    }
+
     private func isLaunchImageFileReferenced(_ fileName: String) -> Bool {
         launchImageLightFileName == fileName || launchImageDarkFileName == fileName
             || appearanceExtrasFileReferences.contains {

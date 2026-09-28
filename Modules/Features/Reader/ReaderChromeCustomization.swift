@@ -557,21 +557,31 @@ extension GlobalSettings {
     }
 
     private func adoptReaderChromeIcon(_ asset: ReaderChromeIconAsset) -> ReaderChromeIconAsset {
-        if let old = readerChromeIcons.first(where: { $0.itemID == asset.itemID }) {
-            ReaderChromeIconStorage.shared.delete(old)
-        }
+        let replaced = readerChromeIcons.first { $0.itemID == asset.itemID }
         var assets = readerChromeIcons
         assets.removeAll { $0.itemID == asset.itemID }
         assets.append(asset)
         assets.sort { $0.itemID < $1.itemID }
         readerChromeIcons = assets
+        discardReaderChromeIconFile(replaced)
         return asset
     }
 
     func deleteReaderChromeIcon(for item: some ReaderChromeIconItem) {
         guard let asset = readerChromeIcon(for: item) else { return }
-        ReaderChromeIconStorage.shared.delete(asset)
         readerChromeIcons.removeAll { $0.id == asset.id }
+        discardReaderChromeIconFile(asset)
+    }
+
+    /// Every caller changes `readerChromeIcons` *before* getting here: that assignment's
+    /// write-back takes the old artwork off the selected theme, so the check below can
+    /// tell "nobody wants this any more" from "another theme, a pack original or the
+    /// user's own set still draws it". Deleting first — which all three used to do —
+    /// pulled an imported pack's icon out from under 重置此主題 the moment it was
+    /// replaced. Same rule as the tab icons (`discardRootTabIconFile`).
+    private func discardReaderChromeIconFile(_ asset: ReaderChromeIconAsset?) {
+        guard let asset, !isReaderChromeIconFileReferenced(asset.fileName) else { return }
+        ReaderChromeIconStorage.shared.delete(asset)
     }
 
     // MARK: Reset
@@ -587,7 +597,7 @@ extension GlobalSettings {
 
     /// Back to the stock look: this interface's colours follow the reading theme
     /// again, every button is visible, and imported icon files are deleted (not
-    /// just forgotten). Icons and visibility are shared, so both interfaces return
+    /// just forgotten) unless a theme still draws them. Icons and visibility are shared, so both interfaces return
     /// to stock together — the colours of the other one are left alone.
     func resetReaderChrome(interface: ReaderChromeInterface) {
         var colors = readerChromeColors
@@ -595,10 +605,11 @@ extension GlobalSettings {
             colors.removeValue(forKey: Self.chromeColorKey(interface, slot))
         }
         readerChromeColors = colors
-        for asset in readerChromeIcons {
-            ReaderChromeIconStorage.shared.delete(asset)
-        }
+        let removed = readerChromeIcons
         readerChromeIcons = []
+        for asset in removed {
+            discardReaderChromeIconFile(asset)
+        }
         readerChromeHiddenIDs = []
     }
 }

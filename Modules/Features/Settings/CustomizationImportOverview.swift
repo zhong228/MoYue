@@ -1,0 +1,653 @@
+import Combine
+import SwiftUI
+
+// MARK: - Reading setup parts
+
+/// One part of a reading setup, named the way 閱讀設定 names it. The pre-import alert
+/// lists these so a pack cannot pass for "just the header/footer", and the 匯入完成
+/// sheet shows the same list as what actually landed.
+enum ReadingSetupPart: CaseIterable, Hashable {
+    case font
+    case layout
+    case pageTurn
+    case headerFooter
+    case chapterTitle
+    case background
+    case commentBubble
+    case dialogueBubble
+    case regexHighlights
+    case textDecoration
+
+    var titleKey: String {
+        switch self {
+        case .font: return "字體"
+        case .layout: return "排版"
+        case .pageTurn: return "翻頁方式"
+        case .headerFooter: return "頁首頁尾"
+        case .chapterTitle: return "章節標題樣式"
+        // Its own key: the shared 閱讀背景 is lower-case English, written for use
+        // inside a sentence rather than as a row title.
+        case .background: return "ReadingSetup.Background"
+        case .commentBubble: return "段評氣泡"
+        case .dialogueBubble: return "對話氣泡"
+        case .regexHighlights: return "正則高亮"
+        case .textDecoration: return "文字顏色與底線"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .font: return "character"
+        case .layout: return "textformat.size"
+        case .pageTurn: return "book.pages"
+        case .headerFooter: return "rectangle.split.3x1"
+        case .chapterTitle: return "textformat"
+        case .background: return "photo.on.rectangle"
+        case .commentBubble: return "text.bubble"
+        case .dialogueBubble: return "bubble.left.and.bubble.right"
+        case .regexHighlights: return "text.magnifyingglass"
+        case .textDecoration: return "underline"
+        }
+    }
+
+    /// The parts a setup speaks for, in 閱讀設定's order.
+    static func parts(in reading: AppearanceThemeReadingSettings) -> [ReadingSetupPart] {
+        allCases.filter { $0.isPresent(in: reading) }
+    }
+
+    private func isPresent(in reading: AppearanceThemeReadingSettings) -> Bool {
+        switch self {
+        case .font:
+            return reading.fontPostScript != nil
+        case .layout:
+            return reading.fontSize != nil || reading.isBold != nil
+                || reading.lineHeightMultiple != nil || reading.letterSpacing != nil
+                || reading.paragraphSpacingMultiplier != nil
+                || reading.pageMarginH != nil || reading.pageMarginV != nil
+                || reading.pageMarginTop != nil || reading.pageMarginBottom != nil
+        case .pageTurn:
+            return reading.pageTurnStyle != nil || reading.scrollMode != nil
+        case .headerFooter:
+            return reading.barLayout != nil
+                || reading.headerVisible != nil || reading.footerVisible != nil
+                || reading.headerTopPadding != nil || reading.headerTextGap != nil
+                || reading.headerHorizontalPadding != nil || reading.footerHorizontalPadding != nil
+                || reading.footerBottomPadding != nil || reading.footerTextGap != nil
+        case .chapterTitle:
+            return reading.chapterTitleStyle != nil
+        case .background:
+            return reading.customBackground != nil || reading.readerTheme != nil
+                || reading.followsSystemTheme != nil || reading.bindsAppearanceReaderTheme != nil
+                || reading.boundLightReaderTheme != nil || reading.boundDarkReaderTheme != nil
+        case .commentBubble:
+            return reading.commentBubble != nil
+        case .dialogueBubble:
+            return reading.dialogueBubbleStyle != nil
+        case .regexHighlights:
+            return reading.regexHighlights != nil
+        case .textDecoration:
+            return reading.textUnderline != nil || reading.textColorOverrides != nil
+        }
+    }
+
+    /// 「字體、排版和頁首頁尾」 — joined the way the current language joins a list.
+    static func localizedList(_ parts: [ReadingSetupPart]) -> String {
+        ListFormatter.localizedString(byJoining: parts.map { localized($0.titleKey) })
+    }
+}
+
+// MARK: - Pre-import question
+
+/// The alert asked after a file parsed and before anything lands, when the import would
+/// change the reading setup. Built here so the three entry points — 外觀主題 › 導入主題,
+/// 閱讀設定 › 匯入閱讀設定, and a file opened from another app — ask the same question
+/// in the same words.
+struct CustomizationImportPrompt: Identifiable {
+    enum Choices {
+        /// A theme pack: 隨主題切換 or 取代目前設定.
+        case bindOrReplace
+        /// A settings file with no theme of its own: 取代 or not.
+        case replaceOnly
+    }
+
+    let id = UUID()
+    let title: String
+    let message: String
+    let choices: Choices
+
+    /// A theme pack whose reading half is more than one control — the case that used to
+    /// be phrased as a question about the header/footer alone.
+    static func themePack(named name: String, readingParts: [ReadingSetupPart]) -> Self {
+        CustomizationImportPrompt(
+            title: String(format: localized("匯入「%@」"), name),
+            message: String(
+                format: localized("除了外觀主題，也包含整套閱讀設定：%@。"),
+                ReadingSetupPart.localizedList(readingParts)
+            ) + "\n\n" + localized("閱讀設定要隨主題切換，還是取代你目前的設定？"),
+            choices: .bindOrReplace
+        )
+    }
+
+    /// A reading-settings file. Names the theme the setup belongs to when the selected
+    /// theme is bound to one, since that is where the import will land.
+    static func readingSettings(
+        named name: String?,
+        parts: [ReadingSetupPart],
+        ownerThemeName: String?
+    ) -> Self {
+        let list = ReadingSetupPart.localizedList(parts)
+        let contents: String
+        if let name, !name.isEmpty {
+            contents = String(format: localized("「%@」包含%@。"), name, list)
+        } else {
+            contents = String(format: localized("這個檔案包含%@。"), list)
+        }
+        let consequence = ownerThemeName.map {
+            String(format: localized("會取代主題「%@」的閱讀設定。"), $0)
+        } ?? localized("會取代你目前的閱讀設定。")
+        return CustomizationImportPrompt(
+            title: localized("取代目前的閱讀設定？"),
+            message: contents + consequence,
+            choices: .replaceOnly
+        )
+    }
+}
+
+extension CustomizationImportPrompt.Choices {
+    struct Option {
+        let titleKey: String
+        let disposition: ReadingSettingsDisposition
+        /// Drawn bold: the safe answer, which keeps the user's own setup restorable.
+        let isPreferred: Bool
+        /// Drawn red: the user's own reading setup is overwritten for good.
+        let isDestructive: Bool
+    }
+
+    /// The answers in alert order, preferred first. Both presenters — the SwiftUI
+    /// modifier below and the UIKit one for files opened from another app — build their
+    /// buttons from this, so the two cannot drift apart.
+    var options: [Option] {
+        switch self {
+        case .bindOrReplace:
+            return [
+                Option(titleKey: "隨主題切換", disposition: .bindToTheme, isPreferred: true, isDestructive: false),
+                Option(titleKey: "取代目前設定", disposition: .replaceCurrent, isPreferred: false, isDestructive: true),
+            ]
+        case .replaceOnly:
+            return [Option(titleKey: "取代", disposition: .replaceCurrent, isPreferred: false, isDestructive: true)]
+        }
+    }
+}
+
+extension View {
+    /// The pre-import alert for the SwiftUI entry points. `pending` carries the parsed
+    /// file, so the chosen answer arrives together with what it applies to.
+    ///
+    /// A sheet may be presented straight from `onChoose`: SwiftUI's alert runs its
+    /// actions from the `UIAlertAction` handler, after the alert has been dismissed.
+    func customizationImportPrompt<Pending>(
+        _ pending: Binding<Pending?>,
+        prompt: @escaping (Pending) -> CustomizationImportPrompt,
+        onChoose: @escaping (Pending, ReadingSettingsDisposition) -> Void
+    ) -> some View {
+        alert(
+            pending.wrappedValue.map { prompt($0).title } ?? "",
+            isPresented: Binding(
+                get: { pending.wrappedValue != nil },
+                set: { if !$0 { pending.wrappedValue = nil } }
+            ),
+            presenting: pending.wrappedValue
+        ) { item in
+            // Spelled out rather than looped: alert actions are a fixed set of buttons.
+            // The titles and roles still come from `options`, shared with UIKit.
+            let options = prompt(item).choices.options
+            if let preferred = options.first(where: { $0.isPreferred }) {
+                Button(localized(preferred.titleKey)) {
+                    pending.wrappedValue = nil
+                    onChoose(item, preferred.disposition)
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            if let other = options.first(where: { !$0.isPreferred }) {
+                Button(localized(other.titleKey), role: other.isDestructive ? .destructive : nil) {
+                    pending.wrappedValue = nil
+                    onChoose(item, other.disposition)
+                }
+            }
+            Button(localized("取消"), role: .cancel) {
+                pending.wrappedValue = nil
+            }
+        } message: { item in
+            Text(prompt(item).message)
+        }
+    }
+}
+
+// MARK: - Overview
+
+/// What an import changed, for the 匯入完成 sheet: what the file brought in, where its
+/// reading setup went, and what did not come across exactly.
+struct CustomizationImportOverview {
+    struct Item: Identifiable, Hashable {
+        let id: String
+        let title: String
+        let systemImage: String
+        let detail: String?
+
+        init(titleKey: String, systemImage: String, detail: String? = nil) {
+            self.id = titleKey
+            self.title = localized(titleKey)
+            self.systemImage = systemImage
+            self.detail = detail
+        }
+    }
+
+    /// Where an imported reading setup ended up.
+    enum ReadingPlacement: Equatable {
+        /// Stored on a theme: worn while that theme is selected.
+        case theme(name: String)
+        /// Written into the user's own setup: worn under every theme.
+        case own
+
+        /// Where an import into the current setup lands right now: the selected theme's
+        /// own setup when it is bound to one, the user's own otherwise.
+        @MainActor
+        static var current: Self {
+            GlobalSettings.shared.readingSettingsOwnerTheme.map { .theme(name: $0.name) } ?? .own
+        }
+    }
+
+    var appearanceItems: [Item] = []
+    /// Set when the import selected a theme, which changes the app's look on the spot.
+    var selectedThemeName: String?
+    var readingItems: [Item] = []
+    var readingPlacement: ReadingPlacement?
+    var notes: [String] = []
+
+    var isEmpty: Bool { appearanceItems.isEmpty && readingItems.isEmpty }
+}
+
+extension CustomizationImportOverview {
+    /// A QiReader pack: one theme carrying extras, plus its reading setup.
+    @MainActor
+    init(qiTheme outcome: QiThemeImportService.Outcome) {
+        if let theme = outcome.theme {
+            appearanceItems = Self.appearanceItems(
+                of: theme,
+                installedFontName: outcome.installedFontName,
+                coverCount: outcome.importedCoverCount
+            )
+            selectedThemeName = theme.name
+        }
+        if let reading = outcome.reading {
+            readingItems = Self.readingItems(
+                in: reading,
+                fontName: outcome.readerUsesInstalledFont ? outcome.installedFontName : nil
+            )
+            switch outcome.readingDisposition {
+            case .bindToTheme:
+                readingPlacement = .theme(name: outcome.theme?.name ?? "")
+            case .replaceCurrent:
+                readingPlacement = .own
+            case nil:
+                break
+            }
+        }
+        notes = outcome.notes
+    }
+
+    /// One of our own appearance files: themes, and the bundle's own look.
+    @MainActor
+    init(appearance summary: AppearanceImportSummary, selectedTheme: AppearanceCustomTheme?) {
+        if summary.themes == 1, let selectedTheme {
+            appearanceItems = Self.appearanceItems(of: selectedTheme, installedFontName: nil, coverCount: 0)
+        } else if summary.themes > 1 {
+            appearanceItems.append(Item(
+                titleKey: "主題配色",
+                systemImage: "paintpalette",
+                detail: String(format: localized("%d 個主題"), summary.themes)
+            ))
+        }
+        if summary.restoredPageBackgrounds,
+           !appearanceItems.contains(where: { $0.id == "頁面背景" }) {
+            appearanceItems.append(Item(titleKey: "頁面背景", systemImage: "photo"))
+        }
+        if summary.tabIcons > 0 {
+            appearanceItems.append(Item(
+                titleKey: "底部 Tab",
+                systemImage: "square.grid.2x2",
+                detail: String(format: localized("%d 個圖示"), summary.tabIcons)
+            ))
+        }
+        if summary.launchImages > 0 {
+            appearanceItems.append(Item(
+                titleKey: "啟動圖",
+                systemImage: "iphone",
+                detail: String(format: localized("%d 張"), summary.launchImages)
+            ))
+        }
+        if summary.restoredReaderBackground {
+            readingItems.append(Item(
+                titleKey: ReadingSetupPart.background.titleKey,
+                systemImage: ReadingSetupPart.background.systemImage
+            ))
+            readingPlacement = .own
+        }
+        selectedThemeName = summary.themes > 0 ? selectedTheme?.name : nil
+    }
+
+    /// A reading-settings file, which lands on whatever setup is current.
+    @MainActor
+    init(readingSettings plan: ReaderSettingsImportPlan, placement: ReadingPlacement) {
+        readingItems = Self.readingItems(in: plan.readingSettings, fontName: nil)
+        readingPlacement = readingItems.isEmpty ? nil : placement
+        notes = plan.notes
+    }
+
+    // MARK: Items
+
+    @MainActor
+    private static func appearanceItems(
+        of theme: AppearanceCustomTheme,
+        installedFontName: String?,
+        coverCount: Int
+    ) -> [Item] {
+        var items = [Item(titleKey: "主題配色", systemImage: "paintpalette")]
+        guard let extras = theme.extras else { return items }
+        if extras.pageBackgrounds?.isEmpty == false {
+            items.append(Item(titleKey: "頁面背景", systemImage: "photo"))
+        }
+        let tabs = Set((extras.tabIcons ?? [:]).keys.compactMap { $0.split(separator: ".").first })
+        if !tabs.isEmpty {
+            items.append(Item(
+                titleKey: "底部 Tab",
+                systemImage: "square.grid.2x2",
+                detail: String(format: localized("%d 個圖示"), tabs.count)
+            ))
+        }
+        if extras.launchImageLightFileName != nil || extras.launchImageDarkFileName != nil {
+            items.append(Item(titleKey: "啟動圖", systemImage: "iphone"))
+        }
+        let covers = coverCount > 0
+            ? coverCount
+            : (extras.defaultCoverLightFileNames?.count ?? 0) + (extras.defaultCoverDarkFileNames?.count ?? 0)
+        if covers > 0 {
+            items.append(Item(
+                titleKey: "預設封面",
+                systemImage: "book.closed",
+                detail: String(format: localized("%d 張"), covers)
+            ))
+        }
+        if let font = extras.globalFontPostScript, !font.isEmpty {
+            items.append(Item(
+                titleKey: "全局字體",
+                systemImage: "textformat",
+                detail: installedFontName ?? fontDisplayName(font)
+            ))
+        }
+        if extras.frostedGlass != nil || extras.glassTransparency != nil
+            || extras.glowIntensity != nil || extras.glassCards != nil {
+            var effects: [String] = []
+            if extras.frostedGlass == true { effects.append(localized("毛玻璃")) }
+            if (extras.glowIntensity ?? 0) > 0 { effects.append(localized("光暈")) }
+            items.append(Item(
+                titleKey: "界面效果",
+                systemImage: "sparkles",
+                detail: effects.isEmpty ? nil : ListFormatter.localizedString(byJoining: effects)
+            ))
+        }
+        if extras.cardBackground?.isEmpty == false {
+            items.append(Item(titleKey: "卡片背景", systemImage: "rectangle.on.rectangle"))
+        }
+        if extras.bookshelfGridColumnCount != nil || extras.bookshelfCoverCornerRadius != nil
+            || extras.forceDefaultCover != nil {
+            items.append(Item(
+                titleKey: "書架",
+                systemImage: "books.vertical",
+                detail: extras.bookshelfGridColumnCount.map { String(format: localized("%d 欄"), $0) }
+            ))
+        }
+        if let raw = extras.readerInterface, let interface = AppearanceReaderInterface(rawValue: raw) {
+            items.append(Item(
+                titleKey: "閱讀界面",
+                systemImage: "menubar.rectangle",
+                detail: interface.localizedTitle
+            ))
+        }
+        // Named after the 閱讀界面 › 按鈕圖示 page these land on.
+        if let chromeIcons = extras.readerChromeIcons, !chromeIcons.isEmpty {
+            items.append(Item(
+                titleKey: "按鈕圖示",
+                systemImage: "circle.grid.2x2",
+                detail: String(format: localized("%d 個圖示"), chromeIcons.count)
+            ))
+        }
+        return items
+    }
+
+    @MainActor
+    private static func readingItems(
+        in reading: AppearanceThemeReadingSettings,
+        fontName: String?
+    ) -> [Item] {
+        ReadingSetupPart.parts(in: reading).map { part in
+            Item(
+                titleKey: part.titleKey,
+                systemImage: part.systemImage,
+                detail: detail(for: part, in: reading, fontName: fontName)
+            )
+        }
+    }
+
+    @MainActor
+    private static func detail(
+        for part: ReadingSetupPart,
+        in reading: AppearanceThemeReadingSettings,
+        fontName: String?
+    ) -> String? {
+        switch part {
+        case .font:
+            guard let font = reading.fontPostScript else { return nil }
+            if font.isEmpty { return localized("系統字體") }
+            return fontName ?? fontDisplayName(font)
+        case .layout:
+            return reading.fontSize.map {
+                String(format: localized("ReaderOverlay.Format.Points"), Int($0.rounded()))
+            }
+        case .pageTurn:
+            if reading.scrollMode == true { return localized("捲動") }
+            return reading.pageTurnStyle.flatMap(PageTurnStyle.init(rawValue:)).map { localized($0.rawValue) }
+        default:
+            return nil
+        }
+    }
+
+    @MainActor
+    private static func fontDisplayName(_ postScriptName: String) -> String {
+        GlobalSettings.shared.userFonts.first { $0.postScriptName == postScriptName }?.displayName
+            ?? postScriptName
+    }
+}
+
+// MARK: - Sheet
+
+/// The state of one import as the 匯入完成 sheet shows it. The sheet goes up as soon as
+/// the user has answered the alert, so a pack that takes a moment to install a large
+/// font shows progress instead of nothing.
+@MainActor
+final class CustomizationImportProgress: ObservableObject, Identifiable {
+    enum Phase {
+        case importing
+        case finished(CustomizationImportOverview)
+        case failed(String)
+    }
+
+    let id = UUID()
+    @Published var phase: Phase
+
+    init(phase: Phase = .importing) {
+        self.phase = phase
+    }
+}
+
+struct CustomizationImportOverviewView: View {
+    @ObservedObject var progress: CustomizationImportProgress
+    let onDone: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            content
+                .navigationTitle(localized(titleKey))
+                .toolbarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(action: onDone) {
+                            Image(systemName: "checkmark")
+                        }
+                        .disabled(isImporting)
+                        .accessibilityLabel(localized("完成"))
+                    }
+                }
+        }
+        // Nothing is left to confirm or undo: swiping the sheet away is the same as 完成,
+        // except while the import is still writing.
+        .interactiveDismissDisabled(isImporting)
+    }
+
+    private var isImporting: Bool {
+        if case .importing = progress.phase { return true }
+        return false
+    }
+
+    private var titleKey: String {
+        switch progress.phase {
+        case .importing: return "匯入中"
+        case .finished: return "匯入完成"
+        case .failed: return "匯入失敗"
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch progress.phase {
+        case .importing:
+            ProgressView(localized("匯入中，請稍候…"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(DSColor.groupedBackground)
+        case .failed(let message):
+            ContentUnavailableView {
+                Label(localized("匯入失敗"), systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(message)
+            }
+            .background(DSColor.groupedBackground)
+        case .finished(let overview) where overview.isEmpty && overview.notes.isEmpty:
+            ContentUnavailableView {
+                Label(localized("這個檔案沒有可匯入的內容。"), systemImage: "doc")
+            }
+            .background(DSColor.groupedBackground)
+        case .finished(let overview):
+            overviewList(overview)
+        }
+    }
+
+    private func overviewList(_ overview: CustomizationImportOverview) -> some View {
+        List {
+            if !overview.appearanceItems.isEmpty {
+                Section {
+                    ForEach(overview.appearanceItems) { itemRow($0) }
+                } header: {
+                    Text(localized("外觀"))
+                } footer: {
+                    if let name = overview.selectedThemeName {
+                        Text(String(format: localized("「%@」已設為目前的外觀主題。"), name))
+                            .dsSectionFooter()
+                    }
+                }
+                .interfaceSectionSurface()
+            }
+
+            if !overview.readingItems.isEmpty {
+                Section {
+                    ForEach(overview.readingItems) { itemRow($0) }
+                } header: {
+                    Text(localized("閱讀設定"))
+                } footer: {
+                    if let placement = overview.readingPlacement {
+                        Text(placementText(placement))
+                            .dsSectionFooter()
+                    }
+                }
+                .interfaceSectionSurface()
+            }
+
+            if !overview.notes.isEmpty {
+                Section {
+                    ForEach(overview.notes, id: \.self) { note in
+                        Text(note)
+                            .font(DSFont.subheadline)
+                            .foregroundStyle(DSColor.textSecondary)
+                    }
+                } header: {
+                    Text(localized("未完全套用"))
+                }
+                .interfaceSectionSurface()
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(DSColor.groupedBackground)
+    }
+
+    private func itemRow(_ item: CustomizationImportOverview.Item) -> some View {
+        LabeledContent {
+            if let detail = item.detail {
+                Text(detail)
+                    .foregroundStyle(DSColor.textSecondary)
+            }
+        } label: {
+            Label {
+                Text(item.title)
+            } icon: {
+                Image(systemName: item.systemImage)
+                    .foregroundStyle(DSColor.accent)
+                    .accessibilityHidden(true)
+            }
+        }
+        .font(DSFont.body)
+    }
+
+    private func placementText(_ placement: CustomizationImportOverview.ReadingPlacement) -> String {
+        switch placement {
+        case .theme(let name):
+            return String(format: localized("閱讀設定跟著「%@」切換；換到其他主題時，會換回你原本的設定。"), name)
+        case .own:
+            return localized("已取代你原本的閱讀設定，切換主題時不會改變。")
+        }
+    }
+}
+
+#Preview("匯入完成") {
+    var overview = CustomizationImportOverview()
+    overview.appearanceItems = [
+        .init(titleKey: "主題配色", systemImage: "paintpalette"),
+        .init(titleKey: "底部 Tab", systemImage: "square.grid.2x2", detail: "4"),
+        .init(titleKey: "界面效果", systemImage: "sparkles", detail: "毛玻璃、光暈"),
+    ]
+    overview.selectedThemeName = "山风 - 春水漾"
+    overview.readingItems = [
+        .init(titleKey: "排版", systemImage: "textformat.size", detail: "17 pt"),
+        .init(titleKey: "翻頁方式", systemImage: "book.pages", detail: "捲動"),
+        .init(titleKey: "頁首頁尾", systemImage: "rectangle.split.3x1"),
+    ]
+    overview.readingPlacement = .theme(name: "山风 - 春水漾")
+    overview.notes = ["左右頁邊距不同，本 App 只有單一邊距，已取兩者平均。"]
+    return CustomizationImportOverviewView(
+        progress: CustomizationImportProgress(phase: .finished(overview)),
+        onDone: {}
+    )
+}
+
+#Preview("匯入中") {
+    CustomizationImportOverviewView(progress: CustomizationImportProgress(), onDone: {})
+}
