@@ -112,6 +112,11 @@ struct HomeView: View {
 
     @StateObject private var readerCoordinator = ReaderNavigationCoordinator()
     @StateObject private var readerGeometryStore = BookshelfReaderGeometryStore()
+    /// Bumped when the book just opened has moved to the front of 最近閱讀. The shelf then
+    /// goes back to its top behind the reader: left scrolled down to where the book was,
+    /// its new place is off screen, and the closing card had nowhere to land but a
+    /// stand-in in the middle of the shelf.
+    @State private var shelfScrollToTopRequest = 0
     /// The grid scroll view's width, measured once per size change (not per cell, not
     /// per scroll), so every cell knows how large to decode its cover.
     @State private var gridContainerWidth: CGFloat = 0
@@ -226,6 +231,9 @@ struct HomeView: View {
                             geometryStore?.invalidate(bookID: readerBookID)
                         }
                         transitionBookStore?.updateLastOpened(bookId: readerBookID)
+                        if shouldInvalidateForRecentSort {
+                            shelfScrollToTopRequest += 1
+                        }
                     }
                 )
             }
@@ -371,11 +379,15 @@ struct HomeView: View {
                         Button {
                             if !selectedBookIds.isEmpty { showAddToGroupSheet = true }
                         } label: {
-                            Label(" "+localized("加入分組"), systemImage: "text.badge.plus")
-                                .labelStyle(.titleAndIcon)
+                            ToolbarTitleAndIconLabel(
+                                title: localized("加入分組"),
+                                systemImage: "text.badge.plus",
+                                width: DSLayout.bookshelfAddToGroupLabelWidth
+                            )
                         }
                         .disabled(selectedBookIds.isEmpty)
-                        .buttonStyle(.borderless)
+                        .accessibilityLabel(localized("加入分組"))
+                        .accessibilityIdentifier("home_add_to_group")
 
                         Spacer()
 
@@ -692,6 +704,7 @@ struct HomeView: View {
             Image(systemName: "ellipsis")
                 .font(DSFont.toolbarIcon)
         }
+        .accessibilityIdentifier("home_options_menu")
         .id("\(Locale.autoupdatingCurrent.identifier)_menu")
     }
 
@@ -715,6 +728,17 @@ struct HomeView: View {
 
     // MARK: - Book List
     private var bookList: some View {
+        ScrollViewReader { proxy in
+            bookListContent
+                .onChange(of: shelfScrollToTopRequest) {
+                    if let first = sortedFilteredBooks.first {
+                        proxy.scrollTo(first.id, anchor: .top)
+                    }
+                }
+        }
+    }
+
+    private var bookListContent: some View {
         // Native multi-select: binding the selection Set drives the system selection circles in edit mode.
         List(selection: $selectedBookIds) {
             ForEach(sortedFilteredBooks) { book in
@@ -759,7 +783,34 @@ struct HomeView: View {
     // MARK: - Book Grid
     private var bookGrid: some View {
         let coverDisplaySize = gridCoverDisplaySize
-        return ScrollView {
+        let selectedCoverScale = BookshelfGridSelectionStyle.liftScale(
+            coverSize: coverDisplaySize,
+            columnSpacing: gridColumnSpacing
+        )
+        // The grid has no List to draw selection for it: each cell shows its own place
+        // in `selectedBookIds`, and a tap in 選取 toggles it instead of opening the book.
+        let isSelecting = editMode == .active
+        return ScrollViewReader { proxy in
+            bookGridScrollView(
+                coverDisplaySize: coverDisplaySize,
+                selectedCoverScale: selectedCoverScale,
+                isSelecting: isSelecting
+            )
+            .onChange(of: shelfScrollToTopRequest) {
+                proxy.scrollTo(Self.gridTopAnchorID, anchor: .top)
+            }
+        }
+    }
+
+    /// The grid's content, for `ScrollViewReader.scrollTo` to bring back to the top.
+    private static let gridTopAnchorID = "bookshelf-grid-top"
+
+    private func bookGridScrollView(
+        coverDisplaySize: CGSize,
+        selectedCoverScale: CGFloat,
+        isSelecting: Bool
+    ) -> some View {
+        ScrollView {
             LazyVGrid(
                 columns: gridColumns,
                 spacing: DSSpacing.lg
@@ -769,10 +820,14 @@ struct HomeView: View {
                         book: book,
                         isCompactLayout: isCompactFiveColumnGrid,
                         coverDisplaySize: coverDisplaySize,
+                        isEditing: isSelecting,
+                        isSelected: selectedBookIds.contains(book.id),
+                        selectedCoverScale: selectedCoverScale,
                         transitionNamespace: bookTransition,
                         onOpen: { sourceGeometry in
                             openBook(book, sourceGeometry: sourceGeometry)
                         },
+                        onToggleSelection: { toggleSelection(of: book.id) },
                         onCoverFrameChange: { frame in
                             readerGeometryStore.update(frame, for: book.id)
                         },
@@ -786,7 +841,9 @@ struct HomeView: View {
             }
             .padding(.horizontal, gridHorizontalInset)
             .padding(.vertical, DSSpacing.md)
+            .id(Self.gridTopAnchorID)
         }
+        .accessibilityIdentifier("home_book_grid")
         .softScrollEdges()
         .animation(.easeOut(duration: 0.25), value: sortedFilteredBooks.map(\.id))
         .animation(DSAnimation.standard, value: gs.bookshelfGridColumnCount)
@@ -797,6 +854,13 @@ struct HomeView: View {
             proxy.size.width
         } action: { width in
             gridContainerWidth = width
+        }
+    }
+
+    /// Puts the book into the 選取 selection, or takes it out.
+    private func toggleSelection(of bookID: UUID) {
+        if selectedBookIds.remove(bookID) == nil {
+            selectedBookIds.insert(bookID)
         }
     }
 
@@ -1503,14 +1567,22 @@ struct BookGridCell: View {
     var isCompactLayout: Bool = false
     /// The cover's frame as the grid lays it out; picks the decode size.
     var coverDisplaySize: CGSize = .zero
+    /// 選取 is on: a tap selects the book instead of opening it, and the cover shows
+    /// whether it is in the selection. The shelf owns the selection; the cell reports taps.
+    var isEditing: Bool = false
+    var isSelected: Bool = false
+    /// How much a selected cover lifts, from `BookshelfGridSelectionStyle.liftScale`.
+    var selectedCoverScale: CGFloat = 1
     var transitionNamespace: Namespace.ID? = nil
     let onOpen: (ReaderCardGeometry?) -> Void
+    var onToggleSelection: () -> Void = {}
     var onCoverFrameChange: ((CGRect) -> Void)? = nil
     let onEdit: () -> Void
     let onDelete: () -> Void
     var onShowDetail: (() -> Void)? = nil
     @State private var liveCoverFrame: CGRect = .zero
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Cover geometry for the open-book card transition, or nil before the cover
     /// has reported a frame. The radius has to match what the cell actually
@@ -1522,10 +1594,8 @@ struct BookGridCell: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button(action: {
-                onOpen(readerCardGeometry)
-            }) {
+        VStack(alignment: .leading, spacing: DSLayout.bookshelfGridCoverTitleSpacing) {
+            Button(action: activate) {
                 ZStack(alignment: .topTrailing) {
                     Group {
                         if #available(iOS 18.0, *), let ns = transitionNamespace {
@@ -1559,6 +1629,19 @@ struct BookGridCell: View {
                             .accessibilityLabel(localized("有新章節"))
                     }
                 }
+                // While 選取 is on, a cover out of the selection dims and one in it
+                // lifts. The mark sits outside the dimming, so it stays white.
+                .opacity(isEditing && !isSelected ? DSLayout.bookshelfUnselectedCoverOpacity : 1)
+                .overlay(alignment: .bottomTrailing) {
+                    if isEditing {
+                        BookshelfSelectionMark(isSelected: isSelected)
+                            .padding(isCompactLayout ? DSSpacing.xs : DSSpacing.sm)
+                            .transition(.opacity)
+                    }
+                }
+                .scaleEffect(coverLiftScale, anchor: BookshelfGridSelectionStyle.liftAnchor)
+                // However the selection changed: a tap, 全選, or clearing it.
+                .animation(DSAnimation.standard, value: isSelected)
             }
             .buttonStyle(.plain)
 
@@ -1584,8 +1667,15 @@ struct BookGridCell: View {
                         onDelete: onDelete,
                         onShowDetail: onShowDetail
                     )
+                    // 選取 takes the per-book menu away, as it does in the list. It keeps
+                    // its room, so the shelf does not reflow on the way in and out.
+                    .opacity(isEditing ? 0 : 1)
+                    .allowsHitTesting(!isEditing)
                 }
             }
+            // While selecting, the title and author select the book too.
+            .contentShape(Rectangle())
+            .gesture(TapGesture().onEnded(onToggleSelection), including: isEditing ? .all : .subviews)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onChange(of: liveCoverFrame) { _, frame in
@@ -1593,17 +1683,34 @@ struct BookGridCell: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(BookshelfAccessibility.description(for: book))
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { onOpen(readerCardGeometry) }
+        .accessibilityAddTraits(isEditing && isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { activate() }
         // The overflow menu is no longer its own element, so its items become the
-        // cell's rotor actions instead.
+        // cell's rotor actions instead — gone with the menu while selecting.
         .accessibilityActions {
-            if let onShowDetail {
-                Button(localized("書籍詳情")) { onShowDetail() }
+            if !isEditing {
+                if let onShowDetail {
+                    Button(localized("書籍詳情")) { onShowDetail() }
+                }
+                Button(localized("編輯書籍資訊")) { onEdit() }
+                Button(localized("刪除書籍"), role: .destructive) { onDelete() }
             }
-            Button(localized("編輯書籍資訊")) { onEdit() }
-            Button(localized("刪除書籍"), role: .destructive) { onDelete() }
         }
+    }
+
+    /// Opens the book, or while selecting, puts it in or out of the selection.
+    private func activate() {
+        if isEditing {
+            onToggleSelection()
+        } else {
+            onOpen(readerCardGeometry)
+        }
+    }
+
+    /// A selected cover lifts; with Reduce Motion it stays put and the dimming and the
+    /// mark alone tell it apart.
+    private var coverLiftScale: CGFloat {
+        isEditing && isSelected && !reduceMotion ? selectedCoverScale : 1
     }
 
     private var coverView: some View {
@@ -1620,7 +1727,10 @@ struct BookGridCell: View {
             .clipShape(RoundedRectangle(cornerRadius: BookshelfCoverStyle.cornerRadius))
             .shadow(color: .black.opacity(0.18), radius: 4, x: 0, y: 2)
             .overlay(alignment: .bottomTrailing) {
-                if book.resolvedPipelineKind == .audio { AudiobookCoverBadge(glyphSize: 11) }
+                // The selection mark takes this corner while selecting.
+                if book.resolvedPipelineKind == .audio && !isEditing {
+                    AudiobookCoverBadge(glyphSize: 11)
+                }
             }
     }
 
@@ -1764,6 +1874,34 @@ private func previewOnlineBook(hasUpdate: Bool) -> ReadingBook {
             coverDisplaySize: CGSize(width: 110, height: 165),
             onOpen: { _ in }, onEdit: {}, onDelete: {}
         )
+    }
+    .padding()
+}
+
+#Preview("BookGridCell – 選取中") {
+    @Previewable @State var selected: Set<Int> = [1]
+    let coverSize = CGSize(width: 110, height: 165)
+    LazyVGrid(
+        columns: Array(repeating: GridItem(.flexible(), spacing: DSSpacing.md, alignment: .top), count: 3),
+        spacing: DSSpacing.lg
+    ) {
+        ForEach(0..<6, id: \.self) { index in
+            BookGridCell(
+                book: previewOnlineBook(hasUpdate: index == 0),
+                coverDisplaySize: coverSize,
+                isEditing: true,
+                isSelected: selected.contains(index),
+                selectedCoverScale: BookshelfGridSelectionStyle.liftScale(
+                    coverSize: coverSize,
+                    columnSpacing: DSSpacing.md
+                ),
+                onOpen: { _ in },
+                onToggleSelection: {
+                    if selected.remove(index) == nil { selected.insert(index) }
+                },
+                onEdit: {}, onDelete: {}
+            )
+        }
     }
     .padding()
 }

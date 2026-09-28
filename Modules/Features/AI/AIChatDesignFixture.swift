@@ -10,6 +10,9 @@ struct AIChatDesignFixture: View {
     static let launchArgument = "-ai-chat-design-fixture"
     /// Together with `launchArgument`: shows the relationship map with a sample cast instead.
     static let relationshipMapArgument = "-ai-relationship-map"
+    /// Together with `launchArgument`: shows the AI 查詞 card, answered by the preview
+    /// provider, so its bottom bar can be captured.
+    static let wordLookupArgument = "-ai-word-lookup"
     private static let bookID = UUID(uuidString: "5A1F1C7E-0000-4000-8000-00000000A1C4")!
     private static let profileID = UUID(uuidString: "5A1F1C7E-0000-4000-8000-00000000A1C5")!
 
@@ -19,12 +22,24 @@ struct AIChatDesignFixture: View {
         DSColor.background
             .ignoresSafeArea()
             .onAppear {
-                Self.seed()
+                // The lookup card brings its own provider; nothing to seed for it.
+                if !ProcessInfo.processInfo.arguments.contains(Self.wordLookupArgument) {
+                    Self.seed()
+                }
                 presented = true
             }
             .sheet(isPresented: $presented) {
                 if ProcessInfo.processInfo.arguments.contains(Self.relationshipMapArgument) {
                     NavigationStack { AIRelationshipMapView(adapter: Self.adapter, graph: .sample) }
+                } else if ProcessInfo.processInfo.arguments.contains(Self.wordLookupArgument) {
+                    AIWordLookupView(
+                        term: "聖者",
+                        context: "他終於突破到聖者境界，氣息鋪天蓋地。",
+                        bookTitle: "萬古神帝",
+                        bookID: Self.bookID,
+                        onAskAI: {},
+                        provider: AIWordLookupPreviewProvider()
+                    )
                 } else {
                     AIAssistantPanelView(
                         bookID: Self.bookID,

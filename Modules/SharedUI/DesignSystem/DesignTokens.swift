@@ -113,6 +113,14 @@ enum DSColor {
     /// Shadow under an app icon shown in the app.
     static let appIconShadow = Color.black.opacity(0.12)
 
+    /// Ring and check of the selection mark on a shelf cover — white, as Apple Books
+    /// draws it, whatever the cover and appearance.
+    static let coverSelectionMarkForeground = Color.white
+    /// Disc inside a selected cover's mark, behind the white check.
+    static let coverSelectionMarkFill = Color.black
+    /// Soft halo behind the mark, so the white ring still reads on a white cover.
+    static let coverSelectionMarkShadow = Color.black.opacity(0.35)
+
     /// Confetti for the moment Pro unlocks: the accent leads, system colors around it,
     /// so it follows the app theme and reads in light and dark.
     static let celebration: [Color] = [
@@ -254,6 +262,32 @@ enum DSLayout {
     static let bookCoverHeroShadowRadius: CGFloat = 18
     /// Drop-shadow vertical offset under the hero cover.
     static let bookCoverHeroShadowOffsetY: CGFloat = 10
+    /// Gap between a shelf-grid cover and the title under it.
+    static let bookshelfGridCoverTitleSpacing: CGFloat = 6
+    /// A shelf cover the selection leaves out while 選取 is on, dimmed as Apple Books'
+    /// library dims one: measured off its screenshots at 60% over the page.
+    static let bookshelfUnselectedCoverOpacity: Double = 0.6
+    /// The most a selected shelf cover grows: Apple Books' own lift, about 11%.
+    static let bookshelfSelectedCoverMaximumScale: CGFloat = 1.11
+    /// Height a selected grid cover may gain. `BookshelfGridSelectionStyle.liftAnchor`
+    /// splits it 8pt up, into the row gap or the grid's top inset, and 4pt down, short of
+    /// the title `bookshelfGridCoverTitleSpacing` below.
+    static let bookshelfSelectedCoverHeightGrowth: CGFloat = 12
+    /// Diameter of the selection mark in a grid cover's corner.
+    static let bookshelfSelectionMarkSize: CGFloat = 20
+    /// Width of the mark's white ring.
+    static let bookshelfSelectionMarkLineWidth: CGFloat = 1.5
+    /// Point size of the check inside a selected cover's mark.
+    static let bookshelfSelectionCheckmarkSize: CGFloat = 9
+    /// Blur of the halo behind the mark (`DSColor.coverSelectionMarkShadow`).
+    static let bookshelfSelectionMarkShadowRadius: CGFloat = 1.5
+    /// Width of 加入分組's icon and title in the shelf's 選取 bottom bar
+    /// (`ToolbarTitleAndIconLabel`): 「加入分組」 fits, a longer title ends in "…".
+    static let bookshelfAddToGroupLabelWidth: CGFloat = 104
+    /// Width of 繼續問 AI's icon and title in AI 查詞's bottom bar
+    /// (`ToolbarTitleAndIconLabel`): the Chinese, Korean and English titles fit, the
+    /// longer Japanese one ends in "…". 132 still cut "Ask AI More" on iOS 27.
+    static let aiWordLookupAskLabelWidth: CGFloat = 140
     /// Narrow modal content such as confirmations or small pickers.
     static let readableNarrowWidth: CGFloat = 480
     /// Compact sheets with short forms or account actions.

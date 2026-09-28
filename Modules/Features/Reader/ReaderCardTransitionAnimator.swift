@@ -1224,9 +1224,21 @@ final class ReaderCardTransitionAnimator: NSObject, UIViewControllerAnimatedTran
     }
 
     private func resolvedClosedFrame(in container: UIView, fullFrame: CGRect) -> CGRect {
-        if let sourceFrame = source.resolvedFrame(
-            allowingTapFallback: operation == .push
-        ),
+        let sourceFrame = source.resolvedFrame(allowingTapFallback: operation == .push)
+        let closedFrame = closedFrame(for: sourceFrame, in: container, fullFrame: fullFrame)
+        // Where the card lands, and whether that is the shelf's live cover or the
+        // centered stand-in: the first thing to read when a close lands in the wrong place.
+        AppLogger.info(
+            "⟐ reader-transition closedFrame op=\(operation == .push ? "push" : "pop") "
+            + "source=\(sourceFrame.map { NSCoder.string(for: $0) } ?? "nil") "
+            + "closed=\(NSCoder.string(for: closedFrame)) "
+            + "centered=\(closedFrame == centeredFallbackFrame(in: fullFrame))"
+        )
+        return closedFrame
+    }
+
+    private func closedFrame(for sourceFrame: CGRect?, in container: UIView, fullFrame: CGRect) -> CGRect {
+        if let sourceFrame,
            sourceFrame.width > 1,
            sourceFrame.height > 1 {
             if let window = container.window {

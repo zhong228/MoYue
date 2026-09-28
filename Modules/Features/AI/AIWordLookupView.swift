@@ -51,9 +51,14 @@ struct AIWordLookupView: View {
                         Spacer()
                         if let onAskAI {
                             Button(action: onAskAI) {
-                                Label(localized("繼續問 AI"), systemImage: "bubble.left.and.text.bubble.right")
-                                    .labelStyle(.titleAndIcon)
+                                ToolbarTitleAndIconLabel(
+                                    title: localized("繼續問 AI"),
+                                    systemImage: "bubble.left.and.text.bubble.right",
+                                    width: DSLayout.aiWordLookupAskLabelWidth
+                                )
                             }
+                            .accessibilityLabel(localized("繼續問 AI"))
+                            .accessibilityIdentifier("ai_word_lookup_ask_ai")
                         }
                     }
                 }
