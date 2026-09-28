@@ -48,7 +48,7 @@ enum SharedCustomizationImportService {
                 return .readingSettings(
                     named: plan.name,
                     parts: ReadingSetupPart.parts(in: plan.readingSettings),
-                    ownerThemeName: GlobalSettings.shared.readingSettingsOwnerTheme?.name
+                    themeName: GlobalSettings.shared.readingImportThemeName(for: plan.readingSettings.items)
                 )
             case .qiTheme(let theme):
                 let parts = QiThemeImportService.readingParts(of: theme)
@@ -93,7 +93,10 @@ enum SharedCustomizationImportService {
             return CustomizationImportOverview(appearance: summary, selectedTheme: selected)
         case .reader(let plan):
             try ReaderSettingsImportService.apply(plan)
-            return CustomizationImportOverview(readingSettings: plan, placement: .current)
+            return CustomizationImportOverview(
+                readingSettings: plan,
+                placement: .current(for: plan.readingSettings)
+            )
         case .qiTheme(let theme):
             return CustomizationImportOverview(
                 qiTheme: try await QiThemeImportService.apply(theme, reading: reading)

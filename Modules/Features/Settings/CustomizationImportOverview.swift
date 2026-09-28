@@ -35,59 +35,44 @@ enum ReadingSetupPart: CaseIterable, Hashable {
         }
     }
 
+    /// The 排版生效範圍 rows this part is made of — the one mapping from fields to what
+    /// 閱讀設定 calls them.
+    var scopeItems: Set<ReadingSettingsScopeItem> {
+        switch self {
+        case .font: return [.font]
+        case .layout: return [.fontSize, .bold, .lineSpacing, .letterSpacing, .paragraphSpacing, .pageMargins]
+        case .pageTurn: return [.pageTurn]
+        case .headerFooter: return [.headerFooter]
+        case .chapterTitle: return [.chapterTitle]
+        case .background: return [.background]
+        case .commentBubble: return [.commentBubble]
+        case .dialogueBubble: return [.dialogueBubble]
+        case .regexHighlights: return [.regexHighlight]
+        case .textDecoration: return [.textColor, .textUnderline]
+        }
+    }
+
+    /// The symbol 閱讀設定 gives the control; 排版 has no single control, so it takes
+    /// the type size's.
     var systemImage: String {
         switch self {
-        case .font: return "character"
-        case .layout: return "textformat.size"
-        case .pageTurn: return "book.pages"
-        case .headerFooter: return "rectangle.split.3x1"
-        case .chapterTitle: return "textformat"
-        case .background: return "photo.on.rectangle"
-        case .commentBubble: return "text.bubble"
-        case .dialogueBubble: return "bubble.left.and.bubble.right"
-        case .regexHighlights: return "text.magnifyingglass"
-        case .textDecoration: return "underline"
+        case .font: return ReadingSettingsScopeItem.font.systemImage
+        case .layout: return ReadingSettingsScopeItem.fontSize.systemImage
+        case .pageTurn: return ReadingSettingsScopeItem.pageTurn.systemImage
+        case .headerFooter: return ReadingSettingsScopeItem.headerFooter.systemImage
+        case .chapterTitle: return ReadingSettingsScopeItem.chapterTitle.systemImage
+        case .background: return ReadingSettingsScopeItem.background.systemImage
+        case .commentBubble: return ReadingSettingsScopeItem.commentBubble.systemImage
+        case .dialogueBubble: return ReadingSettingsScopeItem.dialogueBubble.systemImage
+        case .regexHighlights: return ReadingSettingsScopeItem.regexHighlight.systemImage
+        case .textDecoration: return ReadingSettingsScopeItem.textUnderline.systemImage
         }
     }
 
     /// The parts a setup speaks for, in 閱讀設定's order.
     static func parts(in reading: AppearanceThemeReadingSettings) -> [ReadingSetupPart] {
-        allCases.filter { $0.isPresent(in: reading) }
-    }
-
-    private func isPresent(in reading: AppearanceThemeReadingSettings) -> Bool {
-        switch self {
-        case .font:
-            return reading.fontPostScript != nil
-        case .layout:
-            return reading.fontSize != nil || reading.isBold != nil
-                || reading.lineHeightMultiple != nil || reading.letterSpacing != nil
-                || reading.paragraphSpacingMultiplier != nil
-                || reading.pageMarginH != nil || reading.pageMarginV != nil
-                || reading.pageMarginTop != nil || reading.pageMarginBottom != nil
-        case .pageTurn:
-            return reading.pageTurnStyle != nil || reading.scrollMode != nil
-        case .headerFooter:
-            return reading.barLayout != nil
-                || reading.headerVisible != nil || reading.footerVisible != nil
-                || reading.headerTopPadding != nil || reading.headerTextGap != nil
-                || reading.headerHorizontalPadding != nil || reading.footerHorizontalPadding != nil
-                || reading.footerBottomPadding != nil || reading.footerTextGap != nil
-        case .chapterTitle:
-            return reading.chapterTitleStyle != nil
-        case .background:
-            return reading.customBackground != nil || reading.readerTheme != nil
-                || reading.followsSystemTheme != nil || reading.bindsAppearanceReaderTheme != nil
-                || reading.boundLightReaderTheme != nil || reading.boundDarkReaderTheme != nil
-        case .commentBubble:
-            return reading.commentBubble != nil
-        case .dialogueBubble:
-            return reading.dialogueBubbleStyle != nil
-        case .regexHighlights:
-            return reading.regexHighlights != nil
-        case .textDecoration:
-            return reading.textUnderline != nil || reading.textColorOverrides != nil
-        }
+        let items = reading.items
+        return allCases.filter { !$0.scopeItems.isDisjoint(with: items) }
     }
 
     /// 「字體、排版和頁首頁尾」 — joined the way the current language joins a list.
@@ -104,8 +89,8 @@ enum ReadingSetupPart: CaseIterable, Hashable {
 /// in the same words.
 struct CustomizationImportPrompt: Identifiable {
     enum Choices {
-        /// A theme pack: 隨主題切換 or 取代目前設定.
-        case bindOrReplace
+        /// A theme pack: 跟隨主題 or 取代全域設定.
+        case followOrReplace
         /// A settings file with no theme of its own: 取代 or not.
         case replaceOnly
     }
@@ -123,17 +108,18 @@ struct CustomizationImportPrompt: Identifiable {
             message: String(
                 format: localized("除了外觀主題，也包含整套閱讀設定：%@。"),
                 ReadingSetupPart.localizedList(readingParts)
-            ) + "\n\n" + localized("閱讀設定要隨主題切換，還是取代你目前的設定？"),
-            choices: .bindOrReplace
+            ) + "\n\n" + localized("閱讀設定要跟隨主題，還是取代全域設定？"),
+            choices: .followOrReplace
         )
     }
 
-    /// A reading-settings file. Names the theme the setup belongs to when the selected
-    /// theme is bound to one, since that is where the import will land.
+    /// A reading-settings file. It lands like an edit, setting by setting: on the worn
+    /// theme for what follows the theme, in 全域 for the rest — so the message names the
+    /// theme whenever part of the file will go there.
     static func readingSettings(
         named name: String?,
         parts: [ReadingSetupPart],
-        ownerThemeName: String?
+        themeName: String?
     ) -> Self {
         let list = ReadingSetupPart.localizedList(parts)
         let contents: String
@@ -142,9 +128,9 @@ struct CustomizationImportPrompt: Identifiable {
         } else {
             contents = String(format: localized("這個檔案包含%@。"), list)
         }
-        let consequence = ownerThemeName.map {
-            String(format: localized("會取代主題「%@」的閱讀設定。"), $0)
-        } ?? localized("會取代你目前的閱讀設定。")
+        let consequence = themeName.map {
+            String(format: localized("跟隨主題的設定會存進「%@」，其餘取代全域設定。"), $0)
+        } ?? localized("會取代全域閱讀設定。")
         return CustomizationImportPrompt(
             title: localized("取代目前的閱讀設定？"),
             message: contents + consequence,
@@ -157,9 +143,9 @@ extension CustomizationImportPrompt.Choices {
     struct Option {
         let titleKey: String
         let disposition: ReadingSettingsDisposition
-        /// Drawn bold: the safe answer, which keeps the user's own setup restorable.
+        /// Drawn bold: the safe answer, which leaves every other theme as it was.
         let isPreferred: Bool
-        /// Drawn red: the user's own reading setup is overwritten for good.
+        /// Drawn red: the shared setup every theme falls back on is overwritten.
         let isDestructive: Bool
     }
 
@@ -168,13 +154,13 @@ extension CustomizationImportPrompt.Choices {
     /// buttons from this, so the two cannot drift apart.
     var options: [Option] {
         switch self {
-        case .bindOrReplace:
+        case .followOrReplace:
             return [
-                Option(titleKey: "隨主題切換", disposition: .bindToTheme, isPreferred: true, isDestructive: false),
-                Option(titleKey: "取代目前設定", disposition: .replaceCurrent, isPreferred: false, isDestructive: true),
+                Option(titleKey: "跟隨主題", disposition: .followTheme, isPreferred: true, isDestructive: false),
+                Option(titleKey: "取代全域設定", disposition: .replaceGlobal, isPreferred: false, isDestructive: true),
             ]
         case .replaceOnly:
-            return [Option(titleKey: "取代", disposition: .replaceCurrent, isPreferred: false, isDestructive: true)]
+            return [Option(titleKey: "取代", disposition: .replaceGlobal, isPreferred: false, isDestructive: true)]
         }
     }
 }
@@ -244,16 +230,25 @@ struct CustomizationImportOverview {
 
     /// Where an imported reading setup ended up.
     enum ReadingPlacement: Equatable {
-        /// Stored on a theme: worn while that theme is selected.
+        /// 跟隨主題: the pack's settings now follow the theme, so its theme wears them.
+        case followsTheme(name: String)
+        /// Every setting in the file follows the theme, so all of it went there.
         case theme(name: String)
-        /// Written into the user's own setup: worn under every theme.
-        case own
+        /// Some settings went to the theme they follow, the rest into 全域.
+        case split(themeName: String)
+        /// Written into 全域, the setup every theme falls back on.
+        case global
 
-        /// Where an import into the current setup lands right now: the selected theme's
-        /// own setup when it is bound to one, the user's own otherwise.
+        /// Where an import of `reading` into the current setup lands, setting by
+        /// setting, as an edit would.
         @MainActor
-        static var current: Self {
-            GlobalSettings.shared.readingSettingsOwnerTheme.map { .theme(name: $0.name) } ?? .own
+        static func current(for reading: AppearanceThemeReadingSettings) -> Self {
+            let settings = GlobalSettings.shared
+            let items = reading.items
+            guard let name = settings.readingImportThemeName(for: items) else { return .global }
+            return items.isSubset(of: settings.readingSettingsScope.themeItems)
+                ? .theme(name: name)
+                : .split(themeName: name)
         }
     }
 
@@ -285,10 +280,10 @@ extension CustomizationImportOverview {
                 fontName: outcome.readerUsesInstalledFont ? outcome.installedFontName : nil
             )
             switch outcome.readingDisposition {
-            case .bindToTheme:
-                readingPlacement = .theme(name: outcome.theme?.name ?? "")
-            case .replaceCurrent:
-                readingPlacement = .own
+            case .followTheme:
+                readingPlacement = .followsTheme(name: outcome.theme?.name ?? "")
+            case .replaceGlobal:
+                readingPlacement = .global
             case nil:
                 break
             }
@@ -331,7 +326,7 @@ extension CustomizationImportOverview {
                 titleKey: ReadingSetupPart.background.titleKey,
                 systemImage: ReadingSetupPart.background.systemImage
             ))
-            readingPlacement = .own
+            readingPlacement = .global
         }
         selectedThemeName = summary.themes > 0 ? selectedTheme?.name : nil
     }
@@ -381,7 +376,7 @@ extension CustomizationImportOverview {
         if let font = extras.globalFontPostScript, !font.isEmpty {
             items.append(Item(
                 titleKey: "全局字體",
-                systemImage: "textformat",
+                systemImage: "f.cursive",
                 detail: installedFontName ?? fontDisplayName(font)
             ))
         }
@@ -619,10 +614,14 @@ struct CustomizationImportOverviewView: View {
 
     private func placementText(_ placement: CustomizationImportOverview.ReadingPlacement) -> String {
         switch placement {
+        case .followsTheme(let name):
+            return String(format: localized("這些設定改為跟隨主題，選「%@」時套用，其他主題照舊。"), name)
         case .theme(let name):
-            return String(format: localized("閱讀設定跟著「%@」切換；換到其他主題時，會換回你原本的設定。"), name)
-        case .own:
-            return localized("已取代你原本的閱讀設定，切換主題時不會改變。")
+            return String(format: localized("已存進主題「%@」。"), name)
+        case .split(let name):
+            return String(format: localized("跟隨主題的設定已存進「%@」，其餘取代了全域設定。"), name)
+        case .global:
+            return localized("已取代全域閱讀設定。")
         }
     }
 }
@@ -636,11 +635,11 @@ struct CustomizationImportOverviewView: View {
     ]
     overview.selectedThemeName = "山风 - 春水漾"
     overview.readingItems = [
-        .init(titleKey: "排版", systemImage: "textformat.size", detail: "17 pt"),
+        .init(titleKey: "排版", systemImage: "plus.magnifyingglass", detail: "17 pt"),
         .init(titleKey: "翻頁方式", systemImage: "book.pages", detail: "捲動"),
         .init(titleKey: "頁首頁尾", systemImage: "rectangle.split.3x1"),
     ]
-    overview.readingPlacement = .theme(name: "山风 - 春水漾")
+    overview.readingPlacement = .followsTheme(name: "山风 - 春水漾")
     overview.notes = ["左右頁邊距不同，本 App 只有單一邊距，已取兩者平均。"]
     return CustomizationImportOverviewView(
         progress: CustomizationImportProgress(phase: .finished(overview)),

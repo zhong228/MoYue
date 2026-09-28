@@ -46,7 +46,7 @@ final class SharedCustomizationImportFlow: NSObject {
                 ask(prompt, about: plan)
             } else {
                 // Nothing about reading to decide — a look, or a file with no layout.
-                apply(plan, reading: .bindToTheme)
+                apply(plan, reading: .followTheme)
             }
         }
     }

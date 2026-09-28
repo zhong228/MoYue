@@ -37,7 +37,7 @@ struct QiThemeImportResidueTests {
         // Where the importer puts a pack's backgrounds: on the theme file and here.
         pack.pageBackgrounds = file.pageBackgrounds ?? [:]
 
-        let outcome = try await QiThemeImportService.apply(pack, reading: .bindToTheme)
+        let outcome = try await QiThemeImportService.apply(pack, reading: .followTheme)
         let theme = try #require(outcome.theme)
         fixture.imported.append(theme.id)
         #expect(settings.appearancePageBackgrounds[Self.global]?.lightPrimaryHex == 0xABCDEF)
@@ -59,7 +59,7 @@ struct QiThemeImportResidueTests {
         let readingBefore = settings.currentReadingSettingsSnapshot()
 
         let pack = try await QiThemeImportService.load(Data(contentsOf: url))
-        let outcome = try await QiThemeImportService.apply(pack, reading: .bindToTheme)
+        let outcome = try await QiThemeImportService.apply(pack, reading: .followTheme)
         let theme = try #require(outcome.theme)
         fixture.imported.append(theme.id)
         // Worn while selected…
@@ -88,6 +88,50 @@ struct QiThemeImportResidueTests {
         #expect(settings.currentReadingSettingsSnapshot() == readingBefore)
     }
 
+    /// The second report, step for step: 默認 → import 春水漾 (隨主題切換) → import 凄美地
+    /// (隨主題切換) → 默認. The reading setup has to be the one from before either import,
+    /// not the last pack's.
+    @Test func twoPacksImportedToFollowTheirThemesLeaveNothingOnDefault() async throws {
+        let first = URL(fileURLWithPath: "/Users/zhangruilin/Downloads/山风 - 春水漾.qitheme")
+        let second = URL(fileURLWithPath: "/Users/zhangruilin/Downloads/山风-凄美地.qitheme")
+        guard FileManager.default.fileExists(atPath: first.path),
+              FileManager.default.fileExists(atPath: second.path) else { return }
+        let settings = GlobalSettings.shared
+        let fixture = Fixture(settings)
+        defer { fixture.restore() }
+        _ = ReaderConfig.shared  // as in the app, where a book has been opened
+
+        let readingBefore = settings.currentReadingSettingsSnapshot()
+        let appearanceBefore = settings.currentAppearanceExtrasSnapshot()
+
+        for url in [first, second] {
+            // The Open In route: the same service the alert's answer is handed to.
+            let document = SharedCustomizationDocument(data: try Data(contentsOf: url), kind: .qiTheme)
+            let plan = try await SharedCustomizationImportService.load(document)
+            #expect(plan.prompt?.choices == .followOrReplace)
+            _ = try await SharedCustomizationImportService.apply(plan, reading: .followTheme)
+            let imported = try #require(settings.customAppearanceThemes.first { $0.id == settings.appearanceThemeID })
+            fixture.imported.append(imported.id)
+            #expect(imported.extras?.reading != nil)
+        }
+
+        settings.appearanceThemeID = GlobalSettings.defaultAppearanceThemeID
+        let readingAfter = settings.currentReadingSettingsSnapshot()
+        #expect(readingAfter.fontPostScript == readingBefore.fontPostScript)
+        #expect(readingAfter.fontSize == readingBefore.fontSize)
+        #expect(readingAfter.lineHeightMultiple == readingBefore.lineHeightMultiple)
+        #expect(readingAfter.pageMarginH == readingBefore.pageMarginH)
+        #expect(readingAfter.scrollMode == readingBefore.scrollMode)
+        #expect(readingAfter.pageTurnStyle == readingBefore.pageTurnStyle)
+        #expect(readingAfter.barLayout == readingBefore.barLayout)
+        #expect(readingAfter.chapterTitleStyle == readingBefore.chapterTitleStyle)
+        #expect(readingAfter.customBackground == readingBefore.customBackground)
+        #expect(readingAfter.commentBubble == readingBefore.commentBubble)
+        #expect(readingAfter == readingBefore)
+        #expect(ReaderConfig.shared.fontSize == CGFloat(readingBefore.fontSize ?? 0))
+        #expect(settings.currentAppearanceExtrasSnapshot() == appearanceBefore)
+    }
+
     /// Back to 默認 on entry, and back to where the simulator was on exit — field by field
     /// for what these tests change, and the imported themes deleted so their artwork is
     /// reclaimed.
@@ -100,6 +144,7 @@ struct QiThemeImportResidueTests {
         private let baseline: AppearanceThemeExtras?
         private let backgrounds: [String: AppearancePageBackgroundConfig]
         private let reading: AppearanceThemeReadingSettings
+        private let stores = ReadingSettingsStoresSnapshot()
         var imported: [String] = []
 
         init(_ settings: GlobalSettings) {
@@ -125,6 +170,8 @@ struct QiThemeImportResidueTests {
             settings.customAppearanceThemes = themes
             settings.appearancePageBackgrounds = backgrounds
             try? settings.writeReadingSettings(reading, origin: .theme)
+            // After the live values: writing those records them as edits.
+            stores.restore()
             settings.appearanceExtrasBaseline = baseline
             settings.appearanceThemeID = lightID
             settings.appearanceDarkThemeID = darkID

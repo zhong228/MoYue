@@ -188,6 +188,14 @@ iPad 是同一個 iOS app 的原生自適應版，不是另一個 app root。共
 
 設定頁一律 **iOS Settings 風格**（`Form` / `List` `.insetGrouped` 分組 + section header），不要做成網頁表單。
 
+**設定列一律用 `SettingsRows`**（`Modules/SharedUI/Components/SettingsRows.swift`）：`SettingsRowLabel`（圖示＋標題，與「設定」主頁 `DSSettingsRow` 同一個 `IconConsistentLabelStyle`）、`SettingsValueLabel`（推頁列＋右側目前值）、`SettingsSliderRow`（標題與值一行、滑桿在下）、`SettingsLockedRow`（Pro 鎖定列）。原生控制項照用，只把 label 換成這些，同一頁的每一列才會是同一個圖示大小、顏色與對齊。
+
+- 同一頁要嘛每列都有圖示，要嘛都沒有；同一個設定在不同頁（例如閱讀設定與排版生效範圍）用同一個 SF Symbol。
+- 列圖示避開 SF Symbols 會換成在地化字形的符號：`textformat` 在中文會變成「格式」兩個字、`textformat.size`、`character.textbox` 等同理（CoreGlyphs 裡有 `.zh` 變體的都是）。`a.magnify` 也會把 a 換成「字」。字體用 `f.cursive`、字級用 `plus.magnifyingglass`。
+- 列的角色：一般設定 `.standard`；點了就執行的動作（匯出、匯入、重設單一值）`.action`；會覆蓋使用者一組設定或刪除東西的 `.destructive`，並先用 alert 確認。
+- 推進去的頁面標題要和列名相同（列叫「段評氣泡」，頁就叫「段評氣泡」）。
+- 繁中用語（2026-09-28 統一）：匯入／匯出（不用導入／導出）、自訂（不用自定義）、介面（不用界面）、儲存（不用保存）、重設（不用重置／還原）、閱讀背景（不用閱讀主題）、頁首頁尾（不用頁眉頁腳）、全域（不用全局；既有功能名如「全局翻頁」照舊，不自行改名）。改既有字串時**只改 zh-Hant 的值、不改 key**（例：「全局默認」＝「全域預設」），其他語系的值照各自慣例。
+
 ### 4.1 主題背景與 List/Form 背景連續性
 
 - `.scrollContentBackground(.hidden)` 只會隱藏 `List` / `Form` 的捲動容器背景，**不會自動清除每個 row / section 的系統背景**。如果外層已繪製 `PageBackgroundView`、`themedAppSurface` 或其他主題背景，保留預設 row 背景會形成上方有色、下方純白等意外色塊斷裂。

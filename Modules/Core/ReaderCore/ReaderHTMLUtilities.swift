@@ -687,6 +687,20 @@ enum ReaderHTMLUtilities {
     /// `ydreview://` anchors. Reading both representations lets a single log schema identify the
     /// exact stage where a duplicate semantic target first appears without logging prose, tokens,
     /// SVG payloads, or full review URLs.
+    /// Whether a chapter shows paragraph-review bubbles — what 閱讀設定 › 段評氣泡 styles,
+    /// and so whether that entry is shown. Three forms, the three the renderer draws:
+    /// a review link (`<comment>` markers and review images rewritten at fetch time), a
+    /// raw `showCmt(` call, and a bubble SVG with no link at all.
+    ///
+    /// The last one used to be missing: the entry was gated on review *links*, while the
+    /// renderer draws any SVG `CommentBubbleSVGRecognizer` accepts as a bubble — so a
+    /// source whose tap handler was not one this app runs showed bubbles on every page
+    /// and no way to restyle them.
+    static func containsParagraphReviewLinks(in content: String) -> Bool {
+        content.range(of: "showcmt(", options: .caseInsensitive) != nil
+            || content.range(of: "\(reviewURLScheme)://", options: .caseInsensitive) != nil
+    }
+
     static func reviewMarkupDiagnostics(in html: String) -> ReviewMarkupDiagnostics {
         var targetSequence: [String] = []
         var rawReviewImageCount = 0

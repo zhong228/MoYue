@@ -29,7 +29,7 @@ struct LocalReaderScenarioTests {
         case "theme":
             let path = try #require(scenario.themePath)
             let parsed = try await QiThemeImportService.load(Data(contentsOf: URL(fileURLWithPath: path)))
-            let result = try await QiThemeImportService.apply(parsed, reading: .replaceCurrent)
+            let result = try await QiThemeImportService.apply(parsed, reading: .replaceGlobal)
             GlobalSettings.shared.pageTurnStyle = .curl
             #expect(!result.appearance.isEmpty)
             let overview = CustomizationImportOverview(qiTheme: result)

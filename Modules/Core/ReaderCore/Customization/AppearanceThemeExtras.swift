@@ -226,13 +226,13 @@ struct AppearanceThemeExtras: Codable, Hashable, Sendable {
     /// user's import, not the theme, so they are rebuilt on apply.
     var readerChromeIcons: [String: String]?
 
-    /// The theme's own reading setup, or nil when the theme is not bound to one.
+    /// The theme's own reading settings: what its pack brought and what was edited under
+    /// it while those settings followed the theme. Worn only for the settings 排版生效範圍
+    /// sets to 跟隨主題 (`GlobalSettings.synchronizeReadingSettings`), and kept while they
+    /// are shared, so setting them back to 跟隨主題 brings these values back.
     ///
-    /// Unlike every field above, nil is not merely "silent": on a *theme* it means edits
-    /// to reading settings do not belong to the theme at all, so they go to the user's
-    /// own setup instead (see `GlobalSettings.recordReadingSettingEdit`). On the
-    /// *baseline* it is the user's own setup — captured in full, so leaving a theme puts
-    /// every field back.
+    /// Baselines written before 排版生效範圍 hold the user's own setup here; the shared
+    /// setup is created from it once and it is not read again.
     var reading: AppearanceThemeReadingSettings?
 
     init() {}
@@ -259,9 +259,9 @@ struct AppearanceThemeExtras: Codable, Hashable, Sendable {
             && readerChromeColors?.isEmpty != false
             && readerChromeHiddenIDs?.isEmpty != false
             && readerChromeIcons?.isEmpty != false
-            // Bound with nothing recorded yet still counts: it decides where the next
-            // reading edit is recorded.
-            && reading == nil
+        // `reading` is left out: it is worn by the reading scope, not with the rest of
+        // these, and a theme that only keeps reading values speaks for no appearance
+        // setting — selecting it must not write its absent card background.
     }
 }
 

@@ -31,13 +31,14 @@ extension AppearanceCustomizationBundle {
     }
 }
 
-/// Where the reading half of an import goes — the question the pre-import alert asks.
+/// What the reading half of an import does — the question the pre-import alert asks.
+/// Either way a pack's reading setup is also kept on its theme, for 排版生效範圍.
 enum ReadingSettingsDisposition: Equatable, Sendable {
-    /// 隨主題切換: the reading setup belongs to the imported theme. Selecting the theme
-    /// wears it; selecting any other one hands the user's own setup back.
-    case bindToTheme
-    /// 取代目前設定: the reading setup replaces the user's own, under every theme.
-    case replaceCurrent
+    /// 跟隨主題: the settings the pack speaks for follow the theme from now on, so the
+    /// pack's theme wears its own and every other theme keeps what it had.
+    case followTheme
+    /// 取代全域設定: the pack's setup replaces the shared one every theme falls back on.
+    case replaceGlobal
 }
 
 /// Applies a parsed QiReader `.qitheme` pack.
@@ -139,8 +140,7 @@ enum QiThemeImportService {
         //    install above, so a title font that ships inside the pack is not flagged.
         substituteMissingChapterTitleFonts(&theme, outcome: &outcome)
 
-        // 3. The reading half, as one reading setup. The same value either rides the
-        //    theme or is written into the user's own setup — one translation, one writer.
+        // 3. The reading half, as one reading setup — one translation, one writer.
         let reading = readingSettings(theme, readerFontPostScript: readerFontPostScript,
                                       settings: settings, outcome: &outcome)
         if let reading {
@@ -149,9 +149,10 @@ enum QiThemeImportService {
         }
 
         // 4. Import the theme carrying those extras. Appending it selects it, and the
-        //    selection is what captures the baseline and applies the extras — the bound
-        //    reading setup included.
-        if disposition == .bindToTheme { extras.reading = reading }
+        //    selection is what captures the baseline and applies the extras. The reading
+        //    setup always rides the theme, whatever the answer: it is the theme's own,
+        //    worn for the settings that follow the theme, and 重置此主題 restores it.
+        extras.reading = reading
         var themeFile = theme.themeFile
         themeFile?.extras = extras
         // The pack's page backgrounds travel on its theme file only. Also passing them as
@@ -178,22 +179,21 @@ enum QiThemeImportService {
             outcome.notes.append(localized("外觀部分套用失敗，其餘項目仍已匯入。"))
         }
 
-        // 5. 取代目前設定: written as an import into whatever setup is current. The pack's
-        //    own theme is selected and unbound by now, so the write lands on the user's
-        //    own setup and survives leaving the theme.
+        // 5. The answer. The pack's theme is selected by now, so 跟隨主題 wears the pack's
+        //    values the moment the scope changes.
         if let reading {
             switch disposition {
-            case .replaceCurrent:
-                try settings.writeReadingSettings(reading, origin: .userImport)
-            case .bindToTheme where outcome.theme == nil:
-                // No theme came out of the import, so there is nothing to bind to — and
-                // quietly writing the setup over the user's own instead would be exactly
-                // what they declined.
+            case .replaceGlobal:
+                try settings.replaceGlobalReadingSettings(with: reading)
+            case .followTheme where outcome.theme == nil:
+                // No theme came out of the import, so there is nothing to follow — and
+                // quietly writing the setup into 全域 instead would be exactly what they
+                // declined.
                 outcome.reading = nil
                 outcome.readingDisposition = nil
-                outcome.notes.append(localized("外觀主題沒有匯入成功，閱讀設定沒有主題可以綁定，已略過。"))
-            case .bindToTheme:
-                break
+                outcome.notes.append(localized("外觀主題沒有匯入成功，閱讀設定沒有主題可以跟隨，已略過。"))
+            case .followTheme:
+                settings.followTheme(for: reading.items)
             }
         }
         return outcome

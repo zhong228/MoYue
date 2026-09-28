@@ -3290,6 +3290,12 @@ class GlobalSettings: ObservableObject {
             if mode == .color {
                 summary.restoredReaderBackground = true
             }
+            // The bundle's reading background is the exporter's own setup, so it goes
+            // into 全域 — recorded here because the writes above are not edits, and the
+            // next theme sync would otherwise put the old background back.
+            globalReadingSettings = globalReadingSettings.overlaid(
+                with: currentReadingSettingsSnapshot().restricted(to: [.background])
+            )
         }
     }
 

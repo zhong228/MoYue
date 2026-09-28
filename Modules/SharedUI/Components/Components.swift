@@ -68,6 +68,10 @@ struct DSSettingsRow: View {
 
 
 struct IconConsistentLabelStyle: LabelStyle {
+    /// Off for a row whose title carries its own colour — an action or a destructive
+    /// row — so its symbol matches the title instead of turning accent-coloured.
+    var themesIcon = true
+
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 8) {
             themedIcon(configuration.icon)
@@ -85,7 +89,7 @@ struct IconConsistentLabelStyle: LabelStyle {
         // A LabelStyle cannot read @Environment, so this asks whether any appearance is
         // themed rather than the current one. The tint it applies is `Color.accentColor`,
         // which already resolves per appearance, so the distinction costs nothing here.
-        if AppearanceThemePreset.activeAppThemes.isActive {
+        if themesIcon, AppearanceThemePreset.activeAppThemes.isActive {
             sized.foregroundStyle(DSColor.accent)
         } else {
             sized

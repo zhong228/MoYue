@@ -60,7 +60,7 @@ struct SharedCustomizationImportTests {
             let plan = try await SharedCustomizationImportService.load(document)
             guard case .reader(let readerPlan) = plan else { Issue.record("Style routed to appearance"); return }
             #expect(!readerPlan.isEmpty)
-            _ = try await SharedCustomizationImportService.apply(plan, reading: .replaceCurrent)
+            _ = try await SharedCustomizationImportService.apply(plan, reading: .replaceGlobal)
             if let style = readerPlan.chapterTitleStyle { #expect(ReaderConfig.shared.chapterTitleStyle == style) }
             if let rules = readerPlan.regexHighlights { #expect(GlobalSettings.shared.regexHighlightConfiguration == rules) }
         }
@@ -81,17 +81,19 @@ struct SharedCustomizationImportTests {
     }
 
     @Test("A QiReader pack's reading setup goes where the user's answer says",
-          arguments: [ReadingSettingsDisposition.bindToTheme, .replaceCurrent])
+          arguments: [ReadingSettingsDisposition.followTheme, .replaceGlobal])
     func qiReadingChoice(disposition: ReadingSettingsDisposition) async throws {
         let settings = GlobalSettings.shared
         let saved = settings.readerBarLayout
         let savedThemes = settings.customAppearanceThemes
         let savedID = settings.appearanceThemeID
         let savedBaseline = settings.appearanceExtrasBaseline
+        let stores = ReadingSettingsStoresSnapshot()
         defer {
             settings.appearanceThemeID = GlobalSettings.defaultAppearanceThemeID
             settings.customAppearanceThemes = savedThemes
             _ = settings.saveReaderBarLayout(saved)
+            stores.restore()
             settings.appearanceExtrasBaseline = savedBaseline
             settings.appearanceThemeID = savedID
         }
@@ -104,7 +106,7 @@ struct SharedCustomizationImportTests {
         let plan = SharedCustomizationImportService.Plan.qiTheme(pack)
         // The question names the whole reading setup and offers both answers.
         let prompt = try #require(plan.prompt)
-        #expect(prompt.choices == .bindOrReplace)
+        #expect(prompt.choices == .followOrReplace)
         #expect(prompt.message.contains(localized(ReadingSetupPart.headerFooter.titleKey)))
 
         let overview = try await SharedCustomizationImportService.apply(plan, reading: disposition)
@@ -115,11 +117,11 @@ struct SharedCustomizationImportTests {
         // Leaving the pack's theme is where the two answers differ.
         settings.appearanceThemeID = GlobalSettings.defaultAppearanceThemeID
         switch disposition {
-        case .bindToTheme:
-            #expect(overview.readingPlacement == .theme(name: "Shared Theme Fixture"))
+        case .followTheme:
+            #expect(overview.readingPlacement == .followsTheme(name: "Shared Theme Fixture"))
             #expect(settings.readerBarLayout == saved)
-        case .replaceCurrent:
-            #expect(overview.readingPlacement == .own)
+        case .replaceGlobal:
+            #expect(overview.readingPlacement == .global)
             #expect(settings.readerBarLayout == imported)
         }
     }
@@ -137,7 +139,7 @@ struct SharedCustomizationImportTests {
         let document = try await receive(Data(#"{"format":"yuedu-appearance-theme"}"#.utf8), extension: "json")
         let plan = try await SharedCustomizationImportService.load(document)
         await #expect(throws: (any Error).self) {
-            _ = try await SharedCustomizationImportService.apply(plan, reading: .bindToTheme)
+            _ = try await SharedCustomizationImportService.apply(plan, reading: .followTheme)
         }
     }
 
@@ -191,7 +193,7 @@ struct SharedCustomizationImportTests {
         }
         let plan = try await SharedCustomizationImportService.load(document)
         #expect(plan.prompt == nil)
-        _ = try await SharedCustomizationImportService.apply(plan, reading: .bindToTheme)
+        _ = try await SharedCustomizationImportService.apply(plan, reading: .followTheme)
         let imported = try #require(settings.customAppearanceThemes.last)
         #expect(imported.name == "Shared Theme Fixture")
         #expect(settings.appearanceThemeID == imported.id)

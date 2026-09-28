@@ -5,6 +5,8 @@ import SwiftUI
 @MainActor
 final class ReaderViewModel: ObservableObject {
     @Published private(set) var chapterStates: [Int: ChapterLoadState] = [:]
+    /// The book shows paragraph-review bubbles — a review link or a bubble SVG in a
+    /// chapter loaded so far. Gates 閱讀設定 › 段評氣泡.
     @Published private(set) var hasParagraphReviews = false
 
     /// Chapter cache availability validated by the loading pipeline. This is deliberately
@@ -667,14 +669,18 @@ final class ReaderViewModel: ObservableObject {
         }
     }
 
+    /// Links are a string search, so they are checked here. A bubble without one takes
+    /// decoding the chapter's SVGs until one is recognized, which is off the main actor.
     private func recordParagraphReviewsIfPresent(in content: String) {
         guard !hasParagraphReviews else { return }
-        if content.range(of: "showcmt(", options: .caseInsensitive) != nil
-            || content.range(
-                of: "\(ReaderHTMLUtilities.reviewURLScheme)://",
-                options: .caseInsensitive
-            ) != nil {
+        if ReaderHTMLUtilities.containsParagraphReviewLinks(in: content) {
             hasParagraphReviews = true
+            return
+        }
+        guard content.range(of: "data:image/svg+xml", options: .caseInsensitive) != nil else { return }
+        Task.detached(priority: .utility) { [weak self] in
+            guard CommentBubbleSVGRecognizer.containsRecognizedBubble(inChapterHTML: content) else { return }
+            await MainActor.run { self?.hasParagraphReviews = true }
         }
     }
 

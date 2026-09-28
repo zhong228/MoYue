@@ -77,17 +77,13 @@ extension GlobalSettings {
         isApplyingAppearanceExtras = true
         defer { isApplyingAppearanceExtras = wasApplying }
 
+        // Read before anything below is written: the first read captures the user's own
+        // reading setup, which the baseline may still hold from before 排版生效範圍.
+        _ = globalReadingSettings
+
         if activeExtrasOwnerThemeID != nil {
             if appearanceExtrasBaseline == nil {
-                var baseline = currentAppearanceExtrasSnapshot()
-                baseline.reading = currentReadingSettingsSnapshot()
-                appearanceExtrasBaseline = baseline
-            } else if var baseline = appearanceExtrasBaseline, baseline.reading == nil {
-                // A baseline written before reading could follow a theme. No theme has
-                // ever applied a reading setup on top of it, so what is live now is still
-                // the user's own — capture it before one does.
-                baseline.reading = currentReadingSettingsSnapshot()
-                appearanceExtrasBaseline = baseline
+                appearanceExtrasBaseline = currentAppearanceExtrasSnapshot()
             }
             // A theme is a sparse override of the user's original settings, not of
             // the preceding theme. Restore first so omitted fields cannot carry
@@ -102,6 +98,10 @@ extension GlobalSettings {
             writeAppearanceExtras(baseline)
             appearanceExtrasBaseline = nil
         }
+
+        // Reading settings are not part of the baseline: they have their own shared
+        // setup, and 排版生效範圍 decides which of them this theme's values replace.
+        synchronizeReadingSettings()
     }
 
     /// Records one edited setting on the selected theme. Every covered `didSet`
@@ -225,15 +225,7 @@ extension GlobalSettings {
                 }
                 .sorted { $0.itemID < $1.itemID }
         }
-        if let reading = extras.reading {
-            do {
-                try writeReadingSettings(reading, origin: .theme)
-            } catch {
-                // `.theme` writes report a failed header/footer store by logging and
-                // carry on; nothing else throws. Kept explicit so a future throwing
-                // field cannot vanish here.
-                AppLogger.error("⟐ theme reading setup not fully applied", error: error)
-            }
-        }
+        // `extras.reading` is worn by `synchronizeReadingSettings`, and only for the
+        // settings 排版生效範圍 lets follow the theme.
     }
 }

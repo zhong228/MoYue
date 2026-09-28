@@ -172,9 +172,8 @@ enum ReaderSettingsImportService {
     }
 
     /// Writes the plan into the reader's current setup through the one reading-setup
-    /// writer that theme switches use too — so an import made while a bound theme is
-    /// selected lands on that theme, and one made under any other theme becomes the
-    /// user's own.
+    /// writer that theme switches use too. It lands like an edit, setting by setting:
+    /// on the worn theme for what 排版生效範圍 lets follow the theme, in 全域 for the rest.
     @discardableResult
     static func apply(_ plan: ReaderSettingsImportPlan) throws -> ReaderSettingsImportSummary {
         guard !plan.isEmpty else { throw ReaderSettingsImportError.emptyFile }

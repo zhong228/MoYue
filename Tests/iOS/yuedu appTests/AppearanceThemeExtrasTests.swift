@@ -49,7 +49,7 @@ struct AppearanceThemeExtrasTests {
         var imported = QiThemeImport(name: a.name, themeFile: AppearanceThemeExportFile(customTheme: a))
         imported.tabIconSize = first.tabIconSize
         imported.hidesTabLabels = first.hidesTabLabels
-        let outcome = try await QiThemeImportService.apply(imported, reading: .bindToTheme)
+        let outcome = try await QiThemeImportService.apply(imported, reading: .followTheme)
         #expect(outcome.appearance.themes == 1)
         #expect(settings.rootTabIconSize == 32)
         #expect(settings.rootTabHidesLabels)

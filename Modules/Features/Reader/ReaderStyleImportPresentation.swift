@@ -160,7 +160,7 @@ private struct ReaderStyleImportPresentationModifier: ViewModifier {
                     prompt: .readingSettings(
                         named: plan.name,
                         parts: ReadingSetupPart.parts(in: plan.readingSettings),
-                        ownerThemeName: GlobalSettings.shared.readingSettingsOwnerTheme?.name
+                        themeName: GlobalSettings.shared.readingImportThemeName(for: plan.readingSettings.items)
                     )
                 )
             } catch {
@@ -176,12 +176,13 @@ private struct ReaderStyleImportPresentationModifier: ViewModifier {
         do {
             let summary = try ReaderSettingsImportService.apply(plan)
             onApplied(summary)
-            // The import lands on whatever setup is current: a bound theme's, or the
-            // user's own. The sheet says which, and lists what a converted file lost —
+            // The import lands like an edit: on the worn theme for what follows the
+            // theme, in 全域 for the rest. The sheet says which, and lists what a converted
+            // file lost —
             // silence would leave the user comparing the result against the original
             // with no idea which differences are ours.
             importProgress = CustomizationImportProgress(phase: .finished(
-                CustomizationImportOverview(readingSettings: plan, placement: .current)
+                CustomizationImportOverview(readingSettings: plan, placement: .current(for: plan.readingSettings))
             ))
         } catch {
             alert = ReaderStyleImportAlert(

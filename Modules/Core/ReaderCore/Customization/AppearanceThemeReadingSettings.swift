@@ -1,19 +1,14 @@
 import Foundation
 
-/// A custom theme's own reading setup — everything 閱讀設定 lets a reader change about
-/// how the page looks.
+/// A reading setup — everything 閱讀設定 lets a reader change about how the page looks.
 ///
-/// Present only on a theme the user bound it to: 「隨主題切換」 when importing a pack,
-/// or the switch in that theme's editor. A theme without one never touches reading,
-/// so the user's own setup stays wherever they left it. `GlobalSettings` applies it
-/// through the same baseline as the rest of `AppearanceThemeExtras`: selecting the
-/// theme lays these values over the user's own, and leaving it hands the user's own
-/// back.
-///
-/// Every field is optional and means "this theme does not speak for that setting" —
-/// the same sparse contract as the rest of the extras. A pack that sets the type size
-/// and the header/footer leaves the user's highlight rules alone, and keeps leaving
-/// them alone after an edit, because an edit records only the field it changed.
+/// Two kinds of value have this shape. The shared setup every theme falls back on is
+/// complete. A theme's own values are sparse: every field is optional and means "this
+/// theme does not speak for that setting", the same contract as the rest of the extras.
+/// A pack that sets the type size and the header/footer leaves the highlight rules
+/// alone, and keeps leaving them alone after an edit, because an edit records only the
+/// field it changed. Which of the two the reader wears is decided per setting by
+/// 排版生效範圍 (`ReadingSettingsScopeItem`, `GlobalSettings.synchronizeReadingSettings`).
 ///
 /// Deliberately left out: 繁簡轉換, gestures, tap zones and brightness. Those are how
 /// the reader *behaves*, not how the page looks, and a theme switch changing them
@@ -112,8 +107,7 @@ struct AppearanceThemeReadingSettings: Codable, Equatable, Sendable {
 
     init() {}
 
-    /// Speaks for nothing. A theme can still be *bound* with nothing recorded yet —
-    /// binding is the presence of this value, not its contents.
+    /// Speaks for nothing.
     var isEmpty: Bool { self == Self() }
 
     private enum CodingKeys: String, CodingKey {

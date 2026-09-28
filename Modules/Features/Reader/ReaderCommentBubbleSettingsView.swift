@@ -106,7 +106,7 @@ struct ReaderCommentBubbleSettingsView: View {
             .interfaceSectionSurface()
         }
         .softScrollEdges()
-        .navigationTitle(localized("氣泡設定"))
+        .navigationTitle(localized("段評氣泡"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)
         .sheet(item: $editorDraft) { draft in

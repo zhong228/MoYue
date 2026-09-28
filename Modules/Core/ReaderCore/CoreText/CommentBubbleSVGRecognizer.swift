@@ -241,6 +241,29 @@ struct CommentBubbleSVGRecognizer {
         recognize(src: src, svgContent: svgContent, mode: .sourceSniff)
     }
 
+    /// Whether a chapter's HTML carries a picture this recognizer takes for a comment
+    /// bubble: the `data:` SVGs that `OnlineImageLoader` and the renderer send here, and
+    /// that 段評氣泡's settings then restyle. A bubble whose tap handler this app cannot
+    /// run — or that has none — gets no review link, yet is drawn and restyled like any
+    /// other, so the reader asks this before hiding those settings.
+    static func containsRecognizedBubble(inChapterHTML html: String) -> Bool {
+        guard html.range(of: "data:image/svg+xml", options: .caseInsensitive) != nil,
+              let regex = try? NSRegularExpression(
+                  pattern: #"data:image/svg\+xml[^"'\s>)]*"#,
+                  options: [.caseInsensitive]
+              ) else { return false }
+        let ns = html as NSString
+        var found = false
+        regex.enumerateMatches(in: html, range: NSRange(location: 0, length: ns.length)) { match, _, stop in
+            guard let match else { return }
+            if recognize(src: ns.substring(with: match.range), svgContent: nil) != nil {
+                found = true
+                stop.pointee = true
+            }
+        }
+        return found
+    }
+
     /// Parses an SVG the user chose as their own bubble template. Permissive by design —
     /// see `RecognitionMode.userTemplate`.
     static func recognizeUserTemplate(_ svg: String) -> CommentBubbleSVG? {
