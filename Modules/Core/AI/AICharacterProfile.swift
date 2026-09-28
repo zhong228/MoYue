@@ -58,21 +58,26 @@ struct AICharacterProfile: Sendable, Equatable, Codable {
         return boundary.allows(maximumEvidencePosition)
     }
 
-    static let currentPromptVersion = "yuedu.character.v2"
+    static let currentPromptVersion = "yuedu.character.v3"
 
     /// The task, with the character's name kept **out** of it.
     ///
     /// The name arrives as a separate user message. Splicing user- or book-supplied text into
     /// the system role would let a novel containing something shaped like an instruction
     /// rewrite the rules it is being read under.
-    static let task = """
-    整理指定人物在本書中的檔案。可用工具 retrieve(query) 檢索本書片段（進度範圍 [0, 1.0]＝全書）。
-    規則：不要透露該人物的最終結局或生死；可以說明身分、人物關係、首次登場。只依據檢索到的片段，不要編造；沒有依據的欄位留空。
-    資訊足夠後 action=finish，並把**純 JSON**（不要加程式碼區塊標記）放進 answer：
-    {"firstAppearance":string,"role":string,"relationships":[string],"aliasCandidates":[string],"summary":string}
-    - summary：繁體中文檔案（不含結局）。
-    - aliasCandidates：本書中可能指同一人的別稱（不含人物名本身）。
-    """
+    ///
+    /// The card is written in `language`, except the aliases: 多角色朗讀 matches them against
+    /// the prose, so they stay exactly as the book writes them.
+    static func task(language: AIAnswerLanguage) -> String {
+        """
+        整理指定人物在本書中的檔案。可用工具 retrieve(query) 檢索本書片段（進度範圍 [0, 1.0]＝全書）。
+        規則：不要透露該人物的最終結局或生死；可以說明身分、人物關係、首次登場。只依據檢索到的片段，不要編造；沒有依據的欄位留空。
+        資訊足夠後 action=finish，並把**純 JSON**（不要加程式碼區塊標記）放進 answer：
+        {"firstAppearance":string,"role":string,"relationships":[string],"aliasCandidates":[string],"summary":string}
+        - firstAppearance、role、relationships、summary 用\(language.promptName)寫；summary 是人物檔案（不含結局）。
+        - aliasCandidates：本書中可能指同一人的別稱（不含人物名本身），逐字照書中原文的寫法。
+        """
+    }
 
     private struct Fields: Decodable {
         let firstAppearance: String?

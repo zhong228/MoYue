@@ -14,11 +14,12 @@ import Foundation
 enum AIRAGPipeline {
     /// Recorded on every stored answer so a prompt change can be told apart from a model
     /// change when something regresses.
-    static let promptVersion = "yuedu.rag.v2"
+    static let promptVersion = "yuedu.rag.v3"
     static let temperature = 0.2
     static let topP = 1.0
 
-    static func systemPrompt(for chunks: [AIContentChunk], selfAssessmentNonce: String? = nil) -> String {
+    /// - Parameter language: what the answer is written in, `AIQuestionContext.answerLanguage`.
+    static func systemPrompt(for chunks: [AIContentChunk], language: AIAnswerLanguage, selfAssessmentNonce: String? = nil) -> String {
         let assessmentRule = selfAssessmentNonce.map { nonce in
             """
 
@@ -34,8 +35,8 @@ enum AIRAGPipeline {
         規則：
         - 每個論斷後面用 [片段ID] 標註來源，例如 [片段ID]；可以標多個。
         - 只使用提供的片段，不要編造，也不要引用沒有提供的片段。
-        - 如果片段不足以回答，直接說「目前可用、已讀範圍內的檢索結果不足以確認」，不要臆測。
-        - 用繁體中文回答。
+        - 如果片段不足以回答，直接說明目前可用、已讀範圍內的檢索結果不足以確認，不要臆測。
+        - \(language.answerRule)
         \(assessmentRule)
 
         """

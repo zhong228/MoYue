@@ -27,6 +27,12 @@ struct LLMMessage: Codable, Hashable, Sendable {
 enum LLMReasoningEffort: String, Sendable { case low, high, max }
 
 struct LLMGenerationRequest: Sendable {
+    /// The output budget — reasoning plus answer — of a request that sets none, the same a
+    /// question's answer gets. It was 1024: a 整章翻譯 batch of 2,000 characters cannot fit
+    /// in that, nor can a thinking model's reasoning, so every batch came back `length`, shown
+    /// as 「AI 回覆被截斷」. 查詞, summary digests and 書架整理 sent no budget either.
+    static let defaultMaxTokens = 16_384
+
     let messages: [LLMMessage]
     let maxTokens: Int?
     let temperature: Double?

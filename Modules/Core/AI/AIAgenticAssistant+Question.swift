@@ -36,6 +36,7 @@ extension AIAgenticAssistant {
               index.contentFingerprint == context.source.contentFingerprint else { throw CancellationError() }
         let budget = context.budget
         guard budget.maximumModelCalls > 0, budget.maximumOutputTokens > 0 else { throw AIQuestionFailure.modelBudget }
+        let language = context.answerLanguage
         let reference = context.selection == nil && context.action == .question && needsReferenceResolution(context.question)
         let history = context.safeHistory()
         var modelCalls = 0, queryCount = 0
@@ -74,7 +75,8 @@ extension AIAgenticAssistant {
         trace?.event("questionRequest", ["requestID": context.requestID.uuidString, "conversationID": context.conversationID.uuidString,
             "historyUsed": "\(!history.isEmpty)", "historyIDs": history.map { $0.id.uuidString }.joined(separator: ","),
             "maxModelCalls": "\(budget.maximumModelCalls)", "maxQueries": "\(budget.maximumQueries)",
-            "maxInputCharacters": "\(budget.maximumInputCharacters)", "maxInputBytes": "\(budget.maximumInputBytes)", "maxRevisions": "1"])
+            "maxInputCharacters": "\(budget.maximumInputCharacters)", "maxInputBytes": "\(budget.maximumInputBytes)", "maxRevisions": "1",
+            "answerLanguage": language.rawValue])
         defer { trace?.event("questionStopped", ["reason": didFinish ? stop : (Task.isCancelled ? "cancelled" : "failed"), "modelCalls": "\(modelCalls)", "queries": "\(queryCount)"]) }
 
         func send(_ selection: AIQuestionPrompt.Selection, finalNonce: String? = nil) async throws -> LLMRawResponse {
@@ -219,7 +221,7 @@ extension AIAgenticAssistant {
         func generateAnswer() async throws -> (LLMGenerationResult, [AIQuestionEvidence]) {
             await onStage?(.answering)
             let nonce = AIRAGPipeline.makeNonce()
-            let baseSystem = AIRAGPipeline.systemPrompt(for: [], selfAssessmentNonce: nonce)
+            let baseSystem = AIRAGPipeline.systemPrompt(for: [], language: language, selfAssessmentNonce: nonce)
                 .replacingOccurrences(of: "只能根據下面提供的書內片段回答問題。", with: "書中事實必須根據下面提供的書內片段。")
                 .replacingOccurrences(of: "只使用提供的片段，不要編造，也不要引用沒有提供的片段。", with: "書中事實只使用提供的片段，不要編造或引用未提供的片段。補充知識依本次任務指令處理。")
             let system = baseSystem + AIReadingEvidence.instruction(context) + """

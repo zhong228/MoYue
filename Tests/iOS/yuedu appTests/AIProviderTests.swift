@@ -54,6 +54,23 @@ struct AIProviderTests {
         }
     }
 
+    /// Claude refuses temperature with top_p (every Claude 4 model), any temperature (Opus 4.7
+    /// and later, Opus 5, Fable) or a non-default one (Sonnet 5), so every request to the
+    /// Anthropic preset came back 400. Other services must keep exactly what they were sent.
+    @Test func anthropicGetsNoSamplingParametersAndOtherServicesKeepThem() throws {
+        let request = LLMGenerationRequest(messages: [.init(role: .user, content: "fixture")], temperature: 0.2, topP: 1)
+        for (host, sendsSampling) in [("api.anthropic.com", false), ("API.Anthropic.com", false),
+                                      ("api.deepseek.com", true), ("api.openai.com", true), ("openrouter.ai", true)] {
+            let provider = OpenAICompatibleProvider(endpoint: URL(string: "https://\(host)/v1/chat/completions")!,
+                                                    apiKey: "fixture", defaultModel: "fixture")
+            let wire = try provider.makeURLRequest(for: request, model: "fixture", stream: false)
+            let body = try #require(try JSONSerialization.jsonObject(with: wire.httpBody!) as? [String: Any])
+            #expect((body["temperature"] as? Double) == (sendsSampling ? 0.2 : nil))
+            #expect((body["top_p"] as? Double) == (sendsSampling ? 1 : nil))
+            #expect(body["max_tokens"] as? Int == LLMGenerationRequest.defaultMaxTokens)
+        }
+    }
+
     @Test func structuredExtractionCanBoundThinkingWithoutDisablingIt() throws {
         let provider = OpenAICompatibleProvider(endpoint: URL(string: "https://api.deepseek.com/v1/chat/completions")!, apiKey: "fixture", defaultModel: "deepseek-flash")
         let request = LLMGenerationRequest(messages: [.init(role: .user, content: "fixture")], maxTokens: 16_384, reasoningEffort: .low)

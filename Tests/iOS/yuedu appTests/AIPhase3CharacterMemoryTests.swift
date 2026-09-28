@@ -10,8 +10,10 @@ struct AIPhase3CharacterMemoryTests {
         return AIBookContentAdapter(bookID: book, chapters: texts.indices.map { .init(index: $0, title: "Fixture \($0)", content: "") }) { texts[$0] }
             .atReadingPosition(spine: i, renderedOffset: offset ?? (texts[i]?.utf16.count ?? 0), renderedText: texts[i] ?? "")
     }
-    func plan(_ source: AIBookContentAdapter, budget: AIMemoryBudget = .init(), whole: Bool = true) throws -> AIMemoryJob {
-        try AIMemoryPlanner.plan(source: source, boundary: source.boundary(wholeBook: whole), provider: "memory-mock", model: "scripted-fixture", budget: budget)
+    func plan(_ source: AIBookContentAdapter, budget: AIMemoryBudget = .init(), whole: Bool = true,
+              language: AIAnswerLanguage = .traditionalChinese) throws -> AIMemoryJob {
+        try AIMemoryPlanner.plan(source: source, boundary: source.boundary(wholeBook: whole), provider: "memory-mock", model: "scripted-fixture",
+                                 budget: budget, language: language)
     }
     func temporary() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("memory-fixture-\(UUID())") }
     static func payload(_ request: LLMGenerationRequest) throws -> [String: Any] {
@@ -100,7 +102,9 @@ struct AIPhase3CharacterMemoryTests {
         try await service.start(confirmed: proposal, source: source); await service.wait(book: book)
         #expect(await provider.requests.count == 1)
         #expect(service.jobs[book]?.state == .completedAvailable)
-        let whole = try plan(source)
+        // `prepare` plans in the interface language; a job in another one would not reuse
+        // the record it just committed.
+        let whole = try plan(source, language: .current)
         let coverage = try await service.coverage(job: whole, source: source)
         #expect(whole.targetChapters == 3 && coverage.availableChapters == 2)
         #expect(coverage.missing.count == 1 && coverage.committedUnits == 1)
@@ -249,10 +253,38 @@ struct AIPhase3CharacterMemoryTests {
         let fill = source(["人物1前行。", "人物4原來在此。", "人物2遠行。"]), filled = try plan(fill)
         #expect(AIMemoryPlanner.matches(records[0], source: fill, job: filled))
         #expect(!AIMemoryPlanner.matches(records[1], source: fill, job: filled))
-        let version = try AIMemoryPlanner.plan(source: initial, boundary: initial.boundary(), provider: old.provider, model: old.model, analysisVersion: "next")
-        #expect(!AIMemoryPlanner.matches(records[0], source: initial, job: version))
+        // Facts are written in the reader's language: records in another one are not reused.
+        let language = try AIMemoryPlanner.plan(source: initial, boundary: initial.boundary(), provider: old.provider, model: old.model, language: .english)
+        #expect(!AIMemoryPlanner.matches(records[0], source: initial, job: language))
         var budget = AIMemoryBudget(); budget.maximumBackgroundRecords = 1
         #expect(!AIMemoryPlanner.matches(records[0], source: initial, job: try plan(initial, budget: budget)))
+    }
+
+    /// Facts follow the reader's language; the names stay the book's own spelling, which
+    /// `validate` looks up literally in the quote. A job planned before (no language) keeps
+    /// the recipe it was confirmed with.
+    @Test func factsAreWrittenInTheJobsLanguageAndNamesStayAsWritten() throws {
+        let source = source(["蒙面人走過橋。"])
+        let job = try AIMemoryPlanner.plan(source: source, boundary: source.boundary(wholeBook: true), provider: "memory-mock",
+                                           model: "scripted-fixture", language: .simplifiedChinese)
+        let system = try AIMemoryExtraction.input(unit: job.units[0], source: source, job: job, previous: []).request.messages[0].content
+        #expect(system.contains("facts 的 text 用簡體中文寫"))
+        #expect(system.contains("surface 照原文逐字，不翻譯、不轉繁簡"))
+        var legacy = job
+        legacy.language = nil
+        let legacySystem = try AIMemoryExtraction.input(unit: legacy.units[0], source: source, job: legacy, previous: []).request.messages[0].content
+        #expect(!legacySystem.contains("facts 的 text 用"))
+        let traditional = try plan(source)
+        #expect(job.analysisVersion != traditional.analysisVersion)
+    }
+
+    @Test func aJobSavedBeforeTheLanguageFieldStillLoads() throws {
+        let job = try plan(source(["蒙面人走過橋。"]))
+        var object = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(job)) as? [String: Any])
+        object["language"] = nil
+        let legacy = try JSONDecoder().decode(AIMemoryJob.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(legacy.language == nil)
+        #expect(legacy.id == job.id && legacy.analysisVersion == job.analysisVersion)
     }
 
     @Test func backgroundIsBoundedAndNeverReadsLaterRecords() throws {

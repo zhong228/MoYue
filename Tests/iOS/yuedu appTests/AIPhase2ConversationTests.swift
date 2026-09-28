@@ -110,6 +110,24 @@ struct AIPhase2ConversationTests {
         }
     }
 
+    /// The reported failure: every answer came in 繁體中文 — 本章已讀摘要 on a simplified
+    /// interface, a question typed in simplified characters.
+    @Test func answersFollowTheReadersLanguage() async throws {
+        let source = source(["柳青在桥边找到铜钥匙。"])
+        let typed = Provider([.answer()])
+        _ = try await run(context(source, "柳青找到什么？"), typed)
+        let asked = try #require(await typed.requests.last?.messages.first?.content)
+        #expect(asked.contains(AIAnswerLanguage.simplifiedChinese.answerRule))
+        #expect(!asked.contains("用繁體中文回答"))
+
+        var summary = context(source, AIReadingAction.chapterSummary.title)
+        summary.action = .chapterSummary
+        let preset = Provider([.answer()])
+        _ = try await run(summary, preset)
+        let summarised = try #require(await preset.requests.last?.messages.first?.content)
+        #expect(summarised.contains(AIAnswerLanguage.current.answerRule))
+    }
+
     @Test func shortCitationAliasesRestoreExactFragmentCoordinatesAndRejectInventedIDs() throws {
         let source = source(["柳青站在橋邊，沒有走進後文。"], offset: "柳青站在橋邊，".utf16.count)
         let context = context(source, "剛剛發生什麼？")

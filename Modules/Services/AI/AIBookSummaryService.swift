@@ -75,9 +75,10 @@ final class AIBookSummaryService: ObservableObject {
     func plan(source: AIBookContentAdapter) async throws -> AIBookSummaryPlan {
         let record = try await store.load(book: source.chunkBookID)
         records[source.chunkBookID] = record
+        let language = AIAnswerLanguage.current
         // Walks every read chapter's text; kept off the main actor for long books.
         return await Task.detached(priority: .userInitiated) {
-            AIBookSummaryPlanner.plan(source: source, record: record)
+            AIBookSummaryPlanner.plan(source: source, record: record, language: language)
         }.value
     }
 
@@ -157,13 +158,13 @@ final class AIBookSummaryService: ObservableObject {
                         windows = stride(from: 0, to: level.count, by: 2).map { Array(level[$0..<min($0 + 2, level.count)]) }
                     }
                     if windows.count == 1 {
-                        let raw = try await generate(AIBookSummaryPrompt.reduceRequest(scope: scope, heading: heading, items: windows[0]), feature: "bookSummaryReduce")
+                        let raw = try await generate(AIBookSummaryPrompt.reduceRequest(scope: scope, heading: heading, items: windows[0], language: plan.language), feature: "bookSummaryReduce")
                         return try AIBookSummaryPrompt.parseReduce(raw)
                     }
                     var next: [String] = []
                     for (index, window) in windows.enumerated() {
                         let part = heading + "（第 \(index + 1)/\(windows.count) 段）"
-                        let raw = try await generate(AIBookSummaryPrompt.reduceRequest(scope: scope, heading: part, items: window), feature: "bookSummaryReduce")
+                        let raw = try await generate(AIBookSummaryPrompt.reduceRequest(scope: scope, heading: part, items: window, language: plan.language), feature: "bookSummaryReduce")
                         next.append(try AIBookSummaryPrompt.parseReduce(raw))
                     }
                     level = next
@@ -174,7 +175,7 @@ final class AIBookSummaryService: ObservableObject {
             var pieces: [Int: [Int: String]] = [:]
             for batch in plan.batches {
                 try owned()
-                let request = try AIBookSummaryPrompt.digestRequest(batch: batch, source: source)
+                let request = try AIBookSummaryPrompt.digestRequest(batch: batch, source: source, language: plan.language)
                 let raw = try await generate(request, feature: "bookSummaryDigest")
                 let summaries = try AIBookSummaryPrompt.parseDigests(raw, batch: batch)
                 for part in batch.parts {
@@ -184,7 +185,7 @@ final class AIBookSummaryService: ObservableObject {
                           let end = plan.readEnds[part.order] else { continue }
                     let text = (0..<part.count).compactMap { pieces[part.order]?[$0] }.joined(separator: "\n")
                     record.digests[part.order] = AIChapterDigest(order: part.order, title: source.chunkSections[part.order].title,
-                        sourceDigest: digest, endUTF16: end, promptVersion: AIBookSummaryPlanner.promptVersion, text: text)
+                        sourceDigest: digest, endUTF16: end, promptVersion: AIBookSummaryPlanner.recipe(plan.language), text: text)
                     pieces[part.order] = nil
                 }
                 try await commit()
@@ -193,14 +194,14 @@ final class AIBookSummaryService: ObservableObject {
             // 2. Volumes whose digests changed.
             for volume in plan.readVolumes {
                 let items = AIBookSummaryPlanner.digestItems(volume: volume, through: plan.throughChapter, readEnds: plan.readEnds,
-                    record: record, manifest: source.manifest)
+                    record: record, manifest: source.manifest, language: plan.language)
                 guard !items.isEmpty else { continue }
-                let digest = AIBookSummaryPrompt.inputDigest(items)
+                let digest = AIBookSummaryPrompt.inputDigest(items, language: plan.language)
                 guard record.volumes[volume.id]?.inputDigest != digest else { continue }
                 let through = min(volume.chapters.upperBound, plan.throughChapter)
                 let heading = "卷：\(AIBookSummaryPlanner.title(of: volume))\n範圍：第 \(volume.chapters.lowerBound + 1)–\(through + 1) 章"
                 let text = try await reduce(scope: "這一卷（已讀部分）", heading: heading, items: items)
-                record.volumes[volume.id] = AISummaryText(text: text, inputDigest: digest, promptVersion: AIBookSummaryPlanner.promptVersion,
+                record.volumes[volume.id] = AISummaryText(text: text, inputDigest: digest, promptVersion: AIBookSummaryPlanner.recipe(plan.language),
                     throughChapter: through, model: model, createdAt: Date())
                 try await commit()
             }
@@ -209,11 +210,11 @@ final class AIBookSummaryService: ObservableObject {
             let volumeItems = plan.readVolumes.compactMap { volume in
                 record.volumes[volume.id].map { "【\(AIBookSummaryPlanner.title(of: volume))】\n\($0.text)" }
             }
-            let bookDigest = AIBookSummaryPrompt.inputDigest(volumeItems)
+            let bookDigest = AIBookSummaryPrompt.inputDigest(volumeItems, language: plan.language)
             if !volumeItems.isEmpty, record.book?.inputDigest != bookDigest {
                 let heading = "範圍：第 1–\(plan.throughChapter + 1) 章"
                 let text = try await reduce(scope: "全書（已讀部分）", heading: heading, items: volumeItems)
-                record.book = AISummaryText(text: text, inputDigest: bookDigest, promptVersion: AIBookSummaryPlanner.promptVersion,
+                record.book = AISummaryText(text: text, inputDigest: bookDigest, promptVersion: AIBookSummaryPlanner.recipe(plan.language),
                     throughChapter: plan.throughChapter, model: model, createdAt: Date())
                 try await commit()
             }

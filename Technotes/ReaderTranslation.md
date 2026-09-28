@@ -70,6 +70,14 @@ field; it is optional, so old saved positions decode unchanged.
 - A paragraph with no visible text of its own — a designed chapter title, drawn from its
   render plan over clear placeholders — is left as drawn, untranslated on screen.
 
+## Requests
+
+A batch is at most 2,000 source characters or 40 paragraphs (`AIChapterTranslation`) and goes
+out with `LLMGenerationRequest.defaultMaxTokens`. The translation and a thinking model's
+reasoning both count against that budget. Under the transport's old 1024-token default every
+batch came back `length` — 「AI 回覆被截斷」 in both modes — so a smaller budget needs a
+measured batch to justify it.
+
 ## Tests
 
 `ReaderTranslationLayoutTests` (splice, round trip, annotations, selections, page turning

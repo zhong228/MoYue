@@ -62,6 +62,10 @@ struct AIMemoryJob: Codable, Identifiable, Sendable {
     let provider: String
     let model: String
     let analysisVersion: String
+    /// What the facts are written in. `nil` for a job planned before they followed the reader's
+    /// language (character-memory.v1): it keeps the recipe it was confirmed with, and
+    /// 整理已讀人物 plans a new one.
+    var language: AIAnswerLanguage?
     var configurationDigest = ""
     var providerDisplayName = ""
     var budget: AIMemoryBudget

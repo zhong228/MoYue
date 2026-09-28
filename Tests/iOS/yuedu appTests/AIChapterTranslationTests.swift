@@ -38,6 +38,28 @@ struct AIChapterTranslationTests {
         #expect(request.messages[1].content == "{\"book\":\"Moby-Dick\",\"paragraphs\":[{\"id\":\"p1\",\"text\":\"Call me Ishmael.\"},{\"id\":\"p2\",\"text\":\"Some years ago.\"}]}")
     }
 
+    /// The reported failure: the request set no budget, so it went out with the transport's
+    /// 1024 tokens, which a full batch cannot fit — every batch, in 雙語對照 and 只看譯文 alike,
+    /// came back 「AI 回覆被截斷」.
+    @Test("a full batch goes out with room for its translation")
+    func fullBatchBudget() throws {
+        let text = Array(repeating: String(repeating: "字", count: 100), count: 30).joined(separator: "\n")
+        let batch = try #require(AIChapterTranslation.batches(ReaderTranslationText.paragraphs(in: text)).first)
+        #expect(batch.reduce(0) { $0 + $1.key.count } == AIChapterTranslation.batchCharacters)
+        let provider = OpenAICompatibleProvider(endpoint: URL(string: "https://fixture.invalid/v1/chat/completions")!,
+                                                apiKey: "fixture", defaultModel: "fixture")
+        let requests = [
+            try AIChapterTranslation.request(batch, bookTitle: nil, language: .english),
+            AIWordLookup.request(term: "渡口", context: "林青在渡口救下船夫。", bookTitle: nil, language: .english),
+            AIBookSummaryPrompt.reduceRequest(scope: "全書", heading: "範圍", items: ["摘要"], language: .english),
+        ]
+        for request in requests {
+            let wire = try provider.makeURLRequest(for: request, model: "fixture", stream: false)
+            let body = try #require(try JSONSerialization.jsonObject(with: wire.httpBody!) as? [String: Any])
+            #expect(body["max_tokens"] as? Int == AIQuestionBudget().maximumOutputTokens)
+        }
+    }
+
     @Test("every paragraph must come back exactly once, with text")
     func strictParsing() throws {
         let batch = ReaderTranslationText.paragraphs(in: "Call me Ishmael.\nSome years ago.")

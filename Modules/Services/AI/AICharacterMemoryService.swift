@@ -45,7 +45,7 @@ final class AICharacterMemoryService: ObservableObject {
     func prepare(source: AIBookContentAdapter, wholeBook: Bool, budget: AIMemoryBudget) throws -> AIMemoryJob {
         let (provider, digest, displayName) = try provider()
         var job = try AIMemoryPlanner.plan(source: source, boundary: source.boundary(wholeBook: wholeBook), provider: provider.identifier,
-            model: provider.defaultModel, budget: budget, configurationDigest: digest)
+            model: provider.defaultModel, budget: budget, language: .current, configurationDigest: digest)
         job.providerDisplayName = displayName
         return job
     }

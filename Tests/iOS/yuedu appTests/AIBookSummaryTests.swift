@@ -55,7 +55,7 @@ struct AIBookSummaryTests {
     @Test("the plan covers read chapters with local text, up to the reading position")
     func planStopsAtTheReadingPosition() {
         let source = adapter(texts: ["第一章正文。", nil, "第三章正文，讀到一半。後面還沒讀。", "第四章還沒讀。"], readingAt: (2, 11))
-        let plan = AIBookSummaryPlanner.plan(source: source, record: AIBookSummaryRecord())
+        let plan = AIBookSummaryPlanner.plan(source: source, record: AIBookSummaryRecord(), language: .traditionalChinese)
         let parts = plan.batches.flatMap(\.parts)
         #expect(parts.map(\.order) == [0, 2])
         #expect(parts.last?.end == 11)
@@ -69,14 +69,41 @@ struct AIBookSummaryTests {
         let texts: [String?] = ["第一章正文。", "第二章正文，後面還有。"]
         let source = adapter(texts: texts, readingAt: (1, 5))
         var record = AIBookSummaryRecord()
-        for part in AIBookSummaryPlanner.plan(source: source, record: record).batches.flatMap(\.parts) {
+        for part in AIBookSummaryPlanner.plan(source: source, record: record, language: .traditionalChinese).batches.flatMap(\.parts) {
             record.digests[part.order] = AIChapterDigest(order: part.order, title: nil, sourceDigest: source.manifest.chapters[part.order].digest!,
-                endUTF16: part.end, promptVersion: AIBookSummaryPlanner.promptVersion, text: "摘要")
+                endUTF16: part.end, promptVersion: AIBookSummaryPlanner.recipe(.traditionalChinese), text: "摘要")
         }
-        #expect(AIBookSummaryPlanner.plan(source: source, record: record).batches.isEmpty)
+        #expect(AIBookSummaryPlanner.plan(source: source, record: record, language: .traditionalChinese).batches.isEmpty)
         let further = adapter(texts: texts, readingAt: (1, 9))
-        let next = AIBookSummaryPlanner.plan(source: further, record: record)
+        let next = AIBookSummaryPlanner.plan(source: further, record: record, language: .traditionalChinese)
         #expect(next.batches.flatMap(\.parts).map(\.order) == [1])
+    }
+
+    /// Digests are written in the reader's language. After a switch of interface language the
+    /// old ones are redone rather than mixed into a summary in the new language.
+    @Test("a digest in another language counts as missing")
+    func planRedoesDigestsInAnotherLanguage() {
+        let source = adapter(texts: ["第一章正文。", "第二章正文。"], readingAt: (1, 6))
+        var record = AIBookSummaryRecord()
+        for part in AIBookSummaryPlanner.plan(source: source, record: record, language: .traditionalChinese).batches.flatMap(\.parts) {
+            record.digests[part.order] = AIChapterDigest(order: part.order, title: nil, sourceDigest: source.manifest.chapters[part.order].digest!,
+                endUTF16: part.end, promptVersion: AIBookSummaryPlanner.recipe(.traditionalChinese), text: "摘要")
+        }
+        #expect(AIBookSummaryPlanner.plan(source: source, record: record, language: .traditionalChinese).batches.isEmpty)
+        let switched = AIBookSummaryPlanner.plan(source: source, record: record, language: .simplifiedChinese)
+        #expect(switched.batches.flatMap(\.parts).map(\.order) == [0, 1])
+        #expect(AIBookSummaryPrompt.inputDigest(["甲"], language: .traditionalChinese)
+            != AIBookSummaryPrompt.inputDigest(["甲"], language: .simplifiedChinese))
+    }
+
+    @Test("digests and summaries are written in the reader's language, not the book's")
+    func promptsNameTheReadersLanguage() {
+        #expect(AIBookSummaryPrompt.digestSystem(.simplifiedChinese).contains("用簡體中文寫"))
+        #expect(AIBookSummaryPrompt.reduceSystem(scope: "全書", language: .english).contains("全文用英文寫"))
+        for system in [AIBookSummaryPrompt.digestSystem(.english), AIBookSummaryPrompt.reduceSystem(scope: "全書", language: .english)] {
+            #expect(!system.contains("正文使用的語言"))
+            #expect(!system.contains("與摘要相同的語言"))
+        }
     }
 
     // MARK: - Parsing
@@ -145,7 +172,7 @@ struct AIBookSummaryTests {
         // Confirmed for the digests only: the volume and book summaries must wait for a new
         // confirmation instead of being charged anyway.
         let digestsOnly = AIBookSummaryPlan(bookID: full.bookID, sourceVersion: full.sourceVersion, boundary: full.boundary,
-            volumes: full.volumes, batches: full.batches, readEnds: full.readEnds, missingChapters: full.missingChapters,
+            language: full.language, volumes: full.volumes, batches: full.batches, readEnds: full.readEnds, missingChapters: full.missingChapters,
             throughChapter: full.throughChapter, volumeUpdates: [:], bookCalls: 0)
         try service.start(plan: digestsOnly, source: source)
         await service.wait(book: source.chunkBookID)
@@ -175,7 +202,7 @@ struct AIBookSummaryTests {
 
         func generate(_ request: LLMGenerationRequest, model: String?) async throws -> LLMRawResponse {
             calls += 1
-            if request.messages.first?.content == AIBookSummaryPrompt.digestSystem,
+            if request.messages.first?.content == AIBookSummaryPrompt.digestSystem(.current),
                let data = request.messages.last?.content.data(using: .utf8),
                let payload = try JSONSerialization.jsonObject(with: data) as? [String: [[String: String]]],
                let items = payload["items"] {

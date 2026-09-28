@@ -70,9 +70,10 @@ final class OpenAICompatibleProvider: LLMProviding, @unchecked Sendable {
         }
         let model: String
         let messages: [Message]
-        let temperature: Double
+        /// `nil` is left out of the body, and the service uses its own default.
+        let temperature: Double?
         let maxTokens: Int
-        let topP: Double
+        let topP: Double?
         let stream: Bool?
         struct Thinking: Encodable { let type: String }
         let thinking: Thinking?
@@ -116,14 +117,20 @@ final class OpenAICompatibleProvider: LLMProviding, @unchecked Sendable {
         // max_tokens as the caller-visible total budget (reasoning plus final content).
         let deepSeekThinking = endpoint.host?.lowercased() == "api.deepseek.com" &&
             ["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro", "deepseek-reasoner"].contains(model)
+        // Anthropic's compatibility endpoint passes temperature and top_p on to Claude, and
+        // Claude refuses them: the two together 400 on every Claude 4 model, any value 400s on
+        // Opus 4.7 and later, Opus 5 and Fable, anything but the default on Sonnet 5. So every
+        // request to the Anthropic preset failed, the connection test too. Claude gets neither
+        // and runs at its defaults; every other service is sent exactly what it was before.
+        let sendsSampling = endpoint.host?.lowercased() != "api.anthropic.com"
         let body = ChatRequestBody(
             model: model,
             messages: request.messages.map {
                 ChatRequestBody.Message(role: $0.role.rawValue, content: $0.content)
             },
-            temperature: request.temperature ?? 0.2,
-            maxTokens: request.maxTokens ?? 1024,
-            topP: request.topP ?? 1.0,
+            temperature: sendsSampling ? request.temperature ?? 0.2 : nil,
+            maxTokens: request.maxTokens ?? LLMGenerationRequest.defaultMaxTokens,
+            topP: sendsSampling ? request.topP ?? 1.0 : nil,
             stream: stream ? true : nil,
             thinking: deepSeekThinking ? .init(type: "enabled") : nil,
             reasoningEffort: deepSeekThinking ? (request.reasoningEffort?.rawValue ?? "high") : nil

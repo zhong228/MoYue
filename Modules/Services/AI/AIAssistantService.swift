@@ -163,7 +163,7 @@ final class AIAssistantService: ObservableObject {
             let provider = try resolveProvider()
             let index = try await index(forBook: bookID, adapter: adapter)
             let result = try await AIAgenticAssistant.run(
-                task: AICharacterProfile.task,
+                task: AICharacterProfile.task(language: .current),
                 userInput: name,
                 index: index,
                 provider: provider,

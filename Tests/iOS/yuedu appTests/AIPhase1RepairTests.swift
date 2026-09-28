@@ -55,7 +55,7 @@ struct AIPhase1RepairTests {
     @Test func bookTextHasNoSystemAuthority() throws {
         let chunks = AIPublicationChunker().chunks(from: adapter(["SECRET_FIXTURE_NOVEL"]))
         let evidence = chunks.map { AIQuestionEvidence(chunk: $0, parentChunkID: $0.id, kind: .initial) }
-        let selection = try AIQuestionPrompt.assemble(system: AIRAGPipeline.systemPrompt(for: [], selfAssessmentNonce: "test"),
+        let selection = try AIQuestionPrompt.assemble(system: AIRAGPipeline.systemPrompt(for: [], language: .traditionalChinese, selfAssessmentNonce: "test"),
             data: "question", history: [], evidence: evidence, budget: AIQuestionBudget(), requireHistory: false)
         let messages = selection.request.messages
         #expect(!messages.filter { $0.role == .system }.contains { $0.content.contains("SECRET_FIXTURE_NOVEL") })

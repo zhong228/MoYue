@@ -1,9 +1,16 @@
 import Foundation
 
 enum AIMemoryPlanner {
-    static let version = "character-memory.v1"
+    static let version = "character-memory.v2"
+
+    /// What a job's records are extracted under: the recipe and the language facts are
+    /// written in. A record in another language never matches, so switching the interface
+    /// language extracts again rather than mixing two languages on one card.
+    static func analysisVersion(_ language: AIAnswerLanguage) -> String { version + "." + language.rawValue }
+
     static func plan(source: AIBookContentAdapter, boundary: AIReadingBoundary, provider: String, model: String,
-                     budget: AIMemoryBudget = .init(), analysisVersion: String = version, configurationDigest: String = "") throws -> AIMemoryJob {
+                     budget: AIMemoryBudget = .init(), language: AIAnswerLanguage, configurationDigest: String = "") throws -> AIMemoryJob {
+        let analysisVersion = Self.analysisVersion(language)
         guard boundary.sourceVersion == source.contentFingerprint, budget.unitCharacters > 0,
               budget.unitCharacters <= 4_000, budget.auxiliaryCharacters >= 0, budget.auxiliaryCharacters <= 500,
               budget.maximumCalls > 0, budget.outputTokens >= 2_048, budget.automaticSplitDepth >= 0,
@@ -25,7 +32,8 @@ enum AIMemoryPlanner {
             }
         }
         return .init(id: UUID(), bookID: source.chunkBookID, sourceVersion: source.contentFingerprint, manifest: source.manifest,
-            boundary: boundary, provider: provider, model: model, analysisVersion: analysisVersion, configurationDigest: configurationDigest, budget: budget, units: units, createdAt: Date())
+            boundary: boundary, provider: provider, model: model, analysisVersion: analysisVersion, language: language,
+            configurationDigest: configurationDigest, budget: budget, units: units, createdAt: Date())
     }
 
     static func makeUnit(source: AIBookContentAdapter, spine: Int, start: Int, end: Int, budget: AIMemoryBudget,

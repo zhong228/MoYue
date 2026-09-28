@@ -54,6 +54,17 @@ struct AIQuestionContext: Sendable {
     /// The reader's highlights and notes on offer; `AIReaderAnnotations.select` decides which go in.
     var annotations = AIReaderAnnotationSet()
 
+    /// The language the answer is written in. A typed question or a custom prompt is the
+    /// reader's own words and sets it; a preset — 本章已讀摘要, 前情回顧, 解釋 — sends only the
+    /// interface's title for itself, so it answers in the interface language.
+    var answerLanguage: AIAnswerLanguage {
+        switch action {
+        case .question: return .of(readerText: question, otherwise: .current)
+        case .custom: return .of(readerText: customPrompt?.instruction ?? question, otherwise: .current)
+        default: return .current
+        }
+    }
+
     init(requestID: UUID = UUID(), bookID: UUID, conversationID: UUID = UUID(), question: String,
          source: AIBookContentAdapter, boundary: AIReadingBoundary, history: [AIChatMessage] = [],
          budget: AIQuestionBudget = .init()) {

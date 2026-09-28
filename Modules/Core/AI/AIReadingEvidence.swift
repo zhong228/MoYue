@@ -125,7 +125,7 @@ enum AIReadingEvidence {
         case .question: task = "回答讀者的問題，延續安全的對話背景。"
         case .explain, .lookup: task = "解釋選取文字在原文中的意思、指代及必要背景，先給簡潔說明。"
         case .translate:
-            let language = AIAnswerLanguage.current.promptName
+            let language = context.answerLanguage.promptName
             task = "把選取文字翻譯成\(language)，保留段落和語氣，必要譯註另外列出。原文已經是\(language)時：文言、古文譯成現代白話；否則說明它已是\(language)，再用白話解釋難懂的地方。"
         case .chapterSummary: task = "摘要目前章節在允許範圍內的內容；若提供的正文不完整，明確說明只涵蓋部分。"
         case .recap: task = "以最近已讀片段整理前情，幫助讀者接續閱讀，不聲稱涵蓋全部劇情。"
