@@ -59,6 +59,13 @@ Use `-quiet` to suppress build output, but pair it with `-resultBundlePath` — 
   `du` and disk-analyzer tools wildly overstate their size (28 clones reported as 903 GB on a
   460 GB disk) — they are APFS copy-on-write clones sharing blocks with the original, so
   deleting them frees almost nothing. Clean them up for CoreSimulator's health, not for space.
+- **Tests can compile against an old copy of the app.** `@testable import yuedu_app` reads
+  `BUILT_PRODUCTS_DIR/yuedu_app.swiftmodule`, a copy of the module the app emits under
+  Intermediates, and Xcode can skip refreshing that copy — seen with Xcode open on the project,
+  sharing this DerivedData: the tests reported "no member" for code written an hour after the
+  copy. `xctest.sh` removes the copy whenever its bytes differ from the emitted module. When an
+  `xcodebuild test` run you started by hand says a type or member you just wrote does not
+  exist, check that copy's timestamp before touching the code.
 
 All of these were learned the hard way. The first three recur every time the simulator lineup or the installed Xcodes change — `sim.sh doctor` checks for all three at once.
 

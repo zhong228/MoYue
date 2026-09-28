@@ -8,6 +8,8 @@ struct ReaderPageBarsPageContent: Equatable {
     var chapterPageCount: Int
     var totalProgress: Double
     var estimatedRemainingTime: TimeInterval?
+    /// One bookmark per page: this page has one, so it hangs the ribbon.
+    var isBookmarked = false
 }
 
 /// What a bar shows that is the same on every page.
@@ -102,7 +104,11 @@ final class ReaderPageBarsController {
             // with whatever the *current* page was and apply it to everything.
             isChapterOpeningPage: content.chapterPage == 1
         )
-        guard visibility.showsHeader || visibility.showsFooter else { return nil }
+        // The ribbon hangs whether or not the user shows any bars: with both off, a
+        // bookmarked page still gets bars — empty ones that carry only the ribbon.
+        guard visibility.showsHeader || visibility.showsFooter || content.isBookmarked else {
+            return nil
+        }
 
         let snapshot = ReaderOverlayContentSnapshot(
             bookTitle: environment.bookTitle,
@@ -125,7 +131,8 @@ final class ReaderPageBarsController {
                 ? model(for: .footer, snapshot: snapshot, environment: environment)
                 : nil,
             headerTopOffset: environment.headerTopOffset,
-            footerBottomOffset: environment.footerBottomOffset
+            footerBottomOffset: environment.footerBottomOffset,
+            isBookmarked: content.isBookmarked
         )
     }
 

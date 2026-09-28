@@ -33,16 +33,71 @@ struct ReaderPullDownBookmarkMotionTests {
     @Test("progress tracks downward travel and clamps to 0...1")
     func progressClamping() {
         #expect(ReaderPullDownBookmarkMotion.progress(forTranslationY: 0) == 0)
-        // Upward travel maps to zero progress, not negative.
         #expect(ReaderPullDownBookmarkMotion.progress(forTranslationY: -120) == 0)
         let half = ReaderPullDownBookmarkMotion.progress(
             forTranslationY: ReaderPullDownBookmarkMotion.fullProgressTranslation / 2
         )
         #expect(abs(half - 0.5) < 0.0001)
-        let beyond = ReaderPullDownBookmarkMotion.progress(
+        #expect(ReaderPullDownBookmarkMotion.progress(
             forTranslationY: ReaderPullDownBookmarkMotion.fullProgressTranslation * 3
-        )
-        #expect(beyond == 1)
+        ) == 1)
+    }
+
+    @Test("the page follows the finger, then stiffens like an overscroll, and never passes its limit")
+    func pageOffsetIsARubberBand() {
+        let offset = ReaderPullDownBookmarkMotion.pageOffset(forTranslationY:)
+        #expect(offset(0) == 0)
+        #expect(offset(-80) == 0)
+        // Near one to one at the start of the pull.
+        #expect(abs(offset(10) - 10) < 0.5)
+        // Monotonic, and each extra 50pt of finger buys less page than the last.
+        let samples = stride(from: 0, through: 600, by: 50).map { offset(CGFloat($0)) }
+        for (a, b) in zip(samples, samples.dropFirst()) { #expect(b > a) }
+        let gains = zip(samples, samples.dropFirst()).map { $1 - $0 }
+        for (a, b) in zip(gains, gains.dropFirst()) { #expect(b < a) }
+        // Any pull a hand can make stays short of the limit; an absurd one
+        // reaches it (exp underflows to 0) and still never goes past.
+        #expect(offset(900) < ReaderPullDownBookmarkMotion.maxPageOffset)
+        #expect(offset(10_000) <= ReaderPullDownBookmarkMotion.maxPageOffset)
+    }
+
+    @Test("at the commit point the page has come down far enough to show its hint")
+    func commitPointOpensARealGap() {
+        let commitTravel = ReaderPullDownBookmarkMotion.fullProgressTranslation
+            * ReaderPullDownBookmarkMotion.commitProgress
+        let offset = ReaderPullDownBookmarkMotion.pageOffset(forTranslationY: commitTravel)
+        let hintHeight: CGFloat = 18
+        // The hint rides with the page: where it sits on screen is the page's drop
+        // plus its resting place above the page's top edge.
+        let hintTop = offset + ReaderPullDownBookmarkMotion.hintCenterY(hintHeight: hintHeight)
+            - hintHeight / 2
+        // Clear of the Dynamic Island, whose bottom edge sits near 48pt.
+        #expect(hintTop > 48)
+    }
+
+    @Test("a bare page grows its ribbon and a bookmarked page draws it back in, both finishing at the commit point")
+    func ribbonRevealFollowsThePull() {
+        let commit = ReaderPullDownBookmarkMotion.commitProgress
+        let reveal = ReaderPullDownBookmarkMotion.ribbonReveal(progress:wasBookmarked:)
+        #expect(reveal(0, false) == 0)
+        #expect(abs(reveal(commit / 2, false) - 0.5) < 0.0001)
+        #expect(reveal(commit, false) == 1)
+        #expect(reveal(1, false) == 1)
+
+        #expect(reveal(0, true) == 1)
+        #expect(abs(reveal(commit / 2, true) - 0.5) < 0.0001)
+        #expect(reveal(commit, true) == 0)
+        #expect(reveal(1, true) == 0)
+    }
+
+    @Test("the hint waits just above the page's top edge, off screen at rest, and fades in early")
+    func hintPlacement() {
+        let y = ReaderPullDownBookmarkMotion.hintCenterY(hintHeight: 20)
+        #expect(y + 10 == -ReaderPullDownBookmarkMotion.hintGap)
+        #expect(y + 10 <= 0)
+        #expect(ReaderPullDownBookmarkMotion.hintAlpha(forProgress: 0) == 0)
+        #expect(ReaderPullDownBookmarkMotion.hintAlpha(forProgress: 0.2) == 0.5)
+        #expect(ReaderPullDownBookmarkMotion.hintAlpha(forProgress: 0.4) == 1)
     }
 
     @Test("release commits past the distance threshold")
@@ -53,6 +108,10 @@ struct ReaderPullDownBookmarkMotionTests {
         #expect(!ReaderPullDownBookmarkMotion.shouldCommit(
             progress: ReaderPullDownBookmarkMotion.commitProgress - 0.05, velocityY: 0
         ))
+        #expect(ReaderPullDownBookmarkMotion.phase(
+            forProgress: ReaderPullDownBookmarkMotion.commitProgress
+        ) == .armed)
+        #expect(ReaderPullDownBookmarkMotion.phase(forProgress: 0.3) == .pulling)
     }
 
     @Test("fast downward fling commits early, but a stray flick cannot")
@@ -67,68 +126,168 @@ struct ReaderPullDownBookmarkMotionTests {
         #expect(!ReaderPullDownBookmarkMotion.shouldCommit(progress: 0.4, velocityY: 200))
     }
 
-    @Test("pill drops from the top safe area as progress grows")
-    func pillDrop() {
-        let safeTop: CGFloat = 59
-        let rest = ReaderPullDownBookmarkMotion.pillCenterY(forProgress: 0, topSafeInset: safeTop)
-        let low = ReaderPullDownBookmarkMotion.pillCenterY(forProgress: 1, topSafeInset: safeTop)
-        #expect(rest == safeTop + ReaderPullDownBookmarkMotion.pillRestTopInset)
-        #expect(low - rest == ReaderPullDownBookmarkMotion.pillDrop)
+    @Test("the hint says add on a bare page and remove on a bookmarked one")
+    func hintWording() {
+        #expect(ReaderPullDownBookmarkMotion.hintKey(isBookmarked: false, phase: .pulling) == "下拉加入書籤")
+        #expect(ReaderPullDownBookmarkMotion.hintKey(isBookmarked: false, phase: .armed) == "放開加入書籤")
+        #expect(ReaderPullDownBookmarkMotion.hintKey(isBookmarked: true, phase: .pulling) == "下拉移除書籤")
+        #expect(ReaderPullDownBookmarkMotion.hintKey(isBookmarked: true, phase: .armed) == "放開移除書籤")
     }
 
-    @Test("pill grows from its minimum scale and fades in early")
-    func pillScaleAndAlpha() {
-        #expect(ReaderPullDownBookmarkMotion.pillScale(forProgress: 0) == ReaderPullDownBookmarkMotion.minPillScale)
-        #expect(ReaderPullDownBookmarkMotion.pillScale(forProgress: 1) == 1)
-        #expect(ReaderPullDownBookmarkMotion.pillAlpha(forProgress: 0) == 0)
-        #expect(ReaderPullDownBookmarkMotion.pillAlpha(forProgress: 0.4) == 1)
+    @Test("the confirmation says which way the bookmark went")
+    func toastWording() {
+        let added = ReaderBookmarkToast(isAdded: true)
+        let removed = ReaderBookmarkToast(isAdded: false)
+        #expect(added.titleKey == "已加入書籤")
+        #expect(removed.titleKey == "已移除書籤")
+        #expect(UIImage(systemName: added.systemImage) != nil)
+        #expect(UIImage(systemName: removed.systemImage) != nil)
+        // Two toasts in a row are two presentations, even saying the same thing.
+        #expect(ReaderBookmarkToast(isAdded: true).id != ReaderBookmarkToast(isAdded: true).id)
     }
 
-    @Test("icon and wording say add on a clean page and remove on a bookmarked one")
-    func iconAndWording() {
-        #expect(ReaderPullDownBookmarkMotion.iconName(isBookmarked: false, phase: .pulling) == "bookmark")
-        #expect(ReaderPullDownBookmarkMotion.iconName(isBookmarked: false, phase: .armed) == "bookmark.fill")
-        #expect(ReaderPullDownBookmarkMotion.iconName(isBookmarked: true, phase: .pulling) == "bookmark.fill")
-        #expect(ReaderPullDownBookmarkMotion.iconName(isBookmarked: true, phase: .armed) == "bookmark.slash.fill")
-
-        #expect(ReaderPullDownBookmarkMotion.titleKey(isBookmarked: false, phase: .pulling) == "下拉加入書籤")
-        #expect(ReaderPullDownBookmarkMotion.titleKey(isBookmarked: false, phase: .armed) == "放開加入書籤")
-        #expect(ReaderPullDownBookmarkMotion.titleKey(isBookmarked: false, phase: .done) == "已加入書籤")
-        #expect(ReaderPullDownBookmarkMotion.titleKey(isBookmarked: true, phase: .pulling) == "下拉移除書籤")
-        #expect(ReaderPullDownBookmarkMotion.titleKey(isBookmarked: true, phase: .armed) == "放開移除書籤")
-        #expect(ReaderPullDownBookmarkMotion.titleKey(isBookmarked: true, phase: .done) == "已移除書籤")
-    }
-
-    @Test("every icon name resolves to a real SF Symbol")
-    func iconsExist() {
-        for bookmarked in [true, false] {
-            for phase in [
-                ReaderPullDownBookmarkMotion.Phase.pulling, .armed, .done,
-            ] {
-                let name = ReaderPullDownBookmarkMotion.iconName(isBookmarked: bookmarked, phase: phase)
-                #expect(UIImage(systemName: name) != nil, "missing SF Symbol \(name)")
-            }
-        }
-    }
-
-    @Test("every wording key is localized in every language")
+    @Test("every hint and confirmation is localized in every language")
     func wordingIsLocalized() {
+        var keys: [String] = []
         for bookmarked in [true, false] {
-            for phase in [
-                ReaderPullDownBookmarkMotion.Phase.pulling, .armed, .done,
-            ] {
-                let key = ReaderPullDownBookmarkMotion.titleKey(isBookmarked: bookmarked, phase: phase)
-                for language in ["zh-Hant", "zh-Hans", "en", "ja", "ko"] {
-                    guard let path = Bundle.main.path(forResource: language, ofType: "lproj"),
-                          let bundle = Bundle(path: path) else {
-                        Issue.record("missing \(language).lproj")
-                        continue
-                    }
-                    let value = bundle.localizedString(forKey: key, value: "⚠️", table: nil)
-                    #expect(value != "⚠️", "\(language) is missing \(key)")
+            for phase in [ReaderPullDownBookmarkMotion.Phase.pulling, .armed] {
+                keys.append(ReaderPullDownBookmarkMotion.hintKey(isBookmarked: bookmarked, phase: phase))
+            }
+            keys.append(ReaderBookmarkToast(isAdded: bookmarked).titleKey)
+        }
+        for key in keys {
+            for language in ["zh-Hant", "zh-Hans", "en", "ja", "ko"] {
+                guard let path = Bundle.main.path(forResource: language, ofType: "lproj"),
+                      let bundle = Bundle(path: path) else {
+                    Issue.record("missing \(language).lproj")
+                    continue
                 }
+                let value = bundle.localizedString(forKey: key, value: "⚠️", table: nil)
+                #expect(value != "⚠️", "\(language) is missing \(key)")
             }
         }
+    }
+}
+
+@Suite("Page bookmark ribbon")
+@MainActor
+struct ReaderBookmarkRibbonTests {
+    @Test("the ribbon hangs from the page's top edge at its right")
+    func ribbonFrame() {
+        let page = CGRect(x: 0, y: 0, width: 440, height: 956)
+        let frame = ReaderBookmarkRibbon.frame(in: page)
+        #expect(frame.minY == page.minY)
+        #expect(frame.maxX == page.maxX - ReaderBookmarkRibbon.trailingInset)
+        #expect(frame.width == ReaderBookmarkRibbon.width)
+        #expect(frame.height == ReaderBookmarkRibbon.length)
+        // Follows the page, e.g. the right half of a spread.
+        let rightHalf = CGRect(x: 600, y: 0, width: 580, height: 820)
+        #expect(ReaderBookmarkRibbon.frame(in: rightHalf).maxX == rightHalf.maxX - ReaderBookmarkRibbon.trailingInset)
+    }
+
+    @Test("the strip is cut with a V at its free end")
+    func ribbonNotch() {
+        let rect = CGRect(x: 0, y: 0, width: 16, height: 40)
+        let path = ReaderBookmarkRibbon.path(in: rect)
+        #expect(path.contains(CGPoint(x: 2, y: 38)))
+        #expect(path.contains(CGPoint(x: 14, y: 38)))
+        // The notch's mouth is outside the ribbon.
+        #expect(!path.contains(CGPoint(x: 8, y: 39)))
+        #expect(path.contains(CGPoint(x: 8, y: 30)))
+    }
+
+    @Test("reveal slides the strip out of the page top and fades it in")
+    func revealMapping() {
+        #expect(ReaderBookmarkRibbon.retraction(forReveal: 0) == ReaderBookmarkRibbon.length)
+        #expect(ReaderBookmarkRibbon.retraction(forReveal: 1) == 0)
+        #expect(ReaderBookmarkRibbon.retraction(forReveal: 2) == 0)
+        #expect(ReaderBookmarkRibbon.alpha(forReveal: 0) == 0)
+        #expect(ReaderBookmarkRibbon.alpha(forReveal: 1) == 1)
+    }
+
+    @Test("a bookmarked page's bars draw the ribbon for snapshots, and a live page's do not")
+    func barsCarryTheRibbonForSnapshotsOnly() {
+        let bars = ReaderPageBars(
+            header: nil, footer: nil, headerTopOffset: 0, footerBottomOffset: 0, isBookmarked: true
+        )
+        #expect(!bars.isEmpty)
+        #expect(!bars.removingBookmarkRibbon().isBookmarked)
+
+        let page = CGRect(x: 0, y: 0, width: 200, height: 300)
+        let ribbon = ReaderBookmarkRibbon.frame(in: page)
+        let inside = CGPoint(x: ribbon.midX, y: ribbon.minY + 10)
+        #expect(Self.isPainted(bars, page: page, at: inside))
+        #expect(!Self.isPainted(bars.removingBookmarkRibbon(), page: page, at: inside))
+        // Nothing drawn outside the ribbon's own frame.
+        #expect(!Self.isPainted(bars, page: page, at: CGPoint(x: 20, y: 10)))
+    }
+
+    /// Draws `bars` onto white, in a top-left-origin context like the page's, and
+    /// reports whether anything landed on `point`.
+    private static func isPainted(_ bars: ReaderPageBars, page: CGRect, at point: CGPoint) -> Bool {
+        let width = Int(page.width), height = Int(page.height)
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let painted = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let ctx = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            // UIKit orientation: origin top-left, y down.
+            ctx.translateBy(x: 0, y: page.height)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.setFillColor(UIColor.white.cgColor)
+            ctx.fill(page)
+            bars.draw(in: page, context: ctx)
+            // Row 0 of the buffer is the top row of the page.
+            let offset = (Int(point.y) * width + Int(point.x)) * 4
+            let rgb = (buffer[offset], buffer[offset + 1], buffer[offset + 2])
+            return rgb != (255, 255, 255)
+        }
+        return painted
+    }
+
+    @Test("the live ribbon settles where the gesture left it, whatever the bars said meanwhile")
+    func interactiveRibbonOwnsItsState() {
+        let ribbon = ReaderBookmarkRibbonView(frame: CGRect(x: 0, y: 0, width: 16, height: 40))
+        ribbon.setBookmarked(false, animated: false)
+        ribbon.beginInteractive()
+        ribbon.setInteractiveReveal(0.7)
+        // A clock tick re-handing the old bars mid-pull is recorded, not shown.
+        ribbon.setBookmarked(false, animated: true)
+        ribbon.endInteractive(isBookmarked: true)
+        #expect(ribbon.isBookmarked)
+        // The store's bars catching up afterwards change nothing.
+        ribbon.setBookmarked(true, animated: true)
+        #expect(ribbon.isBookmarked)
+    }
+}
+
+@Suite("Page bars carry the ribbon")
+@MainActor
+struct ReaderPageBarsRibbonTests {
+    @Test("with both bars switched off, a bookmarked page still gets bars that hang its ribbon")
+    func ribbonSurvivesHiddenBars() {
+        let controller = ReaderPageBarsController()
+        let environment = ReaderPageBarsEnvironment(
+            layout: .default, headerEnabled: false, footerEnabled: false, readerTextColor: .black,
+            headerHorizontalPadding: 16, footerHorizontalPadding: 16,
+            headerTopOffset: 20, footerBottomOffset: 20, bookTitle: "西游记",
+            now: Date(timeIntervalSince1970: 0), batteryLevel: 0.7, isCharging: false,
+            readingDuration: 60, userInterfaceStyle: .light, displayScale: 1
+        )
+        var content = ReaderPageBarsPageContent(
+            chapterTitle: "第一回", chapterPage: 3, chapterPageCount: 10,
+            totalProgress: 0.1, estimatedRemainingTime: nil
+        )
+        controller.update(environment: environment, svgAssetStore: nil, pageContent: { _ in content })
+        #expect(controller.bars(forGlobalPage: 2) == nil)
+
+        content.isBookmarked = true
+        controller.update(environment: environment, svgAssetStore: nil, pageContent: { _ in content })
+        let bars = controller.bars(forGlobalPage: 2)
+        #expect(bars?.isBookmarked == true)
+        #expect(bars?.header == nil && bars?.footer == nil)
     }
 }
 

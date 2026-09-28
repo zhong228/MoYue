@@ -327,6 +327,25 @@ enum DSLayout {
     /// Diameter of 現代's cover button in the reader toolbar. The cover fills it
     /// as a circle, so this is the control size, not an inset thumbnail size.
     static let readerModernCoverButtonSize: CGFloat = 34
+    /// Width of 現代's book-card popover, from the width of the reader under it.
+    /// Popovers size to their content, so the card needs an explicit width or a long
+    /// book name stretches it; a *fixed* one was the other failure — 320pt on a 440pt
+    /// phone left a narrow slip hanging off the cover thumbnail. Insetting from the
+    /// reader's own width keeps the proportion on every device, and the cap stops an
+    /// iPad popover from growing into a band across the screen.
+    static func readerModernBookCardWidth(viewportWidth: CGFloat) -> CGFloat {
+        min(max(viewportWidth - DSSpacing.lg * 2, 280), readableNarrowWidth)
+    }
+    /// The cover inside that card, at the 3:4 the generated covers are drawn to.
+    static let readerModernBookCardCoverWidth: CGFloat = 72
+    static let readerModernBookCardCoverHeight: CGFloat = 96
+    /// One action cell in that card. Past the 44pt minimum because the cell carries a
+    /// symbol and a label that may wrap to two lines.
+    static let readerModernBookCardActionHeight: CGFloat = 66
+    /// The symbol inside one of those cells.
+    static let readerModernBookCardActionGlyphSize: CGFloat = 26
+    /// Action cells per row before the card's grid wraps to a second row.
+    static let readerModernBookCardActionColumns = 4
     /// Width of the quote bar beside the annotated excerpt in the note editor.
     static let readerNoteQuoteBarWidth: CGFloat = 3
     /// Minimum height of the paragraph-comment SVG editor.

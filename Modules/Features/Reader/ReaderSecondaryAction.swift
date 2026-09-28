@@ -45,6 +45,10 @@ struct ReaderSecondaryAction: Identifiable {
 enum ReaderModernBookCardRoute: Hashable {
     case secondary(ReaderSecondaryAction.ID)
     case bookDetail
+    /// 搜尋書籍. Not a `ReaderSecondaryAction`: it is offered by every interface from its
+    /// own chrome (經典's top bar, Apple Books' 選單), so it stays out of the list the
+    /// book-scoped actions share and out of 自定義's show/hide roster.
+    case search
 }
 
 /// What the reader quick panel asked to open after it closes.

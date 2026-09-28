@@ -87,6 +87,7 @@ extension ReaderView {
             isBookmarked: isCurrentPageBookmarked,
             overlayMaxWidth: overlayContentMaxWidth,
             onBack: { closeReader() },
+            onOpenSearch: { showReaderSearch = true },
             onToggleBookmark: {
                 _ = withAnimation(.easeInOut(duration: uiFeedbackDuration)) {
                     toggleCurrentPageBookmark()
@@ -323,6 +324,13 @@ extension ReaderView {
                 }
             },
             palette: modernPalette,
+            availableWidth: readerViewportSize.width,
+            // Same deferral as the actions above: `ReaderBookSearchView` is a sheet, and a
+            // sheet asked for while the popover is still dismissing never appears.
+            onOpenSearch: {
+                modernBookCardPresentation.select(.search)
+                showModernBookCard = false
+            },
             onOpenDetail: onlineBookDetail == nil ? nil : {
                 modernBookCardPresentation.select(.bookDetail)
                 showModernBookCard = false
@@ -338,6 +346,8 @@ extension ReaderView {
             openOnlineBookDetail()
         case .secondary(let id):
             readerSecondaryActions.first { $0.id == id }?.action()
+        case .search:
+            showReaderSearch = true
         }
     }
 

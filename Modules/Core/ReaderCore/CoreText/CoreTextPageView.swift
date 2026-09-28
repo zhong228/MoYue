@@ -138,6 +138,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         // 圓圈必須疊在所有標註層之上，否則會被同一段的螢光筆填色蓋掉。
         addSubview(noteMarkerOverlay)
         addSubview(interactionOverlay)
+        addSubview(bookmarkRibbonView)
 
         addGestureRecognizer(linkTapGesture)
         addGestureRecognizer(longPressGesture)
@@ -506,6 +507,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     /// 避免旋轉進橫屏雙頁跨頁後高亮/標註用舊 bounds 的位置而錯位。
     override func layoutSubviews() {
         super.layoutSubviews()
+        bookmarkRibbonView.frame = ReaderBookmarkRibbon.frame(in: bounds)
         guard bounds != lastOverlayBounds else { return }
         lastOverlayBounds = bounds
         updateAnnotationOverlay()
@@ -522,10 +524,28 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     /// whenever it moves, neither of which should invalidate a pagination.
     var pageBars: ReaderPageBars? {
         didSet {
-            guard pageBars != oldValue else { return }
+            bookmarkRibbonView.setBookmarked(pageBars?.isBookmarked ?? false, animated: true)
+            // The ribbon is a view on the live page, so a bookmark coming or going
+            // costs no redraw of the text.
+            guard pageBars?.removingBookmarkRibbon() != oldValue?.removingBookmarkRibbon() else { return }
             setNeedsDisplay()
             refreshBarAccessibilityContent()
         }
+    }
+
+    /// The live page's ribbon; snapshots draw theirs through `pageBars`.
+    private let bookmarkRibbonView = ReaderBookmarkRibbonView()
+
+    func beginInteractiveBookmarkRibbon() {
+        bookmarkRibbonView.beginInteractive()
+    }
+
+    func setInteractiveBookmarkRibbonReveal(_ reveal: CGFloat) {
+        bookmarkRibbonView.setInteractiveReveal(reveal)
+    }
+
+    func endInteractiveBookmarkRibbon(isBookmarked: Bool) {
+        bookmarkRibbonView.endInteractive(isBookmarked: isBookmarked)
     }
 
     override func draw(_ rect: CGRect) {
@@ -540,7 +560,8 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             pageIndex: localPageIndex,
             in: ctx,
             bounds: bounds,
-            bars: pageBars
+            // `bookmarkRibbonView` shows the ribbon here — see `ReaderBookmarkRibbon`.
+            bars: pageBars?.removingBookmarkRibbon()
         )
     }
 
@@ -2251,7 +2272,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
 }
 
 /// Single-page ViewController wrapping CoreTextPageView, for use with UIPageViewController.
-final class CoreTextPageViewController: UIViewController {
+final class CoreTextPageViewController: UIViewController, ReaderBookmarkRibbonHosting {
     private let pageView = CoreTextPageView()
     private(set) var globalPageIndex: Int = 0
     private(set) var coreTextReadingPosition: CoreTextReadingPosition?
@@ -2338,6 +2359,20 @@ final class CoreTextPageViewController: UIViewController {
         pendingPlaybackHighlight = highlight
         guard isViewLoaded else { return }
         pageView.setPlaybackHighlight(highlight)
+    }
+
+    // MARK: ReaderBookmarkRibbonHosting
+
+    func beginInteractiveBookmarkRibbon() {
+        pageView.beginInteractiveBookmarkRibbon()
+    }
+
+    func setInteractiveBookmarkRibbonReveal(_ reveal: CGFloat) {
+        pageView.setInteractiveBookmarkRibbonReveal(reveal)
+    }
+
+    func endInteractiveBookmarkRibbon(isBookmarked: Bool) {
+        pageView.endInteractiveBookmarkRibbon(isBookmarked: isBookmarked)
     }
 
     func setTextAnnotations(_ annotations: [CoreTextTextAnnotation]) {

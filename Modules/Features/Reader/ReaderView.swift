@@ -115,6 +115,9 @@ struct ReaderView: View {
     @State var showReaderTranslation = false
     @State var showTOC = false
     @State var showBookmarkList = false
+    /// The confirmation that pops up after a bookmark is added or removed.
+    @State var bookmarkToast: ReaderBookmarkToast?
+    @Environment(\.accessibilityReduceMotion) var accessibilityReduceMotion
     /// 目前正在編輯的段落筆記；nil 表示沒有開著編輯頁。
     @State var noteEditorRoute: ReaderNoteEditorRoute?
     /// 待確認的筆記刪除（alert 由這個值驅動）。
@@ -1292,15 +1295,11 @@ struct ReaderView: View {
     var currentPageBookmarkRange: ReaderPageBookmarkRange? {
         if let engine = epubRenderer.engine, usesCoreTextEPUB {
             let displayed = displayedCoreTextPosition(in: engine)
-            let start = CoreTextReadingPosition(
-                spineIndex: displayed.spineIndex, charOffset: displayed.charOffset)
-            // 下一頁的頁首就是這一頁的結尾。跨章的下一頁不算——那是下一章的第一頁。
-            // 章節還沒排版完時引擎答 nil，範圍就一路到章尾：沒有版面就沒有頁界可言，
-            // 這時整章視為一頁，好過瞎猜一個字數。
-            let next = engine.positionAfter(start)
-            let end = next?.spineIndex == start.spineIndex ? next?.charOffset : nil
-            return ReaderPageBookmarkRange(
-                spineIndex: start.spineIndex, startOffset: start.charOffset, endOffset: end)
+            return ReaderPageBookmarkRange.page(
+                startingAt: CoreTextReadingPosition(
+                    spineIndex: displayed.spineIndex, charOffset: displayed.charOffset),
+                in: engine
+            )
         }
         if !allPages.isEmpty {
             let index = min(currentPage, allPages.count - 1)
@@ -1321,18 +1320,25 @@ struct ReaderView: View {
         return store.isPageBookmarked(bookId: bookId, range: range)
     }
 
-    /// 加書籤／移除書籤：頂部書籤鈕、觸控區動作與下拉手勢共用這一條路徑。
-    /// - Returns: `true` 代表這次是加入書籤，`false` 代表移除或沒有可用的頁面範圍。
+    /// 加書籤／移除書籤：頂部書籤鈕、觸控區動作與下拉手勢共用這一條路徑，
+    /// 成功後的提示也只在這裡發。
+    /// - Returns: `true` 加入、`false` 移除；沒有可用的頁面範圍、什麼都沒做時是 `nil`。
     @discardableResult
-    func toggleCurrentPageBookmark() -> Bool {
-        guard let range = currentPageBookmarkRange else { return false }
-        return store.togglePageBookmark(
+    func toggleCurrentPageBookmark() -> Bool? {
+        guard let range = currentPageBookmarkRange else { return nil }
+        let added = store.togglePageBookmark(
             bookId: bookId,
             chapterIndex: range.spineIndex,
             chapterTitle: bookmarkChapterTitle(for: range.spineIndex),
             range: range,
             excerpt: currentPageBookmarkExcerpt
         )
+        let toast = ReaderBookmarkToast(isAdded: added)
+        withAnimation(accessibilityReduceMotion ? nil : DSAnimation.fast) {
+            bookmarkToast = toast
+        }
+        UIAccessibility.post(notification: .announcement, argument: localized(toast.titleKey))
+        return added
     }
 
     func bookmarkChapterTitle(for chapterIndex: Int) -> String {
@@ -1867,6 +1873,38 @@ struct ReaderView: View {
             NowPlayingMiniPlayer(placement: .reader, barsVisible: showBars)
                 .zIndex(50)
 
+            if let toast = bookmarkToast {
+                // A banner at the top, just under the Dynamic Island: the status bar
+                // is hidden while reading, so that band is free. With the chrome up it
+                // sits over the top bar's empty middle, clear of its buttons.
+                ReaderBookmarkToastView(
+                    toast: toast,
+                    colorScheme: readerTheme == .night ? .dark : .light
+                )
+                .padding(.top, DSSpacing.sm)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .allowsHitTesting(false)
+                .transition(
+                    accessibilityReduceMotion
+                        ? .opacity
+                        : .opacity.combined(with: .offset(y: -DSSpacing.lg))
+                )
+                .zIndex(70)
+                .task(id: toast.id) {
+                    do {
+                        try await Task.sleep(for: ReaderBookmarkToast.displayDuration)
+                    } catch {
+                        // Cancelled: a newer toast replaced this one, or the reader
+                        // closed. Either way the dismissal is no longer this one's.
+                        return
+                    }
+                    guard bookmarkToast?.id == toast.id else { return }
+                    withAnimation(accessibilityReduceMotion ? nil : DSAnimation.standard) {
+                        bookmarkToast = nil
+                    }
+                }
+            }
+
             if showTouchZoneEditor {
                 ReaderTouchZoneEditorView(
                     isRTL: epubRenderer.pageProgressionDirection == .rtl || effectiveWritingMode.isVertical,
@@ -1907,6 +1945,15 @@ struct ReaderView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .readerPageBarsNeedRedraw)) { _ in
             refreshPageBars()
+        }
+        // The ribbon rides in the bars, so a bookmark added or removed any way at
+        // all is a bars change for the page it sits on.
+        .onChange(of: pageBookmarkPositions) { _, _ in
+            refreshPageBars()
+        }
+        .sensoryFeedback(trigger: bookmarkToast?.id) { _, _ in
+            guard let toast = bookmarkToast else { return nil }
+            return toast.isAdded ? .success : .impact(weight: .light)
         }
         // iPad rotation fix: SwiftUI does NOT re-evaluate the reader's geometry on rotation, so the
         // `.background` GeometryReader / `onPreferenceChange` above never fires and the spread mode

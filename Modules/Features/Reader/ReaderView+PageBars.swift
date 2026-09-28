@@ -92,8 +92,24 @@ extension ReaderView {
                 elapsed: pace.elapsed,
                 contentUnitsRead: pace.contentUnitsRead,
                 remainingContentUnits: remainingUnits
-            )
+            ),
+            // Measured the same way the toggle measures the page it is on, so the
+            // ribbon and the top bar's bookmark button can never disagree.
+            isBookmarked: !ReaderPageBookmarkRange.page(
+                startingAt: CoreTextReadingPosition(
+                    spineIndex: position.spineIndex,
+                    charOffset: position.charOffset
+                ),
+                in: engine
+            ).pageBookmarks(in: book?.bookmarks ?? []).isEmpty
         )
+    }
+
+    /// Where every page bookmark sits. Changes whenever one is added or removed,
+    /// whichever way — top bar, touch zone, pull-down, the list, a sync — and that
+    /// is the moment the pages on screen have to hang or drop their ribbon.
+    var pageBookmarkPositions: [CoreTextReadingPosition] {
+        (book?.bookmarks ?? []).filter { $0.kind == .bookmark }.map(\.position)
     }
 
     /// Hands the engine a closure it can ask for any page's bars.

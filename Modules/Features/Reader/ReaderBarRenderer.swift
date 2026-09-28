@@ -362,8 +362,24 @@ struct ReaderPageBars: Equatable {
     var headerTopOffset: CGFloat
     /// Page bottom edge → footer band bottom edge.
     var footerBottomOffset: CGFloat
+    /// The page carries a bookmark: hang `ReaderBookmarkRibbon` at its top-right.
+    ///
+    /// Rides with the bars because it needs exactly what they get — drawn into the
+    /// page so every turn animation carries it, refreshed on the pages already on
+    /// screen without touching the pagination, dropped from baked snapshots when it
+    /// changes. A second per-page channel would have duplicated all three.
+    var isBookmarked = false
 
-    var isEmpty: Bool { header == nil && footer == nil }
+    var isEmpty: Bool { header == nil && footer == nil && !isBookmarked }
+
+    /// The bars a *live* page draws itself: the ribbon there is
+    /// `ReaderBookmarkRibbonView`, which animates, so drawing it here as well would
+    /// show it twice — and leave a still copy behind while the live one retracts.
+    func removingBookmarkRibbon() -> ReaderPageBars {
+        var bars = self
+        bars.isBookmarked = false
+        return bars
+    }
 
     static func extent(of model: ReaderBarRenderModel?) -> CGFloat {
         guard let model else { return 0 }
@@ -375,6 +391,9 @@ struct ReaderPageBars: Equatable {
 
     /// - Parameter bounds: the page, in UIKit coordinates (origin top-left).
     func draw(in bounds: CGRect, context ctx: CGContext) {
+        if isBookmarked {
+            ReaderBookmarkRibbon.draw(in: bounds, context: ctx)
+        }
         if let header {
             let extent = Self.extent(of: header)
             ReaderBarRenderer.draw(

@@ -36,6 +36,61 @@ DEST="${YUEDU_DEST:-$(bash scripts/sim.sh dest)}"
 echo "log:  $LOG"
 echo "dest: $DEST"
 
+# Drop a stale copy of the app's module before the tests compile against it.
+#
+# `@testable import yuedu_app` resolves to BUILT_PRODUCTS_DIR/yuedu_app.swiftmodule, a copy
+# the app target makes of the module it emits under Intermediates. The test target does wait
+# for that copy (its begin-compiling gate includes the app's modules-ready, which includes the
+# Copy) — but Xcode can judge the Copy up to date while the copy is older than the module.
+# Measured 2026-09-28 with Xcode open on this project, sharing this DerivedData: a copy written
+# at 12:26 by that other build survived three command-line builds that re-emitted the module
+# (13:34, 13:41, 13:44); the tests compiled against the 12:26 app and failed on code written
+# after it ("no member 'isBookmarked'"). Had the API not changed, they would have passed while
+# testing old code. Once a command-line build had written the copy itself, later edits were
+# copied every time.
+#
+# A copy whose bytes differ from the module the app last emitted is stale by definition, so it
+# goes, and Xcode has to copy again. An identical copy is left alone: replacing it would change
+# its timestamp and make the whole test target recompile for nothing.
+# Delete this block once, with Xcode open on the project and a stale copy put back by hand,
+# a run compiles the tests against the fresh module without it.
+drop_stale_app_module_copy() {
+  local settings
+  settings="$(mktemp)"
+  if ! xcodebuild -project Yuedu-Reader.xcodeproj -scheme Yuedu-Reader -destination "$DEST" \
+    -showBuildSettings -json > "$settings" 2>/dev/null; then
+    echo "!! could not read build settings; app module copy not checked" >&2
+    rm -f "$settings"
+    return 0
+  fi
+  python3 - "$settings" <<'PY'
+import filecmp, glob, json, os, shutil, sys
+
+try:
+    with open(sys.argv[1]) as f:
+        entries = json.load(f)
+except ValueError as error:
+    print(f"!! build settings unreadable ({error}); app module copy not checked", file=sys.stderr)
+    sys.exit(0)
+app = next((e["buildSettings"] for e in entries
+            if e.get("buildSettings", {}).get("PRODUCT_MODULE_NAME") == "yuedu_app"), None)
+if app is None:
+    print("!! no yuedu_app target in the scheme's settings; app module copy not checked", file=sys.stderr)
+    sys.exit(0)
+module = app["PRODUCT_MODULE_NAME"]
+copy_dir = os.path.join(app["BUILT_PRODUCTS_DIR"], module + ".swiftmodule")
+for copied in glob.glob(os.path.join(copy_dir, "*.swiftmodule")):
+    arch = os.path.basename(copied).split("-", 1)[0]
+    emitted = os.path.join(app["TARGET_TEMP_DIR"], "Objects-normal", arch, module + ".swiftmodule")
+    if os.path.exists(emitted) and not filecmp.cmp(copied, emitted, shallow=False):
+        print(f"stale app module copy ({arch}): removing {copy_dir}")
+        shutil.rmtree(copy_dir)
+        break
+PY
+  rm -f "$settings"
+}
+drop_stale_app_module_copy
+
 # `-collect-test-diagnostics never`: after any failing test, xcodebuild's default
 # (on-failure) runs `simctl diagnose ... --timeout=600` before it prints its verdict.
 # Measured 2026-09-21: Swift Testing finished at 20:37:44 and the run then sat in that

@@ -10,6 +10,8 @@ struct ReaderTopBar: View {
     let isBookmarked: Bool
     let overlayMaxWidth: CGFloat
     let onBack: () -> Void
+    /// 全書搜尋 — the same sheet Apple Books opens from its 選單.
+    let onOpenSearch: () -> Void
     let onToggleBookmark: () -> Void
     /// AI 助手 and AI 翻譯, the 三橫線 menu's first rows. A locked one (no Pro) is marked
     /// and its action opens the paywall.
@@ -55,7 +57,11 @@ struct ReaderTopBar: View {
                     .accessibilityIdentifier("reader_back_button")
                     .accessibilityLabel(localized("退出閱讀"))
 
-                    // Balances the menu on the trailing side, so a visible title stays centred.
+                    // Balances the trailing side, so a visible title stays centred: one
+                    // placeholder per trailing control past the first (搜尋 always, 選單 when shown).
+                    Color.clear
+                        .frame(width: 36, height: 36)
+
                     if showsMenu {
                         Color.clear
                             .frame(width: 36, height: 36)
@@ -70,6 +76,17 @@ struct ReaderTopBar: View {
                     } else {
                         Spacer(minLength: 0)
                     }
+
+                    Button {
+                        onOpenSearch()
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                            .font(DSFont.fixed(size: 17, weight: .medium))
+                            .foregroundColor(palette.topIcon)
+                            .frame(width: 36, height: 36)
+                            .accessibilityHidden(true)   // 名稱在按鈕上（見 §7.1）
+                    }
+                    .accessibilityLabel(localized("Search Book"))
 
                     Button {
                         onToggleBookmark()
@@ -202,6 +219,7 @@ struct ReaderTopBar: View {
             isBookmarked: false,
             overlayMaxWidth: 700,
             onBack: {},
+            onOpenSearch: {},
             onToggleBookmark: {},
             menuActions: [
                 ReaderSecondaryAction(id: .aiAssistant, icon: "sparkles", label: "AI 助手", isLocked: true, action: {}),

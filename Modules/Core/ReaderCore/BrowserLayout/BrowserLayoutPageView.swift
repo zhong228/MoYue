@@ -12,10 +12,17 @@ final class BrowserLayoutPageView: UIView, UIGestureRecognizerDelegate, @preconc
     var readingPositionForBars: CoreTextReadingPosition?
     var pageBars: ReaderPageBars? {
         didSet {
+            bookmarkRibbonView.setBookmarked(pageBars?.isBookmarked ?? false, animated: true)
+            // The ribbon is a view on the live page, so a bookmark coming or going
+            // costs no redraw of the page.
+            guard pageBars?.removingBookmarkRibbon() != oldValue?.removingBookmarkRibbon() else { return }
             setNeedsDisplay()
             refreshAccessibility()
         }
     }
+    /// The live page's ribbon; snapshots draw theirs through `pageBars` — see
+    /// `ReaderBookmarkRibbon`.
+    let bookmarkRibbonView = ReaderBookmarkRibbonView()
     var displayList: DisplayList = .empty
     var backgroundColorFill: UIColor = .white
     /// The reader's own background artwork, when the user has chosen one.
@@ -179,6 +186,7 @@ final class BrowserLayoutPageView: UIView, UIGestureRecognizerDelegate, @preconc
         // The overlays span the page; their paths are already page-local.
         pressedHighlightLayer.frame = bounds
         playbackHighlightLayer.frame = bounds
+        bookmarkRibbonView.frame = ReaderBookmarkRibbon.frame(in: bounds)
         textInteraction?.layout()
         guard let spec = debugSpec else { return }
         BrowserLayoutDeviceDiagnostic.log(
@@ -228,6 +236,7 @@ final class BrowserLayoutPageView: UIView, UIGestureRecognizerDelegate, @preconc
         playbackHighlightLayer.isHidden = true
         layer.addSublayer(playbackHighlightLayer)
         layer.addSublayer(pressedHighlightLayer)
+        addSubview(bookmarkRibbonView)
     }
 
     /// The page's tap recognizer only RECEIVES touches that hit a link (or an
@@ -305,7 +314,8 @@ final class BrowserLayoutPageView: UIView, UIGestureRecognizerDelegate, @preconc
             highlightColor.setFill()
             context.fill(highlight.intersection(bounds))
         }
-        pageBars?.draw(in: bounds, context: context)
+        // `bookmarkRibbonView` shows the ribbon on the live page.
+        pageBars?.removingBookmarkRibbon().draw(in: bounds, context: context)
         if let spec = debugSpec {
             BrowserLayoutDeviceDiagnostic.log(
                 .pageViewDraw(spine: spec.spine, generation: spec.generation),
@@ -786,7 +796,8 @@ final class BrowserLayoutPageView: UIView, UIGestureRecognizerDelegate, @preconc
 @MainActor
 final class BrowserLayoutPageViewController: UIViewController,
     PageIndexProviding,
-    CoreTextReadingPositionProviding {
+    CoreTextReadingPositionProviding,
+    ReaderBookmarkRibbonHosting {
     let globalPageIndex: Int
     let coreTextReadingPosition: CoreTextReadingPosition?
     let pageView: BrowserLayoutPageView
@@ -842,6 +853,20 @@ final class BrowserLayoutPageViewController: UIViewController,
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    // MARK: ReaderBookmarkRibbonHosting
+
+    func beginInteractiveBookmarkRibbon() {
+        pageView.bookmarkRibbonView.beginInteractive()
+    }
+
+    func setInteractiveBookmarkRibbonReveal(_ reveal: CGFloat) {
+        pageView.bookmarkRibbonView.setInteractiveReveal(reveal)
+    }
+
+    func endInteractiveBookmarkRibbon(isBookmarked: Bool) {
+        pageView.bookmarkRibbonView.endInteractive(isBookmarked: isBookmarked)
     }
 
     /// Shows a note as an arrow popover anchored to the marker that was tapped —
