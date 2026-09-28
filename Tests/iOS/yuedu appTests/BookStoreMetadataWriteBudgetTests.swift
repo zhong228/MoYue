@@ -113,6 +113,26 @@ struct BookStoreMetadataWriteBudgetTests {
         #expect(persistedBook.offlineDownloadTask?.completedChapterCount == 1)
     }
 
+    @Test("leaving the foreground writes a debounced shelf save at once")
+    @MainActor
+    func leavingForegroundFlushesDebouncedSave() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let metadataURL = directory.appendingPathComponent("books_meta.json")
+        let store = BookStore(metadataFileURL: metadataURL)
+        // Adding to the shelf waits out the debounce, so nothing is on disk yet.
+        let added = store.addOnlineBook(
+            name: "Just Added", author: "Author", sourceId: UUID(),
+            bookInfoURL: "https://example.com/book", chapters: []
+        )
+        #expect(!BookStore(metadataFileURL: metadataURL).books.contains { $0.id == added.id })
+
+        store.flushPendingMetadataSave()
+
+        #expect(BookStore(metadataFileURL: metadataURL).books.contains { $0.id == added.id })
+    }
+
     private func temporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("BookStoreMetadataWriteBudgetTests-\(UUID().uuidString)", isDirectory: true)

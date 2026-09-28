@@ -2180,6 +2180,14 @@ class BookStore: ObservableObject, BookProvider {
         persistMetadataIfChanged()
     }
 
+    /// Writes a debounced save now. The scene calls this on its way out of the
+    /// foreground: an app killed from the app switcher, or while suspended, never ran
+    /// the pending write, and a book added to the shelf just before was gone.
+    func flushPendingMetadataSave() {
+        guard saveWorkItem != nil else { return }
+        saveMetaImmediately()
+    }
+
     /// Reindexing changes the meaning of chapter numbers. Publish bookmark changes
     /// only after their full metadata snapshot is durably written, and reject edits
     /// made while the migration was measuring source/rendered correspondence.

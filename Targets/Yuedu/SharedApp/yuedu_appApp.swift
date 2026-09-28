@@ -210,6 +210,9 @@ struct yuedu_appApp: App {
                     case .active: DiagnosticLog.shared.noteBecameActive()
                     default: break
                     }
+                    // Inactive, not only background: the app switcher kills the app
+                    // while it is inactive, before a debounced shelf save has run.
+                    if newPhase != .active { bookStore.flushPendingMetadataSave() }
                     // Pick up sources shared while the app was backgrounded.
                     if newPhase == .active {
                         Task { await subscriptionStore.refreshAllEntitlements() }
