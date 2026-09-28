@@ -144,7 +144,8 @@ struct iPadReaderAdaptationTests {
         // SwiftUI can normalize the underlying UISlider range to 0...1.
         slider.value = slider.minimumValue + (slider.maximumValue - slider.minimumValue) * 10 / 77
         slider.sendActions(for: .valueChanged)
-        #expect(jumpedPage == 67) // The default RTL book reverses slider progress.
+        // Plain forward progress: a right-to-left book mirrors the track, not the value.
+        #expect(jumpedPage == 10)
 
     }
 
