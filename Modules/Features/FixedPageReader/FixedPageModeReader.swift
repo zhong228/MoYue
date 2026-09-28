@@ -34,6 +34,10 @@ protocol FixedPageReaderContainer: AnyObject {
     func readerRequestsNextChapter()
     func readerRequestsPreviousChapter()
     func readerAutoScrollStateChanged(_ isActive: Bool)
+    /// A swipe, drag or turning tap: the controls go away. True when they were up;
+    /// a tap then does only that and leaves the page where it is.
+    @discardableResult
+    func readerHideControlsForPageTurn() -> Bool
     func readerToggleControls()
     func readerToggleBookmark()
     func readerShowTableOfContents()

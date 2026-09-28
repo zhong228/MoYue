@@ -63,6 +63,7 @@ private final class AutoScrollContainer: FixedPageReaderContainer {
     func reader(didMoveToPage page: Int, total: Int) {}
     func readerRequestsNextChapter() {}
     func readerRequestsPreviousChapter() {}
+    func readerHideControlsForPageTurn() -> Bool { false }
     func readerToggleControls() {}
     func readerToggleBookmark() {}
     func readerShowTableOfContents() {}

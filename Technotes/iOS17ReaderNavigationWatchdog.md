@@ -42,7 +42,8 @@ the fixed-page reader moved its controls into the native toolbar it wrapped
 itself in a NavigationStack whenever it had no navigator, nesting a second
 stack inside that destination, and manga stopped opening from a book detail
 (reported 2026-09-28). `DetailReaderStackTests` pins both the pushed and the
-modal case.
+modal case; the two manga methods under Regression open a real manga from a
+detail.
 
 This is separate from the synchronous publication during bookshelf probe
 teardown, addressed by owner-scoped deferred navigation detachment.
@@ -57,7 +58,12 @@ Run these methods with `scripts/xctest.sh` on iOS 17:
 
 - `DetailReaderBackSwipeUITests.testDetailReaderLoadsAndReturns`
 - `DetailReaderBackSwipeUITests.testSearchDetailReaderLoadsAndReturns`
+- `DetailReaderBackSwipeUITests.testDetailMangaReaderLoadsAndReturns`
+- `DetailReaderBackSwipeUITests.testSearchDetailMangaReaderLoadsAndReturns`
 
-Each enters through the production UI, requires actual chapter text, swipes
-back to the same detail, and repeats entry. The tests use the repository's local
-StoreKit configuration to avoid Apple ID dialogs on a new simulator.
+Each enters through the production UI and repeats entry. The text book requires
+actual chapter text and swipes back to the same detail. The manga, from the same
+fixture's image source, requires a page image on screen with the controls away,
+raises them for the fixed-page reader's `Page 1 / 3`, and returns with the
+reader's Back button. The tests use the repository's local StoreKit
+configuration to avoid Apple ID dialogs on a new simulator.

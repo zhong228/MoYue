@@ -39,6 +39,7 @@ extension ReaderView {
                     )
                 },
                 onTap: { toggleReaderChrome() },
+                onUserScrollBegan: { hideReaderChromeForPageTurn() },
                 onProgressCommit: { position in
                     guard ReaderProgressSyncPolicy.canPublishIndexPosition(
                         isTXT: book?.resolvedPipelineKind == .txt, indexReady: txtIndexReady

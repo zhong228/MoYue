@@ -231,6 +231,7 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
     // MARK: Scroll → progress + multi-chapter infinite loading
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        container?.readerHideControlsForPageTurn()
         if isAutoScrolling { isPausedByTouch = true }
     }
 
@@ -285,6 +286,11 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
         let point = gesture.location(in: view)
         let third = view.bounds.height / 3
         let page = view.bounds.height * 0.85
+        // With the controls up, a turning tap only puts them away, as in every reader.
+        if point.y < third || point.y > 2 * third,
+           container?.readerHideControlsForPageTurn() == true {
+            return
+        }
         if point.y < third {
             let target = max(-collectionView.adjustedContentInset.top, collectionView.contentOffset.y - page)
             collectionView.setContentOffset(CGPoint(x: 0, y: target), animated: true)

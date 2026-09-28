@@ -26,6 +26,9 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
     var autoReadRevealHandle: ReaderAutoReadRevealHandle?
     let onPageChanged: (Int, CoreTextReadingPosition?) -> Void
     let onTapZone: (TouchAction) -> Void
+    /// A swipe or drag started turning the page. Never called for turns the app
+    /// issues (taps go through `onTapZone`, and TTS or 自動閱讀 are programmatic).
+    var onUserPageTurnBegan: () -> Void = {}
     var onSwipeUpExit: () -> Void = {}
     /// Read when the pull-down gesture begins, so the pill can say "加入" or
     /// "移除" before the finger has travelled far enough to commit.
@@ -356,6 +359,7 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             currentPage: $currentPage,
             onPageChanged: onPageChanged,
             onTapZone: onTapZone,
+            onUserPageTurnBegan: onUserPageTurnBegan,
             onSwipeUpExit: onSwipeUpExit,
             isCurrentPageBookmarked: isCurrentPageBookmarked,
             onPullDownBookmark: onPullDownBookmark
@@ -375,6 +379,7 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
         @Binding var currentPage: Int
         let onPageChanged: (Int, CoreTextReadingPosition?) -> Void
         let onTapZone: (TouchAction) -> Void
+        let onUserPageTurnBegan: () -> Void
         let onSwipeUpExit: () -> Void
         var isCurrentPageBookmarked: () -> Bool
         var onPullDownBookmark: () -> Void
@@ -722,6 +727,7 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
              currentPage: Binding<Int>,
              onPageChanged: @escaping (Int, CoreTextReadingPosition?) -> Void,
              onTapZone: @escaping (TouchAction) -> Void,
+             onUserPageTurnBegan: @escaping () -> Void = {},
              onSwipeUpExit: @escaping () -> Void = {},
              isCurrentPageBookmarked: @escaping () -> Bool = { false },
              onPullDownBookmark: @escaping () -> Void = {}) {
@@ -738,6 +744,7 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             self._currentPage = currentPage
             self.onPageChanged = onPageChanged
             self.onTapZone = onTapZone
+            self.onUserPageTurnBegan = onUserPageTurnBegan
             self.onSwipeUpExit = onSwipeUpExit
             self.isCurrentPageBookmarked = isCurrentPageBookmarked
             self.onPullDownBookmark = onPullDownBookmark
@@ -1636,6 +1643,8 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             willTransitionTo pendingViewControllers: [UIViewController]
         ) {
             stackWriteGate.beginGesture()
+            // The reader's swipe, not an animation of ours, puts the menu away.
+            if !stackWriteGate.isAnimatingTransition { onUserPageTurnBegan() }
             if let visible = pvc.viewControllers?.first {
                 reportStuckPlaceholderIfNeeded(showing: visible)
             }
@@ -1837,6 +1846,7 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 navigationDirection = navigationDirection == .forward ? .reverse : .forward
             }
 
+            onUserPageTurnBegan()
             performProgrammaticTransition(
                 on: pvc,
                 to: targetPage,
@@ -1903,6 +1913,7 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                         coverOverlayView.isHidden = false
                         setupIncomingView(for: target, snapshot: targetSnapshot, motion: motion, in: view)
                     }
+                    if coverTargetPage != nil { onUserPageTurnBegan() }
                 }
                 guard coverTargetPage != nil, let coverDirection else { return }
                 let motion = ReaderCoverPageMotion(direction: coverDirection, isRTL: isRTL)

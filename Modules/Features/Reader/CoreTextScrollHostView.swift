@@ -38,6 +38,7 @@ struct CoreTextScrollHostView: UIViewControllerRepresentable {
     var visibleRefreshCommit: ReaderVisibleRefreshCommit?
     var onVisibleRefreshFinished: (UInt64, ReaderVisibleRefreshOutcome) -> Void = { _, _ in }
     var onTap: () -> Void = {}
+    var onUserScrollBegan: () -> Void = {}
     var onProgressCommit: (CoreTextReadingPosition) -> Void = { _ in }
     var onInternalLinkTap: (String) -> Void = { _ in }
     var onChapterContentRequired: (Int) -> Void = { _ in }
@@ -51,6 +52,7 @@ struct CoreTextScrollHostView: UIViewControllerRepresentable {
             backgroundColor: backgroundColor
         )
         vc.onTap = onTap
+        vc.onUserScrollBegan = onUserScrollBegan
         vc.onProgressCommit = onProgressCommit
         vc.onInternalLinkTap = onInternalLinkTap
         engine.onChapterContentRequired = onChapterContentRequired
@@ -69,6 +71,7 @@ struct CoreTextScrollHostView: UIViewControllerRepresentable {
     func updateUIViewController(_ vc: UIViewController, context: Context) {
         guard let collectionVC = vc as? CoreTextCollectionScrollViewController else { return }
         collectionVC.onTap = onTap
+        collectionVC.onUserScrollBegan = onUserScrollBegan
         collectionVC.onProgressCommit = onProgressCommit
         collectionVC.onInternalLinkTap = onInternalLinkTap
         engine.onChapterContentRequired = onChapterContentRequired

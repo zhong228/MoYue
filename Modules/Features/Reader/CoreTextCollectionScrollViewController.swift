@@ -26,6 +26,8 @@ final class CoreTextCollectionScrollViewController: UIViewController, UIEditMenu
     var bottomMargin: CGFloat = 0
     var onProgressCommit: ((CoreTextReadingPosition) -> Void)?
     var onTap: (() -> Void)?
+    /// The reader's finger started scrolling (never an app-driven scroll).
+    var onUserScrollBegan: (() -> Void)?
     var onInternalLinkTap: ((String) -> Void)?
     private(set) var lastAppliedRefreshTransactionID: UInt64 = 0
 
@@ -2149,6 +2151,7 @@ extension CoreTextCollectionScrollViewController: UICollectionViewDataSource, UI
         // The reader now decides the position; a layout arriving later must
         // keep what is on screen instead of returning to the restore target.
         restoreAwaitingLayout = nil
+        onUserScrollBegan?()
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {

@@ -76,9 +76,6 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
         super.viewDidLoad()
         view.backgroundColor = .black
 
-        state.fixedPageReaderConfiguration = fixedPageReaderConfiguration
-        state.chapterListItems = FixedPageChapterListItem.items(from: chapters)
-        state.currentChapterIndex = chapterIndex
         state.onJumpToPage = { [weak self] page in self?.reader?.goToPage(page, animated: false) }
         state.onSelectChapter = { [weak self] index in self?.selectTableOfContentsEntry(at: index) }
         state.onSetConfiguration = { [weak self] configuration in self?.changeConfiguration(configuration) }
@@ -93,7 +90,17 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
 
         installReader()
         if isSingleChapterDocumentBook { chapterIndex = 0 }
-        loadChapter(at: chapterIndex, startPage: restoredStartPage)
+        // SwiftUI loads this view while it builds FixedPageReaderView, which observes
+        // `state`: writing it here is publishing from within that view update. The
+        // book's first state goes in on the next main-queue turn, once the update is
+        // over — the same deferral CoreTextScrollHostView gives its refresh ack.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.state.fixedPageReaderConfiguration = self.fixedPageReaderConfiguration
+            self.state.chapterListItems = FixedPageChapterListItem.items(from: self.chapters)
+            self.state.currentChapterIndex = self.chapterIndex
+            self.loadChapter(at: self.chapterIndex, startPage: self.restoredStartPage)
+        }
     }
 
     /// Fixed-layout EPUB used to load one page per chapter, so its saved positions
@@ -406,6 +413,14 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
     func readerRequestsNextChapter() { loadNextChapter() }
     func readerRequestsPreviousChapter() { loadPreviousChapter() }
     func readerToggleControls() { state.showControls.toggle() }
+    @discardableResult
+    func readerHideControlsForPageTurn() -> Bool {
+        // Turning the page puts the controls away, as in every reader. Under
+        // VoiceOver they stay: nothing else here can be focused (FixedPageReaderState).
+        guard state.showControls, !UIAccessibility.isVoiceOverRunning else { return false }
+        state.showControls = false
+        return true
+    }
     func readerToggleBookmark() {
         guard chapters.indices.contains(chapterIndex) else { return }
         let page = reader?.currentPageIndex() ?? 0

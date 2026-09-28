@@ -784,6 +784,14 @@ struct ReaderView: View {
         withAnimation(.easeInOut(duration: 0.2)) { showBars.toggle() }
     }
 
+    /// Starting to turn the page — a swipe, a drag, a scroll — puts the menu away, in
+    /// every reader and mode. A tap on a turning zone with the menu up does only this
+    /// (`handleTouchAction`).
+    func hideReaderChromeForPageTurn() {
+        guard showBars else { return }
+        withAnimation(.easeInOut(duration: uiFeedbackDuration)) { showBars = false }
+    }
+
     var currentChapterOverlayState: ReaderChapterOverlayState {
         guard book?.onlineChapters?.isEmpty == false else { return .hidden }
         return ReaderChapterPresentation.overlayState(
@@ -1674,6 +1682,7 @@ struct ReaderView: View {
                         currentPage = newPage
                     },
                     onTapZone: handleTouchAction,
+                    onUserPageTurnBegan: { hideReaderChromeForPageTurn() },
                     onSwipeUpExit: { closeReader() },
                     isCurrentPageBookmarked: { isCurrentPageBookmarked },
                     onPullDownBookmark: { toggleCurrentPageBookmark() },
@@ -1728,6 +1737,7 @@ struct ReaderView: View {
                         scheduleCoreTextPageChanged(newPage, engine: ctEngine, visiblePosition: visiblePosition)
                     },
                     onTapZone: handleTouchAction,
+                    onUserPageTurnBegan: { hideReaderChromeForPageTurn() },
                     onSwipeUpExit: { closeReader() },
                     isCurrentPageBookmarked: { isCurrentPageBookmarked },
                     onPullDownBookmark: { toggleCurrentPageBookmark() },
@@ -2894,6 +2904,13 @@ struct ReaderView: View {
         // nothing else, whichever tap zone it landed in. Only the touch after that
         // means what the zone says.
         guard !consumeTapForAutoReadPanel() else { return }
+        // With the menu up, a tap on a page- or chapter-turn zone only puts the menu
+        // away, as in Apple Books and legado. A swipe still turns the page, and closes
+        // the menu as it starts (`hideReaderChromeForPageTurn`).
+        if showBars, action.readerCommand.turnsPage {
+            hideReaderChromeForPageTurn()
+            return
+        }
         switch action.readerCommand {
         case .none:
             return
@@ -2902,10 +2919,8 @@ struct ReaderView: View {
                 showBars.toggle()
             }
         case .previousPage:
-            guard !showBars else { return }
             goToPrevPage()
         case .nextPage:
-            guard !showBars else { return }
             goToNextPage()
         case .previousChapter:
             guard canGoPrevChapter else { return }

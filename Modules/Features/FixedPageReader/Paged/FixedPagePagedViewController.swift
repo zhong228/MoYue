@@ -242,6 +242,8 @@ final class FixedPagePagedViewController: UIViewController, FixedPageModeReader,
             ).action(at: point, in: view.bounds.size)
         }
 
+        // With the controls up, a turning tap only puts them away, as in every reader.
+        if action.readerCommand.turnsPage, container?.readerHideControlsForPageTurn() == true { return }
         switch action.readerCommand {
         case .none: break
         case .toggleMenu: container?.readerToggleControls()
@@ -313,6 +315,14 @@ final class FixedPagePagedViewController: UIViewController, FixedPageModeReader,
             ))
         }
         return makeViewController(forSpread: targetIndex)
+    }
+
+    func pageViewController(
+        _ pvc: UIPageViewController,
+        willTransitionTo pendingViewControllers: [UIViewController]
+    ) {
+        // UIKit calls this only for a swipe, never for setViewControllers.
+        container?.readerHideControlsForPageTurn()
     }
 
     func pageViewController(

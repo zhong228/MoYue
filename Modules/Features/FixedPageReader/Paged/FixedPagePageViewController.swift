@@ -135,6 +135,10 @@ final class FixedPagePageViewController: UIViewController {
                 self.baseImage = image
                 self.renderedWidthMultiple = 1
                 self.imageView.image = image
+                // UI tests find a page only once its image is on screen
+                // (DetailReaderBackSwipeUITests). VoiceOver never reads an
+                // identifier, and it leaves the image unfocusable as before.
+                self.imageView.accessibilityIdentifier = "fixed_page_image"
                 self.layoutImage()
                 self.onImageLoaded?(image)
                 self.analyzeLiveText(for: image)
@@ -204,6 +208,7 @@ final class FixedPagePageViewController: UIViewController {
         refineTask?.cancel()
         liveTextTask?.cancel()
         imageView.image = nil
+        imageView.accessibilityIdentifier = nil
         baseImage = nil
         renderedWidthMultiple = 1
         scrollView.resetZoom()

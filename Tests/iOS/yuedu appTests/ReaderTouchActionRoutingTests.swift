@@ -20,4 +20,12 @@ struct ReaderTouchActionRoutingTests {
             #expect(action.readerCommand == command)
         }
     }
+
+    @Test("only page and chapter turns put the reading menu away")
+    func turnsPage() {
+        let turns: Set<TouchAction> = [.prevPage, .nextPage, .previousChapter, .nextChapter]
+        for action in TouchAction.allCases {
+            #expect(action.readerCommand.turnsPage == turns.contains(action))
+        }
+    }
 }

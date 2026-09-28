@@ -17,7 +17,10 @@ final class FixedPageReaderState: ObservableObject {
     @Published var fixedPageReaderConfiguration: FixedPageReaderConfiguration = .recommendedDefault(for: .rtl)
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
-    @Published var showControls: Bool = true
+    /// The book opens on the page, as the flowing reader does. The pages are images
+    /// with no accessibility element, so under VoiceOver the controls are all there
+    /// is to focus: they come up with the book and stay up.
+    @Published var showControls: Bool = UIAccessibility.isVoiceOverRunning
     @Published var showChapterList: Bool = false
     @Published var isAutoScrolling: Bool = false
 
@@ -163,6 +166,12 @@ struct FixedPageReaderView: View {
         .navigationBarBackButtonHidden(true)
         .toolbarTitleDisplayMode(.inline)
         .toolbar(state.showControls ? .visible : .hidden, for: .navigationBar, .bottomBar)
+        // The page is black in either appearance, and light-mode bars put a black
+        // title and status bar on it. A visible bar background keeps the controls on
+        // a backdrop wherever a bar does not take the dark scheme (iOS 27's bottom
+        // bar does not, and iOS 17 draws its bars transparent over the page).
+        .toolbarBackground(.visible, for: .navigationBar, .bottomBar)
+        .toolbarColorScheme(.dark, for: .navigationBar, .bottomBar)
         .statusBarHidden(!state.showControls)
         // Same immersive rule as the flowing reader: the home indicator fades with
         // the controls and comes back with them.
@@ -206,6 +215,10 @@ struct FixedPageReaderView: View {
         }
         .onChange(of: state.showChapterList) { _, isPresented in
             if isPresented { state.onStopAutoScroll?() }
+        }
+        // VoiceOver turned on while the controls were away: they are its only way out.
+        .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.voiceOverStatusDidChangeNotification)) { _ in
+            if UIAccessibility.isVoiceOverRunning { state.showControls = true }
         }
         .sheet(isPresented: $state.showChapterList) {
             FixedPageChapterListView(state: state)

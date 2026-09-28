@@ -21,6 +21,15 @@ enum ReaderTouchCommand: Equatable {
     case nextChapter
     case toggleBookmark
     case tableOfContents
+
+    /// Turns the page or the chapter. Starting a turn puts the reading menu away,
+    /// in every reader.
+    var turnsPage: Bool {
+        switch self {
+        case .previousPage, .nextPage, .previousChapter, .nextChapter: return true
+        case .none, .toggleMenu, .toggleBookmark, .tableOfContents: return false
+        }
+    }
 }
 
 extension TouchAction {
