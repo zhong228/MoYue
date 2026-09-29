@@ -22,6 +22,7 @@ struct AudiobookReaderView: View {
     @State private var scrubbedChapter: Int?
     @State private var showChapterList = false
     @State private var showSleepTimer = false
+    @State private var showSkipCredits = false
     @State private var baseColor: Color = DSColor.coverGradients[0][0]
 
     var body: some View {
@@ -71,6 +72,10 @@ struct AudiobookReaderView: View {
         }
         .sheet(isPresented: $showSleepTimer) {
             AudiobookSleepTimerView(player: player)
+                .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showSkipCredits) {
+            AudiobookSkipCreditsView(player: player)
                 .presentationDetents([.medium])
         }
     }
@@ -268,6 +273,13 @@ struct AudiobookReaderView: View {
                 bottomItem(text: Self.rateLabel(player.playbackRate), systemImage: "speedometer")
             }
             Spacer()
+            // legado's play-mode button: each tap moves on to the next mode.
+            Button { cyclePlayMode() } label: {
+                bottomItem(text: player.playMode.localizedTitle, systemImage: player.playMode.systemImage)
+            }
+            .accessibilityLabel(localized("播放模式"))
+            .accessibilityValue(player.playMode.localizedTitle)
+            Spacer()
             Button { showChapterList = true } label: {
                 bottomItem(text: localized("目錄"), systemImage: "list.bullet")
             }
@@ -275,8 +287,39 @@ struct AudiobookReaderView: View {
             Button { showSleepTimer = true } label: {
                 bottomItem(text: sleepLabel, systemImage: "moon.zzz")
             }
+            Spacer()
+            Button { showSkipCredits = true } label: {
+                // Filled while this book skips credits: a cue that is not colour.
+                bottomItem(
+                    text: localized("片頭片尾"),
+                    systemImage: skipsCredits ? "forward.fill" : "forward"
+                )
+            }
+            .accessibilityLabel(localized("跳過片頭片尾"))
+            .accessibilityValue(skipCreditsValue)
         }
-        .padding(.horizontal, DSSpacing.xxl)
+        // Five items: the narrower inset of the transport row above keeps them on one line
+        // on a 375 pt screen.
+        .padding(.horizontal, DSSpacing.xl)
+    }
+
+    private func cyclePlayMode() {
+        player.cyclePlayMode()
+        // The button's value changes under VoiceOver's focus without being read out.
+        AccessibilityNotification.Announcement(player.playMode.localizedTitle).post()
+    }
+
+    private var skipsCredits: Bool {
+        player.openingCreditsSeconds > 0 || player.closingCreditsSeconds > 0
+    }
+
+    private var skipCreditsValue: String {
+        guard skipsCredits else { return localized("關閉") }
+        return String(
+            format: localized("片頭 %d 秒，片尾 %d 秒"),
+            player.openingCreditsSeconds,
+            player.closingCreditsSeconds
+        )
     }
 
     private func bottomItem(text: String, systemImage: String) -> some View {
@@ -287,7 +330,9 @@ struct AudiobookReaderView: View {
                 .font(DSFont.fixed(size: 11, weight: .medium))
         }
         .foregroundColor(.white.opacity(0.9))
-        .frame(minWidth: 56)
+        // Reader chrome keeps a 44 pt target (docs/design.md); icon and caption are shorter.
+        .frame(minWidth: 56, minHeight: 44)
+        .contentShape(Rectangle())
     }
 
     private var sleepLabel: String {
@@ -451,9 +496,112 @@ struct AudiobookSleepTimerView: View {
     }
 }
 
+// MARK: - Skip credits
+
+/// legado-E / legado-with-MD3 跳過片頭片尾: the seconds skipped at the start and cut at the
+/// end of every chapter of this book, 0–180 each, in whole seconds as legado has them.
+struct AudiobookSkipCreditsView: View {
+    @ObservedObject var player: AudiobookPlayer
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var openingSeconds: Double
+    @State private var closingSeconds: Double
+
+    private let range = Double(AudiobookPlayer.creditsSecondsRange.lowerBound)
+        ... Double(AudiobookPlayer.creditsSecondsRange.upperBound)
+
+    init(player: AudiobookPlayer) {
+        self.player = player
+        _openingSeconds = State(initialValue: Double(player.openingCreditsSeconds))
+        _closingSeconds = State(initialValue: Double(player.closingCreditsSeconds))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    SettingsSliderRow(
+                        title: localized("片頭"),
+                        systemImage: "text.line.first.and.arrowtriangle.forward",
+                        valueText: Self.secondsText(openingSeconds),
+                        value: $openingSeconds,
+                        range: range,
+                        step: 1
+                    )
+                    SettingsSliderRow(
+                        title: localized("片尾"),
+                        systemImage: "text.line.last.and.arrowtriangle.forward",
+                        valueText: Self.secondsText(closingSeconds),
+                        value: $closingSeconds,
+                        range: range,
+                        step: 1
+                    )
+                } footer: {
+                    Text(localized("只套用在這本書；片頭只在章節從頭播放時跳過。"))
+                        .dsSectionFooter()
+                }
+                .interfaceSectionSurface()
+            }
+            .softScrollEdges()
+            .themedAppSurface(for: .settings)
+            .navigationTitle(localized("跳過片頭片尾"))
+            .toolbarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel(localized("關閉"))
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        player.setSkipCredits(
+                            openingSeconds: Int(openingSeconds.rounded()),
+                            closingSeconds: Int(closingSeconds.rounded())
+                        )
+                        dismiss()
+                    } label: {
+                        Image(systemName: "checkmark")
+                    }
+                    .accessibilityLabel(localized("完成"))
+                }
+            }
+        }
+    }
+
+    private static func secondsText(_ seconds: Double) -> String {
+        String(format: localized("%d 秒"), Int(seconds.rounded()))
+    }
+}
+
+// MARK: - Play mode presentation
+
+private extension AudiobookPlayMode {
+    /// legado-with-MD3's names for the modes (`audio_play_mode_*`).
+    var localizedTitle: String {
+        switch self {
+        case .listEndStop: return localized("順序播放")
+        case .singleLoop: return localized("單曲循環")
+        case .random: return localized("隨機播放")
+        case .listLoop: return localized("列表循環")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .listEndStop: return "arrow.right.to.line"
+        case .singleLoop: return "repeat.1"
+        case .random: return "shuffle"
+        case .listLoop: return "repeat"
+        }
+    }
+}
+
 #if DEBUG
 #Preview {
     AudiobookReaderView(bookId: UUID())
         .environmentObject(BookStore())
+}
+
+#Preview("跳過片頭片尾") {
+    AudiobookSkipCreditsView(player: .shared)
 }
 #endif

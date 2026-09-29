@@ -128,6 +128,42 @@ struct AudiobookResourcePreloaderTests {
     }
 }
 
+// MARK: - Per-book settings storage
+
+@Suite("Audiobook settings storage")
+struct AudiobookSettingsStorageTests {
+
+    /// iCloud sync hashes every book and treats a changed hash as an edit made now. Had the
+    /// new settings been written into every book, the first sync after the update would have
+    /// let one device's copies overwrite newer progress from the others.
+    @Test("a book whose audiobook settings were never changed encodes as it did before them")
+    func untouchedBookEncodesWithoutTheSettings() throws {
+        var book = ReadingBook(title: "Untouched", contentFilename: "untouched.txt")
+        // Choosing the defaults is the same as never choosing.
+        book.audiobookPlayMode = .listEndStop
+        book.audiobookOpeningCreditsSeconds = 0
+        book.audiobookClosingCreditsSeconds = 0
+
+        let json = String(decoding: try JSONEncoder().encode(book), as: UTF8.self)
+        for key in ["audioPlayMode", "audioOpenCreditsSeconds", "audioCloseCreditsSeconds"] {
+            #expect(!json.contains(key), "\(key) was written")
+        }
+    }
+
+    @Test("changed audiobook settings survive encoding")
+    func changedSettingsRoundTrip() throws {
+        var book = ReadingBook(title: "Changed", contentFilename: "changed.txt")
+        book.audiobookPlayMode = .random
+        book.audiobookOpeningCreditsSeconds = 30
+        book.audiobookClosingCreditsSeconds = 15
+
+        let decoded = try JSONDecoder().decode(ReadingBook.self, from: JSONEncoder().encode(book))
+        #expect(decoded.audiobookPlayMode == .random)
+        #expect(decoded.audiobookOpeningCreditsSeconds == 30)
+        #expect(decoded.audiobookClosingCreditsSeconds == 15)
+    }
+}
+
 // MARK: - Play queue (real AVFoundation playback of short local files)
 
 @Suite("Audiobook chapter transitions", .serialized)
@@ -268,6 +304,275 @@ struct AudiobookChapterTransitionTests {
         try await waitUntil(timeout: 10) { player.chapterIndex == 1 && player.currentTime > 1.0 }
         #expect(player.chapterIndex == 1)
         #expect(!chapterIndices.contains(2))
+    }
+
+    // MARK: Play mode (legado `AudioPlay.next()`)
+
+    @Test("單曲循環 plays the chapter again when it ends")
+    func singleLoopReplaysTheChapter() async throws {
+        let (book, folderURL) = try makeBook("audiobook-single-loop", durations: [1.2, 1.2]) {
+            $0.audiobookPlayMode = .singleLoop
+        }
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+        let player = AudiobookPlayer.shared
+        defer { player.stop() }
+
+        player.startTransient(book: book, store: BookStore(metadataFileURL: tempMetadataURL()))
+        try await waitUntil(timeout: 10) { player.isPlaying && player.currentTime >= 0.8 }
+        var chapterIndices: [Int] = []
+        var observers: Set<AnyCancellable> = []
+        player.$chapterIndex.dropFirst().sink { chapterIndices.append($0) }.store(in: &observers)
+
+        // Past the end, back at the start of the same chapter.
+        try await waitUntil(timeout: 10) { player.isPlaying && player.currentTime > 0 && player.currentTime < 0.6 }
+        #expect(player.chapterIndex == 0)
+        #expect(chapterIndices.isEmpty)
+    }
+
+    @Test("下一章 in 單曲循環 starts the chapter over, as legado's next() does")
+    func nextInSingleLoopRestartsTheChapter() async throws {
+        let (book, folderURL) = try makeBook("audiobook-single-loop-next", durations: [4, 4]) {
+            $0.audiobookPlayMode = .singleLoop
+        }
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+        let player = AudiobookPlayer.shared
+        defer { player.stop() }
+
+        player.startTransient(book: book, store: BookStore(metadataFileURL: tempMetadataURL()))
+        try await waitUntil(timeout: 10) { player.isPlaying && player.currentTime >= 1.0 }
+
+        player.nextChapter()
+        #expect(player.chapterIndex == 0)
+        #expect(player.currentTime == 0)
+        #expect(player.isPlaying)
+    }
+
+    @Test("列表循環 goes from the last chapter to the first")
+    func listLoopWrapsToTheFirstChapter() async throws {
+        let (book, folderURL) = try makeBook("audiobook-list-loop", durations: [1.2, 1.2]) {
+            $0.audiobookPlayMode = .listLoop
+            $0.audioChapterIndex = 1
+        }
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+        let player = AudiobookPlayer.shared
+        defer { player.stop() }
+
+        player.startTransient(book: book, store: BookStore(metadataFileURL: tempMetadataURL()))
+        try await waitUntil(timeout: 10) { player.chapterIndex == 1 && player.isPlaying && player.duration > 0 }
+        try await waitUntil(timeout: 10) { player.chapterIndex == 0 && player.isPlaying && player.currentTime > 0 }
+    }
+
+    @Test("順序播放 stops after the last chapter")
+    func listEndStopStopsAtTheEnd() async throws {
+        let (book, folderURL) = try makeBook("audiobook-list-end", durations: [1.2, 1.2]) {
+            $0.audiobookPlayMode = .listEndStop
+            $0.audioChapterIndex = 1
+        }
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+        let player = AudiobookPlayer.shared
+        defer { player.stop() }
+
+        player.startTransient(book: book, store: BookStore(metadataFileURL: tempMetadataURL()))
+        try await waitUntil(timeout: 10) { player.chapterIndex == 1 && player.isPlaying && player.duration > 0 }
+        try await waitUntil(timeout: 10) { !player.isPlaying }
+        #expect(player.chapterIndex == 1)
+        #expect(!player.hasNextChapter)
+    }
+
+    // MARK: Skipping credits (legado-E / MD3)
+
+    /// The first chapter is loaded, the second arrives through the play queue: both have to
+    /// start after the opening credits and end where the closing credits begin, and the cut
+    /// must still hand over to the queue rather than reload.
+    @Test("chapters start after the opening credits and end before the closing ones")
+    func creditsAreSkippedOnLoadedAndQueuedChapters() async throws {
+        let (book, folderURL) = try makeBook("audiobook-credits", durations: [4, 4, 4]) {
+            $0.audiobookOpeningCreditsSeconds = 1
+            $0.audiobookClosingCreditsSeconds = 1
+        }
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+        let player = AudiobookPlayer.shared
+        defer { player.stop() }
+
+        var loadingStates: [Bool] = []
+        var firstChapterTimes: [TimeInterval] = []
+        var observers: Set<AnyCancellable> = []
+        player.startTransient(book: book, store: BookStore(metadataFileURL: tempMetadataURL()))
+        player.$isLoading.dropFirst().sink { loadingStates.append($0) }.store(in: &observers)
+        player.$currentTime.sink { time in
+            if player.chapterIndex == 0 { firstChapterTimes.append(time) }
+        }.store(in: &observers)
+
+        try await waitUntil(timeout: 10) { player.isPlaying && !player.isLoading && player.duration > 0 }
+        let loadsBeforeTransition = loadingStates.filter { $0 }.count
+
+        // The queued chapter: its first playhead report comes after its opening credits.
+        try await waitUntil(timeout: 10) { player.chapterIndex == 1 && player.currentTime > 0 }
+        #expect(player.currentTime >= 0.95)
+
+        // The loaded chapter: once at the end of its opening credits, the playhead never
+        // reported the start of the chapter again, and it stopped where its closing credits
+        // begin (3 s of 4).
+        let afterOpeningCredits = firstChapterTimes.drop(while: { $0 < 0.95 })
+        #expect(!afterOpeningCredits.isEmpty, "chapter 0 playhead: \(firstChapterTimes)")
+        #expect(afterOpeningCredits.allSatisfy { $0 >= 0.95 }, "chapter 0 playhead: \(firstChapterTimes)")
+        #expect((firstChapterTimes.max() ?? 0) < 3.4, "chapter 0 playhead: \(firstChapterTimes)")
+        // The cut handed over to the play queue: nothing was loaded again.
+        #expect(loadingStates.filter { $0 }.count == loadsBeforeTransition)
+    }
+
+    /// legado ends a chapter its credits cover as soon as it starts — in 單曲循環, forever.
+    @Test("credits that would leave nothing of a chapter are not applied to it")
+    func creditsLongerThanTheChapterPlayItWhole() async throws {
+        let (book, folderURL) = try makeBook("audiobook-credits-too-long", durations: [3]) {
+            $0.audiobookPlayMode = .singleLoop
+            $0.audiobookOpeningCreditsSeconds = 2
+            $0.audiobookClosingCreditsSeconds = 2
+        }
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+        let player = AudiobookPlayer.shared
+        defer { player.stop() }
+
+        player.startTransient(book: book, store: BookStore(metadataFileURL: tempMetadataURL()))
+        // From the start, not after 2 s of opening credits…
+        try await waitUntil(timeout: 10) { player.isPlaying && player.duration > 0 && player.currentTime > 0 }
+        #expect(player.currentTime < 1.5)
+        // …and on past where 2 s of closing credits would have cut it.
+        try await waitUntil(timeout: 10) { player.currentTime >= 2.2 }
+    }
+
+    @Test("changing the credits moves the cut of the chapter already playing")
+    func settingCreditsAppliesToThePlayingChapter() async throws {
+        let (book, folderURL) = try makeBook("audiobook-credits-live", durations: [6, 6]) { _ in }
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+        let player = AudiobookPlayer.shared
+        defer { player.stop() }
+
+        player.startTransient(book: book, store: BookStore(metadataFileURL: tempMetadataURL()))
+        try await waitUntil(timeout: 10) { player.isPlaying && player.currentTime > 0 }
+        player.setSkipCredits(openingSeconds: 1, closingSeconds: 4)
+        #expect(player.openingCreditsSeconds == 1)
+        #expect(player.closingCreditsSeconds == 4)
+
+        // Cut at 2 s instead of 6 s; the next chapter starts after its opening credits.
+        try await waitUntil(timeout: 5) { player.chapterIndex == 1 && player.currentTime > 0 }
+        #expect(player.currentTime >= 0.95)
+    }
+
+    // MARK: Interruptions (legado audio focus / ACTION_AUDIO_BECOMING_NOISY)
+
+    @Test("an interruption pauses, and playback resumes when iOS says it may")
+    func interruptionPausesAndResumes() async throws {
+        let (book, folderURL) = try makeBook("audiobook-interruption", durations: [8]) { _ in }
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+        let player = AudiobookPlayer.shared
+        defer { player.stop() }
+
+        player.startTransient(book: book, store: BookStore(metadataFileURL: tempMetadataURL()))
+        try await waitUntil(timeout: 10) { player.isPlaying && player.currentTime > 0 }
+
+        postInterruption(.began)
+        try await waitUntil(timeout: 5) { !player.isPlaying }
+        postInterruption(.ended, options: .shouldResume)
+        try await waitUntil(timeout: 5) { player.isPlaying }
+    }
+
+    @Test("an interruption iOS does not hand back leaves playback paused")
+    func interruptionWithoutResumeStaysPaused() async throws {
+        let (book, folderURL) = try makeBook("audiobook-interruption-final", durations: [8]) { _ in }
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+        let player = AudiobookPlayer.shared
+        defer { player.stop() }
+
+        player.startTransient(book: book, store: BookStore(metadataFileURL: tempMetadataURL()))
+        try await waitUntil(timeout: 10) { player.isPlaying && player.currentTime > 0 }
+
+        postInterruption(.began)
+        try await waitUntil(timeout: 5) { !player.isPlaying }
+        postInterruption(.ended, options: [])
+        await settle()
+        #expect(!player.isPlaying)
+    }
+
+    @Test("an interruption does not resume what the listener had paused")
+    func interruptionDoesNotResumeAPausedBook() async throws {
+        let (book, folderURL) = try makeBook("audiobook-interruption-paused", durations: [8]) { _ in }
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+        let player = AudiobookPlayer.shared
+        defer { player.stop() }
+
+        player.startTransient(book: book, store: BookStore(metadataFileURL: tempMetadataURL()))
+        try await waitUntil(timeout: 10) { player.isPlaying && player.currentTime > 0 }
+        player.pause()
+
+        postInterruption(.began)
+        postInterruption(.ended, options: .shouldResume)
+        await settle()
+        #expect(!player.isPlaying)
+    }
+
+    @Test("losing the headphones pauses playback")
+    func headphonesUnpluggedPauses() async throws {
+        let (book, folderURL) = try makeBook("audiobook-route", durations: [8]) { _ in }
+        defer { try? FileManager.default.removeItem(at: folderURL) }
+        let player = AudiobookPlayer.shared
+        defer { player.stop() }
+
+        player.startTransient(book: book, store: BookStore(metadataFileURL: tempMetadataURL()))
+        try await waitUntil(timeout: 10) { player.isPlaying && player.currentTime > 0 }
+
+        NotificationCenter.default.post(
+            name: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance(),
+            userInfo: [AVAudioSessionRouteChangeReasonKey: AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue]
+        )
+        try await waitUntil(timeout: 5) { !player.isPlaying }
+    }
+
+    // MARK: Helpers
+
+    /// A local audiobook of silent WAV chapters, one file per chapter.
+    private func makeBook(
+        _ name: String,
+        durations: [Double],
+        configure: (inout ReadingBook) -> Void
+    ) throws -> (ReadingBook, URL) {
+        let folder = "\(name)-\(UUID().uuidString)"
+        let folderURL = documentsURL(for: folder)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        var refs: [OnlineChapterRef] = []
+        for (index, seconds) in durations.enumerated() {
+            let relative = "\(folder)/\(index).wav"
+            try silenceWAV(seconds: seconds).write(to: documentsURL(for: relative))
+            refs.append(OnlineChapterRef(index: index, title: "Chapter \(index)", url: relative))
+        }
+        var book = ReadingBook(title: name, source: "local_audio", contentFilename: folder)
+        book.contentPipelineKind = .audio
+        book.onlineChapters = refs
+        configure(&book)
+        return (book, folderURL)
+    }
+
+    private func postInterruption(
+        _ type: AVAudioSession.InterruptionType,
+        options: AVAudioSession.InterruptionOptions? = nil
+    ) {
+        var userInfo: [AnyHashable: Any] = [AVAudioSessionInterruptionTypeKey: type.rawValue]
+        if let options { userInfo[AVAudioSessionInterruptionOptionKey] = options.rawValue }
+        NotificationCenter.default.post(
+            name: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            userInfo: userInfo
+        )
+    }
+
+    /// Lets the player's notification handlers run before asserting that something did not
+    /// happen: they are delivered through the main queue, which runs them before a block
+    /// enqueued after the notification was posted.
+    private func settle() async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { done.resume() }
+        }
     }
 
     private func waitUntil(timeout: TimeInterval, _ condition: () -> Bool) async throws {

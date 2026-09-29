@@ -823,6 +823,26 @@ class BookStore: ObservableObject, BookProvider {
         }
     }
 
+    /// The audiobook player's play mode for this book (legado-E / MD3 `Book.setPlayMode`).
+    func setAudioPlayMode(bookId: UUID, mode: AudiobookPlayMode) {
+        guard let idx = records.firstIndex(where: { $0.id == bookId }),
+              records[idx].audiobookPlayMode != mode else { return }
+        records[idx].audiobookPlayMode = mode
+        saveMeta()
+    }
+
+    /// Seconds of opening and closing credits the audiobook player skips in every chapter
+    /// of this book (legado-E / MD3 `Book.setOpenCredits` / `setCloseCredits`).
+    func setAudioSkipCredits(bookId: UUID, openSeconds: Int, closeSeconds: Int) {
+        guard let idx = records.firstIndex(where: { $0.id == bookId }),
+              records[idx].audiobookOpeningCreditsSeconds != openSeconds
+                || records[idx].audiobookClosingCreditsSeconds != closeSeconds
+        else { return }
+        records[idx].audiobookOpeningCreditsSeconds = openSeconds
+        records[idx].audiobookClosingCreditsSeconds = closeSeconds
+        saveMeta()
+    }
+
     func updateLastOpened(bookId: UUID) {
         guard let idx = records.firstIndex(where: { $0.id == bookId }) else { return }
         records[idx].lastOpenedDate = Date()

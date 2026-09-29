@@ -13,6 +13,31 @@ enum AudiobookSleepOption: Equatable {
     case endOfChapter
 }
 
+// MARK: - Audiobook play mode
+
+/// legado's `AudioPlay.PlayMode`, in legado's order: the play-mode button moves on to the
+/// next case. The raw values are legado's ordinals, which legado-E and legado-with-MD3 save
+/// per book (`book.setPlayMode(playMode.ordinal)`).
+enum AudiobookPlayMode: Int, Codable, CaseIterable {
+    /// `LIST_END_STOP`: on through the book, and stop after the last chapter.
+    case listEndStop = 0
+    /// `SINGLE_LOOP`: the same chapter again.
+    case singleLoop = 1
+    /// `RANDOM`: any chapter of the book, drawn when the chapter ends.
+    case random = 2
+    /// `LIST_LOOP`: on through the book, then from the first chapter again.
+    case listLoop = 3
+
+    var next: AudiobookPlayMode {
+        switch self {
+        case .listEndStop: return .singleLoop
+        case .singleLoop: return .random
+        case .random: return .listLoop
+        case .listLoop: return .listEndStop
+        }
+    }
+}
+
 // MARK: - Audiobook playback coordinator
 //
 // The single brain for audiobook (有聲書) playback. It is a long-lived singleton
@@ -47,6 +72,12 @@ enum AudiobookSleepOption: Equatable {
 // A link that fails to play is resolved again once, silently, before an error is
 // shown (legado `AudioPlaySession.onPlayerError`): most links are time-signed, and a
 // look-ahead makes a link older by the time it plays.
+//
+// Where a chapter end leads is legado's play mode (`AudioPlay.next()`), and each chapter
+// can skip opening and closing credits (legado-E / MD3): both are kept per book. A call,
+// Siri or another app taking the audio pauses playback and resumes it when iOS hands it
+// back, and losing the headphones pauses it (legado's audio focus and
+// `ACTION_AUDIO_BECOMING_NOISY`).
 
 @MainActor
 final class AudiobookPlayer: NSObject, ObservableObject {
@@ -67,6 +98,12 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         /// Start playing once the item is ready. Items the queue advances to inherit the
         /// player's rate instead.
         let autoPlay: Bool
+        /// A queued chapter is positioned after its opening credits once it is ready, before
+        /// the queue reaches it.
+        var isPositionedAtStart = false
+        /// A seek on this item has not landed yet (`seekItem`).
+        var isSeeking = false
+        var seekGeneration = 0
         var observers: Set<AnyCancellable> = []
 
         init(chapterIndex: Int, audio: ChapterAudio, item: AVPlayerItem, autoPlay: Bool) {
@@ -93,6 +130,12 @@ final class AudiobookPlayer: NSObject, ObservableObject {
     @Published var error: String? = nil
     @Published var playbackRate: Float = 1.0
     @Published var sleepOption: AudiobookSleepOption = .off
+    @Published private(set) var playMode: AudiobookPlayMode = .listEndStop
+    @Published private(set) var openingCreditsSeconds: Int = 0
+    @Published private(set) var closingCreditsSeconds: Int = 0
+
+    /// legado-E / MD3 offer 0–180 seconds for each of the two credits.
+    nonisolated static let creditsSecondsRange = 0...180
 
     // MARK: - Context
 
@@ -139,10 +182,16 @@ final class AudiobookPlayer: NSObject, ObservableObject {
 
     private var remoteCommandsConfigured = false
 
+    // MARK: - Audio session interruptions
+
+    private var audioSessionObservers: Set<AnyCancellable> = []
+    private var shouldResumeAfterInterruption = false
+
     private override init() {
         self.onlineChapterAudioProvider = OnlineChapterAudioProvider()
         self.localChapterAudioProvider = LocalChapterAudioProvider()
         super.init()
+        observeAudioSession()
     }
 
     // MARK: - Public lifecycle
@@ -216,6 +265,9 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         let restoredIndex = min(max(0, book.audioChapterIndex), max(0, chapters.count - 1))
         chapterIndex = restoredIndex
         pendingResumeTime = max(0, book.audioTimeSeconds)
+        playMode = book.audiobookPlayMode
+        openingCreditsSeconds = Self.clampedCredits(book.audiobookOpeningCreditsSeconds)
+        closingCreditsSeconds = Self.clampedCredits(book.audiobookClosingCreditsSeconds)
 
         configureRemoteCommandsIfNeeded()
         activateAudioSession()
@@ -264,6 +316,8 @@ final class AudiobookPlayer: NSObject, ObservableObject {
     func play() {
         guard player != nil else { return }
         catchUpWithQueue()
+        // The listener has taken over; an interruption ending later no longer resumes.
+        shouldResumeAfterInterruption = false
         player?.rate = playbackRate
         isPlaying = true
         startSleepTimerIfNeeded()
@@ -272,6 +326,7 @@ final class AudiobookPlayer: NSObject, ObservableObject {
 
     func pause() {
         catchUpWithQueue()
+        shouldResumeAfterInterruption = false
         player?.pause()
         isPlaying = false
         endTransitionBackgroundTask(reason: "paused")
@@ -300,6 +355,9 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         duration = 0
         isPlaying = false
         isLoading = false
+        playMode = .listEndStop
+        openingCreditsSeconds = 0
+        closingCreditsSeconds = 0
         cancelSleepTimer()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         MPNowPlayingInfoCenter.default().playbackState = .stopped
@@ -363,10 +421,13 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         loadCurrentChapter(autoPlay: true)
     }
 
+    /// legado's `AudioPlay.next()`, which its next button, the notification's next and a
+    /// chapter end all call: the play mode decides where it goes — in 單曲循環 that is this
+    /// chapter again from its start, in legado's three versions alike.
     func nextChapter() {
         catchUpWithQueue()
-        guard chapterIndex + 1 < chapters.count else { return }
-        selectChapter(chapterIndex + 1)
+        guard let next = chapterIndexAfterCurrent() else { return }
+        moveOn(to: next)
     }
 
     func previousChapter() {
@@ -390,8 +451,181 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         loadCurrentChapter(autoPlay: true)
     }
 
-    var hasNextChapter: Bool { chapterIndex + 1 < chapters.count }
+    /// Whether 下一章 leads anywhere: past the last chapter, only 順序播放 stops.
+    var hasNextChapter: Bool {
+        playMode == .listEndStop ? chapterIndex + 1 < chapters.count : !chapters.isEmpty
+    }
     var hasPreviousChapter: Bool { chapterIndex - 1 >= 0 }
+
+    /// legado `next()`'s choice. `nil` past the last chapter in 順序播放.
+    private func chapterIndexAfterCurrent() -> Int? {
+        guard !chapters.isEmpty else { return nil }
+        switch playMode {
+        case .listEndStop:
+            return chapterIndex + 1 < chapters.count ? chapterIndex + 1 : nil
+        case .singleLoop:
+            return chapterIndex
+        case .random:
+            // legado draws from the whole book, this chapter included.
+            return Int.random(in: 0..<chapters.count)
+        case .listLoop:
+            return (chapterIndex + 1) % chapters.count
+        }
+    }
+
+    private func moveOn(to index: Int) {
+        if index == chapterIndex {
+            restartCurrentChapter()
+        } else {
+            selectChapter(index)
+        }
+    }
+
+    /// This chapter again from its start. legado reloads it at position 0, which starts after
+    /// the opening credits; the item is still loaded here, so it is sought back instead.
+    private func restartCurrentChapter() {
+        guard let player, let entry = currentEntry, entry.chapterIndex == chapterIndex,
+              entry.item.status == .readyToPlay else {
+            pendingResumeTime = 0
+            loadCurrentChapter(autoPlay: true)
+            return
+        }
+        audiobookLog("restart ch=\(chapterIndex) mode=\(playMode)")
+        if player.timeControlStatus != .playing {
+            // Silent from the chapter end until the seek has played out; see the type comment.
+            beginTransitionBackgroundTask(reason: "restart ch=\(chapterIndex)")
+        }
+        chapterFinishHandled = false
+        seekWithinCurrentChapter(to: startPosition(forResumeTime: 0))
+        player.rate = playbackRate
+        isPlaying = true
+        persistPosition(force: true)
+        updateNowPlaying()
+    }
+
+    // MARK: - Play mode
+
+    /// legado's play-mode button: the next mode, in legado's order.
+    func cyclePlayMode() {
+        setPlayMode(playMode.next)
+    }
+
+    func setPlayMode(_ mode: AudiobookPlayMode) {
+        catchUpWithQueue()
+        guard mode != playMode else { return }
+        playMode = mode
+        activeBook?.audiobookPlayMode = mode
+        if persistsPositionInStore, let id = bookId {
+            store?.setAudioPlayMode(bookId: id, mode: mode)
+        }
+        // The queue holds where the old mode was going at the chapter end.
+        if let queued = queuedEntry, queued.chapterIndex != queueableNextIndex {
+            dequeueNext(reason: "play mode \(mode)")
+        }
+        enqueueNextIfReady()
+        audiobookLog("play mode=\(mode)")
+    }
+
+    // MARK: - Skipping credits
+
+    /// legado-E / MD3 跳過片頭片尾, for this book. The cut before the closing credits moves at
+    /// once (legado picks it up at the next play); the opening credits are skipped whenever a
+    /// chapter starts from its beginning.
+    func setSkipCredits(openingSeconds: Int, closingSeconds: Int) {
+        catchUpWithQueue()
+        let opening = Self.clampedCredits(openingSeconds)
+        let closing = Self.clampedCredits(closingSeconds)
+        guard opening != openingCreditsSeconds || closing != closingCreditsSeconds else { return }
+        openingCreditsSeconds = opening
+        closingCreditsSeconds = closing
+        activeBook?.audiobookOpeningCreditsSeconds = opening
+        activeBook?.audiobookClosingCreditsSeconds = closing
+        if persistsPositionInStore, let id = bookId {
+            store?.setAudioSkipCredits(bookId: id, openSeconds: opening, closeSeconds: closing)
+        }
+        applyClosingCreditsToCurrentChapter()
+        if let queued = queuedEntry { positionQueuedChapter(queued) }
+        audiobookLog("skip credits opening=\(opening) closing=\(closing)")
+    }
+
+    private static func clampedCredits(_ seconds: Int) -> Int {
+        min(max(seconds, creditsSecondsRange.lowerBound), creditsSecondsRange.upperBound)
+    }
+
+    /// What the credits leave of a chapter of this length, in chapter time: where it starts
+    /// and, when there is a cut, where it stops. `nil` when nothing is skipped: no credits
+    /// set, or credits that would leave nothing of the chapter — legado ends such a chapter
+    /// the moment it starts, and in 單曲循環 starts it again, forever; here it plays whole
+    /// instead. As in legado, the opening credits are skipped even while the length is not
+    /// known; the closing ones need it (legado checks `duration > 0`).
+    private func creditsWindow(chapterDuration: TimeInterval) -> (start: TimeInterval, end: TimeInterval?)? {
+        let opening = TimeInterval(openingCreditsSeconds)
+        let closing = TimeInterval(closingCreditsSeconds)
+        guard opening > 0 || closing > 0 else { return nil }
+        guard chapterDuration.isFinite, chapterDuration > 0 else {
+            return opening > 0 ? (opening, nil) : nil
+        }
+        guard opening + closing < chapterDuration else { return nil }
+        return (opening, closing > 0 ? chapterDuration - closing : nil)
+    }
+
+    /// Where the current chapter starts playing: a saved position as it is, the beginning
+    /// after the opening credits — legado-E / MD3 skip them only "从头播放时", from 0.
+    private func startPosition(forResumeTime resumeTime: TimeInterval) -> TimeInterval {
+        guard resumeTime <= 0 else { return resumeTime }
+        return creditsWindow(chapterDuration: duration)?.start ?? 0
+    }
+
+    /// Ends the current chapter where its closing credits begin. A chapter that is a whole
+    /// item gets the cut as the item's own end — `forwardPlaybackEndTime`, which Apple calls
+    /// the item's effective end for forward playback — so the play queue moves on from it as
+    /// from a natural end. A chapter cut from a longer file ends at its boundary observer.
+    private func applyClosingCreditsToCurrentChapter() {
+        guard let entry = currentEntry, entry.item.status == .readyToPlay else { return }
+        if chapterDurationOverride == nil {
+            if let end = creditsWindow(chapterDuration: duration)?.end {
+                entry.item.forwardPlaybackEndTime = CMTime(
+                    seconds: chapterStartSeconds + end, preferredTimescale: 600)
+            } else {
+                entry.item.forwardPlaybackEndTime = .invalid
+            }
+        }
+        teardownBoundaryObserver()
+        if let player { installBoundaryObserverIfNeeded(on: player) }
+    }
+
+    /// A queued chapter starts from its beginning, so it gets what a chapter loaded from its
+    /// beginning gets — opening credits skipped, closing credits cut — while the current
+    /// chapter is still playing. Queued chapters start at 0 of their item
+    /// (`enqueueNextIfReady`).
+    private func positionQueuedChapter(_ entry: QueueEntry) {
+        guard entry.item.status == .readyToPlay else { return }
+        let override = Self.durationOverride(of: entry.audio)
+        let window = creditsWindow(chapterDuration: override ?? entry.item.duration.seconds)
+        if override == nil {
+            if let end = window?.end {
+                entry.item.forwardPlaybackEndTime = CMTime(seconds: end, preferredTimescale: 600)
+            } else {
+                entry.item.forwardPlaybackEndTime = .invalid
+            }
+        }
+        seekItem(of: entry, toSeconds: window?.start ?? 0)
+        entry.isPositionedAtStart = true
+    }
+
+    /// Where a chapter cut from a longer file stops, in chapter time: its end, or where its
+    /// closing credits begin. `nil` for a chapter that is a whole item.
+    private var segmentChapterEnd: TimeInterval? {
+        guard let chapterDurationOverride, chapterDurationOverride > 0 else { return nil }
+        return creditsWindow(chapterDuration: chapterDurationOverride)?.end ?? chapterDurationOverride
+    }
+
+    /// A chapter cut from a longer file carries its own length; `nil` for a whole item.
+    private static func durationOverride(of audio: ChapterAudio) -> TimeInterval? {
+        audio.chapterDurationSeconds.flatMap { value in
+            value.isFinite && value > 0 ? value : nil
+        }
+    }
 
     // MARK: - Sleep timer
 
@@ -450,8 +684,9 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         guard let book = currentBook() else { return }
 
         let index = chapterIndex
-        // legado `loadPlayUrl`: a volume heading has no audio; move on to the next chapter.
-        if chapters[index].shouldRenderAsVolumeSeparator, hasNextChapter {
+        // legado `loadPlayUrl`: a volume heading has no audio; move on to the next chapter
+        // (`skipTo(index + 1)`, whatever the play mode).
+        if chapters[index].shouldRenderAsVolumeSeparator, index + 1 < chapters.count {
             audiobookLog("loadChapter ch=\(index) is a volume heading — skipping")
             chapterIndex = index + 1
             pendingResumeTime = 0
@@ -574,9 +809,7 @@ final class AudiobookPlayer: NSObject, ObservableObject {
 
     private func play(audio: ChapterAudio, chapterIndex index: Int, autoPlay: Bool) {
         let startSeconds = max(0, audio.chapterStartSeconds ?? 0)
-        let durationOverride = audio.chapterDurationSeconds.flatMap { value in
-            value.isFinite && value > 0 ? value : nil
-        }
+        let durationOverride = Self.durationOverride(of: audio)
         let resumeTime = max(0, pendingResumeTime)
 
         // Another chapter of the file the player is already on (a local book cut into
@@ -592,10 +825,9 @@ final class AudiobookPlayer: NSObject, ObservableObject {
             didSeekForResume = true
             pendingResumeTime = 0
             isLoading = false
-            teardownBoundaryObserver()
             updateDuration()
-            installBoundaryObserverIfNeeded(on: currentPlayer)
-            seekWithinCurrentChapter(to: resumeTime)
+            applyClosingCreditsToCurrentChapter()
+            seekWithinCurrentChapter(to: startPosition(forResumeTime: resumeTime))
             if autoPlay {
                 currentPlayer.rate = playbackRate
                 isPlaying = true
@@ -663,11 +895,18 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         ) { [weak self] time in
             Task { @MainActor in
                 guard let self, self.isPlaying, !self.isLoading,
-                      self.player?.currentItem === self.currentEntry?.item else { return }
+                      self.player?.currentItem === self.currentEntry?.item,
+                      // Taken before the seek landed: the old position.
+                      self.currentEntry?.isSeeking != true else { return }
+                let hadDuration = self.duration > 0
                 self.updateDuration()
+                if !hadDuration, self.duration > 0 {
+                    // A stream whose length arrived after it was ready gets its closing cut now.
+                    self.applyClosingCreditsToCurrentChapter()
+                }
                 let relative = max(0, time.seconds - self.chapterStartSeconds)
                 self.currentTime = min(relative, self.duration > 0 ? self.duration : relative)
-                if let limit = self.chapterDurationOverride, relative > limit + 0.75 {
+                if let end = self.segmentChapterEnd, relative > end + 0.75 {
                     self.finishCurrentChapterIfNeeded()
                     return
                 }
@@ -741,6 +980,7 @@ final class AudiobookPlayer: NSObject, ObservableObject {
             switch status {
             case .readyToPlay:
                 audiobookLog("queued ch=\(entry.chapterIndex) ready")
+                positionQueuedChapter(entry)
             case .failed:
                 // Don't let the queue play into a broken item. The chapter end then takes
                 // the loading path, which resolves the chapter again.
@@ -767,11 +1007,10 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         isLoading = false
         hasRefreshedOnPlayError = false
         updateDuration()
-        teardownBoundaryObserver()
-        if let player { installBoundaryObserverIfNeeded(on: player) }
+        applyClosingCreditsToCurrentChapter()
         if !didSeekForResume {
             didSeekForResume = true
-            let t = max(0, pendingResumeTime)
+            let t = startPosition(forResumeTime: max(0, pendingResumeTime))
             pendingResumeTime = 0
             seekWithinCurrentChapter(to: t)
         }
@@ -840,12 +1079,12 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         currentChapterTitle = chapters.indices.contains(entry.chapterIndex)
             ? chapters[entry.chapterIndex].title : ""
         chapterStartSeconds = max(0, entry.audio.chapterStartSeconds ?? 0)
-        chapterDurationOverride = entry.audio.chapterDurationSeconds.flatMap { value in
-            value.isFinite && value > 0 ? value : nil
-        }
+        chapterDurationOverride = Self.durationOverride(of: entry.audio)
         chapterFinishHandled = false
         pendingResumeTime = 0
-        didSeekForResume = true
+        // Positioned after its opening credits while it was queued — or, reached before it
+        // was ready, positioned like any chapter starting from its beginning once it is.
+        didSeekForResume = entry.isPositionedAtStart
         currentTime = 0
         duration = 0
         error = nil
@@ -919,11 +1158,24 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         }
     }
 
+    /// The chapter the play queue may hold: the next one in the book, when the play mode goes
+    /// there at a chapter end. 單曲循環 plays this chapter again and 隨機播放 draws when the
+    /// chapter ends (legado draws in `next()`), so neither has one; nor has 列表循環 at the
+    /// last chapter, since the look-ahead (±1, as legado's) never resolves the first.
+    private var queueableNextIndex: Int? {
+        switch playMode {
+        case .listEndStop, .listLoop:
+            return chapterIndex + 1 < chapters.count ? chapterIndex + 1 : nil
+        case .singleLoop, .random:
+            return nil
+        }
+    }
+
     /// Hands the resolved next chapter to AVFoundation, which prerolls it while the current
     /// chapter plays and switches to it at the end.
     private func enqueueNextIfReady() {
         guard let player, let current = currentEntry, let next = resolvedNext,
-              next.chapterIndex == current.chapterIndex + 1,
+              next.chapterIndex == queueableNextIndex,
               current.chapterIndex == chapterIndex,
               !stopAtChapterEnd,
               current.item.status != .failed,
@@ -969,8 +1221,8 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         let upperBound = duration > 0 ? duration : relativeTime
         let clamped = max(0, min(relativeTime, upperBound))
         currentTime = clamped
-        guard let item = currentEntry?.item else { return }
-        guard item.status == .readyToPlay else {
+        guard let entry = currentEntry else { return }
+        guard entry.item.status == .readyToPlay else {
             // An item can't take a seek before it is ready; `currentItemBecameReady` applies it.
             pendingResumeTime = clamped
             didSeekForResume = false
@@ -980,12 +1232,36 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         // the seek runs (Apple: "for the current player item"): a seek to a chapter's end let
         // the queue move on first, then landed on the next chapter at the old chapter's end
         // time, and that chapter ended at once — a whole chapter skipped.
-        item.seek(
-            to: CMTime(seconds: chapterStartSeconds + clamped, preferredTimescale: 600),
+        seekItem(of: entry, toSeconds: chapterStartSeconds + clamped)
+    }
+
+    /// Seeks the entry's item, which counts as seeking until the seek lands. The periodic
+    /// time observer can still report from before a seek: after a chapter had been sought
+    /// past its opening credits, a later report fell back under them (simulator,
+    /// `AudiobookChapterTransitionTests`), and such a report moves the slider — or a saved
+    /// position — back for a tick.
+    private func seekItem(of entry: QueueEntry, toSeconds seconds: TimeInterval) {
+        entry.seekGeneration += 1
+        entry.isSeeking = true
+        let entryID = ObjectIdentifier(entry)
+        let generation = entry.seekGeneration
+        // The handler runs once per seek: finished, or cut short by a later seek.
+        entry.item.seek(
+            to: CMTime(seconds: seconds, preferredTimescale: 600),
             toleranceBefore: .zero,
-            toleranceAfter: .zero,
-            completionHandler: nil
-        )
+            toleranceAfter: .zero
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.seekLanded(entryID: entryID, generation: generation)
+            }
+        }
+    }
+
+    private func seekLanded(entryID: ObjectIdentifier, generation: Int) {
+        for entry in [currentEntry, queuedEntry].compactMap({ $0 })
+        where ObjectIdentifier(entry) == entryID && entry.seekGeneration == generation {
+            entry.isSeeking = false
+        }
     }
 
     /// The queue can move on to the next chapter before its `currentItem` change reaches the
@@ -998,8 +1274,8 @@ final class AudiobookPlayer: NSObject, ObservableObject {
     }
 
     private func installBoundaryObserverIfNeeded(on player: AVPlayer) {
-        guard let chapterDurationOverride, chapterDurationOverride > 0 else { return }
-        let boundary = chapterStartSeconds + chapterDurationOverride
+        guard let end = segmentChapterEnd else { return }
+        let boundary = chapterStartSeconds + end
         guard boundary.isFinite, boundary > 0 else { return }
         boundaryObserverToken = player.addBoundaryTimeObserver(
             forTimes: [NSValue(time: CMTime(seconds: boundary, preferredTimescale: 600))],
@@ -1029,20 +1305,23 @@ final class AudiobookPlayer: NSObject, ObservableObject {
             updateNowPlaying()
             return
         }
-        if hasNextChapter {
-            audiobookLog("chapter finished → load \(chapterIndex + 1) (nothing queued)")
-            AppLogger.info(
-                "[Audiobook] chapter ended with nothing queued; loading the next chapter",
-                context: ["chapter": chapterIndex + 1],
-                level: .notice
-            )
-            selectChapter(chapterIndex + 1)
-        } else {
+        // legado `next()`, where the play mode decides.
+        guard let next = chapterIndexAfterCurrent() else {
             isPlaying = false
             player?.pause()
             endTransitionBackgroundTask(reason: "end of book")
             updateNowPlaying()
+            return
         }
+        if next != chapterIndex {
+            audiobookLog("chapter finished → load \(next) (nothing queued, mode=\(playMode))")
+            AppLogger.info(
+                "[Audiobook] chapter ended with nothing queued; loading the next chapter",
+                context: ["chapter": next, "mode": "\(playMode)"],
+                level: .notice
+            )
+        }
+        moveOn(to: next)
     }
 
     // MARK: - Background time across chapter switches
@@ -1140,6 +1419,7 @@ final class AudiobookPlayer: NSObject, ObservableObject {
         chapterDurationOverride = nil
         chapterFinishHandled = false
         hasRefreshedOnPlayError = false
+        shouldResumeAfterInterruption = false
         endTransitionBackgroundTask(reason: "stop")
     }
 
@@ -1154,6 +1434,72 @@ final class AudiobookPlayer: NSObject, ObservableObject {
     private func deactivateAudioSession() {
         UIApplication.shared.endReceivingRemoteControlEvents()
         AudioSessionActivator.setActive(false, options: [.notifyOthersOnDeactivation])
+    }
+
+    // MARK: - Interruptions
+
+    /// legado pauses when it loses the audio focus, resumes when a transient loss is over,
+    /// and pauses on `ACTION_AUDIO_BECOMING_NOISY`. iOS reports the same events as an
+    /// interruption and a route change; TTS handles them the same way (`TTSCoordinator`).
+    private func observeAudioSession() {
+        let center = NotificationCenter.default
+        let session = AVAudioSession.sharedInstance()
+        center.publisher(for: AVAudioSession.interruptionNotification, object: session)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in self?.handleAudioInterruption(notification) }
+            .store(in: &audioSessionObservers)
+        center.publisher(for: AVAudioSession.routeChangeNotification, object: session)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in self?.handleRouteChange(notification) }
+            .store(in: &audioSessionObservers)
+    }
+
+    private func handleAudioInterruption(_ notification: Notification) {
+        guard player != nil,
+              let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+            return
+        }
+        switch type {
+        case .began:
+            // A call, Siri or another app has taken the audio: legado's
+            // AUDIOFOCUS_LOSS_TRANSIENT pauses and remembers to resume.
+            audiobookLog("audio interruption began playing=\(isPlaying)")
+            guard isPlaying else { return }
+            AppLogger.info("[Audiobook] another app interrupted playback", level: .notice)
+            pause()
+            shouldResumeAfterInterruption = true
+        case .ended:
+            let optionsValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+            audiobookLog("audio interruption ended resume=\(shouldResumeAfterInterruption) options=\(options.rawValue)")
+            guard shouldResumeAfterInterruption else { return }
+            shouldResumeAfterInterruption = false
+            // iOS tells at the end whether the loss was transient (legado resumes on
+            // AUDIOFOCUS_GAIN) or for good (AUDIOFOCUS_LOSS: it stays paused).
+            guard options.contains(.shouldResume) else {
+                AppLogger.info("[Audiobook] interruption ended without leave to resume", level: .notice)
+                return
+            }
+            activateAudioSession()
+            play()
+        @unknown default:
+            audiobookLog("audio interruption of unknown type \(typeValue)")
+        }
+    }
+
+    private func handleRouteChange(_ notification: Notification) {
+        guard player != nil,
+              let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else {
+            return
+        }
+        // legado's ACTION_AUDIO_BECOMING_NOISY: the headphones are gone, so playback
+        // doesn't carry on out of the speaker.
+        guard reason == .oldDeviceUnavailable, isPlaying else { return }
+        audiobookLog("audio output device went away; pausing")
+        AppLogger.info("[Audiobook] headphones disconnected; playback paused", level: .notice)
+        pause()
     }
 
     // MARK: - Now Playing + Remote commands

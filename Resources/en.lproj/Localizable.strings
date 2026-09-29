@@ -3434,3 +3434,17 @@
 "圖片位移 Y" = "Image Offset Y";
 "裁切焦點" = "Crop Focus";
 "圖片位移只移動底圖：X 正值向右、Y 正值向下，負值反向；文字、邊框與陰影留在原位。裁切焦點只選擇圖內範圍，不會移動整張底圖。" = "Image offsets move only the image: positive X moves right, positive Y moves down, and negative values reverse direction; text, borders and shadows stay in place. Crop focus selects an area within the image without moving the whole background.";
+
+/* Audiobook play mode and skip credits */
+"播放模式" = "Play Mode";
+"順序播放" = "In Order";
+"單曲循環" = "Repeat One";
+"隨機播放" = "Shuffle";
+"列表循環" = "Repeat All";
+"片頭片尾" = "Intro/Outro";
+"跳過片頭片尾" = "Skip Intro/Outro";
+"片頭" = "Intro";
+"片尾" = "Outro";
+"%d 秒" = "%d s";
+"片頭 %d 秒，片尾 %d 秒" = "Intro %d s, outro %d s";
+"只套用在這本書；片頭只在章節從頭播放時跳過。" = "Applies to this book only. The intro is skipped only when a chapter plays from its beginning.";

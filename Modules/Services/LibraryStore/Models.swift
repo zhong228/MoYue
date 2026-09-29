@@ -245,6 +245,17 @@ struct ReadingBook: Identifiable, Codable {
     var audioChapterIndex: Int = 0
     var audioTimeSeconds: Double = 0
 
+    // Audiobook playback settings, kept per book as legado-E and legado-with-MD3 keep
+    // them (`Book.setPlayMode` / `setOpenCredits` / `setCloseCredits`). Absent until the
+    // listener changes them — read and write them through `audiobookPlayMode` and friends.
+    // A book nobody changed must encode exactly as it did before these existed: iCloud
+    // sync hashes each book, and a new hash counts as an edit made now, so default values
+    // written into every book would let one device's copies overwrite newer progress from
+    // the others on its first sync after the update.
+    var audioPlayMode: AudiobookPlayMode?
+    var audioOpenCreditsSeconds: Int?
+    var audioCloseCreditsSeconds: Int?
+
     init(
         title: String, author: String = "未知作者",
         source: String = "local", contentFilename: String
@@ -326,6 +337,9 @@ struct ReadingBook: Identifiable, Codable {
         mangaPage = (try? c.decode(Int.self, forKey: .mangaPage)) ?? 0
         audioChapterIndex = (try? c.decode(Int.self, forKey: .audioChapterIndex)) ?? 0
         audioTimeSeconds = (try? c.decode(Double.self, forKey: .audioTimeSeconds)) ?? 0
+        audioPlayMode = try? c.decode(AudiobookPlayMode.self, forKey: .audioPlayMode)
+        audioOpenCreditsSeconds = try? c.decode(Int.self, forKey: .audioOpenCreditsSeconds)
+        audioCloseCreditsSeconds = try? c.decode(Int.self, forKey: .audioCloseCreditsSeconds)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -337,6 +351,7 @@ struct ReadingBook: Identifiable, Codable {
         case isInBookshelf, remoteSource
         case mangaChapterIndex, mangaPage
         case audioChapterIndex, audioTimeSeconds
+        case audioPlayMode, audioOpenCreditsSeconds, audioCloseCreditsSeconds
     }
 
     private static func inferPipelineKind(
@@ -369,6 +384,24 @@ struct ReadingBook: Identifiable, Codable {
 }
 
 extension ReadingBook {
+    /// The audiobook play mode; legado's default, 順序播放, is stored as absent.
+    var audiobookPlayMode: AudiobookPlayMode {
+        get { audioPlayMode ?? .listEndStop }
+        set { audioPlayMode = newValue == .listEndStop ? nil : newValue }
+    }
+
+    /// Seconds of opening credits the audiobook player skips; 0 is stored as absent.
+    var audiobookOpeningCreditsSeconds: Int {
+        get { audioOpenCreditsSeconds ?? 0 }
+        set { audioOpenCreditsSeconds = newValue > 0 ? newValue : nil }
+    }
+
+    /// Seconds of closing credits the audiobook player cuts; 0 is stored as absent.
+    var audiobookClosingCreditsSeconds: Int {
+        get { audioCloseCreditsSeconds ?? 0 }
+        set { audioCloseCreditsSeconds = newValue > 0 ? newValue : nil }
+    }
+
     var remoteEPUBRenderIdentifier: String? {
         guard let remoteSource else { return nil }
         return "remote-" + id.uuidString + "-" + (remoteSource.version ?? "offline")
