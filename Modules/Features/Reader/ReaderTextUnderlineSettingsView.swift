@@ -49,6 +49,7 @@ struct ReaderTextUnderlineSettingsView: View {
                     )
                 } header: {
                     Text(localized("樣式"))
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 .interfaceSectionSurface()
             }

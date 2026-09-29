@@ -118,6 +118,12 @@ final class SubscriptionStore: ObservableObject {
     @Published private(set) var iCloudIsProActive: Bool = false
     /// `true` while any Pro entitlement is active. Everything gates on this.
     @Published private(set) var isProActive: Bool = false
+    /// `true` once launch has read every source of Pro (StoreKit, the account, the
+    /// iCloud mirror): from then on a false `isProActive` means no Pro, not "not read
+    /// yet". `ContentView` shows the Pro look optimistically only before this — it
+    /// used to do so whenever `isProActive` was false, which kept a user without Pro
+    /// in their Pro theme for good.
+    @Published private(set) var hasResolvedEntitlements: Bool = false
     @Published private(set) var isLoadingProducts: Bool = false
     @Published private(set) var isPurchasing: Bool = false
     @Published private(set) var isRestoring: Bool = false
@@ -174,7 +180,11 @@ final class SubscriptionStore: ObservableObject {
             recomputeEntitlement()
         }
         #endif
-        guard observeTransactions else { return }
+        guard observeTransactions else {
+            // Nothing is read later, so what is known now is all there is.
+            hasResolvedEntitlements = true
+            return
+        }
         // Start listening for transactions BEFORE any purchase so we never miss
         // an update delivered while the app was backgrounded or during a
         // purchase interrupted by an Ask-to-Buy / SCA prompt.
@@ -187,6 +197,7 @@ final class SubscriptionStore: ObservableObject {
             seedAccountEntitlementFromCache()
             await refreshEntitlements()
             await refreshICloudEntitlement()
+            hasResolvedEntitlements = true
         }
     }
 

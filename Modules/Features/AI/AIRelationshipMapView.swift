@@ -63,6 +63,7 @@ struct AIRelationshipMapView: View {
                     }
                 } header: {
                     Text(String(format: localized("%@的關係"), center.name))
+                        .foregroundStyle(DSColor.textSecondary)
                 } footer: {
                     Text(localized("依整理已讀人物的記錄繪製，只含目前讀到的內容；每條關係都可到人物頁核對原文。"))
                         .dsSectionFooter()
@@ -73,15 +74,15 @@ struct AIRelationshipMapView: View {
                         AIMemoryCardView(entityID: center.entityID, source: adapter, boundary: adapter.boundary(),
                                          onOpenCitation: onOpenCitation, showsDone: false)
                     } label: {
-                        Label(String(format: localized("%@的人物頁"), center.name), systemImage: "person.text.rectangle")
+                        SettingsRowLabel(String(format: localized("%@的人物頁"), center.name), systemImage: "person.text.rectangle")
                     }
                 }
                 .interfaceSectionSurface()
             } else {
                 ContentUnavailableView {
-                    Label(localized("還沒有人物關係"), systemImage: "point.3.connected.trianglepath.dotted")
+                    UnavailableLabel(localized("還沒有人物關係"), systemImage: "point.3.connected.trianglepath.dotted")
                 } description: {
-                    Text(localized("先用「整理已讀人物」建立人物記錄，關係就會畫在這裡。"))
+                    Text(localized("先用「整理已讀人物」建立人物記錄，關係就會畫在這裡。")).foregroundStyle(DSColor.textSecondary)
                 } actions: {
                     NavigationLink(localized("整理已讀人物")) {
                         AICharacterMemoryView(adapter: adapter, onOpenCitation: onOpenCitation)

@@ -220,6 +220,7 @@ struct TTSSettingsView: View {
                 .accessibilityIdentifier("tts_pre_synthesis_concurrency")
             } header: {
                 Text(localized("語音預合成"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 Text(localized("同時合成語音的請求數。適用於網路語音，下次開始朗讀時生效。"))
                     .dsSectionFooter()
@@ -234,6 +235,7 @@ struct TTSSettingsView: View {
             } header: {
                 Text(localized("內建語音"))
                     .accessibilityIdentifier("tts_builtin_section")
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 if let error = testCoordinator.errorMessage {
                     Text(error)
@@ -256,6 +258,7 @@ struct TTSSettingsView: View {
             } header: {
                 Text(localized("已匯入語音源"))
                     .accessibilityIdentifier("tts_imported_section")
+                    .foregroundStyle(DSColor.textSecondary)
             }
             .interfaceSectionSurface()
         }
@@ -433,6 +436,7 @@ struct TTSSettingsView: View {
                     .padding(.vertical, 7)
                     .background(Color(UIColor.systemGray5))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .foregroundStyle(DSColor.textPrimary)
             }
             .buttonStyle(.plain)
             .disabled(filteredSources.isEmpty)
@@ -655,6 +659,7 @@ struct TTSSettingsView: View {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: DSSpacing.xs) {
                     Text(localized("系統語音音色"))
+                        .foregroundStyle(DSColor.textPrimary)
                     Text(selectedSystemVoiceSummary)
                         .font(DSFont.subheadline)
                         .foregroundStyle(DSColor.textSecondary)
@@ -662,6 +667,7 @@ struct TTSSettingsView: View {
             } else {
                 HStack {
                     Text(localized("系統語音音色"))
+                        .foregroundStyle(DSColor.textPrimary)
                     Spacer()
                     Text(selectedSystemVoiceSummary)
                         .font(DSFont.subheadline)
@@ -932,7 +938,7 @@ struct TTSSourceLoginView: View {
                 webLoginSection
                 if fields.isEmpty, SourceWebLogin(ttsSource: source) == nil {
                     Text(localized("無可設定的欄位"))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 if !fields.isEmpty {
                     // The same grid the book-source login uses: rows pack by their

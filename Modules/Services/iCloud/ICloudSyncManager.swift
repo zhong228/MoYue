@@ -143,6 +143,23 @@ final class ICloudSyncManager: ObservableObject {
     /// to decode a bar layout written into it — the two records coexist instead,
     /// and each build reads the one it understands.
     private static let readerBarLayoutRecordID = "reader_bar_layout"
+    /// The saved reading backgrounds, as one merged blob; their pictures are file records
+    /// named `readerbg_<hash of the file name>`.
+    private static let readerBackgroundsRecordID = "reader_backgrounds"
+    private static let readerBackgroundPicturePrefix = "readerbg_"
+    /// The reading setup, one item per 排版生效範圍 row as last set on any device.
+    private static let readingSettingsRecordID = "reading_settings"
+
+    /// Every blob `sync()` merges, by record name — `deleteRemoteData` removes each, so a
+    /// new one belongs here as well. `reader_overlay_layout` is written only by builds
+    /// from before the bar layout, and is still in accounts they synced;
+    /// `reader_background_choice` only by development builds of 2026-09-29, before the
+    /// background joined the rest of the reading setup.
+    private static let mergedRecordNames = [
+        "book_sources", "replace_rules", "comment_bubble_styles", bubbleSelectionRecordID,
+        readerBackgroundsRecordID, readingSettingsRecordID, "reader_background_choice",
+        readerOverlayLayoutRecordID, readerBarLayoutRecordID, "books_meta",
+    ]
 
     // Local merge shadows (per-id updatedAt/hash/deleted) for the auto-merge sync.
     private static let shadowBooks = "icloud_books"
@@ -152,6 +169,8 @@ final class ICloudSyncManager: ObservableObject {
     private static let shadowCommentBubbleSelection = "icloud_commentBubbleSelection"
     private static let shadowReaderOverlayLayout = "icloud_readerOverlayLayout"
     private static let shadowReaderBarLayout = "icloud_readerBarLayout"
+    private static let shadowReaderBackgrounds = "icloud_readerBackgrounds"
+    private static let shadowReadingSettings = "icloud_readingSettings"
 
     /// Bound at launch so the merge sync can read/write the live bookshelf.
     /// `BookStore` is not a singleton (created in the app entry point).
@@ -337,6 +356,56 @@ final class ICloudSyncManager: ObservableObject {
             if bubbleSelectionMerge.shouldApplyLocally {
                 let mergedSelection = bubbleSelectionMerge.values.first?.selectedCustomStyleID
                 await MainActor.run { GlobalSettings.shared.applyCommentBubbleSync(selection: mergedSelection) }
+            }
+
+            // 3b. Saved reading backgrounds (singleton settings). Per background,
+            //     last-write-wins on their stamped `updatedAt`, like the bubble styles;
+            //     the pictures they show follow as files, under the name each background
+            //     knows them by.
+            let localBackgrounds = await MainActor.run { GlobalSettings.shared.readerCustomBackgrounds }
+            let backgroundMerge = try await mergeType(
+                recordName: Self.readerBackgroundsRecordID,
+                shadowKey: Self.shadowReaderBackgrounds,
+                local: localBackgrounds,
+                id: { $0.id.uuidString },
+                hash: { Self.stableHash($0) },
+                fallbackUpdatedAt: { $0.updatedAt ?? .distantPast }
+            )
+            changedRemote = changedRemote || backgroundMerge.uploaded
+            if backgroundMerge.shouldApplyLocally {
+                await MainActor.run { GlobalSettings.shared.applyReaderCustomBackgroundsSync(backgroundMerge.values) }
+            }
+            let backgroundPictures = Self.readerBackgroundPicturePayloads(backgroundMerge.values)
+            var uploadedPictures = 0
+            for picture in backgroundPictures {
+                if try await uploadBookFileIfNeeded(picture) { uploadedPictures += 1 }
+            }
+            changedRemote = changedRemote || uploadedPictures > 0
+            if try await downloadMissingFiles(backgroundPictures) > 0 {
+                // A background already worn gets its picture only now; nothing it names
+                // changed, so the reader has to be told to look again.
+                await MainActor.run { GlobalSettings.shared.objectWillChange.send() }
+            }
+
+            // 3c. The reading setup: one item per 排版生效範圍 row, last-write-wins on
+            //     when the row was set — so a font size set here and a line height set
+            //     there both survive. After 3b, so a background it names is in the list.
+            //     Each item is the snapshot taken when the row was set: switching themes
+            //     changes none of them, and only a new setting reads as a local edit.
+            let localReadingSettings = await MainActor.run { GlobalSettings.shared.readingSettingSyncRecords }
+            let readingSettingsMerge = try await mergeType(
+                recordName: Self.readingSettingsRecordID,
+                shadowKey: Self.shadowReadingSettings,
+                local: localReadingSettings,
+                id: { $0.item },
+                hash: { Self.stableHash($0) },
+                fallbackUpdatedAt: { $0.editedAt }
+            )
+            changedRemote = changedRemote || readingSettingsMerge.uploaded
+            if readingSettingsMerge.shouldApplyLocally {
+                await MainActor.run {
+                    GlobalSettings.shared.applyReadingSettingsSync(readingSettingsMerge.values)
+                }
             }
 
             // 4. Reader header/footer layout (singleton setting). Same shape as
@@ -692,24 +761,50 @@ final class ICloudSyncManager: ObservableObject {
         try await performRestore(skipConflictCheck: false)
     }
 
-    /// Permanently removes the account's synced data (manifest + uploaded files)
-    /// from the user's private CloudKit database. Used by account deletion.
+    /// Permanently removes everything the sync keeps in the user's private CloudKit
+    /// database — every merged blob, every book file and background picture, the
+    /// manifest. This device's own data stays.
+    /// Used by 刪除 iCloud 上的資料 in iCloud 同步, which also turns 自動同步 off first;
+    /// otherwise the next sync would upload it all again.
+    ///
+    /// Until 2026-09-29 nothing called this, and it missed the bubble styles, the
+    /// header/footer layout and the reading backgrounds.
     func deleteRemoteData() async throws {
-        let status = await refreshAccountStatus()
-        // Nothing to delete remotely when no iCloud account is signed in here.
-        guard status == .available else { return }
+        try await ensureAccountAvailable()
 
         await setSync(true, message: localized("正在刪除 iCloud 同步資料…"))
         defer { Task { @MainActor in self.isSyncing = false } }
 
-        for file in ICloudSyncPayload.defaultFiles() {
-            try await deleteRecordIfExists(fileRecordID(file.recordName))
-        }
-        for file in dynamicBookFilePayloads() {
+        // Book files and background pictures are records of their own, named after the
+        // file. The cloud's own lists name every device's, not only this one's.
+        let remoteBooks = try await downloadRecords(
+            "books_meta",
+            as: ReadingBook.self,
+            id: { $0.id.uuidString },
+            fallbackUpdatedAt: { _ in .distantPast }
+        ).records.compactMap(\.value)
+        let remoteBackgrounds = try await downloadRecords(
+            Self.readerBackgroundsRecordID,
+            as: ReaderCustomBackground.self,
+            id: { $0.id.uuidString },
+            fallbackUpdatedAt: { _ in .distantPast }
+        ).records.compactMap(\.value)
+        let localBackgrounds = await MainActor.run { GlobalSettings.shared.readerCustomBackgrounds }
+        let files = bookFilePayloads(localBooks() + remoteBooks)
+            + Self.readerBackgroundPicturePayloads(localBackgrounds + remoteBackgrounds)
+        for file in files {
             try await deleteRecordIfExists(CKRecord.ID(recordName: file.recordName))
         }
+        for name in Self.mergedRecordNames {
+            try await deleteRecordIfExists(fileRecordID(name))
+        }
         try await deleteRecordIfExists(CKRecord.ID(recordName: Self.manifestRecordName))
+        // The markers say a file is already up there; left in place, a later sync would
+        // never upload the files again. The merge shadows stay: the next sync uploads
+        // this device's items anyway, and they hold its deletions, which must not be
+        // undone by a device that never saw them.
         UserDefaults.standard.removeObject(forKey: Self.uploadedBookFilesKey)
+        AppLogger.sync("deleteRemoteData: \(files.count) file(s), \(Self.mergedRecordNames.count) blob(s)", level: .notice)
 
         await MainActor.run {
             lastSyncDate = nil
@@ -890,10 +985,23 @@ final class ICloudSyncManager: ObservableObject {
     /// online books show a blank cover and never re-download it (the cover path
     /// is non-nil, so `downloadCoverIfNeeded` is skipped on the other device).
     private func dynamicBookFilePayloads() -> [ICloudSyncPayloadFile] {
-        guard let data = try? Data(contentsOf: StorageLocations.booksMetadataFile),
-              let books = try? JSONDecoder().decode([ReadingBook].self, from: data) else {
+        bookFilePayloads(localBooks())
+    }
+
+    /// The shelf as stored on this device. Empty before the first book is added.
+    private func localBooks() -> [ReadingBook] {
+        let url = StorageLocations.booksMetadataFile
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        do {
+            return try JSONDecoder().decode([ReadingBook].self, from: Data(contentsOf: url))
+        } catch {
+            AppLogger.sync("books_meta unreadable; its book files are left out: \(error.localizedDescription)", level: .error)
             return []
         }
+    }
+
+    /// The content and cover file records `books` name, each once.
+    private func bookFilePayloads(_ books: [ReadingBook]) -> [ICloudSyncPayloadFile] {
         var payloads: [ICloudSyncPayloadFile] = []
         var seen = Set<String>()
 
@@ -964,8 +1072,37 @@ final class ICloudSyncManager: ObservableObject {
     }
 
     private func downloadMissingBookFiles() async throws {
-        let missing = dynamicBookFilePayloads().filter { !FileManager.default.fileExists(atPath: $0.localURL.path) }
-        AppLogger.sync("restore: \(missing.count) book file(s) missing locally; fetching (content+covers)", level: .notice)
+        let fetched = try await downloadMissingFiles(dynamicBookFilePayloads())
+        AppLogger.sync("restore: fetched \(fetched) book file(s)", level: .notice)
+    }
+
+    /// The pictures the saved reading backgrounds show — synced like the book files, and
+    /// named after the file, so a device writes each under the name its background uses.
+    static func readerBackgroundPicturePayloads(
+        _ backgrounds: [ReaderCustomBackground]
+    ) -> [ICloudSyncPayloadFile] {
+        var seen = Set<String>()
+        var payloads: [ICloudSyncPayloadFile] = []
+        for background in backgrounds {
+            guard let fileName = background.imageFileName, !fileName.isEmpty,
+                  seen.insert(fileName).inserted else { continue }
+            do {
+                payloads.append(ICloudSyncPayloadFile(
+                    recordName: readerBackgroundPicturePrefix + shortHash(fileName),
+                    localURL: try ReaderCustomBackgroundStorageManager.shared.fileURL(fileName: fileName)
+                ))
+            } catch {
+                AppLogger.sync("reader background folder unavailable: \(error.localizedDescription)", level: .error)
+            }
+        }
+        return payloads
+    }
+
+    /// Fetches each of `files` this device does not have. Returns how many arrived.
+    private func downloadMissingFiles(_ files: [ICloudSyncPayloadFile]) async throws -> Int {
+        let missing = files.filter { !FileManager.default.fileExists(atPath: $0.localURL.path) }
+        guard !missing.isEmpty else { return 0 }
+        AppLogger.sync("restore: \(missing.count) file(s) missing locally; fetching", level: .notice)
         var fetched = 0
         for file in missing {
             do {
@@ -986,7 +1123,7 @@ final class ICloudSyncManager: ObservableObject {
                 throw error
             }
         }
-        AppLogger.sync("restore: fetched \(fetched) book file(s)", level: .notice)
+        return fetched
     }
 
     private var uploadedBookFileMarkers: Set<String> {

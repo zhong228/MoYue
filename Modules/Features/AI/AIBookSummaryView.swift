@@ -72,13 +72,14 @@ struct AIBookSummaryView: View {
                     .padding(.vertical, DSSpacing.xs)
             } else {
                 ContentUnavailableView {
-                    Label(localized("還沒有全書摘要"), systemImage: "text.book.closed")
+                    UnavailableLabel(localized("還沒有全書摘要"), systemImage: "text.book.closed")
                 } description: {
-                    Text(localized("依已讀章節逐章整理，再彙整成分卷與全書摘要。"))
+                    Text(localized("依已讀章節逐章整理，再彙整成分卷與全書摘要。")).foregroundStyle(DSColor.textSecondary)
                 }
             }
         } header: {
             Text(localized("全書摘要"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             if let summary = record.book {
                 Text(String(format: localized("涵蓋到第 %d 章"), summary.throughChapter + 1))
@@ -94,6 +95,7 @@ struct AIBookSummaryView: View {
             case let .running(progress):
                 ProgressView(value: Double(progress.completed), total: Double(max(progress.total, 1))) {
                     Text(String(format: localized("整理中…（%1$d / %2$d）"), progress.completed, progress.total))
+                        .foregroundStyle(DSColor.textPrimary)
                 }
                 Button(localized("暫停")) { service.pause(book: book) }
             default:
@@ -127,9 +129,11 @@ struct AIBookSummaryView: View {
                 } label: {
                     LabeledContent {
                         Text(status(of: volume, through: plan.throughChapter))
+                            .foregroundStyle(DSColor.textSecondary)
                     } label: {
                         VStack(alignment: .leading, spacing: DSSpacing.xs) {
                             Text(AIBookSummaryPlanner.title(of: volume))
+                                .foregroundStyle(DSColor.textPrimary)
                             if volume.title != nil {
                                 Text(String(format: localized("第 %1$d–%2$d 章"), volume.chapters.lowerBound + 1,
                                             min(volume.chapters.upperBound, plan.throughChapter) + 1))
@@ -142,6 +146,7 @@ struct AIBookSummaryView: View {
             }
         } header: {
             Text(localized("分卷"))
+                .foregroundStyle(DSColor.textSecondary)
         }
         .interfaceSectionSurface()
     }
@@ -182,13 +187,13 @@ struct AIBookSummaryView: View {
         return NavigationStack {
             Form {
                 Section {
-                    LabeledContent(localized("生成服務"), value: proposal.service.name)
-                    LabeledContent(localized("生成模型"), value: proposal.service.model)
-                    LabeledContent(localized("要整理的章節"), value: "\(chapters)")
-                    LabeledContent(localized("預計模型呼叫"), value: "\(plan.estimatedCalls)")
-                    LabeledContent(localized("送出的正文"), value: String(format: localized("約 %d 字"), plan.sourceUTF16))
+                    ThemedLabeledContent(localized("生成服務"), value: proposal.service.name)
+                    ThemedLabeledContent(localized("生成模型"), value: proposal.service.model)
+                    ThemedLabeledContent(localized("要整理的章節"), value: "\(chapters)")
+                    ThemedLabeledContent(localized("預計模型呼叫"), value: "\(plan.estimatedCalls)")
+                    ThemedLabeledContent(localized("送出的正文"), value: String(format: localized("約 %d 字"), plan.sourceUTF16))
                     if !plan.missingChapters.isEmpty {
-                        LabeledContent(localized("缺少正文的章節"), value: "\(plan.missingChapters.count)")
+                        ThemedLabeledContent(localized("缺少正文的章節"), value: "\(plan.missingChapters.count)")
                     }
                 } footer: {
                     Text(localized("會把這些章節的本機正文分批傳送到你的 AI 服務，可能產生費用。超過預計次數時會先暫停。"))
@@ -263,6 +268,7 @@ private struct AIVolumeSummaryView: View {
                         VStack(alignment: .leading, spacing: DSSpacing.xs) {
                             Text(digest.title ?? String(format: localized("第 %d 章"), digest.order + 1))
                                 .font(DSFont.subheadline.weight(.semibold))
+                                .foregroundStyle(DSColor.textPrimary)
                             Text(digest.text)
                                 .font(DSFont.body)
                                 .foregroundStyle(DSColor.textPrimary)
@@ -273,6 +279,7 @@ private struct AIVolumeSummaryView: View {
                     }
                 } header: {
                     Text(localized("逐章摘要"))
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 .interfaceSectionSurface()
             }

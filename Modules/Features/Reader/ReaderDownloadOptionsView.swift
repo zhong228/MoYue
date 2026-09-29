@@ -126,6 +126,7 @@ struct ReaderDownloadOptionsView: View {
                 Text(bookTitle)
                     .font(DSFont.headline)
                     .lineLimit(2)
+                    .foregroundStyle(DSColor.textPrimary)
                 Text(summaryText)
                     .font(DSFont.caption)
                     .foregroundColor(DSColor.textSecondary)
@@ -134,7 +135,7 @@ struct ReaderDownloadOptionsView: View {
         }
         .interfaceSectionSurface()
 
-        Section(header: Text(localized("下載範圍"))) {
+        Section(header: Text(localized("下載範圍")).foregroundStyle(DSColor.textSecondary)) {
             Picker(localized("開始位置"), selection: $startOption) {
                 ForEach(ReaderDownloadStartOption.allCases) { option in
                     Text(option.title).tag(option)
@@ -147,6 +148,7 @@ struct ReaderDownloadOptionsView: View {
 
             HStack {
                 Text(localized("開始章節"))
+                    .foregroundStyle(DSColor.textPrimary)
                 Spacer()
                 Text(String(format: localized("第 %d 章"), selectedStartIndex + 1))
                     .foregroundColor(DSColor.textSecondary)
@@ -154,7 +156,7 @@ struct ReaderDownloadOptionsView: View {
         }
         .interfaceSectionSurface()
 
-        Section(header: Text(localized("章數"))) {
+        Section(header: Text(localized("章數")).foregroundStyle(DSColor.textSecondary)) {
             if maxSelectableCount > 1 {
                 Slider(
                     value: Binding(
@@ -168,6 +170,7 @@ struct ReaderDownloadOptionsView: View {
 
             HStack {
                 Text(localized("手動輸入"))
+                    .foregroundStyle(DSColor.textPrimary)
                 Spacer()
                 TextField(localized("章數"), text: $chapterCountText)
                     .keyboardType(.numberPad)
@@ -199,6 +202,7 @@ struct ReaderDownloadOptionsView: View {
                 Text(bookTitle)
                     .font(DSFont.headline)
                     .lineLimit(2)
+                    .foregroundStyle(DSColor.textPrimary)
                 HStack {
                     Text(statusTitle)
                         .font(DSFont.subheadline)
@@ -216,12 +220,13 @@ struct ReaderDownloadOptionsView: View {
         .interfaceSectionSurface()
 
         if let task = clampedTask, !task.failedChapters.isEmpty {
-            Section(header: Text(localized("失敗章節"))) {
+            Section(header: Text(localized("失敗章節")).foregroundStyle(DSColor.textSecondary)) {
                 Text(String(format: localized("%d 章失敗"), task.failedChapters.count))
                     .foregroundColor(DSColor.textSecondary)
                 ForEach(task.failedChapters.values.sorted { $0.chapterIndex < $1.chapterIndex }.prefix(3), id: \.chapterIndex) { failure in
                     Text(failure.title)
                         .font(DSFont.caption)
+                        .foregroundStyle(DSColor.textPrimary)
                 }
             }
             .interfaceSectionSurface()
@@ -268,6 +273,7 @@ struct ReaderDownloadOptionsView: View {
                 Text(bookTitle)
                     .font(DSFont.headline)
                     .lineLimit(2)
+                    .foregroundStyle(DSColor.textPrimary)
                 HStack {
                     Label(localized("下載完成"), systemImage: "checkmark.circle.fill")
                         .font(DSFont.subheadline)

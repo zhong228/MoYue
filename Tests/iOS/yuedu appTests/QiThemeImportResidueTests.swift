@@ -37,7 +37,7 @@ struct QiThemeImportResidueTests {
         // Where the importer puts a pack's backgrounds: on the theme file and here.
         pack.pageBackgrounds = file.pageBackgrounds ?? [:]
 
-        let outcome = try await QiThemeImportService.apply(pack, reading: .followTheme)
+        let outcome = try await QiThemeImportService.apply(pack)
         let theme = try #require(outcome.theme)
         fixture.imported.append(theme.id)
         #expect(settings.appearancePageBackgrounds[Self.global]?.lightPrimaryHex == 0xABCDEF)
@@ -59,7 +59,7 @@ struct QiThemeImportResidueTests {
         let readingBefore = settings.currentReadingSettingsSnapshot()
 
         let pack = try await QiThemeImportService.load(Data(contentsOf: url))
-        let outcome = try await QiThemeImportService.apply(pack, reading: .followTheme)
+        let outcome = try await QiThemeImportService.apply(pack)
         let theme = try #require(outcome.theme)
         fixture.imported.append(theme.id)
         // Worn while selected…
@@ -108,8 +108,9 @@ struct QiThemeImportResidueTests {
             // The Open In route: the same service the alert's answer is handed to.
             let document = SharedCustomizationDocument(data: try Data(contentsOf: url), kind: .qiTheme)
             let plan = try await SharedCustomizationImportService.load(document)
-            #expect(plan.prompt?.choices == .followOrReplace)
-            _ = try await SharedCustomizationImportService.apply(plan, reading: .followTheme)
+            // A theme pack asks nothing: its reading setup is its theme's own.
+            #expect(plan.prompt == nil)
+            _ = try await SharedCustomizationImportService.apply(plan)
             let imported = try #require(settings.customAppearanceThemes.first { $0.id == settings.appearanceThemeID })
             fixture.imported.append(imported.id)
             #expect(imported.extras?.reading != nil)
@@ -125,7 +126,9 @@ struct QiThemeImportResidueTests {
         #expect(readingAfter.pageTurnStyle == readingBefore.pageTurnStyle)
         #expect(readingAfter.barLayout == readingBefore.barLayout)
         #expect(readingAfter.chapterTitleStyle == readingBefore.chapterTitleStyle)
-        #expect(readingAfter.customBackground == readingBefore.customBackground)
+        #expect(readingAfter.readerBackgroundID == readingBefore.readerBackgroundID)
+        #expect(readingAfter.bindsAppearanceReaderTheme == readingBefore.bindsAppearanceReaderTheme)
+        #expect(readingAfter.boundDarkReaderTheme == readingBefore.boundDarkReaderTheme)
         #expect(readingAfter.commentBubble == readingBefore.commentBubble)
         #expect(readingAfter == readingBefore)
         #expect(ReaderConfig.shared.fontSize == CGFloat(readingBefore.fontSize ?? 0))
@@ -144,6 +147,7 @@ struct QiThemeImportResidueTests {
         private let baseline: AppearanceThemeExtras?
         private let backgrounds: [String: AppearancePageBackgroundConfig]
         private let reading: AppearanceThemeReadingSettings
+        private let savedReaderBackgrounds: [ReaderCustomBackground]
         private let stores = ReadingSettingsStoresSnapshot()
         var imported: [String] = []
 
@@ -158,6 +162,7 @@ struct QiThemeImportResidueTests {
             settings.appearanceExtrasBaseline = nil
             backgrounds = settings.appearancePageBackgrounds
             reading = settings.currentReadingSettingsSnapshot()
+            savedReaderBackgrounds = settings.readerCustomBackgrounds
         }
 
         func restore() {
@@ -166,6 +171,13 @@ struct QiThemeImportResidueTests {
             for id in imported {
                 settings.deleteCustomAppearanceTheme(id: id)
             }
+            // A pack's reading picture became a saved background; the test's go, pictures
+            // and all, and the list is as it was.
+            for background in settings.readerCustomBackgrounds
+            where !savedReaderBackgrounds.contains(where: { $0.id == background.id }) {
+                settings.deleteReaderCustomBackground(id: background.id)
+            }
+            settings.readerCustomBackgrounds = savedReaderBackgrounds
             settings.appearanceExtrasBaseline = nil
             settings.customAppearanceThemes = themes
             settings.appearancePageBackgrounds = backgrounds

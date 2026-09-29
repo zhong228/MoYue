@@ -96,28 +96,36 @@ struct AppearanceThemeWriteBackTests {
         #expect(extras.bookshelfGridColumnCount == 3)
     }
 
-    @Test func resettingAnImportedThemeRestoresThePackOriginal() async throws {
+    /// The report: with 單獨設定深色主題 on, 默認 picked for light and a pack for dark,
+    /// light mode still wore the pack's look. The theme worn is the one on screen — and
+    /// with 單獨設定深色主題 off, the dark slot's is never worn.
+    @Test func onlyTheThemeOnScreenIsWorn() async throws {
         let settings = GlobalSettings.shared
         let fixture = Fixture(settings)
         defer { fixture.restore() }
         fixture.reset(iconSize: 24, columns: 3)
 
-        var original = AppearanceThemeExtras()
-        original.tabIconSize = 30
-        var pack = Self.colourTheme("Imported", extras: original)
-        pack.originalExtras = original
+        var extras = AppearanceThemeExtras()
+        extras.tabIconSize = 30
+        let pack = Self.colourTheme("Dark only", extras: extras)
         settings.customAppearanceThemes.append(pack)
+        settings.appearanceUsesSeparateDarkTheme = true
+        settings.appearanceOnScreen = .light
+        settings.appearanceDarkThemeID = pack.id
+        #expect(settings.rootTabIconSize == 24)
+        #expect(settings.readingSettingsThemeID == GlobalSettings.defaultAppearanceThemeID)
 
-        settings.appearanceThemeID = pack.id
-        #expect(!settings.canResetCustomAppearanceTheme(id: pack.id))
-
-        settings.rootTabIconSize = 36
-        #expect(settings.canResetCustomAppearanceTheme(id: pack.id))
-
-        settings.resetCustomAppearanceTheme(id: pack.id)
-        #expect(settings.customAppearanceThemes.first { $0.id == pack.id }?.extras == original)
-        // The theme on screen is re-applied in the same turn, not on the next pick.
+        settings.appearanceOnScreen = .dark
         #expect(settings.rootTabIconSize == 30)
+        #expect(settings.readingSettingsThemeID == pack.id)
+
+        settings.appearanceOnScreen = .light
+        #expect(settings.rootTabIconSize == 24)
+
+        settings.appearanceOnScreen = .dark
+        settings.appearanceUsesSeparateDarkTheme = false
+        #expect(settings.rootTabIconSize == 24)
+        #expect(settings.readingSettingsThemeID == GlobalSettings.defaultAppearanceThemeID)
     }
 
     @Test func removingACoverAnotherThemeStillShowsLeavesTheFileOnDisk() async throws {
@@ -346,6 +354,8 @@ struct AppearanceThemeWriteBackTests {
         private let backgrounds: [String: AppearancePageBackgroundConfig]
         private let cardBackground: AppearanceCardBackground?
         private let visibleTabs: [String]
+        private let separateDark: Bool
+        private let onScreen: AppearanceColorScheme
 
         init(_ settings: GlobalSettings) {
             self.settings = settings
@@ -363,6 +373,8 @@ struct AppearanceThemeWriteBackTests {
             backgrounds = settings.appearancePageBackgrounds
             cardBackground = settings.appearanceCardBackground
             visibleTabs = settings.rootTabVisibleIDs
+            separateDark = settings.appearanceUsesSeparateDarkTheme
+            onScreen = settings.appearanceOnScreen
         }
 
         /// Puts the app on a built-in preset with a known starting state, so a test
@@ -391,6 +403,8 @@ struct AppearanceThemeWriteBackTests {
         }
 
         func restore() {
+            settings.appearanceUsesSeparateDarkTheme = separateDark
+            settings.appearanceOnScreen = onScreen
             settings.appearanceThemeID = GlobalSettings.defaultAppearanceThemeID
             settings.appearanceDarkThemeID = GlobalSettings.defaultAppearanceThemeID
             settings.appearanceExtrasBaseline = nil

@@ -65,7 +65,7 @@ struct LegadoMigrationView: View {
     // MARK: - Sections
 
     private var descriptionSection: some View {
-        Section(header: Text(localized("說明"))) {
+        Section(header: Text(localized("說明")).foregroundStyle(DSColor.textSecondary)) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(localized("支援從 Legado（閱讀）Android 應用匯入："))
                     .font(DSFont.subheadline)
@@ -87,7 +87,7 @@ struct LegadoMigrationView: View {
     }
 
     private var importSection: some View {
-        Section(header: Text(localized("匯入"))) {
+        Section(header: Text(localized("匯入")).foregroundStyle(DSColor.textSecondary)) {
             Button {
                 showFilePicker = true
             } label: {
@@ -116,12 +116,13 @@ struct LegadoMigrationView: View {
 
     @ViewBuilder
     private func resultSection(_ result: LegadoMigrationManager.ImportResult) -> some View {
-        Section(header: Text(localized("結果"))) {
+        Section(header: Text(localized("結果")).foregroundStyle(DSColor.textSecondary)) {
             if result.sourcesImported > 0 {
                 HStack {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
                     Text(String(format: localized("書源：%d 個"), result.sourcesImported))
+                        .foregroundStyle(DSColor.textPrimary)
                 }
             }
             if result.booksImported > 0 {
@@ -129,6 +130,7 @@ struct LegadoMigrationView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
                     Text(String(format: localized("書籍：%d 本"), result.booksImported))
+                        .foregroundStyle(DSColor.textPrimary)
                 }
             }
             if result.sourcesImported == 0 && result.booksImported == 0 && result.errors.isEmpty {
@@ -149,7 +151,7 @@ struct LegadoMigrationView: View {
     }
 
     private var logSection: some View {
-        Section(header: Text(localized("記錄"))) {
+        Section(header: Text(localized("記錄")).foregroundStyle(DSColor.textSecondary)) {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {

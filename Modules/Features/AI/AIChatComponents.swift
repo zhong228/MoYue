@@ -268,6 +268,7 @@ struct AIAnswerMarkdownView: View {
                     .font(DSFont.footnote.monospaced())
                     .fixedSize(horizontal: true, vertical: false)
                     .padding(DSSpacing.md)
+                    .foregroundStyle(DSColor.textPrimary)
             }
             .background(DSColor.surface, in: RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous))
         }

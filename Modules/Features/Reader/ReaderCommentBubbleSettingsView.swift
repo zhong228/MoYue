@@ -15,7 +15,7 @@ struct ReaderCommentBubbleSettingsView: View {
 
     var body: some View {
         Form {
-            Section(header: Text(localized("氣泡樣式"))) {
+            Section(header: Text(localized("氣泡樣式")).foregroundStyle(DSColor.textSecondary)) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: DSSpacing.sm) {
                         ForEach([
@@ -38,13 +38,14 @@ struct ReaderCommentBubbleSettingsView: View {
                 Toggle(localized("優先使用選取的氣泡樣式"), isOn: prioritizeSelectedBubbleBinding)
             } header: {
                 Text(localized("顯示偏好"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 Text(localized("開啟後優先使用選取的氣泡樣式；關閉後依書源提供的 SVG 顯示。"))
                     .dsSectionFooter()
             }
             .interfaceSectionSurface()
 
-            Section(header: Text(localized("管理"))) {
+            Section(header: Text(localized("管理")).foregroundStyle(DSColor.textSecondary)) {
                 Button(action: openNewStyleEditor) {
                     Label(localized("新建樣式"), systemImage: "plus.circle")
                 }
@@ -77,7 +78,7 @@ struct ReaderCommentBubbleSettingsView: View {
             }
             .interfaceSectionSurface()
 
-            Section(header: Text(localized("整體大小"))) {
+            Section(header: Text(localized("整體大小")).foregroundStyle(DSColor.textSecondary)) {
                 BubbleSliderRow(
                     title: localized("當前樣式大小"),
                     valueText: String(format: "%.2f×", settings.commentBubbleScale),
@@ -91,7 +92,7 @@ struct ReaderCommentBubbleSettingsView: View {
             }
             .interfaceSectionSurface()
 
-            Section(header: Text(localized("文字大小"))) {
+            Section(header: Text(localized("文字大小")).foregroundStyle(DSColor.textSecondary)) {
                 BubbleSliderRow(
                     title: localized("數字字號比例"),
                     valueText: "\(Int((settings.commentBubbleTextScale * 100).rounded()))%",
@@ -106,7 +107,7 @@ struct ReaderCommentBubbleSettingsView: View {
             .interfaceSectionSurface()
         }
         .softScrollEdges()
-        .navigationTitle(localized("段評氣泡"))
+        .navigationTitle(localized("氣泡設定"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)
         .sheet(item: $editorDraft) { draft in
@@ -510,12 +511,12 @@ private struct CommentBubbleStyleEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text(localized("樣式名稱"))) {
+                Section(header: Text(localized("樣式名稱")).foregroundStyle(DSColor.textSecondary)) {
                     TextField(localized("樣式名稱"), text: $nameDraft)
                 }
                 .interfaceSectionSurface()
 
-                Section(header: Text(localized("SVG / TXT"))) {
+                Section(header: Text(localized("SVG / TXT")).foregroundStyle(DSColor.textSecondary)) {
                     TextEditor(text: $svgDraft)
                         .font(DSFont.monospaced())
                         .frame(minHeight: DSLayout.readerSVGEditorHeight)
@@ -589,6 +590,7 @@ private struct BubbleSliderRow: View {
             HStack {
                 Text(title)
                     .font(DSFont.body)
+                    .foregroundStyle(DSColor.textPrimary)
                 Spacer()
                 Text(valueText)
                     .font(DSFont.body)

@@ -117,6 +117,7 @@ struct AICharacterListView: View {
             )
         } header: {
             Text(localized("指定人物整理卡片"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             // The one place in the assistant that reads past the reader's progress. It is
             // opt-in, and the only thing holding spoilers back is a prompt rule — so the
@@ -131,9 +132,9 @@ struct AICharacterListView: View {
     private var emptySection: some View {
         Section {
             ContentUnavailableView {
-                Label(localized("還沒有人物卡"), systemImage: "person.text.rectangle")
+                UnavailableLabel(localized("還沒有人物卡"), systemImage: "person.text.rectangle")
             } description: {
-                Text(localized("整理之後，多角色朗讀也會用這裡的別名，把同一個人的不同稱呼歸成同一個聲音。"))
+                Text(localized("整理之後，多角色朗讀也會用這裡的別名，把同一個人的不同稱呼歸成同一個聲音。")).foregroundStyle(DSColor.textSecondary)
             }
         }
         .listRowBackground(Color.clear)
@@ -150,10 +151,10 @@ struct AICharacterListView: View {
     private func profileSection(_ profile: AICharacterProfile) -> some View {
         Section {
             if let role = profile.role {
-                LabeledContent(localized("身分"), value: role)
+                ThemedLabeledContent(localized("身分"), value: role)
             }
             if let first = profile.firstAppearance {
-                LabeledContent(localized("首次登場"), value: first)
+                ThemedLabeledContent(localized("首次登場"), value: first)
             }
             if !profile.aliasCandidates.isEmpty {
                 LabeledContent(
@@ -174,6 +175,7 @@ struct AICharacterListView: View {
             }
         } header: {
             Text(profile.name)
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(profile.citationChunkIDs.isEmpty ? localized("未提供可核對引用") : String(format: localized("引用 %d 筆原文"), profile.citationChunkIDs.count))
                 .dsSectionFooter()

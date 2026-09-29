@@ -16,17 +16,17 @@ struct SourceSearchSheet: View {
                         ProgressView()
                         Text(localized("搜尋書源中…"))
                             .font(DSFont.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(DSColor.textSecondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if aggregator.results.isEmpty {
                     VStack(spacing: DSSpacing.md) {
                         Image(systemName: "magnifyingglass")
                             .font(.largeTitle)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(DSColor.textTertiary)
                         Text(localized("未找到其他書源"))
                             .font(DSFont.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(DSColor.textSecondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -42,18 +42,18 @@ struct SourceSearchSheet: View {
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text(origin.sourceName)
                                                     .font(DSFont.fixed(size: 15, weight: .medium))
-                                                    .foregroundColor(.primary)
+                                                    .foregroundStyle(DSColor.textPrimary)
                                                 if !origin.lastChapter.isEmpty {
                                                     Text(origin.lastChapter)
                                                         .font(DSFont.fixed(size: 12))
-                                                        .foregroundColor(.secondary)
+                                                        .foregroundStyle(DSColor.textSecondary)
                                                         .lineLimit(1)
                                                 }
                                             }
                                             Spacer()
                                             Image(systemName: "chevron.right")
                                                 .font(DSFont.fixed(size: 13))
-                                                .foregroundColor(Color.secondary.opacity(0.5))
+                                                .foregroundStyle(DSColor.textSecondary.opacity(0.5))
                                         }
                                         .padding(.vertical, 4)
                                     }
@@ -63,11 +63,11 @@ struct SourceSearchSheet: View {
                                 HStack(spacing: DSSpacing.sm) {
                                     Text(searchBook.displayName)
                                         .font(DSFont.headline)
-                                        .foregroundColor(.primary)
+                                        .foregroundStyle(DSColor.textPrimary)
                                     if !searchBook.author.isEmpty {
                                         Text(searchBook.author)
                                             .font(DSFont.caption)
-                                            .foregroundColor(.secondary)
+                                            .foregroundStyle(DSColor.textSecondary)
                                     }
                                 }
                             }

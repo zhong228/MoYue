@@ -41,19 +41,26 @@ extension GlobalSettings {
         }
     }
 
-    /// The custom theme the current selection belongs to, if any. The light slot's
-    /// theme wins and the dark slot is consulted only when the light one is a
-    /// built-in preset — a custom theme selected in either slot owns the extras, and
-    /// a built-in in one slot does not cancel the other.
+    /// The custom theme on screen, if any — see `onScreenAppearanceThemeID`.
+    ///
+    /// It used to be the light slot's custom theme, else the dark slot's: a built-in in
+    /// one slot did not cancel the other. So with 默認 picked for light and a pack for
+    /// dark, the pack's page backgrounds, icons, font and reading setup stayed on in
+    /// light mode as well — and even after 單獨設定深色主題 was turned off (2026-09-29).
     ///
     /// Deliberately *not* gated on the theme already carrying extras: a colour-only
     /// theme has to be able to acquire its first one when the user edits something.
     var activeExtrasOwnerThemeID: String? {
-        func customID(_ id: String?) -> String? {
-            guard let id, customAppearanceThemes.contains(where: { $0.id == id }) else { return nil }
-            return id
-        }
-        return customID(appearanceThemeID) ?? customID(appearanceDarkThemeID)
+        let id = onScreenAppearanceThemeID
+        return customAppearanceThemes.contains(where: { $0.id == id }) ? id : nil
+    }
+
+    /// The theme selected for the appearance on screen: the dark slot's while
+    /// 單獨設定深色主題 is on and the app is dark, the light slot's otherwise.
+    var onScreenAppearanceThemeID: String {
+        appearanceUsesSeparateDarkTheme && appearanceOnScreen == .dark
+            ? appearanceDarkThemeID
+            : appearanceThemeID
     }
 
     /// The extras in force, or nil when the selected theme speaks for nothing.

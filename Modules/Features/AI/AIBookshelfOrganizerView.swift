@@ -59,9 +59,9 @@ struct AIBookshelfOrganizerView: View {
             // instead of opening the paywall straight from the menu. No service details and
             // no way into AI 助手設定, which is Pro as well.
             ContentUnavailableView {
-                Label(localized("需要 Pro"), systemImage: "lock.fill")
+                UnavailableLabel(localized("需要 Pro"), systemImage: "lock.fill")
             } description: {
-                Text(localized("問書、整章翻譯、查詞與整理書架"))
+                Text(localized("問書、整章翻譯、查詞與整理書架")).foregroundStyle(DSColor.textSecondary)
             } actions: {
                 Button(localized("升級")) { showsPaywall = true }
                     .buttonStyle(.borderedProminent)
@@ -94,17 +94,18 @@ struct AIBookshelfOrganizerView: View {
             Section { ProgressView(localized("載入中…")) }
                 .interfaceSectionSurface()
         } else if candidates.isEmpty {
-            ContentUnavailableView(scope == .ungrouped ? localized("沒有未分組的書") : localized("書架上沒有書"),
-                                   systemImage: "books.vertical")
+            ContentUnavailableView {
+                UnavailableLabel(scope == .ungrouped ? localized("沒有未分組的書") : localized("書架上沒有書"), systemImage: "books.vertical")
+            }
                 .listRowBackground(Color.clear)
         } else {
             switch model.service() {
             case let .success(active):
                 Section {
-                    LabeledContent(localized("要整理的書"), value: "\(candidates.count)")
-                    LabeledContent(localized("生成服務"), value: active.name)
-                    LabeledContent(localized("生成模型"), value: active.model)
-                    LabeledContent(localized("預計模型呼叫"), value: "\(AIBookshelfOrganizer.batches(candidates).count)")
+                    ThemedLabeledContent(localized("要整理的書"), value: "\(candidates.count)")
+                    ThemedLabeledContent(localized("生成服務"), value: active.name)
+                    ThemedLabeledContent(localized("生成模型"), value: active.model)
+                    ThemedLabeledContent(localized("預計模型呼叫"), value: "\(AIBookshelfOrganizer.batches(candidates).count)")
                 } footer: {
                     Text(localized("會送出書名、作者，以及線上書已快取的分類、簡介和前幾章標題。"))
                         .dsSectionFooter()
@@ -140,8 +141,10 @@ struct AIBookshelfOrganizerView: View {
         Section {
             ProgressView(value: Double(completed), total: Double(max(total, 1))) {
                 Text(localized("整理中…"))
+                    .foregroundStyle(DSColor.textPrimary)
             } currentValueLabel: {
                 Text(verbatim: "\(completed)/\(total)")
+                    .foregroundStyle(DSColor.textSecondary)
             }
             Button(localized("停止"), role: .cancel) { model.cancel() }
         }
@@ -153,8 +156,11 @@ struct AIBookshelfOrganizerView: View {
     @ViewBuilder private var review: some View {
         if let proposal = model.proposal {
             if proposal.groups.isEmpty {
-                ContentUnavailableView(localized("不需要移動"), systemImage: "checkmark.circle",
-                    description: Text(localized("每本書都已在建議的分組裡，或 AI 沒有把握。")))
+                ContentUnavailableView {
+                    UnavailableLabel(localized("不需要移動"), systemImage: "checkmark.circle")
+                } description: {
+                    Text(localized("每本書都已在建議的分組裡，或 AI 沒有把握。")).foregroundStyle(DSColor.textSecondary)
+                }
                     .listRowBackground(Color.clear)
             } else {
                 Section {
@@ -202,6 +208,7 @@ struct AIBookshelfOrganizerView: View {
             }
         } header: {
             Text(isNew ? localized("新分組") : localized("現有分組"))
+                .foregroundStyle(DSColor.textSecondary)
         }
         .interfaceSectionSurface()
     }

@@ -337,19 +337,19 @@ struct OnlineBookView: View {
             VStack(alignment: .leading, spacing: DSSpacing.xs) {
                 Text(displayName)
                     .font(DSFont.title2.weight(.bold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(DSColor.textPrimary)
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(displayAuthor)
                     .font(DSFont.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .lineLimit(1)
 
                 if !displayWordCount.isEmpty {
                     Text(displayWordCount)
                         .font(DSFont.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DSColor.textSecondary)
                         .padding(.top, 2)
                 }
 
@@ -367,7 +367,7 @@ struct OnlineBookView: View {
             ForEach(tags, id: \.self) { tag in
                 Text(tag)
                     .font(DSFont.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .padding(.horizontal, DSSpacing.md)
                     .padding(.vertical, 6)
                     .interfaceCardSurface(in: Capsule())
@@ -382,10 +382,11 @@ struct OnlineBookView: View {
         VStack(alignment: .leading, spacing: DSSpacing.sm) {
             Text(localized("簡介"))
                 .font(DSFont.headline)
+                .foregroundStyle(DSColor.textPrimary)
 
             Text(displayIntro)
                 .font(DSFont.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DSColor.textSecondary)
                 .lineSpacing(3)
                 .lineLimit(introExpanded ? nil : 4)
 
@@ -415,6 +416,7 @@ struct OnlineBookView: View {
         VStack(alignment: .leading, spacing: DSSpacing.sm) {
             Text(localized("來源"))
                 .font(DSFont.headline)
+                .foregroundStyle(DSColor.textPrimary)
 
             Button {
                 showSourcePicker = true
@@ -426,7 +428,7 @@ struct OnlineBookView: View {
 
                     Text(sourceName)
                         .font(DSFont.subheadline.weight(.medium))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(DSColor.textPrimary)
                         .lineLimit(1)
 
                     Spacer(minLength: DSSpacing.sm)
@@ -436,7 +438,7 @@ struct OnlineBookView: View {
                         .foregroundStyle(DSColor.accent)
                     Image(systemName: "chevron.right")
                         .font(DSFont.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(DSColor.textTertiary)
                 }
                 .padding(.horizontal, DSSpacing.lg)
                 .padding(.vertical, DSSpacing.md)
@@ -466,12 +468,13 @@ struct OnlineBookView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(localized("目錄"))
                     .font(DSFont.headline)
+                    .foregroundStyle(DSColor.textPrimary)
                 Spacer()
                 if !chapters.isEmpty {
                     Button { showChapterList = true } label: {
                         Text(String(format: localized("%d 章"), chapters.count))
                             .font(DSFont.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(DSColor.textSecondary)
                             .overlay(alignment: .bottom) {
                                 Color.accentColor.frame(height: 1)
                                     .offset(y: 4)
@@ -484,7 +487,7 @@ struct OnlineBookView: View {
             if !displayLatestChapter.isEmpty {
                 Label(displayLatestChapter, systemImage: "clock.arrow.circlepath")
                     .font(DSFont.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .lineLimit(1)
             }
 
@@ -509,7 +512,7 @@ struct OnlineBookView: View {
                     .foregroundStyle(DSColor.warning)
                 Text(err)
                     .font(DSFont.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .multilineTextAlignment(.center)
                 Button(localized("重試")) { Task { await loadTOC() } }
                     .font(DSFont.subheadline.weight(.medium))
@@ -520,7 +523,7 @@ struct OnlineBookView: View {
         } else if chapters.isEmpty {
             Text(localized("目錄為空"))
                 .font(DSFont.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DSColor.textSecondary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, DSSpacing.lg)
         } else {
@@ -536,7 +539,7 @@ struct OnlineBookView: View {
                     HStack(spacing: DSSpacing.md) {
                         Text(chapter.title)
                             .font(DSFont.subheadline)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(DSColor.textPrimary)
                             .lineLimit(1)
                         Spacer(minLength: DSSpacing.sm)
                         if chapter.isVip || chapter.isPay {
@@ -546,7 +549,7 @@ struct OnlineBookView: View {
                         }
                         Image(systemName: "chevron.right")
                             .font(DSFont.caption)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(DSColor.textTertiary)
                     }
                     .padding(.horizontal, DSSpacing.lg)
                     .padding(.vertical, DSSpacing.md)
@@ -1060,10 +1063,11 @@ private struct ChapterListSheet: View {
                     Text(bookName)
                         .font(DSFont.subheadline.weight(.medium))
                         .lineLimit(1)
+                        .foregroundStyle(DSColor.textPrimary)
                 }
                 Text(String(format: localized("共 %d 章"), chapters.count))
                     .font(DSFont.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
             }
             .padding(.vertical, 12)
             .padding(.horizontal, 16)
@@ -1082,7 +1086,7 @@ private struct ChapterListSheet: View {
                             HStack(spacing: DSSpacing.md) {
                                 Text(chapter.title)
                                     .font(DSFont.body)
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(DSColor.textPrimary)
                                     .lineLimit(1)
                                 Spacer(minLength: DSSpacing.sm)
                                 if chapter.isVip || chapter.isPay {

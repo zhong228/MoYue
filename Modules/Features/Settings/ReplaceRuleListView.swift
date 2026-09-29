@@ -30,9 +30,9 @@ struct ReplaceRuleListView: View {
                     VStack(spacing: 16) {
                         Image(systemName: "text.magnifyingglass")
                             .font(DSFont.fixed(size: 48))
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(DSColor.textSecondary)
                         Text(localized("尚無替換規則"))
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(DSColor.textSecondary)
                         Button(localized("新增規則")) { showingAdd = true }
                             .buttonStyle(.bordered)
                     }
@@ -234,7 +234,7 @@ private struct ReplaceRuleRow: View {
                 }
                 Text(rule.pattern)
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .lineLimit(1)
                 if !rule.replacement.isEmpty {
                     Text("→ \(rule.replacement)")
@@ -272,13 +272,13 @@ struct ReplaceRuleEditView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text(localized("基本"))) {
+                Section(header: Text(localized("基本")).foregroundStyle(DSColor.textSecondary)) {
                     TextField(localized("規則名稱"), text: $rule.name)
                     Toggle(localized("啟用"), isOn: $rule.enabled)
                 }
                 .interfaceSectionSurface()
 
-                Section(header: Text(localized("匹配"))) {
+                Section(header: Text(localized("匹配")).foregroundStyle(DSColor.textSecondary)) {
                     Toggle(localized("正則表達式"), isOn: $rule.isRegex)
                     TextField(localized("匹配模式"), text: $rule.pattern)
                         .font(DSFont.fixed(size: 14, design: .monospaced))
@@ -290,7 +290,7 @@ struct ReplaceRuleEditView: View {
                 }
                 .interfaceSectionSurface()
 
-                Section(header: Text(localized("作用範圍"))) {
+                Section(header: Text(localized("作用範圍")).foregroundStyle(DSColor.textSecondary)) {
                     Picker(localized("範圍"), selection: $rule.scope) {
                         Text(localized("全局")).tag("global")
                         if rule.scope != "global" {

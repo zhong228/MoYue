@@ -36,8 +36,8 @@ enum SharedCustomizationImportService {
         case qiTheme(QiThemeImport)
 
         /// The question to ask before anything is written, or nil when there is nothing
-        /// to decide: a look only adds a theme, and a settings file without a layout
-        /// changes no more than its own name says.
+        /// to decide: a look only adds a theme, a theme pack's reading setup is its theme's
+        /// own, and a settings file without a layout changes no more than its name says.
         @MainActor
         var prompt: CustomizationImportPrompt? {
             switch self {
@@ -50,10 +50,8 @@ enum SharedCustomizationImportService {
                     parts: ReadingSetupPart.parts(in: plan.readingSettings),
                     themeName: GlobalSettings.shared.readingImportThemeName(for: plan.readingSettings.items)
                 )
-            case .qiTheme(let theme):
-                let parts = QiThemeImportService.readingParts(of: theme)
-                guard !parts.isEmpty else { return nil }
-                return .themePack(named: theme.name, readingParts: parts)
+            case .qiTheme:
+                return nil
             }
         }
     }
@@ -77,12 +75,8 @@ enum SharedCustomizationImportService {
         }
     }
 
-    /// - Parameter reading: the answer to `plan.prompt`. Only a theme pack asks the
-    ///   question; the other plans have nowhere else to put a reading setup.
-    static func apply(
-        _ plan: Plan,
-        reading: ReadingSettingsDisposition
-    ) async throws -> CustomizationImportOverview {
+    /// Runs once `plan.prompt`, if any, has been answered 取代.
+    static func apply(_ plan: Plan) async throws -> CustomizationImportOverview {
         let settings = GlobalSettings.shared
         switch plan {
         case .appearance(let data):
@@ -99,7 +93,7 @@ enum SharedCustomizationImportService {
             )
         case .qiTheme(let theme):
             return CustomizationImportOverview(
-                qiTheme: try await QiThemeImportService.apply(theme, reading: reading)
+                qiTheme: try await QiThemeImportService.apply(theme)
             )
         }
     }

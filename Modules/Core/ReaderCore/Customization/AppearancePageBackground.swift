@@ -99,6 +99,21 @@ struct AppearancePageBackgroundConfig: Codable, Hashable {
         if colorScheme == .dark { darkSecondaryHex = hex } else { lightSecondaryHex = hex }
     }
 
+    /// How strongly a pack's light picture shows in dark mode when the pack has none of
+    /// its own for dark: dim enough over the dark page for light text to read on it.
+    static let reusedDarkImageOpacity = 0.4
+
+    /// A pack with a light picture and no dark one keeps its picture in dark mode, dimmed,
+    /// instead of going to a plain dark page (「主題包的深色主題無腦變黑」, 2026-09-29).
+    /// The same file serves both: the reference check that reclaims files sees it in use
+    /// while either appearance shows it.
+    mutating func reuseLightImageInDarkIfMissing() {
+        guard normalizedImageFileName(darkImageFileName) == nil,
+              let light = normalizedImageFileName(lightImageFileName) else { return }
+        darkImageFileName = light
+        darkImageOpacity = Self.reusedDarkImageOpacity
+    }
+
     /// All image files this config references.
     var imageFileNames: [String] {
         [lightImageFileName, darkImageFileName].compactMap(normalizedImageFileName)

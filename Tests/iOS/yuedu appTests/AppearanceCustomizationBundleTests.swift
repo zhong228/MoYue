@@ -10,6 +10,28 @@ import UIKit
 @Suite("Appearance customization bundle", .serialized)
 struct AppearanceCustomizationBundleTests {
 
+    /// 導出主題 includes the colours edited on built-in themes, and 導入主題 puts them back.
+    @Test("the bundle carries the colours edited on built-in themes")
+    @MainActor
+    func builtInThemeColoursRoundTrip() throws {
+        let settings = GlobalSettings.shared
+        let saved = settings.appearanceBuiltInThemeColors
+        defer { settings.appearanceBuiltInThemeColors = saved }
+
+        var colors = AppearanceThemePreset.classic.customCopy(name: "默認")
+        colors.accentHex = 0x123456
+        let bundle = AppearanceCustomizationBundle(
+            snapshot: AppearanceCustomizationSnapshot(builtInThemeColors: [AppearanceThemePreset.classicID: colors])
+        )
+        let data = try JSONEncoder().encode(bundle)
+        let decoded = try JSONDecoder().decode(AppearanceCustomizationBundle.self, from: data)
+        #expect(decoded.builtInThemeColors?[AppearanceThemePreset.classicID]?.accentHex == 0x123456)
+
+        settings.appearanceBuiltInThemeColors = [:]
+        try settings.importAppearanceCustomization(from: data)
+        #expect(settings.appearanceBuiltInThemeColors[AppearanceThemePreset.classicID]?.accentHex == 0x123456)
+    }
+
     @Test("new appearance bundle carries regex configuration and asset references")
     func regexConfigurationRoundTrip() throws {
         let assetID = readerStyleFixtureUUID(121)
@@ -67,14 +89,16 @@ struct AppearanceCustomizationBundleTests {
         let savedThemes = settings.customAppearanceThemes
         let savedBackgrounds = settings.appearancePageBackgrounds
         let savedIcons = settings.rootTabIconAssets
-        let savedMode = settings.readerCustomBackgroundMode
+        let savedReaderBackgrounds = settings.readerCustomBackgrounds
+        let savedWornBackground = settings.readerCustomBackgroundID
         settings.clearLaunchImage(for: .light)
         settings.clearLaunchImage(for: .dark)
         defer {
             settings.customAppearanceThemes = savedThemes
             settings.appearancePageBackgrounds = savedBackgrounds
             settings.rootTabIconAssets = savedIcons
-            settings.readerCustomBackgroundMode = savedMode
+            settings.readerCustomBackgrounds = savedReaderBackgrounds
+            settings.readerCustomBackgroundID = savedWornBackground
             settings.clearLaunchImage(for: .light)
             settings.clearLaunchImage(for: .dark)
         }

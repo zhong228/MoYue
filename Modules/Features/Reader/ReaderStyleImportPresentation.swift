@@ -115,7 +115,7 @@ private struct ReaderStyleImportPresentationModifier: ViewModifier {
             .onChanged(of: route) { newValue in
                 if let newValue { activeRoute = newValue }
             }
-            .customizationImportPrompt($pendingPlan, prompt: \.prompt) { pending, _ in
+            .customizationImportPrompt($pendingPlan, prompt: \.prompt) { pending in
                 apply(pending.plan)
             }
             .alert(item: $alert) { alert in

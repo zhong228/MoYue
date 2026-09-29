@@ -105,9 +105,9 @@ struct BookSourceRuleDebugView: View {
                     VStack(spacing: 12) {
                         Image(systemName: "magnifyingglass")
                             .font(DSFont.largeTitle)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(DSColor.textSecondary)
                         Text(localized("輸入資料後按「執行」開始調試"))
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(DSColor.textSecondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -158,6 +158,7 @@ private struct DebugLogRow: View {
             HStack(alignment: .top, spacing: 8) {
                 Text(icon)
                     .font(DSFont.body)
+                    .foregroundStyle(DSColor.textPrimary)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.step)
@@ -175,7 +176,7 @@ private struct DebugLogRow: View {
 
                 Text(entry.timestamp, style: .time)
                     .font(DSFont.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
             }
             .contentShape(Rectangle())
             .onTapGesture {
@@ -188,7 +189,7 @@ private struct DebugLogRow: View {
             if isExpanded, let detail = entry.detail {
                 Text(detail)
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .padding(.leading, 28)
                     .padding(.vertical, 4)
                     .padding(.horizontal, 8)
@@ -201,7 +202,7 @@ private struct DebugLogRow: View {
                     Spacer()
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(DSFont.caption2)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(DSColor.textSecondary)
                 }
             }
         }

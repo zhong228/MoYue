@@ -33,6 +33,7 @@ struct SourceCaptchaView: View {
                 } header: {
                     if !request.sourceName.isEmpty {
                         Text(request.sourceName)
+                            .foregroundStyle(DSColor.textSecondary)
                     }
                 }
                 if sourceID != nil {

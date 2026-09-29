@@ -83,6 +83,23 @@ struct ReaderSettingsExportTests {
         #expect(try decoded.decodedLayoutPreset()?.fontSize == 20)
     }
 
+    /// 匯出閱讀設定 asks for a name first; the file carries it (2026-09-29). It used to be
+    /// 閱讀設定.yuedustyle every time, whatever the setup.
+    @Test("the export is written under the name it was given")
+    func writesTheExportUnderItsName() async throws {
+        let inputs = ReaderSettingsExportInputs(
+            layout: makeSnapshot(),
+            chapterTitleStyle: .default,
+            regexHighlights: .disabled
+        )
+
+        let url = try await ReaderSettingsExportFile.write(inputs, named: "夜讀/護眼")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(url.lastPathComponent == "夜讀-護眼.yuedustyle")
+        #expect(FileManager.default.fileExists(atPath: url.path))
+    }
+
     /// Both schemas decode every field with `decodeIfPresent`, so either decoder
     /// accepts any JSON object. Without the key check, importing a chapter-title
     /// file resets the reader's type size to the layout default.

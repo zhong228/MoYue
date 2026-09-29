@@ -116,10 +116,9 @@ struct SearchSourceScopeSheet: View {
     private var sourceSection: some View {
         Section {
             if enabledSources.isEmpty {
-                ContentUnavailableView(
-                    localized("尚未設置書源"),
-                    systemImage: "exclamationmark.triangle"
-                )
+                ContentUnavailableView {
+                    UnavailableLabel(localized("尚未設置書源"), systemImage: "exclamationmark.triangle")
+                }
                 .listRowBackground(Color.clear)
             } else if filteredSources.isEmpty {
                 ContentUnavailableView.search(text: sourceQuery)

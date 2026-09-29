@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftUI
 
 extension Notification.Name {
     /// Reading settings were written from outside the reader — a theme switch, a change of
@@ -14,8 +15,8 @@ extension Notification.Name {
 /// - **全域** (`globalReadingSettings`): one complete reading setup every theme shares.
 /// - **each theme's own** (`themeReadingSettings(themeID:)`): sparse — only the settings
 ///   edited under that theme while they followed it, or brought in by its pack. A custom
-///   theme keeps them in its extras, so they travel with it and 重置此主題 restores the
-///   pack's; a built-in theme keeps them here.
+///   theme keeps them in its extras, so they travel with it; a built-in theme keeps
+///   them here.
 /// - **the scope** (`readingSettingsScope`): per setting, which of the two the reader wears.
 ///
 /// What is on screen is always 全域 with the worn theme's own values laid over it for the
@@ -34,19 +35,24 @@ extension GlobalSettings {
         case userImport
     }
 
-    private static let readingScopeKey = "yd_reading_settings_scope"
-    private static let globalReadingKey = "yd_reading_settings_global"
-    private static let builtInThemeReadingKey = "yd_reading_settings_builtin_themes"
+    /// v2 since the default became 跟隨主題 (2026-09-29).
+    private static let readingScopeKey = "yd_reading_settings_scope_v2"
+    /// Written for one day while the default was 全域. See `migratedLegacyReadingScope`.
+    private static let legacyReadingScopeKey = "yd_reading_settings_scope"
+    static let globalReadingKey = "yd_reading_settings_global"
+    static let builtInThemeReadingKey = "yd_reading_settings_builtin_themes"
 
     /// Where the scope and the two stores live, for a test that has to put them back.
-    static let readingSettingsStoreKeys = [readingScopeKey, globalReadingKey, builtInThemeReadingKey]
+    static let readingSettingsStoreKeys = [
+        readingScopeKey, legacyReadingScopeKey, globalReadingKey, builtInThemeReadingKey,
+    ]
 
     // MARK: - 排版生效範圍
 
     var readingSettingsScope: ReadingSettingsScopeConfiguration {
         get {
             guard let data = UserDefaults.standard.data(forKey: Self.readingScopeKey) else {
-                return .default
+                return migratedLegacyReadingScope()
             }
             do {
                 return try JSONDecoder().decode(ReadingSettingsScopeConfiguration.self, from: data)
@@ -66,6 +72,31 @@ extension GlobalSettings {
             }
             synchronizeReadingSettings()
         }
+    }
+
+    /// The v1 config, carried over once. Saved while the default was 全域, its overrides
+    /// could only be rows set to 跟隨主題 — an import's doing, and what every row now does
+    /// anyway — so it is dropped. One whose default the user had already made 跟隨主題 is
+    /// the user's own choice, rows set to 全域 included, and is kept whole.
+    private func migratedLegacyReadingScope() -> ReadingSettingsScopeConfiguration {
+        guard let data = UserDefaults.standard.data(forKey: Self.legacyReadingScopeKey) else {
+            return .default
+        }
+        UserDefaults.standard.removeObject(forKey: Self.legacyReadingScopeKey)
+        let legacy: ReadingSettingsScopeConfiguration
+        do {
+            legacy = try JSONDecoder().decode(ReadingSettingsScopeConfiguration.self, from: data)
+        } catch {
+            AppLogger.error("⟐ v1 reading scope unreadable, using the default", error: error)
+            return .default
+        }
+        guard legacy.defaultScope == .theme, legacy != .default else { return .default }
+        do {
+            UserDefaults.standard.set(try JSONEncoder().encode(legacy), forKey: Self.readingScopeKey)
+        } catch {
+            AppLogger.error("⟐ migrated reading scope not stored", error: error)
+        }
+        return legacy
     }
 
     func setReadingSettingsScope(_ scope: ReadingSettingsScope, for item: ReadingSettingsScopeItem) {
@@ -108,14 +139,15 @@ extension GlobalSettings {
     }
 
     /// The theme whose own values are worn for the settings that follow the theme: the
-    /// custom theme that owns the rest of the appearance extras, else the selected preset.
+    /// one on screen, as for the rest of the appearance extras.
     var readingSettingsThemeID: String {
-        activeExtrasOwnerThemeID ?? appearanceThemeID
+        onScreenAppearanceThemeID
     }
 
     /// The name shown for `readingSettingsThemeID`.
     var readingSettingsThemeName: String {
-        AppearanceThemePreset.preset(id: readingSettingsThemeID, customThemes: customAppearanceThemes)?
+        // A name only: the same with Pro or without.
+        appearancePreset(id: readingSettingsThemeID, isProActive: true)?
             .localizedName ?? readingSettingsThemeID
     }
 
@@ -196,13 +228,17 @@ extension GlobalSettings {
     /// this with the one field it set; it is a no-op while a setup is being applied.
     ///
     /// A setting that follows the theme is recorded on the worn theme, per field, so the
-    /// theme keeps saying nothing about the rest. A shared one goes into 全域.
+    /// theme keeps saying nothing about the rest. A shared one goes into 全域. The edit is
+    /// also noted as this device's latest setting of its row, which iCloud syncs.
     func recordReadingSettingEdit(_ mutate: (inout AppearanceThemeReadingSettings) -> Void) {
         guard !isApplyingAppearanceExtras else { return }
         var edit = AppearanceThemeReadingSettings()
         mutate(&edit)
         let items = edit.items
         guard !items.isEmpty else { return }
+        if !isApplyingReadingSettingsSync {
+            noteReadingSettingSync(edit)
+        }
 
         let themeItems = items.intersection(readingSettingsScope.themeItems)
         let sharedItems = items.subtracting(themeItems)
@@ -220,32 +256,6 @@ extension GlobalSettings {
     }
 
     // MARK: - Imports
-
-    /// 跟隨主題 for a pack's settings: the rows its reading setup speaks for follow the
-    /// theme from now on, for every theme.
-    func followTheme(for items: Set<ReadingSettingsScopeItem>) {
-        guard !items.isEmpty else { return }
-        var configuration = readingSettingsScope
-        for item in items {
-            configuration.setScope(.theme, for: item)
-        }
-        readingSettingsScope = configuration
-    }
-
-    /// 取代全域設定: `reading` becomes the shared setup for every setting it speaks for,
-    /// whatever the scope says, and is worn at once. Throws when the header/footer cannot
-    /// be stored, with nothing changed on screen.
-    func replaceGlobalReadingSettings(with reading: AppearanceThemeReadingSettings) throws {
-        let previous = globalReadingSettings
-        globalReadingSettings = previous.overlaid(with: reading)
-        do {
-            try applyReadingSettings(origin: .userImport)
-        } catch {
-            globalReadingSettings = previous
-            synchronizeReadingSettings()
-            throw error
-        }
-    }
 
     /// Where an import of reading settings into the current setup lands: the name of the
     /// worn theme when any of `items` follows it, nil when all of them are shared.
@@ -288,20 +298,12 @@ extension GlobalSettings {
         snapshot.bindsAppearanceReaderTheme = appearanceBindReaderTheme
         snapshot.boundLightReaderTheme = appearanceBoundLightReaderTheme
         snapshot.boundDarkReaderTheme = appearanceBoundDarkReaderTheme
-        snapshot.customBackground = currentCustomBackgroundSettings
+        snapshot.readerBackgroundID = readerCustomBackgroundID?.uuidString ?? ""
         snapshot.commentBubble = currentCommentBubbleSettings
         snapshot.dialogueBubbleStyle = dialogueBubbleStyle
         snapshot.regexHighlights = regexHighlightConfiguration
         snapshot.textUnderline = currentTextUnderlineSettings
         return snapshot
-    }
-
-    var currentCustomBackgroundSettings: AppearanceThemeReadingSettings.CustomBackground {
-        AppearanceThemeReadingSettings.CustomBackground(
-            mode: readerCustomBackgroundMode.rawValue,
-            colorHex: readerCustomBackgroundColorHex,
-            imageFileName: readerCustomBackgroundImageFileName
-        )
     }
 
     var currentCommentBubbleSettings: AppearanceThemeReadingSettings.CommentBubble {
@@ -391,8 +393,12 @@ extension GlobalSettings {
         // own `didSet`, which must not overwrite the value the setup asks for.
         assign(\.appearanceBindReaderTheme, reading.bindsAppearanceReaderTheme)
         assign(\.readerFollowSystemTheme, reading.followsSystemTheme)
-        assign(\.appearanceBoundLightReaderTheme, reading.boundLightReaderTheme)
-        assign(\.appearanceBoundDarkReaderTheme, reading.boundDarkReaderTheme)
+        assign(\.appearanceBoundLightReaderTheme, reading.boundLightReaderTheme.map {
+            liveBoundReaderTheme($0, for: .light)
+        })
+        assign(\.appearanceBoundDarkReaderTheme, reading.boundDarkReaderTheme.map {
+            liveBoundReaderTheme($0, for: .dark)
+        })
         if let raw = reading.readerTheme, let theme = ReaderTheme(rawValue: raw),
            theme != ReaderTheme.loadPersisted() {
             // Stored rather than set on `ReaderConfig`, which owns the live value and
@@ -400,16 +406,13 @@ extension GlobalSettings {
             theme.persist()
             changed = true
         }
-        if let background = reading.customBackground {
-            if let mode = ReaderCustomBackgroundMode(rawValue: background.mode) {
-                assign(\.readerCustomBackgroundMode, mode)
-            }
-            if readerCustomBackgroundColorHex != background.colorHex {
-                readerCustomBackgroundColorHex = background.colorHex
-                changed = true
-            }
-            if readerCustomBackgroundImageFileName != background.imageFileName {
-                readerCustomBackgroundImageFileName = background.imageFileName
+        if let raw = reading.readerBackgroundID {
+            // A saved background deleted since — here, or on another device — is not worn;
+            // the one under it is. `customBackground` is never read here: the migration
+            // made saved backgrounds of every value that had one.
+            let id = UUID(uuidString: raw).flatMap { readerCustomBackground(id: $0)?.id }
+            if readerCustomBackgroundID != id {
+                readerCustomBackgroundID = id
                 changed = true
             }
         }

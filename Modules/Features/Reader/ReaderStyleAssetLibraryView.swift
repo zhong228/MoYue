@@ -39,11 +39,11 @@ struct ReaderStyleAssetLibraryView: View {
                 ProgressView(localized("正在載入素材"))
                     .frame(maxWidth: .infinity)
             } else if assets.isEmpty {
-                ContentUnavailableView(
-                    localized("尚無素材"),
-                    systemImage: "photo.on.rectangle.angled",
-                    description: Text(localized("從相簿或檔案加入圖片，之後可供所有閱讀樣式重用。"))
-                )
+                ContentUnavailableView {
+                    UnavailableLabel(localized("尚無素材"), systemImage: "photo.on.rectangle.angled")
+                } description: {
+                    Text(localized("從相簿或檔案加入圖片，之後可供所有閱讀樣式重用。")).foregroundStyle(DSColor.textSecondary)
+                }
             } else {
                 ForEach(assets) { asset in
                     assetRow(asset)
@@ -106,7 +106,7 @@ struct ReaderStyleAssetLibraryView: View {
     private func assetRow(_ asset: ReaderStyleAsset) -> some View {
         Button { onSelect(asset) } label: {
             Label {
-                LabeledContent(asset.name, value: "\(asset.pixelWidth) × \(asset.pixelHeight)")
+                ThemedLabeledContent(asset.name, value: "\(asset.pixelWidth) × \(asset.pixelHeight)")
             } icon: {
                 ReaderStyleAssetThumbnail(assetID: asset.id)
                     .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)

@@ -116,6 +116,7 @@ struct ChapterTitleStyleSettingsView: View {
             }
         } header: {
             Text(localized("選擇預設"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("自動適配淺色和深色。選好後可繼續微調。"))
                 .dsSectionFooter()
@@ -143,6 +144,7 @@ struct ChapterTitleStyleSettingsView: View {
             }
         } header: {
             Text(localized("我的預設"))
+                .foregroundStyle(DSColor.textSecondary)
         }
         .interfaceSectionSurface()
     }
@@ -189,6 +191,7 @@ struct ChapterTitleStyleSettingsView: View {
                 .listRowBackground(Color.clear)
         } header: {
             Text(localized("預覽"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             if style.advancedCSSEnabled {
                 Text(localized("切換淺色／深色查看對應外觀的模板。"))
@@ -200,7 +203,7 @@ struct ChapterTitleStyleSettingsView: View {
     // MARK: - Layout (advanced CSS: shared spacing + em anchor)
 
     private var cssLayoutSection: some View {
-        Section(header: Text(localized("佈局"))) {
+        Section(header: Text(localized("佈局")).foregroundStyle(DSColor.textSecondary)) {
             Toggle(localized("顯示標題"), isOn: binding(\ChapterTitleStyle.visible))
                 .font(DSFont.body)
             sliderRow(localized("標題大小"), value: binding(\ChapterTitleStyle.size), range: ChapterTitleStyle.sizeRange, step: 1, unit: "pt")
@@ -213,7 +216,7 @@ struct ChapterTitleStyleSettingsView: View {
     // MARK: - Layout (manual mode)
 
     private var layoutSection: some View {
-        Section(header: Text(localized("佈局"))) {
+        Section(header: Text(localized("佈局")).foregroundStyle(DSColor.textSecondary)) {
             Toggle(localized("顯示標題"), isOn: binding(\ChapterTitleStyle.visible))
                 .font(DSFont.body)
 
@@ -256,7 +259,7 @@ struct ChapterTitleStyleSettingsView: View {
     // MARK: - Fonts (manual mode)
 
     private var fontSection: some View {
-        Section(header: Text(localized("字體"))) {
+        Section(header: Text(localized("字體")).foregroundStyle(DSColor.textSecondary)) {
             Toggle(localized("跟隨閱讀字體"), isOn: binding(\ChapterTitleStyle.followsBodyFont))
                 .font(DSFont.body)
 
@@ -287,14 +290,14 @@ struct ChapterTitleStyleSettingsView: View {
                 }
             }
         } label: {
-            LabeledContent(title, value: fontDisplayName(current))
+            ThemedLabeledContent(title, value: fontDisplayName(current))
         }
     }
 
     // MARK: - Actions
 
     private var actionSection: some View {
-        Section(header: Text(localized("操作"))) {
+        Section(header: Text(localized("操作")).foregroundStyle(DSColor.textSecondary)) {
             Button {
                 savePresetName = ""
                 showingSavePresetDialog = true
@@ -376,7 +379,7 @@ struct ChapterTitleStyleSettingsView: View {
         format: String = "%.0f"
     ) -> some View {
         let formatted = "\(String(format: format, value.wrappedValue)) \(unit)"
-        LabeledContent(title, value: formatted)
+        ThemedLabeledContent(title, value: formatted)
         Slider(value: value, in: range, step: step)
             .disabled(!style.visible)
             .accessibilityLabel(title)

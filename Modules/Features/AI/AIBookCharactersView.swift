@@ -50,8 +50,11 @@ struct AIBookCharactersView: View {
                 }
                 .interfaceSectionSurface()
             } else if snapshot.memory.cards.isEmpty && snapshot.profiles.isEmpty {
-                ContentUnavailableView(localized("尚無人物資料"), systemImage: "person.2",
-                    description: Text(localized("整理已讀內容，查看人物與原文依據。")))
+                ContentUnavailableView {
+                    UnavailableLabel(localized("尚無人物資料"), systemImage: "person.2")
+                } description: {
+                    Text(localized("整理已讀內容，查看人物與原文依據。")).foregroundStyle(DSColor.textSecondary)
+                }
                     .listRowBackground(Color.clear)
             }
             if !memoryCards.isEmpty {
@@ -65,17 +68,17 @@ struct AIBookCharactersView: View {
                                            value: String(format: localized("%d 筆經歷記錄"), card.facts.count))
                         }
                     }
-                } header: { Text(localized("人物經歷")) }
+                } header: { Text(localized("人物經歷")).foregroundStyle(DSColor.textSecondary) }
                 .interfaceSectionSurface()
             }
             if !profiles.isEmpty {
                 Section {
                     ForEach(profiles, id: \.name) { profile in
                         NavigationLink { AICharacterProfileView(profile: profile) } label: {
-                            LabeledContent(profile.name, value: profile.role ?? "")
+                            ThemedLabeledContent(profile.name, value: profile.role ?? "")
                         }
                     }
-                } header: { Text(localized("已保存人物卡")) }
+                } header: { Text(localized("已保存人物卡")).foregroundStyle(DSColor.textSecondary) }
                 .interfaceSectionSurface()
             }
         }
@@ -101,22 +104,22 @@ private struct AICharacterProfileView: View {
         List {
             if profile.role != nil || profile.firstAppearance != nil || !profile.aliasCandidates.isEmpty {
                 Section {
-                    if let role = profile.role { LabeledContent(localized("身分"), value: role) }
-                    if let first = profile.firstAppearance { LabeledContent(localized("首次登場"), value: first) }
+                    if let role = profile.role { ThemedLabeledContent(localized("身分"), value: role) }
+                    if let first = profile.firstAppearance { ThemedLabeledContent(localized("首次登場"), value: first) }
                     if !profile.aliasCandidates.isEmpty {
-                        LabeledContent(localized("別稱"), value: profile.aliasCandidates.joined(separator: "、"))
+                        ThemedLabeledContent(localized("別稱"), value: profile.aliasCandidates.joined(separator: "、"))
                     }
                 }
                 .interfaceSectionSurface()
             }
             if !profile.summary.isEmpty {
-                Section { Text(profile.summary).textSelection(.enabled) }
+                Section { Text(profile.summary).textSelection(.enabled).foregroundStyle(DSColor.textPrimary) }
                     .interfaceSectionSurface()
             }
             if !profile.relationships.isEmpty {
                 Section {
-                    ForEach(profile.relationships, id: \.self) { Text($0) }
-                } header: { Text(localized("關係記錄")) }
+                    ForEach(profile.relationships, id: \.self) { Text($0).foregroundStyle(DSColor.textPrimary) }
+                } header: { Text(localized("關係記錄")).foregroundStyle(DSColor.textSecondary) }
                 .interfaceSectionSurface()
             }
         }

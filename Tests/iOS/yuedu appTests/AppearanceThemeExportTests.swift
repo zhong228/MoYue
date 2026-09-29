@@ -168,74 +168,24 @@ struct AppearanceThemeExportTests {
         }
     }
 
-    // MARK: - Which backgrounds travel
-
-    @Test("exporting a saved theme carries its own snapshot, not the live one")
-    @MainActor
-    func exportsTheThemesOwnSnapshot() throws {
-        let settings = GlobalSettings.shared
-        let savedThemes = settings.customAppearanceThemes
-        let savedBackgrounds = settings.appearancePageBackgrounds
-        defer {
-            settings.customAppearanceThemes = savedThemes
-            settings.appearancePageBackgrounds = savedBackgrounds
-        }
-
-        var snapshot = AppearancePageBackgroundConfig()
-        snapshot.lightPrimaryHex = 0xAABBCC
-        let theme = makeTheme(
-            name: "有背景",
-            pageBackgrounds: [AppearancePageBackgroundScope.global.rawValue: snapshot]
-        )
-        settings.customAppearanceThemes = [theme]
-
-        // Live backgrounds are deliberately different from the theme's snapshot.
-        var live = AppearancePageBackgroundConfig()
-        live.lightPrimaryHex = 0x112233
-        settings.appearancePageBackgrounds = [AppearancePageBackgroundScope.global.rawValue: live]
-
-        let exported = settings.appearanceThemeExportSnapshot(
-            for: AppearanceThemePreset.preset(from: theme)
-        )
-        let key = AppearancePageBackgroundScope.global.rawValue
-        #expect(exported.extras?.pageBackgrounds?[key]?.lightPrimaryHex == 0xAABBCC)
-    }
-
-    @Test("exporting a built-in carries the page backgrounds in effect now")
-    @MainActor
-    func exportsLiveBackgroundsForBuiltIns() throws {
-        let settings = GlobalSettings.shared
-        let savedBackgrounds = settings.appearancePageBackgrounds
-        defer { settings.appearancePageBackgrounds = savedBackgrounds }
-
-        var live = AppearancePageBackgroundConfig()
-        live.lightPrimaryHex = 0x112233
-        settings.appearancePageBackgrounds = [AppearancePageBackgroundScope.global.rawValue: live]
-
-        let exported = settings.appearanceThemeExportSnapshot(
-            for: AppearanceThemePreset.freeSolidPresets[0]
-        )
-        let key = AppearancePageBackgroundScope.global.rawValue
-        #expect(exported.extras?.pageBackgrounds?[key]?.lightPrimaryHex == 0x112233)
-        // What actually ships: the wire file still carries them in its own field, with
-        // the bytes, and must not also ship the exporter's local file names in extras.
-        let file = AppearanceThemeExportFile(customTheme: exported)
-        #expect(file.pageBackgrounds?[key]?.lightPrimaryHex == 0x112233)
-        #expect(file.extras?.pageBackgrounds == nil)
-    }
-
     // MARK: - Filenames
+
+    /// 導出主題 exports the whole look, named after the theme on screen (2026-09-29).
+    @Test("the export is named after the theme")
+    func namesTheExportAfterTheTheme() {
+        #expect(AppearanceCustomizationExportPayload.filename(for: "山风-凄美地") == "山风-凄美地.yuedustyle")
+    }
 
     @Test("theme names with path separators produce a writable filename")
     func sanitizesExportFilename() {
-        let name = AppearanceThemeExportPayload.filename(for: "海/霧\n藍")
+        let name = AppearanceCustomizationExportPayload.filename(for: "海/霧\n藍")
         #expect(!name.contains("/"))
         #expect(!name.contains("\n"))
-        #expect(name.hasSuffix(".json"))
+        #expect(name.hasSuffix(".yuedustyle"))
     }
 
     @Test("an empty theme name still produces a filename")
     func fallsBackForEmptyName() {
-        #expect(AppearanceThemeExportPayload.filename(for: "   ") == "yuedu-theme-theme.json")
+        #expect(AppearanceCustomizationExportPayload.filename(for: "   ") == "appearance.yuedustyle")
     }
 }

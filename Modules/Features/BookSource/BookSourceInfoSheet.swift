@@ -71,6 +71,7 @@ struct BookSourceInfoSheet: View {
                     ruleRow(localized("正文規則"), present: !source.ruleContent.content.isEmpty)
                 } header: {
                     Text(localized("規則"))
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 .interfaceSectionSurface()
 
@@ -82,6 +83,7 @@ struct BookSourceInfoSheet: View {
                             .textSelection(.enabled)
                     } header: {
                         Text(localized("註釋"))
+                            .foregroundStyle(DSColor.textSecondary)
                     }
                     .interfaceSectionSurface()
                 }
@@ -94,6 +96,7 @@ struct BookSourceInfoSheet: View {
                             .textSelection(.enabled)
                     } header: {
                         Text(localized("源變量說明"))
+                            .foregroundStyle(DSColor.textSecondary)
                     }
                     .interfaceSectionSurface()
                 }
@@ -154,6 +157,7 @@ struct BookSourceInfoSheet: View {
         HStack {
             Text(label)
                 .font(DSFont.subheadline)
+                .foregroundStyle(DSColor.textPrimary)
             Spacer()
             Image(systemName: present ? "checkmark.circle.fill" : "minus.circle")
                 .foregroundColor(present ? DSColor.success : DSColor.textSecondary.opacity(0.5))

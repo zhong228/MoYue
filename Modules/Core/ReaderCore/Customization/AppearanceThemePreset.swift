@@ -88,9 +88,10 @@ struct AppearanceCustomTheme: Identifiable, Codable, Hashable {
     /// snapshot, which is what makes a theme keep its own set rather than leaving
     /// the change on whichever theme is selected next.
     var extras: AppearanceThemeExtras?
-    /// What `extras` held the moment this theme was imported, so 重置此主題 can put
-    /// the pack author's look back after the write-back above has edited it. nil
-    /// for a theme the user built here — there is no author's version to return to.
+    /// What `extras` held the moment this theme was imported — the pack author's look,
+    /// untouched by the write-back above. It marks the theme as an imported pack, which
+    /// the one-time migrations look for; its 重置此主題 was removed (2026-09-29). nil for
+    /// a theme the user built here.
     var originalExtras: AppearanceThemeExtras?
 
     /// The light-appearance trio, or nil unless all three were authored — a
@@ -219,6 +220,10 @@ struct AppearanceThemePreset: Identifiable, Hashable {
     /// toward white), and the reader, where only a dark palette is allowed to
     /// repaint the 黑色 reading background. Never set by hand.
     var isDarkAppearancePalette: Bool = false
+    /// Set when this is a saved reading background (`ReaderCustomBackground`) rather than
+    /// a theme's palette. Its text colour is then its own, ahead of the 文字顏色 set for
+    /// the built-in background under it.
+    var readerBackgroundID: UUID?
     /// Dark colors the user authored for this theme (custom themes only). When
     /// set, `palette(for: .dark)` uses them verbatim instead of deriving.
     var authoredDarkColors: AppearanceThemeDarkColors?
@@ -228,6 +233,9 @@ struct AppearanceThemePreset: Identifiable, Hashable {
     /// The dark-appearance trio, kept on the light palette so `palette(for:)` has
     /// something to hand the dark one. Never read directly by `DSColor`.
     var authoredDarkTextColors: AppearanceThemeTextColors?
+    /// A built-in theme painted with colours the user edited in 配色 (2026-09-29) — see
+    /// `withEditedColors`. Carried into the dark palette too.
+    var hasEditedColors = false
 
     var localizedName: String { displayName ?? localized(nameKey) }
     var backgroundColor: Color { Color(uiColor: background) }
@@ -237,29 +245,42 @@ struct AppearanceThemePreset: Identifiable, Hashable {
     var dialogueColor: Color { Color(uiColor: dialogue) }
     var previewBackgroundColor: Color { Color(uiColor: previewBackground) }
 
-    /// The app's original look: no tint override, system default accent.
-    var isClassic: Bool { id == Self.classicID }
+    /// The app's original look: no tint override, system default accent. A 默認 whose
+    /// colours the user edited is a palette like any other.
+    var isClassic: Bool { id == Self.classicID && !hasEditedColors }
 
     // MARK: - App-wide surface colors (drive DSColor when a theme is active)
 
-    /// Page / grouped-list background — the tinted "paper". Nudged toward the
-    /// accent so the tint is actually visible against the near-white cards
-    /// (the raw preset background alone reads as plain white). A dark palette is
-    /// already at the right depth and carries its hue, so it is used as-is —
-    /// pulling it toward the brightened dark accent would wash the page out.
-    var appPageBackground: UIColor {
-        isDarkAppearancePalette ? background : Self.mix(background, accent, 0.12)
-    }
-    /// Cards, rows, sheets — near-white so they lift off the tinted page. In dark
-    /// appearance "lifting" means a small step up in brightness, the way the
-    /// system's grouped backgrounds stack.
+    /// Page / grouped-list background: the theme's 背景, exactly as set. The accent
+    /// used to be mixed in (12%) so the tint showed against near-white cards, which
+    /// made 強調色 repaint the page — a red accent turned it pink. The accent is for
+    /// what can be tapped (Apple HIG › Color; user's call, 2026-09-29).
+    var appPageBackground: UIColor { background }
+    /// Cards, rows, sheets — a step off the page, the way the system's grouped
+    /// backgrounds stack. Light: toward white. A page already near white has no
+    /// lighter step left, so its cards step down instead, as iOS pairs its white
+    /// background with a grey one for grouping; without that, a white 背景 would
+    /// leave the cards invisible now that the accent no longer tints the page.
+    /// Dark: a small step up in brightness.
     var appCardBackground: UIColor {
-        Self.mix(background, .white, isDarkAppearancePalette ? 0.10 : 0.72)
+        if isDarkAppearancePalette { return Self.mix(background, .white, 0.10) }
+        return hasNearWhiteBackground
+            ? Self.mix(background, .black, 0.04)
+            : Self.mix(background, .white, 0.72)
     }
-    /// Nested / secondary surfaces. Light: slightly more tint than cards. Dark:
-    /// one step lighter again, matching iOS's tertiary-over-secondary stacking.
+    /// Nested / secondary surfaces, between the page and the cards. Dark: one step
+    /// lighter again, matching iOS's tertiary-over-secondary stacking.
     var appSecondaryBackground: UIColor {
-        Self.mix(background, .white, isDarkAppearancePalette ? 0.16 : 0.45)
+        if isDarkAppearancePalette { return Self.mix(background, .white, 0.16) }
+        return hasNearWhiteBackground
+            ? Self.mix(background, .black, 0.02)
+            : Self.mix(background, .white, 0.45)
+    }
+    /// Too light for a lift toward white to show: past this the card comes out under
+    /// ~7/255 from the page. Every built-in background sits below it (the lightest,
+    /// 默認's, at 0.913), so only a 背景 the user sets near white crosses it.
+    private var hasNearWhiteBackground: Bool {
+        Self.relativeLuminance(background) >= 0.92
     }
     var appSeparator: UIColor { text.withAlphaComponent(0.12) }
     var appBorder: UIColor { text.withAlphaComponent(0.18) }
@@ -287,7 +308,35 @@ struct AppearanceThemePreset: Identifiable, Hashable {
         // leaves both nil and keeps the system labels in both appearances.
         dark.authoredTextColors = authoredDarkTextColors
         dark.authoredDarkTextColors = authoredDarkTextColors
+        dark.hasEditedColors = hasEditedColors
         return dark
+    }
+
+    /// This built-in theme painted with the colours the user edited on it in 配色 —
+    /// only `colors`' colour fields are read. Everything that makes it this theme is
+    /// kept: id, name, artwork, lock.
+    func withEditedColors(_ colors: AppearanceCustomTheme) -> AppearanceThemePreset {
+        var edited = AppearanceThemePreset(
+            id: id,
+            nameKey: nameKey,
+            displayName: displayName,
+            background: Self.hex(colors.backgroundHex),
+            text: Self.hex(colors.textHex),
+            bar: Self.hex(colors.barHex),
+            accent: Self.hex(colors.accentHex),
+            dialogue: Self.hex(colors.dialogueHex),
+            previewBackground: isImagePreset ? previewBackground : Self.hex(colors.barHex),
+            relativePreviewImagePath: relativePreviewImagePath,
+            imagePaths: imagePaths,
+            requiresPro: requiresPro,
+            isImagePreset: isImagePreset,
+            isCustom: isCustom
+        )
+        edited.authoredDarkColors = colors.dark.map { AppearanceThemeDarkColors($0) }
+        edited.authoredTextColors = colors.textColors ?? authoredTextColors
+        edited.authoredDarkTextColors = colors.darkTextColors ?? authoredDarkTextColors
+        edited.hasEditedColors = true
+        return edited
     }
 
     /// Same theme identity, painted with an explicit set of colors.
@@ -507,15 +556,19 @@ struct AppearanceThemePreset: Identifiable, Hashable {
     /// per trait removes the ordering question entirely.
     nonisolated(unsafe) static var activeAppThemes = ActiveAppThemes()
 
+    /// - Parameter builtInColors: the colours edited on built-in themes, by id — the app
+    ///   resolves through `GlobalSettings.appearancePreset(id:)`, which passes them.
     static func preset(
         id: String?,
-        customThemes: [AppearanceCustomTheme] = []
+        customThemes: [AppearanceCustomTheme] = [],
+        builtInColors: [String: AppearanceCustomTheme] = [:]
     ) -> AppearanceThemePreset? {
         guard let id, !id.isEmpty else { return nil }
         if let custom = customThemes.first(where: { $0.id == id }) {
             return preset(from: custom)
         }
-        return allDefaultPresets.first { $0.id == id }
+        guard let builtIn = allDefaultPresets.first(where: { $0.id == id }) else { return nil }
+        return builtInColors[id].map(builtIn.withEditedColors) ?? builtIn
     }
 
     static func preset(from custom: AppearanceCustomTheme) -> AppearanceThemePreset {
@@ -752,8 +805,9 @@ struct AppearanceThemeBackgroundView: View {
 ///
 /// Held as a pair rather than "whichever palette matches the current appearance" so
 /// `DSColor` can build a dynamic `UIColor`, which UIKit resolves against the trait
-/// collection in effect when a view actually draws. See `activeAppThemes`.
-struct ActiveAppThemes {
+/// collection in effect when a view actually draws — the pair itself travels in that
+/// trait collection (`AppThemesTrait`). Equatable so a change of it can be told apart.
+struct ActiveAppThemes: Equatable {
     var light: AppearanceThemePreset?
     var dark: AppearanceThemePreset?
 

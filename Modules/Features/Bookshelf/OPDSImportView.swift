@@ -35,7 +35,7 @@ struct RemoteLibraryBrowserView: View {
                         NavigationLink {
                             CalibreWirelessView(store: store, service: dependencies.calibreWireless)
                         } label: {
-                            Label(localized("電腦傳書"), systemImage: "desktopcomputer")
+                            SettingsRowLabel(localized("電腦傳書"), systemImage: "desktopcomputer")
                         }
                     }.interfaceSectionSurface()
                     if connections.isEmpty {
@@ -106,9 +106,9 @@ struct RemoteLibraryBrowserView: View {
 
     private var emptyLibraryView: some View {
         ContentUnavailableView {
-            Label(localized("尚未加入書庫"), systemImage: "books.vertical")
+            UnavailableLabel(localized("尚未加入書庫"), systemImage: "books.vertical")
         } description: {
-            Text(localized("加入伺服器即可瀏覽書籍並開始閱讀。"))
+            Text(localized("加入伺服器即可瀏覽書籍並開始閱讀。")).foregroundStyle(DSColor.textSecondary)
         } actions: {
             NavigationLink(localized("新增伺服器")) {
                 RemoteLibraryConnectionEditor(kind: kind)
@@ -172,6 +172,7 @@ struct RemoteLibraryConnectionEditor: View {
                     .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
             } header: {
                 Text(localized("伺服器設定"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 if kind == .calibre {
                     Text(localized("輸入 Calibre 或 Calibre-Web 伺服器網址；完整 OPDS 網址也可使用。"))
@@ -323,7 +324,9 @@ struct OPDSFeedView: View {
             if isLoading && entries.isEmpty && loadError == nil {
                 ProgressView(localized("正在載入書庫"))
             } else if !isLoading && entries.isEmpty && loadError == nil {
-                ContentUnavailableView(localized("此目錄沒有內容"), systemImage: "books.vertical")
+                ContentUnavailableView {
+                    UnavailableLabel(localized("此目錄沒有內容"), systemImage: "books.vertical")
+                }
             }
         }
         .navigationTitle(route.title)

@@ -204,7 +204,7 @@ struct URLImportTab: View {
                                 urlInput = ""
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(Color.secondary.opacity(0.6))
+                                    .foregroundStyle(DSColor.textTertiary)
                             }
                         }
                     }
@@ -362,6 +362,7 @@ struct HintCard: View {
                 .font(DSFont.title2).foregroundColor(DSColor.accent).frame(width: 32)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(DSFont.subheadline.weight(.semibold))
+                    .foregroundStyle(DSColor.textPrimary)
                 Text(detail).font(DSFont.caption).foregroundColor(DSColor.textSecondary)
             }
             Spacer()

@@ -46,6 +46,7 @@ struct LanServerView: View {
                     }
                 } header: {
                     Text(localized("服務狀態"))
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 .interfaceSectionSurface()
 
@@ -78,6 +79,7 @@ struct LanServerView: View {
                     endpointRow(method: "GET", path: "/health", description: localized("健康檢查"))
                 } header: {
                     Text(localized("可用接口"))
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 .interfaceSectionSurface()
             }

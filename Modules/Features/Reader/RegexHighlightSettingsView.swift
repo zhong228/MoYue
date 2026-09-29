@@ -172,6 +172,7 @@ struct RegexHighlightSettingsView: View {
             }
         } header: {
             Text(localized("內置規則"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("內置規則不能刪除。需要改匹配方式時，直接複製一條為自定義規則再改。"))
                 .dsSectionFooter()
@@ -203,6 +204,7 @@ struct RegexHighlightSettingsView: View {
             }
         } header: {
             Text(localized("自定義規則"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("自定義規則排在內置規則之後，可以覆蓋它們。"))
                 .dsSectionFooter()
@@ -213,7 +215,7 @@ struct RegexHighlightSettingsView: View {
     /// Same shape and same place as 章節標題樣式's 操作 section, so the two style
     /// pages' file actions sit where the other one taught the user to look.
     private var actionSection: some View {
-        Section(header: Text(localized("操作"))) {
+        Section(header: Text(localized("操作")).foregroundStyle(DSColor.textSecondary)) {
             ShareLink(
                 item: RegexHighlightExportPayload(configuration: model.configuration),
                 preview: SharePreview(localized("正則高亮"))
@@ -271,7 +273,7 @@ struct RegexHighlightSettingsView: View {
 
             Image(systemName: "chevron.right")
                 .font(DSFont.footnote.weight(.semibold))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(DSColor.textTertiary)
                 .accessibilityHidden(true)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: !isBuiltIn) {

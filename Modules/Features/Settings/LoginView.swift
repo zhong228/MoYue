@@ -25,10 +25,11 @@ struct LoginView: View {
                         .padding(.top, 20)
                     Text(localized("歡迎回來"))
                         .font(DSFont.largeTitle.bold())
+                        .foregroundStyle(DSColor.textPrimary)
 
                     Text(localized("使用帳號同步書庫、進度與偏好"))
                         .font(DSFont.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 20)
@@ -48,7 +49,7 @@ struct LoginView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(localized("電子郵件"))
                             .font(DSFont.caption.bold())
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(DSColor.textSecondary)
 
                         TextField(localized("請輸入您的 Email"), text: $email)
                             .keyboardType(.emailAddress)
@@ -62,7 +63,7 @@ struct LoginView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(localized("密碼"))
                             .font(DSFont.caption.bold())
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(DSColor.textSecondary)
 
                         SecureField(localized("請輸入密碼"), text: $password)
                             .textInputAutocapitalization(.never)
@@ -102,7 +103,7 @@ struct LoginView: View {
                 VStack(spacing: 20) {
                     HStack {
                         Rectangle().frame(height: 0.5).foregroundColor(.secondary.opacity(0.5))
-                        Text(localized("或使用以下方式")).font(DSFont.footnote).foregroundColor(.secondary)
+                        Text(localized("或使用以下方式")).font(DSFont.footnote).foregroundStyle(DSColor.textSecondary)
                         Rectangle().frame(height: 0.5).foregroundColor(.secondary.opacity(0.5))
                     }
 

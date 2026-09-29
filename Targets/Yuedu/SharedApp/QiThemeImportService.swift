@@ -31,16 +31,6 @@ extension AppearanceCustomizationBundle {
     }
 }
 
-/// What the reading half of an import does — the question the pre-import alert asks.
-/// Either way a pack's reading setup is also kept on its theme, for 排版生效範圍.
-enum ReadingSettingsDisposition: Equatable, Sendable {
-    /// 跟隨主題: the settings the pack speaks for follow the theme from now on, so the
-    /// pack's theme wears its own and every other theme keeps what it had.
-    case followTheme
-    /// 取代全域設定: the pack's setup replaces the shared one every theme falls back on.
-    case replaceGlobal
-}
-
 /// Applies a parsed QiReader `.qitheme` pack.
 ///
 /// Lives in the app target because it has to touch app-level stores (`GlobalSettings`,
@@ -53,9 +43,9 @@ enum QiThemeImportService {
         var appearance = AppearanceImportSummary()
         /// The theme the pack became, as stored after import.
         var theme: AppearanceCustomTheme?
-        /// The pack's reading setup, as applied — nil when the pack carried none.
+        /// The pack's reading setup, kept on its theme — nil when the pack carried none, or
+        /// when no theme came out of the import to keep it on.
         var reading: AppearanceThemeReadingSettings?
-        var readingDisposition: ReadingSettingsDisposition?
         var installedFontName: String?
         /// The installed font also became the reading face.
         var readerUsesInstalledFont = false
@@ -67,24 +57,11 @@ enum QiThemeImportService {
         try await QiThemeImporter.parse(data)
     }
 
-    /// What the pack would change about reading, for the question asked before anything
-    /// is written. Nothing is stored: the bubble and background are counted by presence.
-    static func readingParts(of theme: QiThemeImport) -> [ReadingSetupPart] {
-        var ignored: [String] = []
-        var parts = Set(ReadingSetupPart.parts(in: readingPlan(theme, notes: &ignored).readingSettings))
-        if theme.font != nil, readerAdoptsBundledFont(theme) { parts.insert(.font) }
-        if theme.bubble != nil { parts.insert(.commentBubble) }
-        if theme.readerBackground != nil { parts.insert(.background) }
-        return ReadingSetupPart.allCases.filter(parts.contains)
-    }
-
-    /// - Parameter disposition: where the pack's reading setup goes. Ignored for a pack
-    ///   that carries none.
+    /// The pack's reading setup is its theme's own, like the rest of its look: nothing is
+    /// asked, and switching to the pack's theme and away switches all of it. A setting the
+    /// user has set to 跟隨全域 in 排版生效範圍 stays shared, pack or not.
     @discardableResult
-    static func apply(
-        _ theme: QiThemeImport,
-        reading disposition: ReadingSettingsDisposition
-    ) async throws -> Outcome {
+    static func apply(_ theme: QiThemeImport) async throws -> Outcome {
         var theme = theme
         let settings = GlobalSettings.shared
         var outcome = Outcome()
@@ -143,15 +120,12 @@ enum QiThemeImportService {
         // 3. The reading half, as one reading setup — one translation, one writer.
         let reading = readingSettings(theme, readerFontPostScript: readerFontPostScript,
                                       settings: settings, outcome: &outcome)
-        if let reading {
-            outcome.reading = reading
-            outcome.readingDisposition = disposition
-        }
+        outcome.reading = reading
 
         // 4. Import the theme carrying those extras. Appending it selects it, and the
-        //    selection is what captures the baseline and applies the extras. The reading
-        //    setup always rides the theme, whatever the answer: it is the theme's own,
-        //    worn for the settings that follow the theme, and 重置此主題 restores it.
+        //    selection is what captures the baseline and applies the extras — the reading
+        //    setup included, which rides the theme: it is the theme's own, worn for every
+        //    setting that follows the theme.
         extras.reading = reading
         var themeFile = theme.themeFile
         themeFile?.extras = extras
@@ -179,22 +153,15 @@ enum QiThemeImportService {
             outcome.notes.append(localized("外觀部分套用失敗，其餘項目仍已匯入。"))
         }
 
-        // 5. The answer. The pack's theme is selected by now, so 跟隨主題 wears the pack's
-        //    values the moment the scope changes.
-        if let reading {
-            switch disposition {
-            case .replaceGlobal:
-                try settings.replaceGlobalReadingSettings(with: reading)
-            case .followTheme where outcome.theme == nil:
-                // No theme came out of the import, so there is nothing to follow — and
-                // quietly writing the setup into 全域 instead would be exactly what they
-                // declined.
-                outcome.reading = nil
-                outcome.readingDisposition = nil
-                outcome.notes.append(localized("外觀主題沒有匯入成功，閱讀設定沒有主題可以跟隨，已略過。"))
-            case .followTheme:
-                settings.followTheme(for: reading.items)
+        // 5. No theme came out of the import, so the reading setup has nothing to ride —
+        //    and writing it into 全域 instead would change every other theme.
+        if let reading = outcome.reading, outcome.theme == nil {
+            outcome.reading = nil
+            // Nor is its picture kept as a background of its own.
+            if let id = reading.readerBackgroundID.flatMap(UUID.init(uuidString:)) {
+                settings.deleteReaderCustomBackground(id: id)
             }
+            outcome.notes.append(localized("外觀主題沒有匯入成功，閱讀設定沒有主題可以跟隨，已略過。"))
         }
         return outcome
     }
@@ -250,34 +217,30 @@ enum QiThemeImportService {
         }
         if let image = theme.readerBackground {
             do {
-                let name = try ReaderCustomBackgroundStorageManager.shared.importBackground(data: image.data)
-                reading.customBackground = AppearanceThemeReadingSettings.CustomBackground(
-                    mode: ReaderCustomBackgroundMode.image.rawValue,
-                    colorHex: settings.readerCustomBackgroundColorHex,
-                    imageFileName: name
-                )
-                // What picking a background picture by hand does: 跟隨系統 and 綁定閱讀主題
-                // would otherwise repaint the reader over it.
+                // A saved background named after the pack, in the list with the user's own.
+                let picture = try settings.importReaderBackgroundPicture(data: image.data)
+                let background = settings.saveReaderCustomBackground(ReaderCustomBackground(
+                    name: ReaderCustomBackgroundLibrary.unusedName(
+                        base: theme.name,
+                        among: settings.readerCustomBackgrounds
+                    ),
+                    colorHex: picture.averageColorHex,
+                    imageFileName: picture.fileName,
+                    isDark: picture.isDark
+                ))
+                reading.readerBackgroundID = background.id.uuidString
+                // Worn in both appearances: dark mode keeps the pack's picture instead of
+                // turning 黑色, and either pick can be changed under 綁定閱讀主題.
+                reading.bindsAppearanceReaderTheme = true
+                reading.boundLightReaderTheme = ReaderBoundTheme.custom(background.id).storageValue
+                reading.boundDarkReaderTheme = ReaderBoundTheme.custom(background.id).storageValue
                 reading.followsSystemTheme = false
-                reading.bindsAppearanceReaderTheme = false
             } catch {
                 AppLogger.parse("⟐ qitheme reader background unreadable", error: error)
                 outcome.notes.append(localized("閱讀背景圖無法讀取，已略過。"))
             }
         }
         return reading.isEmpty ? nil : reading
-    }
-
-    /// Whether the reading preset names the face the pack bundles. Compared against the
-    /// manifest's declared name before install and against the installed font's real
-    /// names after it (`installFont`).
-    private static func readerAdoptsBundledFont(_ theme: QiThemeImport) -> Bool {
-        guard let requested = theme.readerFontFamilyHint?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !requested.isEmpty else {
-            return true
-        }
-        guard let declared = theme.font?.declaredPostScriptName else { return false }
-        return requested.compare(declared, options: .caseInsensitive) == .orderedSame
     }
 
     /// Stores each tab icon and returns the `"<tab>.<slot>"` map the extras carry.

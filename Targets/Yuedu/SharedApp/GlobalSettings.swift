@@ -151,21 +151,20 @@ enum ReaderTheme: String, CaseIterable {
         Color(uiColor: uiAccentColor)
     }
 
-    /// Night mode is a reversible presentation override. Custom colors and
-    /// background artwork remain configured underneath it and become visible
-    /// again when the reader returns to a non-night theme.
-    var allowsReaderBackgroundImage: Bool {
-        self != .night
-    }
-
-    /// 黑色 is a "force dark" reading background: a light palette must not repaint
-    /// it, which is what keeps a custom background (or a bound light theme) from
-    /// bleeding into night mode. A *dark* palette is itself the dark look — the
-    /// dark version of the bound appearance theme — so it is allowed through.
+    /// A palette repaints only the backgrounds of its own tone: a light one never paints
+    /// 黑色 — which is what keeps a light saved background (or a bound light theme) out of
+    /// night mode — and a dark one paints nothing but 黑色, so turning 夜間 off from a dark
+    /// saved background reaches the light page instead of leaving the dark one on screen.
+    /// Either stays configured underneath and comes back with its tone.
     private var activeAppearancePreset: AppearanceThemePreset? {
         guard let preset = AppearanceThemePreset.activeReaderTheme else { return nil }
-        guard self != .night || preset.isDarkAppearancePalette else { return nil }
+        guard (self == .night) == preset.isDarkAppearancePalette else { return nil }
         return preset
+    }
+
+    /// The saved background painting this one, if any.
+    var activeReaderBackgroundID: UUID? {
+        activeAppearancePreset?.readerBackgroundID
     }
 
     var uiBackgroundColor: UIColor {
@@ -182,10 +181,14 @@ enum ReaderTheme: String, CaseIterable {
         }
     }
 
-    /// Resolution order: the reader's own 文字顏色 for this background (an explicit
-    /// user choice, so it outranks everything) → the bound appearance palette →
-    /// the background's built-in text color.
+    /// Resolution order: a saved background's own text colour (it is a background of its
+    /// own, so the one set for the built-in under it does not apply) → the reader's own
+    /// 文字顏色 for this background (an explicit user choice, so it outranks the rest) →
+    /// the bound appearance palette → the background's built-in text color.
     var uiTextColor: UIColor {
+        if let preset = activeAppearancePreset, preset.readerBackgroundID != nil {
+            return preset.text
+        }
         if let rgbHex = GlobalSettings.shared.readerTextColorOverride(for: self) {
             return AppearanceThemePreset.hex(rgbHex)
         }
@@ -233,7 +236,7 @@ enum ReaderTheme: String, CaseIterable {
 }
 
 /// What paints the reader for one system appearance while 綁定閱讀主題 is on.
-/// The user picks one of these per appearance (淺色閱讀主題 / 黑色閱讀主題), which
+/// The user picks one of these per appearance (淺色閱讀主題 / 深色閱讀主題), which
 /// is the whole content of the binding: light appearance applies the light pick,
 /// dark appearance applies the dark pick.
 enum ReaderBoundTheme: Hashable, Identifiable {
@@ -242,11 +245,14 @@ enum ReaderBoundTheme: Hashable, Identifiable {
     case followAppearanceTheme
     /// Paint the reader with one of its own reading backgrounds.
     case reading(ReaderTheme)
+    /// A saved background (`ReaderCustomBackground`), by id — how dark mode gets a
+    /// background of the user's own instead of 黑色 (2026-09-29).
+    case custom(UUID)
 
     /// Menu order: the follow entry first, then the reading backgrounds from
     /// lightest to darkest (`ReaderTheme.allCases` starts at 夜間, which reads
-    /// wrong at the top of a list).
-    static let menuOptions: [ReaderBoundTheme] = [
+    /// wrong at the top of a list). The saved backgrounds follow these.
+    static let builtInMenuOptions: [ReaderBoundTheme] = [
         .followAppearanceTheme,
         .reading(.white),
         .reading(.green),
@@ -255,6 +261,7 @@ enum ReaderBoundTheme: Hashable, Identifiable {
     ]
 
     private static let followStorageValue = "follow_appearance"
+    private static let customStoragePrefix = "custom:"
 
     var id: String { storageValue }
 
@@ -262,32 +269,18 @@ enum ReaderBoundTheme: Hashable, Identifiable {
         switch self {
         case .followAppearanceTheme: return Self.followStorageValue
         case .reading(let theme): return theme.rawValue
+        case .custom(let id): return Self.customStoragePrefix + id.uuidString
         }
     }
 
     init(storageValue: String) {
         if let theme = ReaderTheme(rawValue: storageValue) {
             self = .reading(theme)
+        } else if storageValue.hasPrefix(Self.customStoragePrefix),
+                  let id = UUID(uuidString: String(storageValue.dropFirst(Self.customStoragePrefix.count))) {
+            self = .custom(id)
         } else {
             self = .followAppearanceTheme
-        }
-    }
-
-    var localizedTitle: String {
-        switch self {
-        case .followAppearanceTheme: return localized("跟隨外觀主題")
-        case .reading(let theme): return theme.localizedTitle
-        }
-    }
-
-    /// The reading background the reader sits on for this choice. 跟隨外觀主題 keeps
-    /// the reader on its natural background for the appearance — which matters
-    /// because the reader toolbars read `.night` to pick their own color scheme —
-    /// and lets the appearance palette repaint it.
-    func resolvedReaderTheme(for appearance: ColorScheme) -> ReaderTheme {
-        switch self {
-        case .followAppearanceTheme: return ReaderTheme.forSystem(dark: appearance == .dark)
-        case .reading(let theme): return theme
         }
     }
 }
@@ -542,6 +535,7 @@ class GlobalSettings: ObservableObject {
     private static let appearanceFollowsSystemKey = "yd_appearance_follows_system"
     private static let appearancePinnedColorSchemeKey = "yd_appearance_pinned_color_scheme"
     private static let appearanceSeparateDarkThemeKey = "yd_appearance_separate_dark_theme"
+    private static let appearanceOnScreenKey = "yd_appearance_on_screen"
     private static let appearanceBindReaderThemeKey = "yd_appearance_bind_reader_theme"
     private static let appearanceBoundLightReaderThemeKey = "yd_appearance_bound_light_reader_theme"
     private static let appearanceBoundDarkReaderThemeKey = "yd_appearance_bound_dark_reader_theme"
@@ -555,7 +549,7 @@ class GlobalSettings: ObservableObject {
     /// Key kept at the original `list_sections` spelling: the setting shipped under that
     /// name and renaming the key would silently reset it for anyone who already turned it on.
     private static let interfaceGlassCardsKey = "yd_interface_glass_list_sections"
-    private static let customAppearanceThemesKey = "yd_custom_appearance_themes"
+    static let customAppearanceThemesKey = "yd_custom_appearance_themes"
     private static let appearancePageBackgroundsKey = "yd_appearance_page_backgrounds"
     private static let appearanceCardBackgroundKey = "yd_appearance_card_background"
     private static let globalFontPostScriptKey = "yd_global_font_postscript"
@@ -594,9 +588,8 @@ class GlobalSettings: ObservableObject {
     private static let ttsMultiRoleEnabledKey = "yd_tts_multi_role_enabled"
     private static let ttsRoleVoicesKey = "yd_tts_role_voices"
     private static let readerTextColorOverridesKey = "yd_reader_text_color_overrides"
-    private static let readerCustomBackgroundModeKey = "yd_reader_custom_background_mode"
-    private static let readerCustomBackgroundColorHexKey = "yd_reader_custom_background_color_hex"
-    private static let readerCustomBackgroundImageFileNameKey = "yd_reader_custom_background_image_file_name"
+    static let readerCustomBackgroundsKey = "yd_reader_custom_backgrounds"
+    static let readerCustomBackgroundIDKey = "yd_reader_custom_background_id"
     private static let readerOverlayLayoutDataKey = "yd_reader_overlay_layout_data"
     private static let readerOverlayLayoutMigrationVersionKey = "yd_reader_overlay_layout_migration_version"
     private static let readerOverlayLayoutCorruptBackupKey = "yd_reader_overlay_layout_corrupt_backup"
@@ -1122,30 +1115,22 @@ class GlobalSettings: ObservableObject {
             }
         }
     }
-    @Published var readerCustomBackgroundMode: ReaderCustomBackgroundMode {
-        didSet {
-            UserDefaults.standard.set(readerCustomBackgroundMode.rawValue, forKey: Self.readerCustomBackgroundModeKey)
-            recordReadingSettingEdit { $0.customBackground = currentCustomBackgroundSettings }
-        }
+    /// The saved reading backgrounds, in the order they were made — see
+    /// `ReaderCustomBackground`. Synced through iCloud like the bubble styles, with the
+    /// pictures riding as files. Written through `ReaderCustomBackgroundStore.swift`.
+    @Published var readerCustomBackgrounds: [ReaderCustomBackground] {
+        didSet { Self.saveReaderCustomBackgrounds(readerCustomBackgrounds) }
     }
-    @Published var readerCustomBackgroundColorHex: UInt32? {
+    /// The saved background worn over the reading background picked in the reader, or nil
+    /// for the built-in one alone. 綁定閱讀主題 picks per appearance and does not read it.
+    @Published var readerCustomBackgroundID: UUID? {
         didSet {
-            if let readerCustomBackgroundColorHex {
-                UserDefaults.standard.set(Int(readerCustomBackgroundColorHex), forKey: Self.readerCustomBackgroundColorHexKey)
+            if let readerCustomBackgroundID {
+                UserDefaults.standard.set(readerCustomBackgroundID.uuidString, forKey: Self.readerCustomBackgroundIDKey)
             } else {
-                UserDefaults.standard.removeObject(forKey: Self.readerCustomBackgroundColorHexKey)
+                UserDefaults.standard.removeObject(forKey: Self.readerCustomBackgroundIDKey)
             }
-            recordReadingSettingEdit { $0.customBackground = currentCustomBackgroundSettings }
-        }
-    }
-    @Published var readerCustomBackgroundImageFileName: String? {
-        didSet {
-            if let readerCustomBackgroundImageFileName, !readerCustomBackgroundImageFileName.isEmpty {
-                UserDefaults.standard.set(readerCustomBackgroundImageFileName, forKey: Self.readerCustomBackgroundImageFileNameKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: Self.readerCustomBackgroundImageFileNameKey)
-            }
-            recordReadingSettingEdit { $0.customBackground = currentCustomBackgroundSettings }
+            recordReadingSettingEdit { $0.readerBackgroundID = readerCustomBackgroundID?.uuidString ?? "" }
         }
     }
 
@@ -1171,6 +1156,9 @@ class GlobalSettings: ObservableObject {
     /// without this the restore-baseline-then-apply sequence would immediately
     /// overwrite the extras it is in the middle of applying.
     var isApplyingAppearanceExtras = false
+    /// True while reading settings from another device are being worn: their writes are
+    /// recorded like edits, but none of them is a setting made here.
+    var isApplyingReadingSettingsSync = false
 
     @Published var appearanceThemeID: String {
         didSet {
@@ -1200,7 +1188,21 @@ class GlobalSettings: ObservableObject {
         }
     }
     @Published var appearanceUsesSeparateDarkTheme: Bool {
-        didSet { UserDefaults.standard.set(appearanceUsesSeparateDarkTheme, forKey: Self.appearanceSeparateDarkThemeKey) }
+        didSet {
+            UserDefaults.standard.set(appearanceUsesSeparateDarkTheme, forKey: Self.appearanceSeparateDarkThemeKey)
+            // Which slot's theme is worn can change with it.
+            synchronizeAppearanceThemeExtras()
+        }
+    }
+    /// The appearance on screen. While 單獨設定深色主題 is on it picks whose theme is worn —
+    /// the light slot's or the dark slot's — so `ContentView` keeps it current. Stored,
+    /// so a launch starts from the last one rather than guessing.
+    @Published var appearanceOnScreen: AppearanceColorScheme {
+        didSet {
+            guard appearanceOnScreen != oldValue else { return }
+            UserDefaults.standard.set(appearanceOnScreen.rawValue, forKey: Self.appearanceOnScreenKey)
+            synchronizeAppearanceThemeExtras()
+        }
     }
     @Published var appearanceBindReaderTheme: Bool {
         didSet {
@@ -1352,6 +1354,12 @@ class GlobalSettings: ObservableObject {
     @Published var customAppearanceThemes: [AppearanceCustomTheme] {
         didSet { Self.saveCustomAppearanceThemes(customAppearanceThemes) }
     }
+    /// Colours the user edited on the built-in themes in 配色, by theme id — only the
+    /// colour fields of each are read (`AppearanceThemePreset.withEditedColors`).
+    /// 重置為默認 clears them (2026-09-29).
+    @Published var appearanceBuiltInThemeColors: [String: AppearanceCustomTheme] {
+        didSet { Self.saveAppearanceBuiltInThemeColors(appearanceBuiltInThemeColors) }
+    }
     /// Live per-scope page backgrounds (keyed by `AppearancePageBackgroundScope`
     /// raw value). This is what tabs render; saved themes only feed it through
     /// 保存為新主題 / theme selection / 導入主題.
@@ -1430,6 +1438,13 @@ class GlobalSettings: ObservableObject {
             }
             recordReadingSettingEdit { $0.fontPostScript = selectedReaderFontPostScript ?? "" }
         }
+    }
+
+    /// Bold Text changed (`GlobalAppTypography.isBoldTextActive`): every screen observing
+    /// the settings redraws, so a font it sets itself picks up the new weight — the way a
+    /// change of the global font reaches them. Nothing here is stored.
+    func typographyDidChange() {
+        objectWillChange.send()
     }
 
     var resolvedGlobalFontPostScript: String? {
@@ -1771,6 +1786,8 @@ class GlobalSettings: ObservableObject {
 
     private init() {
         UserDefaults.standard.removeObject(forKey: "yd_app_lang")
+        // Before anything below reads the stores it rewrites.
+        ReaderBackgroundMigration.runIfNeeded()
         isLoggedIn = UserDefaults.standard.bool(forKey: "yd_account_logged_in")
         accountDisplayName = UserDefaults.standard.string(forKey: "yd_account_display_name") ?? ""
         accountEmail = UserDefaults.standard.string(forKey: "yd_account_email") ?? ""
@@ -2097,15 +2114,11 @@ class GlobalSettings: ObservableObject {
             (UserDefaults.standard.object(forKey: Self.commentBubbleTextScaleKey) as? Double)
                 ?? Self.defaultCommentBubbleTextScale
         )
-        let rawCustomBackgroundMode = UserDefaults.standard.string(forKey: Self.readerCustomBackgroundModeKey) ?? ""
-        readerCustomBackgroundMode = ReaderCustomBackgroundMode(rawValue: rawCustomBackgroundMode) ?? .none
-        if let savedCustomBackgroundColor = UserDefaults.standard.object(forKey: Self.readerCustomBackgroundColorHexKey) as? Int {
-            readerCustomBackgroundColorHex = UInt32(clamping: savedCustomBackgroundColor)
-        } else {
-            readerCustomBackgroundColorHex = nil
-        }
-        readerCustomBackgroundImageFileName = UserDefaults.standard.string(forKey: Self.readerCustomBackgroundImageFileNameKey)
+        readerCustomBackgrounds = Self.loadReaderCustomBackgrounds()
+        readerCustomBackgroundID = UserDefaults.standard.string(forKey: Self.readerCustomBackgroundIDKey)
+            .flatMap(UUID.init(uuidString:))
         customAppearanceThemes = Self.loadCustomAppearanceThemes()
+        appearanceBuiltInThemeColors = Self.loadAppearanceBuiltInThemeColors()
         appearancePageBackgrounds = Self.loadPageBackgrounds()
         appearanceCardBackground = UserDefaults.standard
             .data(forKey: Self.appearanceCardBackgroundKey)
@@ -2121,6 +2134,9 @@ class GlobalSettings: ObservableObject {
         appearanceDarkThemeID = UserDefaults.standard.string(forKey: Self.appearanceDarkThemeIDKey)
             ?? Self.defaultAppearanceThemeID
         appearanceUsesSeparateDarkTheme = UserDefaults.standard.bool(forKey: Self.appearanceSeparateDarkThemeKey)
+        appearanceOnScreen = AppearanceColorScheme(
+            storageValue: UserDefaults.standard.string(forKey: Self.appearanceOnScreenKey)
+        )
         appearanceBindReaderTheme = UserDefaults.standard.bool(forKey: Self.appearanceBindReaderThemeKey)
         // Defaults reproduce what binding did before it was configurable: the
         // appearance theme paints the reader in light mode, dark mode is 黑色.
@@ -2709,14 +2725,70 @@ class GlobalSettings: ObservableObject {
         isProActive: Bool
     ) -> AppearanceThemePreset {
         let selectedID = selectedAppearanceThemeID(for: colorScheme)
-        if let selected = AppearanceThemePreset.preset(id: selectedID, customThemes: customAppearanceThemes),
+        if let selected = appearancePreset(id: selectedID, isProActive: isProActive),
            isProActive || !selected.requiresPro {
             return selected
         }
-        return AppearanceThemePreset.preset(
-            id: Self.defaultAppearanceThemeID,
-            customThemes: customAppearanceThemes
-        ) ?? AppearanceThemePreset.freeSolidPresets[0]
+        return appearancePreset(id: Self.defaultAppearanceThemeID, isProActive: isProActive)
+            ?? AppearanceThemePreset.freeSolidPresets[0]
+    }
+
+    /// The theme the app wears for `colorScheme`, or nil for 默認 as it ships (no tint,
+    /// system colours). Until launch has read every source of Pro, a false
+    /// `isProActive` may only mean "not read yet", so the Pro look is worn
+    /// optimistically — otherwise a Pro user's theme would flash 默認 for the
+    /// 0.5–2 s StoreKit takes. After that it is the truth: without Pro, a theme of the
+    /// user's own falls back to 默認 and a built-in one to the colours it ships with.
+    func appThemeOnScreen(
+        for colorScheme: ColorScheme,
+        isProActive: Bool,
+        hasResolvedEntitlements: Bool
+    ) -> AppearanceThemePreset? {
+        let wearsPro = isProActive || !hasResolvedEntitlements
+        let theme = appearanceTheme(for: colorScheme, isProActive: wearsPro)
+        return theme.isClassic ? nil : theme
+    }
+
+    /// Any theme by id: one of the user's own, or a built-in one — in the colours the
+    /// user gave it in 配色 with Pro, which that is part of; as it ships without. The
+    /// edits are kept either way and come back with Pro, like the user's own themes.
+    /// The one lookup the app resolves themes through.
+    func appearancePreset(id: String?, isProActive: Bool) -> AppearanceThemePreset? {
+        AppearanceThemePreset.preset(
+            id: id,
+            customThemes: customAppearanceThemes,
+            builtInColors: isProActive ? appearanceBuiltInThemeColors : [:]
+        )
+    }
+
+    /// A built-in theme as the user coloured it in 配色 (with Pro), or as it ships.
+    func builtInThemePreset(_ preset: AppearanceThemePreset, isProActive: Bool) -> AppearanceThemePreset {
+        guard isProActive else { return preset }
+        return appearanceBuiltInThemeColors[preset.id].map(preset.withEditedColors) ?? preset
+    }
+
+    private static let appearanceBuiltInThemeColorsKey = "yd_appearance_builtin_theme_colors"
+
+    private static func loadAppearanceBuiltInThemeColors() -> [String: AppearanceCustomTheme] {
+        guard let data = UserDefaults.standard.data(forKey: appearanceBuiltInThemeColorsKey) else { return [:] }
+        do {
+            return try JSONDecoder().decode([String: AppearanceCustomTheme].self, from: data)
+        } catch {
+            AppLogger.error("⟐ built-in theme colours unreadable", error: error)
+            return [:]
+        }
+    }
+
+    private static func saveAppearanceBuiltInThemeColors(_ colors: [String: AppearanceCustomTheme]) {
+        guard !colors.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: appearanceBuiltInThemeColorsKey)
+            return
+        }
+        do {
+            UserDefaults.standard.set(try JSONEncoder().encode(colors), forKey: appearanceBuiltInThemeColorsKey)
+        } catch {
+            AppLogger.error("⟐ built-in theme colours not stored", error: error)
+        }
     }
 
     /// Selects `preset` for one appearance slot.
@@ -2759,23 +2831,6 @@ class GlobalSettings: ObservableObject {
         } else {
             appearanceThemeID = id
         }
-    }
-
-    @discardableResult
-    func createCustomAppearanceTheme(
-        from preset: AppearanceThemePreset,
-        for slot: ColorScheme = .light
-    ) -> AppearanceCustomTheme {
-        var custom = preset.customCopy(name: localized("自訂主題"))
-        var index = 1
-        let existingNames = Set(customAppearanceThemes.map(\.name))
-        while existingNames.contains(custom.name) {
-            index += 1
-            custom.name = String(format: localized("自訂主題 %d"), index)
-        }
-        customAppearanceThemes.append(custom)
-        selectAppearanceTheme(id: custom.id, for: slot)
-        return custom
     }
 
     // MARK: - 綁定閱讀主題 (appearance → reading theme)
@@ -2831,31 +2886,17 @@ class GlobalSettings: ObservableObject {
         }
     }
 
-    /// Puts an imported theme's extras back to what the pack shipped with, undoing
-    /// every edit the write-back has recorded on it since. Nil `originalExtras` — a
-    /// theme built here — has no author's version to return to.
-    func canResetCustomAppearanceTheme(id: String) -> Bool {
-        guard let theme = customAppearanceThemes.first(where: { $0.id == id }),
-              let original = theme.originalExtras else {
-            return false
-        }
-        return theme.extras != original
-    }
-
-    func resetCustomAppearanceTheme(id: String) {
-        guard let index = customAppearanceThemes.firstIndex(where: { $0.id == id }),
-              let original = customAppearanceThemes[index].originalExtras else {
-            return
-        }
-        customAppearanceThemes[index].extras = original
-        // Re-apply only when this theme is the one on screen; the selection `didSet`
-        // will do it for the others when they are next picked.
-        guard activeExtrasOwnerThemeID == id else { return }
-        synchronizeAppearanceThemeExtras()
+    /// Renames one of the user's themes. A blank name leaves it as it was.
+    func renameCustomAppearanceTheme(id: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let index = customAppearanceThemes.firstIndex(where: { $0.id == id }),
+              customAppearanceThemes[index].name != trimmed else { return }
+        customAppearanceThemes[index].name = trimmed
     }
 
     /// Every extras snapshot that could still be pointing at a stored file: the saved
-    /// themes, the pack originals kept for 重置此主題, and the baseline handed back when
+    /// themes, the pack originals imported themes keep, and the baseline handed back when
     /// the user leaves a theme.
     ///
     /// Deleting a cover or splash file used to be unconditional, which was survivable
@@ -2902,7 +2943,7 @@ class GlobalSettings: ObservableObject {
     }
 
     /// Same check for the reader's 按鈕圖示. A theme pack's toolbar icons live on the
-    /// theme and in its pack original (重置此主題), so replacing one while wearing the
+    /// theme and in its pack original, so replacing one while wearing the
     /// theme must not delete the file the original still needs. Lives here for the same
     /// reason as the tab-icon check: the reference list is private to this file.
     func isReaderChromeIconFileReferenced(_ fileName: String) -> Bool {
@@ -3105,27 +3146,6 @@ class GlobalSettings: ObservableObject {
 
     // MARK: - Theme export / import
 
-    /// The value snapshot an export is built from: colors plus the background
-    /// *file names*. Cheap — no image bytes are read here — so a share row can
-    /// build one and leave the base64 to `AppearanceThemeExportFile.init(customTheme:)`.
-    ///
-    /// Which backgrounds travel depends on what the preset is. A saved custom
-    /// theme owns a snapshot, and that snapshot is the theme — exporting the
-    /// live backgrounds instead would put whatever the user is currently
-    /// experimenting with into a file named after a different theme. A built-in
-    /// preset has no snapshot, so "this theme" can only mean the colors plus the
-    /// backgrounds in effect right now.
-    func appearanceThemeExportSnapshot(for preset: AppearanceThemePreset) -> AppearanceCustomTheme {
-        if let saved = customAppearanceThemes.first(where: { $0.id == preset.id }) {
-            return saved
-        }
-        var snapshot = preset.customCopy(name: preset.localizedName)
-        var extras = AppearanceThemeExtras()
-        extras.pageBackgrounds = appearancePageBackgrounds.isEmpty ? nil : appearancePageBackgrounds
-        snapshot.extras = extras.isEmpty ? nil : extras
-        return snapshot
-    }
-
     /// The cheap value read a full-customization export is built from. Main
     /// actor, no disk I/O — `AppearanceCustomizationBundle` does the reading.
     func appearanceCustomizationSnapshot() -> AppearanceCustomizationSnapshot {
@@ -3141,9 +3161,9 @@ class GlobalSettings: ObservableObject {
             tabIcons: rootTabIconAssets,
             launchImageLightFileName: launchImageFileName(for: .light),
             launchImageDarkFileName: launchImageFileName(for: .dark),
-            readerBackgroundMode: readerCustomBackgroundMode.rawValue,
-            readerBackgroundColorHex: readerCustomBackgroundColorHex,
-            readerBackgroundImageFileName: readerCustomBackgroundImageFileName,
+            readerBackgrounds: readerCustomBackgrounds,
+            wornReaderBackgroundID: wornReaderCustomBackground?.id,
+            builtInThemeColors: appearanceBuiltInThemeColors,
             regexHighlightConfiguration: regexHighlightConfiguration,
             readerStyleAssetIDs: Array(regexAssetIDs)
         )
@@ -3208,6 +3228,11 @@ class GlobalSettings: ObservableObject {
     ) -> AppearanceImportSummary {
         var summary = AppearanceImportSummary()
         restoreBundleOwnLook(bundle, into: &summary)
+        if let colors = bundle.builtInThemeColors, !colors.isEmpty {
+            // Built-in themes are the same on every device, so their edited colours
+            // land on them as they are — replacing this device's edits of the same theme.
+            appearanceBuiltInThemeColors.merge(colors) { _, imported in imported }
+        }
         summary.themes = importThemeFiles(bundle.themes)
         if let configuration = bundle.regexHighlightConfiguration {
             regexHighlightConfiguration = configuration.sanitized()
@@ -3274,24 +3299,10 @@ class GlobalSettings: ObservableObject {
             }
         }
 
-        if let reader = bundle.readerBackground,
-           let mode = ReaderCustomBackgroundMode(rawValue: reader.mode) {
-            if let base64 = reader.image?.base64,
-               let data = Data(base64Encoded: base64),
-               (try? importReaderCustomBackgroundImage(data: data)) != nil {
-                summary.restoredReaderBackground = true
-            }
-            if let colorHex = reader.colorHex {
-                readerCustomBackgroundColorHex = colorHex
-            }
-            // Set last: importing the image forces `.image`, which would
-            // override a bundle that was actually exported in color mode.
-            readerCustomBackgroundMode = mode
-            if mode == .color {
-                summary.restoredReaderBackground = true
-            }
+        if let worn = restoreReaderBackgrounds(from: bundle, into: &summary) {
+            readerCustomBackgroundID = worn
             // The bundle's reading background is the exporter's own setup, so it goes
-            // into 全域 — recorded here because the writes above are not edits, and the
+            // into 全域 — recorded here because the write above is not an edit, and the
             // next theme sync would otherwise put the old background back.
             globalReadingSettings = globalReadingSettings.overlaid(
                 with: currentReadingSettingsSnapshot().restricted(to: [.background])
@@ -3330,7 +3341,13 @@ class GlobalSettings: ObservableObject {
         // The payload's images are written back out under fresh local names, and those
         // names go into `extras` — the file's own `extras` deliberately ships without
         // page backgrounds, since its copy would name the exporter's files.
-        let payloadConfigs = pageBackgroundConfigs(from: file.pageBackgrounds ?? [:])
+        // A pack without dark pictures keeps its light ones in dark mode, dimmed, rather
+        // than going to a plain dark page.
+        let payloadConfigs = pageBackgroundConfigs(from: file.pageBackgrounds ?? [:]).mapValues { config in
+            var config = config
+            config.reuseLightImageInDarkIfMissing()
+            return config
+        }
         var extras = file.extras
         if !payloadConfigs.isEmpty {
             var merged = extras ?? AppearanceThemeExtras()
@@ -3356,8 +3373,8 @@ class GlobalSettings: ObservableObject {
             darkTextSecondaryHex: file.darkTextSecondaryHex,
             darkTextTertiaryHex: file.darkTextTertiaryHex,
             extras: extras,
-            // The author's version, kept untouched so 重置此主題 can undo whatever the
-            // write-back has since recorded on this theme.
+            // The author's version, kept untouched by the write-back: it marks the theme
+            // as an imported pack, which the one-time migrations look for.
             originalExtras: extras
         )
     }
@@ -3384,95 +3401,6 @@ class GlobalSettings: ObservableObject {
         }
         guard overrides != readerTextColorOverrides else { return }
         readerTextColorOverrides = overrides
-    }
-
-    var readerCustomBackgroundImageURL: URL? {
-        guard let fileName = readerCustomBackgroundImageFileName, !fileName.isEmpty else { return nil }
-        return try? ReaderCustomBackgroundStorageManager.shared.fileURL(fileName: fileName)
-    }
-
-    var readerCustomBackgroundPreviewUIColor: UIColor {
-        switch readerCustomBackgroundMode {
-        case .color:
-            if let readerCustomBackgroundColorHex {
-                return AppearanceThemePreset.hex(readerCustomBackgroundColorHex)
-            }
-            return ReaderTheme.white.uiBackgroundColor
-        case .image:
-            return UIColor.white
-        case .none:
-            return UIColor.systemGray5
-        }
-    }
-
-    var readerCustomBackgroundPreviewTextUIColor: UIColor {
-        switch readerCustomBackgroundMode {
-        case .color:
-            return Self.readableTextColor(for: readerCustomBackgroundPreviewUIColor)
-        case .image:
-            return AppearanceThemePreset.hex(0x2E322F)
-        case .none:
-            return UIColor.label
-        }
-    }
-
-    var readerCustomBackgroundPreset: AppearanceThemePreset? {
-        guard readerCustomBackgroundMode != .none else { return nil }
-        let background = readerCustomBackgroundPreviewUIColor
-        let text = readerCustomBackgroundPreviewTextUIColor
-        let accent = AppearanceThemePreset.hex(0x007AFF)
-        return AppearanceThemePreset(
-            id: "reader_custom_\(readerCustomBackgroundMode.rawValue)_\(readerCustomBackgroundColorHex ?? 0)_\(readerCustomBackgroundImageFileName ?? "")",
-            nameKey: "自定義",
-            displayName: localized("自定義"),
-            background: background,
-            text: text,
-            bar: background,
-            accent: accent,
-            dialogue: accent.withAlphaComponent(0.16),
-            previewBackground: background,
-            relativePreviewImagePath: nil,
-            imagePaths: [],
-            requiresPro: false,
-            isImagePreset: readerCustomBackgroundMode == .image,
-            isCustom: true
-        )
-    }
-
-    func applyReaderCustomBackgroundColor(_ color: UIColor) {
-        readerCustomBackgroundColorHex = color.rgbHex ?? 0xF4F5F7
-        readerCustomBackgroundMode = .color
-        readerFollowSystemTheme = false
-        appearanceBindReaderTheme = false
-        AppearanceThemePreset.activeReaderTheme = readerCustomBackgroundPreset
-    }
-
-    @discardableResult
-    func importReaderCustomBackgroundImage(from url: URL) throws -> String {
-        try adoptReaderCustomBackground(
-            fileName: ReaderCustomBackgroundStorageManager.shared.importBackground(fileURL: url)
-        )
-    }
-
-    @discardableResult
-    func importReaderCustomBackgroundImage(data: Data) throws -> String {
-        try adoptReaderCustomBackground(
-            fileName: ReaderCustomBackgroundStorageManager.shared.importBackground(data: data)
-        )
-    }
-
-    private func adoptReaderCustomBackground(fileName: String) -> String {
-        readerCustomBackgroundImageFileName = fileName
-        readerCustomBackgroundMode = .image
-        readerFollowSystemTheme = false
-        appearanceBindReaderTheme = false
-        AppearanceThemePreset.activeReaderTheme = readerCustomBackgroundPreset
-        return fileName
-    }
-
-    func clearReaderCustomBackground() {
-        readerCustomBackgroundMode = .none
-        AppearanceThemePreset.activeReaderTheme = appearanceBindReaderTheme ? AppearanceThemePreset.activeReaderTheme : nil
     }
 
     // MARK: - Launch Image import / resolution
@@ -3542,23 +3470,6 @@ class GlobalSettings: ObservableObject {
     private func removeLaunchImageFile(_ fileName: String?) {
         guard let fileName, !fileName.isEmpty, !isLaunchImageFileReferenced(fileName) else { return }
         LaunchImageStorageManager.shared.delete(fileName: fileName)
-    }
-
-    private static func readableTextColor(for color: UIColor) -> UIColor {
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-        var alpha: CGFloat = 0
-        guard color.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
-            return .label
-        }
-        func linearized(_ component: CGFloat) -> CGFloat {
-            component <= 0.03928
-                ? component / 12.92
-                : pow((component + 0.055) / 1.055, 2.4)
-        }
-        let luminance = 0.2126 * linearized(red) + 0.7152 * linearized(green) + 0.0722 * linearized(blue)
-        return luminance > 0.45 ? AppearanceThemePreset.hex(0x2E322F) : AppearanceThemePreset.hex(0xF5F5F5)
     }
 
     /// Installs a font into the user's library **without** selecting it. Internal so
@@ -3747,6 +3658,7 @@ final class ReaderCustomBackgroundStorageManager {
 
     private let fileManager: FileManager
     private let allowedExtensions: Set<String> = ["webp", "jpg", "jpeg", "png"]
+    private let thumbnails = NSCache<NSString, UIImage>()
 
     private init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
@@ -3799,6 +3711,39 @@ final class ReaderCustomBackgroundStorageManager {
 
     func fileURL(fileName: String) throws -> URL {
         try backgroundsDirectoryURL().appendingPathComponent(fileName)
+    }
+
+    /// A small copy for the list's tiles and the editor's preview, cached: the full
+    /// picture is for the page itself.
+    func thumbnail(fileName: String) -> UIImage? {
+        if let cached = thumbnails.object(forKey: fileName as NSString) { return cached }
+        guard let url = try? fileURL(fileName: fileName),
+              let image = UIImage(contentsOfFile: url.path),
+              image.size.width > 0, image.size.height > 0 else {
+            return nil
+        }
+        let scale = min(1, 360 / max(image.size.width, image.size.height))
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let thumbnail = image.preparingThumbnail(of: size) ?? image
+        thumbnails.setObject(thumbnail, forKey: fileName as NSString)
+        return thumbnail
+    }
+
+    func delete(fileName: String) {
+        thumbnails.removeObject(forKey: fileName as NSString)
+        let url: URL
+        do {
+            url = try fileURL(fileName: fileName)
+        } catch {
+            AppLogger.error("⟐ reading background folder unavailable", error: error)
+            return
+        }
+        guard fileManager.fileExists(atPath: url.path) else { return }
+        do {
+            try fileManager.removeItem(at: url)
+        } catch {
+            AppLogger.error("⟐ reading background picture not deleted", error: error, context: ["file": fileName])
+        }
     }
 
     private func backgroundsDirectoryURL() throws -> URL {

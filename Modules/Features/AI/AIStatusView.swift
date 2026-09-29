@@ -19,31 +19,33 @@ struct AIStatusView: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent(localized("章節目錄"), value: "\(adapter.manifest.chapters.count)")
-                LabeledContent(localized("本機可用正文"), value: "\(adapter.manifest.chapters.count - missingChapters.count) / \(adapter.manifest.chapters.count)")
-                LabeledContent(localized("已索引章節"), value: "\(service.indexedChapterCounts[adapter.chunkBookID] ?? 0)")
-                LabeledContent(localized("檢索索引"), value: indexDescription)
+                ThemedLabeledContent(localized("章節目錄"), value: "\(adapter.manifest.chapters.count)")
+                ThemedLabeledContent(localized("本機可用正文"), value: "\(adapter.manifest.chapters.count - missingChapters.count) / \(adapter.manifest.chapters.count)")
+                ThemedLabeledContent(localized("已索引章節"), value: "\(service.indexedChapterCounts[adapter.chunkBookID] ?? 0)")
+                ThemedLabeledContent(localized("檢索索引"), value: indexDescription)
                 if !missingChapters.isEmpty {
                     DisclosureGroup {
                         ForEach(missingChapters, id: \.order) { chapter in
-                            LabeledContent(String(format: localized("第 %d 章"), chapter.order + 1), value: availability(chapter.status))
+                            ThemedLabeledContent(String(format: localized("第 %d 章"), chapter.order + 1), value: availability(chapter.status))
                         }
                     } label: {
-                        LabeledContent(localized("缺少正文的章節"), value: "\(missingChapters.count)")
+                        ThemedLabeledContent(localized("缺少正文的章節"), value: "\(missingChapters.count)")
                     }
                 }
             } header: {
                 Text(localized("本書內容"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 Text(localized("未下載或抽取失敗的章節不在搜尋範圍，也不會自動下載。"))
                     .dsSectionFooter()
             }
             .interfaceSectionSurface()
             Section {
-                LabeledContent(localized("每題模型呼叫上限"), value: "\(AIQuestionBudget().maximumModelCalls)")
-                LabeledContent(localized("每題搜尋詞上限"), value: "\(AIQuestionBudget().maximumQueries)")
+                ThemedLabeledContent(localized("每題模型呼叫上限"), value: "\(AIQuestionBudget().maximumModelCalls)")
+                ThemedLabeledContent(localized("每題搜尋詞上限"), value: "\(AIQuestionBudget().maximumQueries)")
             } header: {
                 Text(localized("問答預算"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 Text(localized("每次模型呼叫都可能由服務商計費。"))
                     .dsSectionFooter()
@@ -55,7 +57,7 @@ struct AIStatusView: View {
                 Toggle(localized("匯出檢索原文"), isOn: $includeEvidence)
                 Toggle(localized("匯出模型回覆與自評"), isOn: $includeResponse)
                 if let trace = diagnostics.latest, trace.bookID == adapter.chunkBookID {
-                    LabeledContent(localized("診斷請求"), value: trace.requestID.uuidString)
+                    ThemedLabeledContent(localized("診斷請求"), value: trace.requestID.uuidString)
                 }
                 Button(localized("匯出本機診斷")) { export() }
                     .disabled(diagnostics.latest?.bookID != adapter.chunkBookID)
@@ -65,6 +67,7 @@ struct AIStatusView: View {
                 }
             } header: {
                 Text(localized("診斷匯出"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 Text(localized("預設只保存 metadata；匯出只含勾選內容並遮蔽憑證、帳號與網址，不會自動上傳。"))
                     .dsSectionFooter()

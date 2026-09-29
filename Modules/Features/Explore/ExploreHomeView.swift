@@ -135,7 +135,9 @@ struct ExploreHomeView: View {
                        let source = discover.selectedSource {
                         DiscoverCategoryView(section: section, source: source)
                     } else {
-                        ContentUnavailableView(localized("暫無發現內容"), systemImage: "books.vertical")
+                        ContentUnavailableView {
+                            UnavailableLabel(localized("暫無發現內容"), systemImage: "books.vertical")
+                        }
                     }
                 case .book(let book):
                     if BookSourceStore.shared.isAudiobook(book) {
@@ -225,9 +227,9 @@ struct ExploreHomeView: View {
 
     private var emptySourceState: some View {
         ContentUnavailableView {
-            Label(localized("尚未啟用支援發現的書源"), systemImage: "books.vertical")
+            UnavailableLabel(localized("尚未啟用支援發現的書源"), systemImage: "books.vertical")
         } description: {
-            Text(localized("前往書源管理新增並啟用書源"))
+            Text(localized("前往書源管理新增並啟用書源")).foregroundStyle(DSColor.textSecondary)
         } actions: {
             Button(localized("前往書源管理")) { showSourceManager = true }
                 .buttonStyle(.borderedProminent)
@@ -253,7 +255,7 @@ struct ExploreHomeView: View {
     }
 
     private var searchEnginesSection: some View {
-        Section(header: Text(localized("常用搜尋"))) {
+        Section(header: Text(localized("常用搜尋")).foregroundStyle(DSColor.textSecondary)) {
             HStack(spacing: DSSpacing.xl) {
                 ForEach(SearchEngine.allCases) { engine in
                     searchEngineButton(engine)
@@ -266,7 +268,7 @@ struct ExploreHomeView: View {
     }
 
     private var quickEntrySection: some View {
-        Section(header: Text(localized("快捷入口"))) {
+        Section(header: Text(localized("快捷入口")).foregroundStyle(DSColor.textSecondary)) {
             DSSettingsRow(
                 icon: "person.crop.circle.badge.plus",
                 title: localized("番茄登入"),
@@ -320,6 +322,7 @@ struct ExploreHomeView: View {
     private var recentSectionHeader: some View {
         HStack {
             Text(localized("最近瀏覽"))
+                .foregroundStyle(DSColor.textSecondary)
             Spacer()
             if !history.entries.isEmpty {
                 Button { showHistory = true } label: {
@@ -340,11 +343,11 @@ struct ExploreHomeView: View {
         NavigationStack {
             Group {
                 if history.entries.isEmpty {
-                    ContentUnavailableView(
-                        localized("尚無瀏覽記錄"),
-                        systemImage: "clock",
-                        description: Text(localized("瀏覽過的網頁會出現在這裡"))
-                    )
+                    ContentUnavailableView {
+                        UnavailableLabel(localized("尚無瀏覽記錄"), systemImage: "clock")
+                    } description: {
+                        Text(localized("瀏覽過的網頁會出現在這裡")).foregroundStyle(DSColor.textSecondary)
+                    }
                 } else {
                     List {
                         ForEach(history.entries) { entry in
@@ -461,6 +464,7 @@ struct ExploreHomeView: View {
                 }
                 Text(engine.rawValue)
                     .font(DSFont.caption)
+                    .foregroundStyle(DSColor.textPrimary)
             }
             .frame(minWidth: 60)
         }

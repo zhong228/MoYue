@@ -121,9 +121,9 @@ private struct RemoteReaderOpeningView: View {
     var body: some View {
         if let error {
             ContentUnavailableView {
-                Label(localized("無法開啟書籍"), systemImage: "exclamationmark.triangle")
+                UnavailableLabel(localized("無法開啟書籍"), systemImage: "exclamationmark.triangle")
             } description: {
-                Text(error)
+                Text(error).foregroundStyle(DSColor.textSecondary)
             } actions: {
                 Button(localized("重試"), action: onRetry)
                 Button(localized("關閉"), action: onClose)

@@ -53,14 +53,6 @@ struct CoreTextScrollTests {
         #expect(Self.bytes(of: ReaderTheme.white.uiBackgroundColor) == [18, 52, 86, 255])
     }
 
-    @Test("night mode suppresses custom reader background images")
-    func nightModeSuppressesReaderBackgroundImages() {
-        #expect(ReaderTheme.night.allowsReaderBackgroundImage == false)
-        #expect(ReaderTheme.white.allowsReaderBackgroundImage)
-        #expect(ReaderTheme.green.allowsReaderBackgroundImage)
-        #expect(ReaderTheme.sepia.allowsReaderBackgroundImage)
-    }
-
     @Test("collection scroll controller is available for vertical scroll")
     @MainActor
     func collectionScrollControllerInitializes() {

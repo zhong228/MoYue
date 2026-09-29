@@ -809,6 +809,7 @@ struct BookSourceListView: View {
                     .padding(.vertical, 7)
                     .background(Color(UIColor.systemGray5))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .foregroundStyle(DSColor.textPrimary)
             }
             .buttonStyle(.plain)
 
@@ -997,9 +998,10 @@ struct BookSourceListView: View {
             Spacer()
             Image(systemName: "books.vertical.circle")
                 .font(DSFont.fixed(size: 64))
-                .foregroundColor(Color.secondary.opacity(0.35))
+                .foregroundStyle(DSColor.textSecondary.opacity(0.35))
             Text(localized("尚無書源"))
                 .font(DSFont.title2.weight(.semibold))
+                .foregroundStyle(DSColor.textPrimary)
             Text(localized("點擊右上角 + 手動新增\n或匯入 Legado 書源 JSON"))
                 .font(DSFont.subheadline).foregroundColor(DSColor.textSecondary)
                 .multilineTextAlignment(.center)

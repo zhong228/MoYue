@@ -79,18 +79,19 @@ struct IconConsistentLabelStyle: LabelStyle {
         }
     }
 
-    /// Row icons pick up the theme accent when an app theme is active; with no
-    /// theme (classic) they keep whatever color the label was given (primary).
+    /// A row's symbol wears the tint — 強調色 — in every theme, 默認 included, as the
+    /// symbol leading a list row does on iOS (user's call, 2026-09-29). `.tint` resolves
+    /// from the environment when the symbol draws, so a theme switch or a 強調色 edit
+    /// reaches rows SwiftUI does not rebuild. Deciding here from
+    /// `AppearanceThemePreset.activeAppThemes`, a global SwiftUI cannot observe, left
+    /// those rows in the colour they were first drawn in — black beside red ones.
     @ViewBuilder
     private func themedIcon(_ icon: Configuration.Icon) -> some View {
         let sized = icon
             .font(DSFont.fixed(size: 17, weight: .medium))
             .frame(width: 28, height: 28)
-        // A LabelStyle cannot read @Environment, so this asks whether any appearance is
-        // themed rather than the current one. The tint it applies is `Color.accentColor`,
-        // which already resolves per appearance, so the distinction costs nothing here.
-        if themesIcon, AppearanceThemePreset.activeAppThemes.isActive {
-            sized.foregroundStyle(DSColor.accent)
+        if themesIcon {
+            sized.foregroundStyle(.tint)
         } else {
             sized
         }

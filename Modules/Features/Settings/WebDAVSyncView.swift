@@ -62,7 +62,7 @@ struct WebDAVSyncView: View {
     // MARK: - Sections
 
     private var serverSection: some View {
-        Section(header: Text(localized("伺服器設定"))) {
+        Section(header: Text(localized("伺服器設定")).foregroundStyle(DSColor.textSecondary)) {
             HStack {
                 Text(localized("網址"))
                     .foregroundColor(DSColor.textSecondary)
@@ -88,7 +88,7 @@ struct WebDAVSyncView: View {
     }
 
     private var actionsSection: some View {
-        Section(header: Text(localized("操作"))) {
+        Section(header: Text(localized("操作")).foregroundStyle(DSColor.textSecondary)) {
             Button {
                 Task { await testConnection() }
             } label: {
@@ -114,7 +114,7 @@ struct WebDAVSyncView: View {
     }
 
     private var statusSection: some View {
-        Section(header: Text(localized("狀態"))) {
+        Section(header: Text(localized("狀態")).foregroundStyle(DSColor.textSecondary)) {
             if let date = manager.lastSyncDate {
                 HStack {
                     Text(localized("上次同步"))

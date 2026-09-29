@@ -31,6 +31,17 @@ enum ReaderQuickPageTurnOption: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+/// Which saved-background page the quick panel has pushed.
+enum ReaderBackgroundEditorRoute: Hashable {
+    case new
+    case edit(UUID)
+
+    var backgroundID: UUID? {
+        if case .edit(let id) = self { return id }
+        return nil
+    }
+}
+
 struct ReaderQuickThemePanelView: View {
     @Binding var fontSize: CGFloat
     @Binding var readerTheme: ReaderTheme
@@ -47,22 +58,16 @@ struct ReaderQuickThemePanelView: View {
 
     @ObservedObject private var settings = GlobalSettings.shared
     @Environment(\.colorScheme) private var colorScheme
-    @State private var showCustomBackgroundOptions = false
+    /// The saved-background page pushed in this panel's own navigation.
+    @State private var backgroundEditor: ReaderBackgroundEditorRoute?
     /// Measured height of the panel's own content, so the sheet is exactly as tall
     /// as what it holds. A fixed detent left a band of dead space under the last
     /// row whenever the content came out shorter than the constant.
     @State private var contentHeight = DSLayout.readerQuickPanelSheetHeight
     @State private var bottomSafeAreaInset: CGFloat = 0
-    @State private var customBackgroundColor = Color(uiColor: ReaderTheme.white.uiBackgroundColor)
 
     private let minFontSize = GlobalSettings.readerFontSizeRange.lowerBound
     private let maxFontSize = GlobalSettings.readerFontSizeRange.upperBound
-
-    private var customColorEditorInitialUIColor: UIColor {
-        settings.readerCustomBackgroundMode == .color
-            ? settings.readerCustomBackgroundPreviewUIColor
-            : readerTheme.uiBackgroundColor
-    }
 
     var body: some View {
         NavigationStack {
@@ -107,14 +112,18 @@ struct ReaderQuickThemePanelView: View {
             // reader flicks away, and a navigation chrome on top of it ate height
             // the controls could use.
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(
-                isPresented: $showCustomBackgroundOptions
-            ) {
-                ReaderCustomBackgroundOptionsView(
-                    color: $customBackgroundColor,
-                    onImageImported: {
-                        showCustomBackgroundOptions = false
+            .navigationDestination(item: $backgroundEditor) { route in
+                ReaderCustomBackgroundEditorView(
+                    original: route.backgroundID.flatMap(settings.readerCustomBackground(id:)),
+                    onSave: { saved in
+                        // A new one is made to be worn; an edit leaves what is worn alone,
+                        // and the reader repaints if it was this one.
+                        if route == .new {
+                            readerTheme = settings.wearReaderCustomBackground(saved, over: readerTheme)
+                        }
+                        backgroundEditor = nil
                     },
+                    onDelete: { backgroundEditor = nil },
                     onRequestPaywall: { onOpenPaywall?($0) }
                 )
             }
@@ -134,10 +143,11 @@ struct ReaderQuickThemePanelView: View {
         // sheet must stay draggable and the indicator visible.
         // A height detent excludes the bottom safe area, which UIKit adds back.
         // Our measurement already includes the panel's complete bottom padding.
-        .presentationDetents([.height(max(
-            DSLayout.minimumTapTarget,
-            contentHeight - bottomSafeAreaInset
-        ))])
+        // The saved-background page is a whole form, not a row of controls: the panel
+        // opens to full height while it is up, and goes back to fitting its content.
+        .presentationDetents(backgroundEditor == nil
+            ? [.height(max(DSLayout.minimumTapTarget, contentHeight - bottomSafeAreaInset))]
+            : [.large])
         .presentationDragIndicator(.visible)
     }
 
@@ -279,14 +289,11 @@ struct ReaderQuickThemePanelView: View {
 
     // MARK: - Reading backgrounds
 
-    /// One scrolling row, not the 3×2 paged grid this replaced.
-    ///
-    /// There are five items — four backgrounds and 自定義 — and `stride(by: 6)`
-    /// only ever cut one page out of them, so the pager's 214pt (42% of the whole
-    /// panel) bought a page indicator that never appeared and an empty sixth cell.
-    /// A row costs 82pt and scrolls if more backgrounds are ever added.
+    /// One scrolling row, not the 3×2 paged grid this replaced: the four built-in
+    /// backgrounds, then every saved one, each by name, then 自定義 to make another.
     private var readingBackgroundRow: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.sm) {
+        let resolution = settings.readerBackgroundResolution(appearance: colorScheme, wornTheme: readerTheme)
+        return VStack(alignment: .leading, spacing: DSSpacing.sm) {
             Text(localized("閱讀背景"))
                 .font(DSFont.footnote)
                 .foregroundStyle(DSColor.textSecondary)
@@ -294,10 +301,14 @@ struct ReaderQuickThemePanelView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: DSSpacing.md) {
                     ForEach(ReaderTheme.allCases, id: \.self) { background in
-                        readingBackgroundButton(background)
+                        readingBackgroundButton(background, resolution: resolution)
                             .frame(width: DSLayout.readerQuickPanelBackgroundTileWidth)
                     }
-                    customReadingBackgroundButton
+                    ForEach(settings.readerCustomBackgrounds) { background in
+                        savedBackgroundButton(background, resolution: resolution)
+                            .frame(width: DSLayout.readerQuickPanelBackgroundTileWidth)
+                    }
+                    newBackgroundButton
                         .frame(width: DSLayout.readerQuickPanelBackgroundTileWidth)
                 }
                 .padding(.vertical, DSSpacing.xs)
@@ -322,124 +333,164 @@ struct ReaderQuickThemePanelView: View {
         .foregroundStyle(DSColor.textPrimary)
     }
 
-    private func readingBackgroundButton(_ background: ReaderTheme) -> some View {
-        // While 綁定閱讀主題 maps this appearance to 跟隨外觀主題 the page is painted by
-        // the appearance theme, so no reading background is the one in effect.
-        // Any other bound pick *is* one of these backgrounds and marks it.
-        let paintedByAppearanceTheme = settings.appearanceBindReaderTheme
-            && settings.boundReaderTheme(for: colorScheme) == .followAppearanceTheme
-        let selected = (background == .night || settings.readerCustomBackgroundMode == .none)
-            && !paintedByAppearanceTheme
-            && readerTheme == background
+    private func readingBackgroundButton(
+        _ background: ReaderTheme,
+        resolution: ReaderBackgroundResolution
+    ) -> some View {
+        // While 綁定閱讀主題 maps this appearance to 跟隨外觀主題 or a saved background, the
+        // page is painted by that, so no built-in one is the one in effect.
+        let selected = !resolution.paintsWithAppearanceTheme
+            && resolution.customBackground == nil
+            && resolution.theme == background
         return Button {
             settings.readerFollowSystemTheme = false
             settings.appearanceBindReaderTheme = false
-            if background != .night {
-                settings.clearReaderCustomBackground()
-                AppearanceThemePreset.activeReaderTheme = nil
+            // 黑色 keeps a light saved background underneath, so turning 夜間 off brings it
+            // back, as with the one custom background before; a dark one would paint 黑色
+            // itself, so it goes.
+            if background != .night || settings.wornReaderCustomBackground?.isDark == true {
+                settings.readerCustomBackgroundID = nil
             }
             readerTheme = background
         } label: {
-            ZStack(alignment: .topTrailing) {
-                RoundedRectangle(cornerRadius: DSRadius.xxl, style: .continuous)
-                    .fill(background.previewBackgroundColor)
-
-                if selected {
-                    Image(systemName: "asterisk")
-                        .font(DSFont.subheadline.weight(.semibold))
-                        .foregroundStyle(background.previewTextColor.opacity(0.6))
-                        .padding(.top, DSSpacing.sm)
-                        .padding(.trailing, DSSpacing.md)
-                        .accessibilityHidden(true)
-                }
-            }
-            .frame(height: DSLayout.readerQuickPanelReadingBackgroundTileHeight)
-            .overlay(
-                RoundedRectangle(cornerRadius: DSRadius.xxl, style: .continuous)
-                    .stroke(
-                        selected ? DSColor.textPrimary : DSColor.separator,
-                        lineWidth: selected ? 3 : 1
-                    )
+            backgroundTile(
+                fill: background.previewBackgroundColor,
+                image: nil,
+                title: background.localizedTitle,
+                titleColor: background.previewTextColor,
+                selected: selected
             )
-            .shadow(color: DSColor.shadow, radius: 6, y: 1)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(background.localizedTitle)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private var customReadingBackgroundButton: some View {
-        let selected = settings.readerCustomBackgroundMode != .none && readerTheme != .night
+    private func savedBackgroundButton(
+        _ background: ReaderCustomBackground,
+        resolution: ReaderBackgroundResolution
+    ) -> some View {
+        let selected = resolution.customBackground?.id == background.id
         return Button {
-            customBackgroundColor = Color(uiColor: customColorEditorInitialUIColor)
-            showCustomBackgroundOptions = true
+            readerTheme = settings.wearReaderCustomBackground(background, over: readerTheme)
         } label: {
-            ZStack(alignment: .topTrailing) {
+            backgroundTile(
+                fill: Color(uiColor: AppearanceThemePreset.hex(background.colorHex)),
+                image: background.imageFileName.flatMap(ReaderCustomBackgroundStorageManager.shared.thumbnail(fileName:)),
+                title: background.name,
+                titleColor: Color(uiColor: AppearanceThemePreset.hex(background.resolvedTextColorHex)),
+                selected: selected
+            )
+        }
+        .buttonStyle(.plain)
+        // Plain buttons only, as on the theme grid: the delete confirmation is a submenu
+        // because a modal raised from a context-menu action can be dropped on iOS 17
+        // (Technotes/iOS17MenuModalPresentation.md).
+        .contextMenu {
+            Button {
+                backgroundEditor = .edit(background.id)
+            } label: {
+                Label(localized("編輯"), systemImage: "slider.horizontal.3")
+            }
+            Menu {
+                Button(role: .destructive) {
+                    settings.deleteReaderCustomBackground(id: background.id)
+                } label: {
+                    Label(String(format: localized("刪除「%@」"), background.name), systemImage: "trash")
+                }
+            } label: {
+                Label(localized("刪除"), systemImage: "trash")
+            }
+        }
+        .accessibilityLabel(background.name)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityAction(named: localized("編輯")) {
+            backgroundEditor = .edit(background.id)
+        }
+    }
+
+    private var newBackgroundButton: some View {
+        Button {
+            backgroundEditor = .new
+        } label: {
+            ZStack {
                 RoundedRectangle(cornerRadius: DSRadius.xxl, style: .continuous)
-                    .fill(customReadingBackgroundBaseColor)
-
-                customReadingBackgroundImagePreview
-
+                    .fill(DSColor.neutralControlFill)
                 VStack(spacing: DSSpacing.xs) {
                     Image(systemName: "plus")
                         .font(DSFont.title2.weight(.semibold))
+                        .accessibilityHidden(true)
                     Text(localized("自定義"))
                         .font(DSFont.subheadline)
                 }
-                .foregroundStyle(customReadingBackgroundTextColor)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                if selected {
-                    Image(systemName: "asterisk")
-                        .font(DSFont.subheadline.weight(.semibold))
-                        .foregroundStyle(customReadingBackgroundTextColor.opacity(0.6))
-                        .padding(.top, DSSpacing.sm)
-                        .padding(.trailing, DSSpacing.md)
-                }
+                .foregroundStyle(DSColor.textPrimary)
             }
             .frame(height: DSLayout.readerQuickPanelReadingBackgroundTileHeight)
-            .clipShape(RoundedRectangle(cornerRadius: DSRadius.xxl, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: DSRadius.xxl, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: DSRadius.xxl, style: .continuous)
-                    .stroke(
-                        selected ? DSColor.textPrimary : DSColor.separator,
-                        lineWidth: selected ? 3 : 1
-                    )
+                    .stroke(DSColor.separator, lineWidth: 1)
             )
             .shadow(color: DSColor.shadow, radius: 6, y: 1)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(localized("自定義"))
-        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private var customReadingBackgroundBaseColor: Color {
-        settings.readerCustomBackgroundMode == .none
-            ? DSColor.neutralControlFill
-            : Color(uiColor: settings.readerCustomBackgroundPreviewUIColor)
-    }
+    /// One background's tile: its colour or picture, its name, and the selection ring.
+    /// Built-in and saved ones alike carry the name — only the saved ones did at first,
+    /// which left the built-in half of the row unnamed (2026-09-29).
+    private func backgroundTile(
+        fill: Color,
+        image: UIImage?,
+        title: String,
+        titleColor: Color,
+        selected: Bool
+    ) -> some View {
+        ZStack(alignment: .topTrailing) {
+            RoundedRectangle(cornerRadius: DSRadius.xxl, style: .continuous)
+                .fill(fill)
 
-    private var customReadingBackgroundTextColor: Color {
-        settings.readerCustomBackgroundMode == .none
-            ? DSColor.textPrimary
-            : Color(uiColor: settings.readerCustomBackgroundPreviewTextUIColor)
-    }
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: DSLayout.readerQuickPanelReadingBackgroundTileHeight)
+                    .clipped()
+                    .accessibilityHidden(true)
+                    .allowsHitTesting(false)
+            }
 
-    @ViewBuilder
-    private var customReadingBackgroundImagePreview: some View {
-        if settings.readerCustomBackgroundMode == .image,
-           let url = settings.readerCustomBackgroundImageURL,
-           let image = UIImage(contentsOfFile: url.path) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(maxWidth: .infinity)
-                .frame(height: DSLayout.readerQuickPanelReadingBackgroundTileHeight)
-                .clipped()
+            Text(title)
+                .font(DSFont.caption)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .foregroundStyle(titleColor)
+                .padding(.horizontal, DSSpacing.sm)
+                .padding(.bottom, DSSpacing.sm)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 .accessibilityHidden(true)
-                .allowsHitTesting(false)
+
+            if selected {
+                Image(systemName: "asterisk")
+                    .font(DSFont.subheadline.weight(.semibold))
+                    .foregroundStyle(titleColor.opacity(0.6))
+                    .padding(.top, DSSpacing.sm)
+                    .padding(.trailing, DSSpacing.md)
+                    .accessibilityHidden(true)
+            }
         }
+        .frame(height: DSLayout.readerQuickPanelReadingBackgroundTileHeight)
+        .clipShape(RoundedRectangle(cornerRadius: DSRadius.xxl, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: DSRadius.xxl, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DSRadius.xxl, style: .continuous)
+                .stroke(
+                    selected ? DSColor.textPrimary : DSColor.separator,
+                    lineWidth: selected ? 3 : 1
+                )
+        )
+        .shadow(color: DSColor.shadow, radius: 6, y: 1)
     }
 
     // MARK: - 快捷動作
@@ -489,109 +540,6 @@ struct ReaderQuickThemePanelView: View {
 
 }
 
-private struct ReaderCustomBackgroundImportAlert: Identifiable {
-    let id = UUID()
-    let message: String
-}
-
-/// A pushed choice page avoids presenting another modal choice surface above the
-/// quick-settings sheet, which otherwise produces an overlapping popover on
-/// the immersive reader surface.
-private struct ReaderCustomBackgroundOptionsView: View {
-    @Binding var color: Color
-    let onImageImported: () -> Void
-    let onRequestPaywall: (PremiumFeature) -> Void
-
-    @ObservedObject private var settings = GlobalSettings.shared
-    @ObservedObject private var subscriptionStore = SubscriptionStore.shared
-    @State private var importAlert: ReaderCustomBackgroundImportAlert?
-
-    var body: some View {
-        List {
-            Section {
-                NavigationLink {
-                    ReaderCustomBackgroundColorEditorView(
-                        color: $color,
-                        onApply: { color in
-                            settings.applyReaderCustomBackgroundColor(UIColor(color))
-                        }
-                    )
-                } label: {
-                    Label(localized("RGB 調色"), systemImage: "paintpalette")
-                        .font(DSFont.body)
-                        .foregroundStyle(DSColor.textPrimary)
-                }
-
-                if ReaderPremiumVisibilityPolicy(isProActive: subscriptionStore.isProActive).showsBackgroundImageImport {
-                    ImageSourcePickerButton(
-                        accessibilityTitle: localized("導入圖片背景"),
-                        onPick: importBackgroundImage
-                    ) {
-                        Label(localized("導入圖片背景"), systemImage: "photo")
-                            .font(DSFont.body)
-                            .foregroundStyle(DSColor.textPrimary)
-                    }
-                } else {
-                    // Seen without Pro, locked: the paywall opens once this sheet is gone.
-                    Button {
-                        onRequestPaywall(.readerBackgroundImport)
-                    } label: {
-                        HStack {
-                            Label(localized("導入圖片背景"), systemImage: "photo")
-                                .font(DSFont.body)
-                                .foregroundStyle(DSColor.textPrimary)
-                            Spacer(minLength: DSSpacing.md)
-                            Text(localized("需要 Pro"))
-                                .font(DSFont.body)
-                                .foregroundStyle(DSColor.textSecondary)
-                            Image(systemName: "lock.fill")
-                                .font(DSFont.caption)
-                                .foregroundStyle(DSColor.textSecondary)
-                                .accessibilityHidden(true)
-                        }
-                    }
-                }
-            } footer: {
-                Text(localized("圖片會直接顯示在閱讀背景與主題預覽中。"))
-                    .dsSectionFooter()
-            }
-            .interfaceSectionSurface()
-        }
-        .softScrollEdges()
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(DSColor.groupedBackground)
-        .navigationTitle(localized("自定義閱讀背景"))
-        .toolbarTitleDisplayMode(.inline)
-        .alert(item: $importAlert) { alert in
-            Alert(
-                title: Text(localized("閱讀背景匯入失敗")),
-                message: Text(alert.message),
-                dismissButton: .default(Text(localized("確定")))
-            )
-        }
-    }
-
-    private func importBackgroundImage(_ result: Result<PickedImageSource, PickedImageError>) {
-        do {
-            switch result {
-            case .success(.data(let data)):
-                try settings.importReaderCustomBackgroundImage(data: data)
-            case .success(.file(let url)):
-                try settings.importReaderCustomBackgroundImage(from: url)
-            case .failure(let error):
-                importAlert = ReaderCustomBackgroundImportAlert(message: localized(error.messageKey))
-                return
-            }
-            onImageImported()
-        } catch let error as ReaderCustomBackgroundStorageError {
-            importAlert = ReaderCustomBackgroundImportAlert(message: localized(error.messageKey))
-        } catch {
-            importAlert = ReaderCustomBackgroundImportAlert(message: localized("無法匯入圖片背景。"))
-        }
-    }
-}
-
 /// Full-width quick-panel action button: darkens and gently compresses while
 /// pressed, then springs back on release.
 private struct QuickPanelActionButtonStyle: ButtonStyle {
@@ -633,44 +581,6 @@ private struct QuickPanelSegmentButtonStyle: ButtonStyle {
                 configuration.isPressed ? DSAnimation.fast : DSAnimation.standard,
                 value: configuration.isPressed
             )
-    }
-}
-
-private struct ReaderCustomBackgroundColorEditorView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Binding var color: Color
-    let onApply: (Color) -> Void
-
-    var body: some View {
-        Form {
-            Section {
-                ColorPicker(selection: $color, supportsOpacity: false) {
-                    Text(localized("背景顏色"))
-                        .font(DSFont.body)
-                        .foregroundStyle(DSColor.textPrimary)
-                }
-            } footer: {
-                Text(localized("套用後會作為自定義閱讀背景。"))
-                    .dsSectionFooter()
-            }
-            .interfaceSectionSurface()
-        }
-        .softScrollEdges()
-        .scrollContentBackground(.hidden)
-        .background(DSColor.groupedBackground)
-        .navigationTitle(localized("RGB 調色"))
-        .toolbarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    onApply(color)
-                    dismiss()
-                } label: {
-                    Image(systemName: "checkmark")
-                }
-                .accessibilityLabel(localized("完成"))
-            }
-        }
     }
 }
 

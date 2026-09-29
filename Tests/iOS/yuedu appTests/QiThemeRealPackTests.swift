@@ -138,13 +138,14 @@ struct QiThemeRealPackTests {
         let result = try await QiThemeImporter.parse(data)
 
         #expect(result.name == "山风 - 春水漾")
-        // The question before import has to name all of it — this pack is where
-        // 「套用匯入的頁首頁尾？」 undersold a whole reading setup.
-        let parts = QiThemeImportService.readingParts(of: result)
-        for part in [ReadingSetupPart.font, .layout, .pageTurn, .headerFooter,
-                     .chapterTitle, .background, .commentBubble] {
-            #expect(parts.contains(part), "missing \(part)")
-        }
+        // Its whole reading setup is read, all of which rides its theme: the face, the
+        // layout (page turn and header/footer inside it), the title, background and bubble.
+        #expect(result.font != nil)
+        #expect(result.layoutConfig != nil)
+        #expect(result.overlayLayout != nil)
+        #expect(result.chapterTitleStyle != nil)
+        #expect(result.readerBackground != nil)
+        #expect(result.bubble != nil)
 
         // Its cards are white at 85%, not opaque white.
         let card = try #require(result.cardBackground)

@@ -74,7 +74,7 @@ struct ReaderDialogueBubbleSettingsView: View {
     /// renderer drifts from it exactly where it matters (tails, skins, how the
     /// box hugs a short line), which is worse than no preview at all.
     private var previewSection: some View {
-        Section(header: Text(localized("預覽"))) {
+        Section(header: Text(localized("預覽")).foregroundStyle(DSColor.textSecondary)) {
             DialogueBubblePreview(style: style)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, DSSpacing.sm)
@@ -85,7 +85,7 @@ struct ReaderDialogueBubbleSettingsView: View {
     }
 
     private var layoutSection: some View {
-        Section(header: Text(localized("版面"))) {
+        Section(header: Text(localized("版面")).foregroundStyle(DSColor.textSecondary)) {
             Picker(localized("第一句在"), selection: binding(\.startSide)) {
                 Text(localized("靠右")).tag(ReaderDialogueBubbleSide.right)
                 Text(localized("靠左")).tag(ReaderDialogueBubbleSide.left)
@@ -143,7 +143,7 @@ struct ReaderDialogueBubbleSettingsView: View {
             side == .left ? \.left : \.right
         let sideStyle = style.side(side)
         return Section(
-            header: Text(side == .left ? localized("左側氣泡") : localized("右側氣泡"))
+            header: Text(side == .left ? localized("左側氣泡") : localized("右側氣泡")).foregroundStyle(DSColor.textSecondary)
         ) {
             ColorPicker(
                 localized("底色"),
@@ -311,7 +311,7 @@ struct ReaderDialogueBubbleSettingsView: View {
                 in: 100...900,
                 step: 100
             ) {
-                LabeledContent(localized("氣泡字重"), value: "\(sideStyle.fontWeight ?? 400)")
+                ThemedLabeledContent(localized("氣泡字重"), value: "\(sideStyle.fontWeight ?? 400)")
             }
             slider(
                 title: localized("氣泡字距"),
@@ -400,7 +400,7 @@ struct ReaderDialogueBubbleSettingsView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: DSSpacing.sm) {
             HStack {
-                Text(title).font(DSFont.body)
+                Text(title).font(DSFont.body).foregroundStyle(DSColor.textPrimary)
                 Spacer()
                 Text(text)
                     .font(DSFont.body.monospacedDigit())

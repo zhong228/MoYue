@@ -61,11 +61,11 @@ struct SourceImportConfirmList<Source: ImportableSource, ExtraOptions: View>: Vi
     @ViewBuilder
     private var listContent: some View {
         if plan.isEmpty {
-            ContentUnavailableView(
-                localized("沒有可匯入的內容"),
-                systemImage: "tray",
-                description: Text(localized("這個檔案裡沒有可以解析的來源。"))
-            )
+            ContentUnavailableView {
+                UnavailableLabel(localized("沒有可匯入的內容"), systemImage: "tray")
+            } description: {
+                Text(localized("這個檔案裡沒有可以解析的來源。")).foregroundStyle(DSColor.textSecondary)
+            }
             .themedAppSurface(for: .settings)
         } else {
             List {
@@ -86,6 +86,7 @@ struct SourceImportConfirmList<Source: ImportableSource, ExtraOptions: View>: Vi
                     }
                 } header: {
                     Text(summaryText)
+                        .foregroundStyle(DSColor.textSecondary)
                 } footer: {
                     Text(localized("「已有」表示作者標記的更新時間不比本機的新，預設不勾選。"))
                         .dsSectionFooter()

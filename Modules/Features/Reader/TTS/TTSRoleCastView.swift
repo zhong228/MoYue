@@ -176,6 +176,7 @@ struct TTSRoleCastView: View {
             }
         } header: {
             Text(localized("角色識別"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(
                 aiConfigured
@@ -200,6 +201,7 @@ struct TTSRoleCastView: View {
             }
         } header: {
             Text(localized("本章角色"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("角色是從「某某說道：「…」」這類敘述裡讀出來的，判斷不出來的對話會用旁白的聲音。"))
                 .dsSectionFooter()
@@ -214,6 +216,7 @@ struct TTSRoleCastView: View {
             }
         } header: {
             Text(localized("其他已指派的角色"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("這些角色在本書其他章節出現過。"))
                 .dsSectionFooter()
@@ -314,6 +317,7 @@ struct TTSRoleVoicePickerView: View {
             }
         } header: {
             Text(localized("匯入的語音源"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("每個匯入的語音源就是一個聲音。想要更多音色，就到語音朗讀設定匯入更多來源。"))
                 .dsSectionFooter()
@@ -336,6 +340,7 @@ struct TTSRoleVoicePickerView: View {
                 }
             } header: {
                 Text(group.displayName)
+                    .foregroundStyle(DSColor.textSecondary)
             }
             .interfaceSectionSurface()
         }
@@ -353,6 +358,7 @@ struct TTSRoleVoicePickerView: View {
             }
         } header: {
             Text(localized("微軟線上語音"))
+                .foregroundStyle(DSColor.textSecondary)
         }
         .interfaceSectionSurface()
     }

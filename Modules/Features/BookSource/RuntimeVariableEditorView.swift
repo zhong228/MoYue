@@ -23,7 +23,7 @@ struct RuntimeVariableEditorView: View {
                     Section(localized("變量說明")) {
                         Text(comment)
                             .font(DSFont.footnote)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(DSColor.textSecondary)
                             .textSelection(.enabled)
                     }
                     .interfaceSectionSurface()

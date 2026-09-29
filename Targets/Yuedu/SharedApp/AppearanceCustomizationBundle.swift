@@ -21,10 +21,22 @@ struct AppearanceCustomizationBundle: Codable, @unchecked Sendable {
         var image: ImagePayload
     }
 
+    /// The reading background worn when the bundle was made, in the form every build
+    /// reads. A build that knows saved backgrounds takes `savedReaderBackgrounds` instead.
     struct ReaderBackground: Codable {
         /// `ReaderCustomBackgroundMode` raw value.
         var mode: String
         var colorHex: UInt32?
+        var image: ImagePayload?
+    }
+
+    /// One saved reading background, picture included.
+    struct SavedReaderBackground: Codable {
+        var id: UUID
+        var name: String
+        var colorHex: UInt32
+        var textColorHex: UInt32?
+        var isDark: Bool
         var image: ImagePayload?
     }
 
@@ -40,6 +52,13 @@ struct AppearanceCustomizationBundle: Codable, @unchecked Sendable {
     var launchImageLight: ImagePayload?
     var launchImageDark: ImagePayload?
     var readerBackground: ReaderBackground?
+    /// Every saved reading background, and which one was worn. Nil in bundles made before
+    /// backgrounds could be saved.
+    var savedReaderBackgrounds: [SavedReaderBackground]?
+    var wornReaderBackgroundID: UUID?
+    /// The colours edited on built-in themes in 配色, by theme id. Nil in bundles made
+    /// before built-in themes could be edited (2026-09-29).
+    var builtInThemeColors: [String: AppearanceCustomTheme]?
     /// Optional to keep every v1 JSON bundle decodable. Style assets themselves
     /// travel in the surrounding `ReaderStylePackage` archive.
     var regexHighlightConfiguration: RegexHighlightConfiguration?
@@ -85,16 +104,29 @@ struct AppearanceCustomizationBundle: Codable, @unchecked Sendable {
         launchImageLight = Self.launchImage(snapshot.launchImageLightFileName)
         launchImageDark = Self.launchImage(snapshot.launchImageDarkFileName)
 
-        // `.none` carries nothing worth restoring, and writing it would let a
-        // bundle silently switch off the receiving device's reading background.
-        if snapshot.readerBackgroundMode != ReaderCustomBackgroundMode.none.rawValue {
+        let saved = snapshot.readerBackgrounds.map { background in
+            SavedReaderBackground(
+                id: background.id,
+                name: background.name,
+                colorHex: background.colorHex,
+                textColorHex: background.textColorHex,
+                isDark: background.isDark,
+                image: Self.readerBackgroundImage(background.imageFileName)
+            )
+        }
+        savedReaderBackgrounds = saved.isEmpty ? nil : saved
+        wornReaderBackgroundID = snapshot.wornReaderBackgroundID
+        // No worn background carries nothing worth restoring, and writing one would let
+        // a bundle silently switch off the receiving device's reading background.
+        if let worn = saved.first(where: { $0.id == snapshot.wornReaderBackgroundID }) {
             readerBackground = ReaderBackground(
-                mode: snapshot.readerBackgroundMode,
-                colorHex: snapshot.readerBackgroundColorHex,
-                image: Self.readerBackgroundImage(snapshot.readerBackgroundImageFileName)
+                mode: (worn.image == nil ? ReaderCustomBackgroundMode.color : .image).rawValue,
+                colorHex: worn.colorHex,
+                image: worn.image
             )
         }
 
+        builtInThemeColors = snapshot.builtInThemeColors.isEmpty ? nil : snapshot.builtInThemeColors
         regexHighlightConfiguration = snapshot.regexHighlightConfiguration
         readerStyleAssetIDs = snapshot.readerStyleAssetIDs.isEmpty
             ? nil
@@ -111,6 +143,9 @@ struct AppearanceCustomizationBundle: Codable, @unchecked Sendable {
         case launchImageLight
         case launchImageDark
         case readerBackground
+        case savedReaderBackgrounds
+        case wornReaderBackgroundID
+        case builtInThemeColors
         case regexHighlightConfiguration
         case readerStyleAssetIDs
         case legacyDialogueHex
@@ -130,6 +165,15 @@ struct AppearanceCustomizationBundle: Codable, @unchecked Sendable {
         launchImageLight = try container.decodeIfPresent(ImagePayload.self, forKey: .launchImageLight)
         launchImageDark = try container.decodeIfPresent(ImagePayload.self, forKey: .launchImageDark)
         readerBackground = try container.decodeIfPresent(ReaderBackground.self, forKey: .readerBackground)
+        savedReaderBackgrounds = try container.decodeIfPresent(
+            [SavedReaderBackground].self,
+            forKey: .savedReaderBackgrounds
+        )
+        wornReaderBackgroundID = try container.decodeIfPresent(UUID.self, forKey: .wornReaderBackgroundID)
+        builtInThemeColors = try container.decodeIfPresent(
+            [String: AppearanceCustomTheme].self,
+            forKey: .builtInThemeColors
+        )
         regexHighlightConfiguration = try container.decodeIfPresent(
             RegexHighlightConfiguration.self,
             forKey: .regexHighlightConfiguration
@@ -149,6 +193,9 @@ struct AppearanceCustomizationBundle: Codable, @unchecked Sendable {
         try container.encodeIfPresent(launchImageLight, forKey: .launchImageLight)
         try container.encodeIfPresent(launchImageDark, forKey: .launchImageDark)
         try container.encodeIfPresent(readerBackground, forKey: .readerBackground)
+        try container.encodeIfPresent(savedReaderBackgrounds, forKey: .savedReaderBackgrounds)
+        try container.encodeIfPresent(wornReaderBackgroundID, forKey: .wornReaderBackgroundID)
+        try container.encodeIfPresent(builtInThemeColors, forKey: .builtInThemeColors)
         try container.encodeIfPresent(
             regexHighlightConfiguration,
             forKey: .regexHighlightConfiguration
@@ -206,19 +253,20 @@ struct AppearanceCustomizationSnapshot {
     var tabIcons: [RootTabIconAsset] = []
     var launchImageLightFileName: String?
     var launchImageDarkFileName: String?
-    var readerBackgroundMode: String = ReaderCustomBackgroundMode.none.rawValue
-    var readerBackgroundColorHex: UInt32?
-    var readerBackgroundImageFileName: String?
+    var readerBackgrounds: [ReaderCustomBackground] = []
+    var wornReaderBackgroundID: UUID?
+    var builtInThemeColors: [String: AppearanceCustomTheme] = [:]
     var regexHighlightConfiguration: RegexHighlightConfiguration?
     var readerStyleAssetIDs: [UUID] = []
 
     var isEmpty: Bool {
         themes.isEmpty
+            && builtInThemeColors.isEmpty
             && pageBackgrounds.isEmpty
             && tabIcons.isEmpty
             && launchImageLightFileName == nil
             && launchImageDarkFileName == nil
-            && readerBackgroundMode == ReaderCustomBackgroundMode.none.rawValue
+            && readerBackgrounds.isEmpty
             && regexHighlightConfiguration == nil
             && readerStyleAssetIDs.isEmpty
     }

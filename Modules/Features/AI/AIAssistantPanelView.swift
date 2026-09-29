@@ -43,9 +43,9 @@ struct AIAssistantPanelView: View {
             Group {
                 if profiles.isEmpty {
                     ContentUnavailableView {
-                        Label(localized("尚未設定 AI 服務"), systemImage: "sparkles")
+                        UnavailableLabel(localized("尚未設定 AI 服務"), systemImage: "sparkles")
                     } description: {
-                        Text(settingsError ?? localized("填入自己的 API 服務，即可開始閱讀問答。"))
+                        Text(settingsError ?? localized("填入自己的 API 服務，即可開始閱讀問答。")).foregroundStyle(DSColor.textSecondary)
                     } actions: {
                         Button(localized("前往設定")) { openScreen(.settings) }
                     }
@@ -157,8 +157,11 @@ struct AIAssistantPanelView: View {
 
     @ViewBuilder private var transcript: some View {
         if conversation.session.isEmpty {
-            ContentUnavailableView(localized("一起讀懂這本書"), systemImage: "sparkles",
-                description: Text(localized("選取原文來解釋或翻譯，也可以直接提問。")))
+            ContentUnavailableView {
+                UnavailableLabel(localized("一起讀懂這本書"), systemImage: "sparkles")
+            } description: {
+                Text(localized("選取原文來解釋或翻譯，也可以直接提問。")).foregroundStyle(DSColor.textSecondary)
+            }
                 .accessibilityIdentifier("ai.chat.transcript")
         } else {
             ScrollViewReader { proxy in
@@ -313,7 +316,7 @@ struct AIAssistantPanelView: View {
     private func citationPreview(_ citation: LLMCitation) -> some View {
         NavigationStack {
             List {
-                Section { Text(citation.quote).textSelection(.enabled) } header: { Text(citation.sectionTitle ?? localized("原文")) }
+                Section { Text(citation.quote).textSelection(.enabled).foregroundStyle(DSColor.textPrimary) } header: { Text(citation.sectionTitle ?? localized("原文")).foregroundStyle(DSColor.textSecondary) }
             }
             .softScrollEdges()
             .navigationTitle(localized("原文引用"))

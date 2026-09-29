@@ -123,6 +123,7 @@ struct SystemVoicePickerView: View {
                     }
                 } header: {
                     Text(group.displayName)
+                        .foregroundStyle(DSColor.textSecondary)
                 } footer: {
                     if group.id == groups.last?.id {
                         voiceListFooter
@@ -182,6 +183,7 @@ struct SystemVoicePickerView: View {
                 }
             } header: {
                 Text(localized("個人語音"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 Text(localized("授權後，你錄製的個人語音會出現在下方。"))
                     .dsSectionFooter()

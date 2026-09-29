@@ -46,9 +46,10 @@ struct EPUBMediaPlayerView: View {
                 Text(displayTitle)
                     .font(DSFont.headline)
                     .multilineTextAlignment(.center)
+                    .foregroundStyle(DSColor.textPrimary)
                 Text(media.sourceHref)
                     .font(DSFont.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                 if let errorMessage {

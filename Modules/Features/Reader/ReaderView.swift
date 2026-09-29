@@ -339,14 +339,18 @@ struct ReaderView: View {
     /// behind an opaque CoreText page. The same URL is passed into render settings
     /// so every paged canvas draws it beneath the text.
     var activeReaderBackgroundImageURL: URL? {
-        guard readerTheme.allowsReaderBackgroundImage,
-              settings.readerCustomBackgroundMode == .image,
-              let url = settings.readerCustomBackgroundImageURL,
+        guard let background = readerBackgroundResolution.customBackground,
+              let url = settings.readerBackgroundImageURL(for: background),
               FileManager.default.fileExists(atPath: url.path)
         else {
             return nil
         }
         return url
+    }
+
+    /// The background on screen, for this appearance and the reader's own pick.
+    var readerBackgroundResolution: ReaderBackgroundResolution {
+        settings.readerBackgroundResolution(appearance: systemColorScheme, wornTheme: readerTheme)
     }
 
     private var activeReaderBackgroundImage: UIImage? {
@@ -391,25 +395,29 @@ struct ReaderView: View {
         }
     }
 
-    /// Applies the selected app appearance theme to the reader only when the
-    /// user explicitly enables "bind reading theme" in Settings. While bound, the
-    /// reader follows the system appearance through the user's 淺色閱讀主題 /
-    /// 黑色閱讀主題 picks: 跟隨外觀主題 repaints the reader with the appearance
-    /// theme's palette, any other pick switches to that reading background.
+    /// Puts the palette of the background on screen in place: a saved background's, or
+    /// the appearance theme's under 綁定閱讀主題 › 跟隨外觀主題. While bound, the reader
+    /// follows the system appearance through the user's 淺色閱讀主題 / 深色閱讀主題 picks,
+    /// and this is the one writer of its reading background. `readerBackgroundResolution`
+    /// decides; this only applies it.
     func syncActiveThemePreset() {
+        let resolution = readerBackgroundResolution
         var preset: AppearanceThemePreset?
         var boundTheme: ReaderTheme?
-        if let customBackgroundPreset = settings.readerCustomBackgroundPreset {
-            preset = customBackgroundPreset
-        } else if settings.appearanceBindReaderTheme {
-            let choice = settings.boundReaderTheme(for: systemColorScheme)
-            boundTheme = choice.resolvedReaderTheme(for: systemColorScheme)
-            if case .followAppearanceTheme = choice {
+        if settings.appearanceBindReaderTheme {
+            boundTheme = resolution.theme
+            if let background = resolution.customBackground {
+                preset = settings.readerBackgroundPreset(for: background)
+            } else if resolution.paintsWithAppearanceTheme {
                 preset = settings.appearanceTheme(
                     for: systemColorScheme,
                     isProActive: subscriptionStore.hasAccess(.readerThemePacks)
                 )
             }
+        } else if let background = settings.wornReaderCustomBackground {
+            // Put in place whatever its tone: `ReaderTheme` paints it only over a
+            // background of its own tone, so 夜間 can come and go without this running.
+            preset = settings.readerBackgroundPreset(for: background)
         }
 
         // Order matters: changing the theme recolors the render-settings snapshot, so
@@ -2218,13 +2226,10 @@ struct ReaderView: View {
         .onChanged(of: settings.appearanceBoundDarkReaderTheme) { _ in
             syncActiveThemePreset()
         }
-        .onChanged(of: settings.readerCustomBackgroundMode) { _ in
+        .onChanged(of: settings.readerCustomBackgroundID) { _ in
             syncActiveThemePreset()
         }
-        .onChanged(of: settings.readerCustomBackgroundColorHex) { _ in
-            syncActiveThemePreset()
-        }
-        .onChanged(of: settings.readerCustomBackgroundImageFileName) { _ in
+        .onChanged(of: settings.readerCustomBackgrounds) { _ in
             syncActiveThemePreset()
         }
         )
@@ -2746,11 +2751,11 @@ struct ReaderView: View {
                         resourceURL: { epubRenderer.resourceURL(for: $0) }
                     )
                 } else {
-                    ContentUnavailableView(
-                        localized("媒體旁白"),
-                        systemImage: "waveform",
-                        description: Text(localized("目前章節沒有媒體旁白"))
-                    )
+                    ContentUnavailableView {
+                        UnavailableLabel(localized("媒體旁白"), systemImage: "waveform")
+                    } description: {
+                        Text(localized("目前章節沒有媒體旁白")).foregroundStyle(DSColor.textSecondary)
+                    }
                 }
             }
         }

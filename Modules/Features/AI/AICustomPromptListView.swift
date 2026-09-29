@@ -13,9 +13,9 @@ struct AICustomPromptListView: View {
             }
             if store.prompts.isEmpty {
                 ContentUnavailableView {
-                    Label(localized("還沒有自訂提示詞"), systemImage: "text.badge.plus")
+                    UnavailableLabel(localized("還沒有自訂提示詞"), systemImage: "text.badge.plus")
                 } description: {
-                    Text(localized("常用的問法存成提示詞，就會出現在 AI 對話的快捷按鈕裡。"))
+                    Text(localized("常用的問法存成提示詞，就會出現在 AI 對話的快捷按鈕裡。")).foregroundStyle(DSColor.textSecondary)
                 } actions: {
                     Button(localized("新增提示詞")) { editing = .init(title: "", instruction: "") }
                 }
@@ -91,7 +91,7 @@ private struct AICustomPromptEditor: View {
                     TextEditor(text: $prompt.instruction)
                         .frame(minHeight: DSLayout.minimumTapTarget * 4)
                         .accessibilityLabel(localized("提示詞內容"))
-                } header: { Text(localized("提示詞內容")) }
+                } header: { Text(localized("提示詞內容")).foregroundStyle(DSColor.textSecondary) }
                 footer: { Text(localized("選文與閱讀內容會自動帶入，仍受對話的已讀範圍限制。")).dsSectionFooter() }
             }
             .softScrollEdges()

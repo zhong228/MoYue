@@ -38,7 +38,7 @@ struct ReadingSettingsScopeView: View {
                     scope: defaultScopeBinding
                 )
             } footer: {
-                Text(localized("跟隨主題：每個主題各自記住一套；跟隨全域：所有主題共用一套。沒有單獨設定的項目照「預設」。"))
+                Text(localized("跟隨主題：每個主題各記一套，主題沒有的項目用全域那套；跟隨全域：所有主題共用一套。沒有單獨設定的項目照「預設」。"))
                     .dsSectionFooter()
             }
             .interfaceSectionSurface()
@@ -54,6 +54,7 @@ struct ReadingSettingsScopeView: View {
                     }
                 } header: {
                     Text(localized(group.titleKey))
+                        .foregroundStyle(DSColor.textSecondary)
                 } footer: {
                     if group.items.contains(.background) {
                         Text(localized("閱讀背景與翻頁方式在閱讀器的選單裡調整。"))
@@ -76,7 +77,7 @@ struct ReadingSettingsScopeView: View {
                 }
                 .disabled(settings.readingSettingsScope == .default)
             } footer: {
-                Text(localized("全部改回跟隨全域。主題自己的設定會留著，改回跟隨主題就會再用。"))
+                Text(localized("全部改回跟隨主題，各主題自己的設定會重新套用。"))
                     .dsSectionFooter()
             }
             .interfaceSectionSurface()

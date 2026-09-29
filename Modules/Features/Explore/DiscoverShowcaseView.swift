@@ -62,12 +62,12 @@ struct DiscoverShowcaseView: View {
         // (e.g. 「请先于【源变量】处填写共享Token」), show ITS words — the generic
         // copy would hide the one instruction the user needs.
         ContentUnavailableView {
-            Label(localized("暫無發現內容"), systemImage: "sparkles")
+            UnavailableLabel(localized("暫無發現內容"), systemImage: "sparkles")
         } description: {
             Text(
                 discover.sourceNotice
                     ?? localized("此書源未回傳發現內容，可下拉重新整理或切換書源")
-            )
+            ).foregroundStyle(DSColor.textSecondary)
         } actions: {
             // The source asked for a device id and got none. The toggle that fixes
             // it lives in 書源編輯 → 基本, which nobody looking at an empty 發現頁
@@ -492,7 +492,7 @@ private struct DiscoverRankedSummaryCard: View {
 /// audiobook inference, or source lookups in `body` (each visible row re-renders
 /// every time any section finishes loading; see `DiscoverBookDisplay`).
 /// Whether a 探索 card may fall back to the user's 預設封面 library, and under
-/// which key. Gated on 設定 → 書架顯示 → 預設封面 → 探索頁啟用預設封面, so the
+/// which key. Gated on 外觀主題 → 介面 → 預設封面 → 探索頁啟用預設封面, so the
 /// bookshelf can use default covers without the discover page changing.
 enum DiscoverDefaultCoverSeed {
     static func seed(for display: DiscoverBookDisplay) -> String? {

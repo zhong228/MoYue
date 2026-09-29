@@ -28,8 +28,10 @@ enum DSColor {
     static var textSecondary: Color { themedText(\.secondary, fallback: .secondaryLabel) }
     /// Third-level text (footnotes, metadata) — the level iOS calls `tertiaryLabel`.
     static var textTertiary: Color { themedText(\.tertiary, fallback: .tertiaryLabel) }
-    /// Disabled text
-    static let textDisabled = Color.secondary.opacity(0.5)
+    /// Disabled text — 弱文字, the level iOS gives tertiary content. This was
+    /// `Color.secondary` at half opacity: the same 30% of the label colour that
+    /// `tertiaryLabel` is, so a theme without text colours draws exactly what it did.
+    static var textDisabled: Color { textTertiary }
 
     // ── Background ──
     // When an app appearance theme is active these retint the whole app; with
@@ -69,31 +71,28 @@ enum DSColor {
         _ keyPath: KeyPath<AppearanceThemeTextColors, UIColor>,
         fallback: UIColor
     ) -> Color {
-        let themes = AppearanceThemePreset.activeAppThemes
-        guard themes.isActive else { return Color(uiColor: fallback) }
-        return Color(uiColor: UIColor { traits in
-            themes.theme(for: traits.userInterfaceStyle)?
-                .authoredTextColors?[keyPath: keyPath] ?? fallback
+        Color(uiColor: UIColor { traits in
+            traits[AppThemesTrait.self].theme(for: traits.userInterfaceStyle)?
+                .authoredTextColors?[keyPath: keyPath] ?? fallback.resolvedColor(with: traits)
         })
     }
 
     /// Resolves a themed surface color as a **dynamic** color.
     ///
-    /// UIKit picks the light or dark palette from the trait collection in effect when a
-    /// view actually draws, so the result no longer depends on when `activeAppThemes` was
-    /// last written. That ordering was the bug: only `ContentView.body` refreshes the
-    /// global on a system appearance change, and SwiftUI can re-render a themed screen
-    /// before it runs, leaving dark mode painted with light-mode surfaces.
+    /// Both the theme and the light or dark palette are read from the trait collection in
+    /// effect when a view actually draws (`AppThemesTrait`), never captured when the
+    /// color is made. Captured, the color depended on when things ran: dark mode could
+    /// paint light-mode surfaces if a screen re-rendered before `ContentView.body` did,
+    /// and a view SwiftUI did not rebuild kept the old theme after a switch.
     ///
     /// - Parameter fallback: the system color for an appearance with no theme (classic).
     private static func themed(
         _ keyPath: KeyPath<AppearanceThemePreset, UIColor>,
         fallback: UIColor
     ) -> Color {
-        let themes = AppearanceThemePreset.activeAppThemes
-        guard themes.isActive else { return Color(uiColor: fallback) }
-        return Color(uiColor: UIColor { traits in
-            themes.theme(for: traits.userInterfaceStyle)?[keyPath: keyPath] ?? fallback
+        Color(uiColor: UIColor { traits in
+            traits[AppThemesTrait.self].theme(for: traits.userInterfaceStyle)?[keyPath: keyPath]
+                ?? fallback.resolvedColor(with: traits)
         })
     }
 

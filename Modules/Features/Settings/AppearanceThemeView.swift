@@ -15,22 +15,25 @@ struct AppearanceThemeView: View {
     @EnvironmentObject private var subscriptionStore: SubscriptionStore
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The paywall, opened on the feature the locked control belongs to.
     @State private var paywallFeature: PremiumFeature?
-    @State private var showCustomizer = false
-    @State private var editingCustomThemeID: String?
 
-    // 頁面背景 editor state.
-    @State private var pageBackgroundScope: AppearancePageBackgroundScope = .global
-    @State private var showSaveThemeAlert = false
+    /// 新建's name prompt, and the name typed into it.
+    @State private var showNewThemeAlert = false
     @State private var newThemeName = ""
+    /// The theme a long press on its tile opened 重新命名／刪除 for.
+    @State private var themeActionTarget: AppearanceThemePreset?
+    /// The tile lifted by that long press — up before the alert, down once it goes.
+    @State private var liftedThemeID: String?
+    /// The theme being renamed, and the name typed so far.
+    @State private var renameTarget: AppearanceThemePreset?
+    @State private var renameText = ""
+    /// The theme 主題管理's 刪除主題 is asking about.
+    @State private var deleteTarget: AppearanceThemePreset?
     @State private var showThemeImporter = false
-    @State private var showResetPageBackgroundConfirm = false
+    @State private var showResetAppearanceConfirm = false
     @State private var screenAlert: ThemeScreenAlert?
-    /// A parsed QiReader pack waiting on the user's answer about its reading setup. Held
-    /// here rather than applied immediately so the question is asked *after* the file
-    /// parsed and *before* anything lands — the same contract 匯入閱讀設定 uses.
-    @State private var pendingQiTheme: PendingQiThemeImport?
     /// The 匯入完成 sheet, up from the moment an import starts writing.
     @State private var importProgress: CustomizationImportProgress?
     /// Appearance slot the theme grid edits, once the user picks one by hand.
@@ -43,6 +46,10 @@ struct AppearanceThemeView: View {
     private var editingScheme: ColorScheme {
         guard settings.appearanceUsesSeparateDarkTheme else { return colorScheme }
         return themeSlot ?? colorScheme
+    }
+
+    private var isProActive: Bool {
+        subscriptionStore.hasAccess(.readerThemePacks)
     }
 
     /// Theme selected in the edited slot, as its *identity* — the grid compares
@@ -74,6 +81,11 @@ struct AppearanceThemeView: View {
         return themeSlot
     }
 
+    /// The selected theme when it is one of the user's own — the one 刪除主題 acts on.
+    private var selectedCustomTheme: AppearanceCustomTheme? {
+        settings.customAppearanceThemes.first { $0.id == selectedTheme.id }
+    }
+
     private var customThemes: [AppearanceThemePreset] {
         settings.customAppearanceThemes.map(AppearanceThemePreset.preset(from:))
     }
@@ -84,15 +96,16 @@ struct AppearanceThemeView: View {
     }
 
     var body: some View {
-        // The look in the order it is decided: which theme, how it follows light and
-        // dark, what the interface around the content wears, the page behind it, and
-        // the themes themselves. Every row wears `SettingsRowLabel`, as 設定 and
-        // 閱讀設定 do.
+        // Grouped as the reference the user handed over (2026-09-29): which theme and how
+        // it follows light and dark, then 介面 (what surrounds the content), 外觀 (the
+        // theme's colours, the page behind it, its effects — each a page of its own),
+        // and the themes themselves. A theme no longer opens a page of its own. Every
+        // row wears `SettingsRowLabel`, as 設定 and 閱讀設定 do.
         List {
             themeSelectionSection
             lightDarkSection
             interfaceSection
-            pageBackgroundSections
+            appearanceSection
             themeManagementSection
         }
         .softScrollEdges()
@@ -123,16 +136,6 @@ struct AppearanceThemeView: View {
                 importProgress = nil
             }
         }
-        .navigationDestination(isPresented: $showCustomizer) {
-            if let editingCustomThemeID {
-                // Opens on the appearance you were editing, so a theme opened
-                // from the 深色 tab lands on its dark colors.
-                AppearanceThemeCustomizationView(
-                    themeID: editingCustomThemeID,
-                    initialScheme: editingScheme
-                )
-            }
-        }
         // One alert modifier for the whole screen. Stacking several `.alert`s on
         // the same view is how one of them silently stops presenting — they all
         // compete for the same presenter.
@@ -160,6 +163,7 @@ struct AppearanceThemeView: View {
             }
         } header: {
             Text(localized("主題"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             if !subscriptionStore.hasAccess(.readerThemePacks) {
                 Text(localized("自訂應用配色、閱讀配色與頁面背景需開通會員。"))
@@ -167,6 +171,28 @@ struct AppearanceThemeView: View {
             }
         }
         .interfaceSectionSurface()
+    }
+
+    /// A long press on a theme of the user's own: the tile pops up, and once it is up,
+    /// 重新命名／刪除 comes up over it — the order a Home Screen icon lifts before its
+    /// menu. The animation's own completion opens the alert, not a delay.
+    private func liftTheme(_ preset: AppearanceThemePreset) {
+        guard !reduceMotion else {
+            liftedThemeID = preset.id
+            themeActionTarget = preset
+            return
+        }
+        withAnimation(DSAnimation.press, completionCriteria: .logicallyComplete) {
+            liftedThemeID = preset.id
+        } completion: {
+            themeActionTarget = preset
+        }
+    }
+
+    /// 重新命名, from a tile's long press.
+    private func beginRename(_ preset: AppearanceThemePreset) {
+        renameText = preset.localizedName
+        renameTarget = preset
     }
 
     /// How the look follows the system's light and dark, and whether the reading
@@ -180,17 +206,18 @@ struct AppearanceThemeView: View {
                 SettingsRowLabel(localized("單獨設定深色主題"), systemImage: "moon")
             }
             Toggle(isOn: $settings.appearanceBindReaderTheme) {
-                SettingsRowLabel(localized("自動切換閱讀背景"), systemImage: "book")
+                SettingsRowLabel(localized("綁定閱讀主題"), systemImage: "book")
             }
             if settings.appearanceBindReaderTheme {
-                boundReaderThemeRow(titleKey: "淺色閱讀背景", systemImage: "sun.max", appearance: .light)
-                boundReaderThemeRow(titleKey: "深色閱讀背景", systemImage: "moon.fill", appearance: .dark)
+                boundReaderThemeRow(titleKey: "淺色閱讀主題", systemImage: "sun.max", appearance: .light)
+                boundReaderThemeRow(titleKey: "深色閱讀主題", systemImage: "moon.fill", appearance: .dark)
             }
         } header: {
-            Text(localized("淺色與深色"))
+            Text(localized("主題切換"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             if settings.appearanceBindReaderTheme {
-                Text(localized("閱讀器會依系統的淺色／深色，自動套用上面選的閱讀背景。"))
+                Text(localized("閱讀器會依系統的淺色／深色，自動套用上面選的閱讀主題。"))
                     .dsSectionFooter()
             }
         }
@@ -198,20 +225,11 @@ struct AppearanceThemeView: View {
         .animation(DSAnimation.standard, value: settings.appearanceBindReaderTheme)
     }
 
-    /// Everything the interface around the content wears: its font, its effects, the
-    /// reader's chrome, the tab bar and the launch screen.
+    /// What surrounds the content: the reader's chrome, the tab bar, the bookshelf grid
+    /// and its covers, the launch screen. 每列欄數 and 預設封面 moved here from 設定's
+    /// 書架顯示 (2026-09-29), where the theme they belong to could not be seen.
     private var interfaceSection: some View {
         Section {
-            NavigationLink {
-                GlobalFontSettingsView()
-            } label: {
-                SettingsValueLabel(title: localized("全局字體"), systemImage: "f.cursive", value: globalFontDisplayName)
-            }
-            NavigationLink {
-                AppearanceInterfaceEffectsView()
-            } label: {
-                SettingsValueLabel(title: localized("界面效果"), systemImage: "sparkles", value: interfaceEffectsSummary)
-            }
             NavigationLink {
                 AppearanceReaderInterfaceView()
             } label: {
@@ -223,78 +241,60 @@ struct AppearanceThemeView: View {
             }
             // In view without Pro too, locked (2026-09-27).
             rootTabRow
+            Picker(selection: $settings.bookshelfGridColumnCount) {
+                ForEach(GlobalSettings.bookshelfGridColumnCountOptions, id: \.self) { columnCount in
+                    Text(String(format: localized("%d 欄"), columnCount))
+                        .tag(columnCount)
+                }
+            } label: {
+                SettingsRowLabel(localized("每列欄數"), systemImage: "square.grid.3x3.fill")
+            }
+            .pickerStyle(.menu)
+            NavigationLink {
+                DefaultCoverSettingsView()
+            } label: {
+                SettingsRowLabel(localized("預設封面"), systemImage: "photo.stack.fill")
+            }
             launchImageRow
         } header: {
             Text(localized("介面"))
+                .foregroundStyle(DSColor.textSecondary)
         }
         .interfaceSectionSurface()
     }
 
-    @ViewBuilder
-    private var pageBackgroundSections: some View {
-        if subscriptionStore.hasAccess(.readerThemePacks) {
-            Section {
-                pageBackgroundPreviewCard
-                Picker(selection: $pageBackgroundScope) {
-                    ForEach(AppearancePageBackgroundScope.allCases) { scope in
-                        Text(scope.localizedTitle).tag(scope)
-                    }
-                } label: {
-                    SettingsRowLabel(localized("編輯範圍"), systemImage: "rectangle.3.group")
-                }
-            } header: {
-                Text(localized("頁面背景"))
-            } footer: {
-                Text(localized("沒有單獨設定的分頁，用「全域預設」的背景。"))
-                    .dsSectionFooter()
+    /// The theme's own look, a page each: its colours and the global font, the page
+    /// behind everything, and the interface effects.
+    private var appearanceSection: some View {
+        Section {
+            NavigationLink {
+                AppearanceColorsAndFontView()
+            } label: {
+                SettingsValueLabel(
+                    title: localized("顏色與字體"),
+                    systemImage: "paintpalette",
+                    value: settings.globalFontDisplayName
+                )
             }
-            .interfaceSectionSurface()
-
-            pageBackgroundAppearanceSection(scheme: .light, titleKey: "亮色背景")
-            pageBackgroundAppearanceSection(scheme: .dark, titleKey: "深色背景")
-
-            Section {
-                Button(role: .destructive) {
-                    showResetPageBackgroundConfirm = true
+            if subscriptionStore.hasAccess(.readerThemePacks) {
+                NavigationLink {
+                    AppearancePageBackgroundView()
                 } label: {
-                    SettingsRowLabel(localized("重設頁面背景"), systemImage: "arrow.counterclockwise", role: .destructive)
+                    SettingsRowLabel(localized("頁面背景"), systemImage: "photo.on.rectangle")
                 }
-                .alert(
-                    localized("重設頁面背景？"),
-                    isPresented: $showResetPageBackgroundConfirm
-                ) {
-                    Button(localized("重設"), role: .destructive) {
-                        settings.resetAllPageBackgrounds()
-                    }
-                    Button(localized("取消"), role: .cancel) {}
-                } message: {
-                    Text(localized("將清除所有頁面（含各分頁）的背景顏色與背景圖設定。"))
-                }
-            }
-            .interfaceSectionSurface()
-        } else {
-            Section {
-                SettingsLockedRow(title: localized("頁面背景"), systemImage: "photo") {
+            } else {
+                SettingsLockedRow(title: localized("頁面背景"), systemImage: "photo.on.rectangle") {
                     paywallFeature = .readerThemePacks
                 }
-            } header: {
-                Text(localized("頁面背景"))
             }
-            .interfaceSectionSurface()
-        }
-    }
-
-    /// One appearance's page background: two colours and a picture.
-    private func pageBackgroundAppearanceSection(scheme: ColorScheme, titleKey: String) -> some View {
-        Section {
-            pageBackgroundColorRow(titleKey: "主色調", systemImage: "paintbrush", scheme: scheme, slot: .primary)
-            pageBackgroundColorRow(titleKey: "輔色調", systemImage: "paintbrush.pointed", scheme: scheme, slot: .secondary)
-            backgroundImagePickerRow(scheme: scheme)
-            if hasBackgroundImage(scheme: scheme) {
-                backgroundImageOpacityRow(scheme: scheme)
+            NavigationLink {
+                AppearanceInterfaceEffectsView()
+            } label: {
+                SettingsValueLabel(title: localized("界面效果"), systemImage: "sparkles", value: interfaceEffectsSummary)
             }
         } header: {
-            Text(localized(titleKey))
+            Text(localized("外觀"))
+                .foregroundStyle(DSColor.textSecondary)
         }
         .interfaceSectionSurface()
     }
@@ -311,8 +311,9 @@ struct AppearanceThemeView: View {
             themeActionRows
         } header: {
             Text(localized("主題管理"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
-            Text(localized("「匯出全部自訂」包含主題、頁面背景圖、Tab 圖示、啟動圖與閱讀背景。"))
+            Text(localized("「導出主題」包含所有自訂主題、自帶主題的配色、頁面背景圖、Tab 圖示、啟動圖與閱讀背景。"))
                 .dsSectionFooter()
         }
         .interfaceSectionSurface()
@@ -324,11 +325,30 @@ struct AppearanceThemeView: View {
                 themeSlotPicker
             }
             LazyVGrid(columns: gridColumns, spacing: DSSpacing.lg) {
-                themeOption(AppearanceThemePreset.classic)
+                // As coloured in 顏色與字體, not as shipped: the tile's dot and the ring
+                // round the selected one are 強調色, so an edited accent shows here too.
+                themeOption(settings.builtInThemePreset(AppearanceThemePreset.classic, isProActive: isProActive))
                 ForEach(AppearanceThemePreset.freeSolidPresets) { preset in
-                    themeOption(preset)
+                    themeOption(settings.builtInThemePreset(preset, isProActive: isProActive))
                 }
                 newThemeButton
+            }
+            // On the built-in grid, which is always there: a tile's own alert would go
+            // with the tile, and the card below already has the long-press one — two on
+            // one view compete for one presenter.
+            .alert(
+                localized("重新命名主題"),
+                isPresented: Binding(
+                    get: { renameTarget != nil },
+                    set: { if !$0 { renameTarget = nil } }
+                ),
+                presenting: renameTarget
+            ) { preset in
+                TextField(localized("主題名稱"), text: $renameText)
+                Button(localized("確定")) {
+                    settings.renameCustomAppearanceTheme(id: preset.id, to: renameText)
+                }
+                Button(localized("取消"), role: .cancel) {}
             }
 
             if !customThemes.isEmpty {
@@ -350,6 +370,37 @@ struct AppearanceThemeView: View {
             }
         }
         .animation(DSAnimation.standard, value: settings.appearanceUsesSeparateDarkTheme)
+        // The long press lands with a firm tap of the Taptic Engine as the tile lifts —
+        // the medium one was too faint to notice (2026-09-29).
+        .sensoryFeedback(.impact(weight: .heavy, intensity: 1), trigger: liftedThemeID) { _, lifted in
+            lifted != nil
+        }
+        .onChange(of: themeActionTarget) { _, target in
+            guard target == nil, liftedThemeID != nil else { return }
+            withAnimation(reduceMotion ? nil : DSAnimation.standard) {
+                liftedThemeID = nil
+            }
+        }
+        // On the card, not the tile: 刪除 removes the tile, and an alert torn down by its
+        // own action can be left half-dismissed.
+        .alert(
+            themeActionTarget?.localizedName ?? "",
+            isPresented: Binding(
+                get: { themeActionTarget != nil },
+                set: { if !$0 { themeActionTarget = nil } }
+            ),
+            presenting: themeActionTarget
+        ) { preset in
+            Button(localized("重新命名")) {
+                beginRename(preset)
+            }
+            Button(localized("刪除"), role: .destructive) {
+                settings.deleteCustomAppearanceTheme(id: preset.id)
+            }
+            Button(localized("取消"), role: .cancel) {}
+        } message: { _ in
+            Text(localized("刪除後，使用此主題的外觀會回到預設。"))
+        }
     }
 
     /// Chooses which appearance the grid below is picking a theme for, and flips
@@ -388,18 +439,14 @@ struct AppearanceThemeView: View {
         let locked = preset.requiresPro && !subscriptionStore.hasAccess(.readerThemePacks)
         // Ring marks the theme actually in effect (not a stored-but-locked pick).
         let selected = selectedTheme.id == preset.id
+        // Only the user's own themes can be renamed or deleted.
+        let editable = preset.isCustom && !locked
         // Preview in the appearance being edited: the dark slot shows this
         // theme's dark palette, which is what selecting it will apply.
         let displayed = preset.palette(for: editingScheme)
         return Button {
             guard !locked else {
                 paywallFeature = .readerThemePacks
-                return
-            }
-            if preset.isCustom, selected {
-                // Re-tapping the active custom theme opens the editor.
-                editingCustomThemeID = preset.id
-                showCustomizer = true
                 return
             }
             settings.setAppearanceTheme(
@@ -429,52 +476,19 @@ struct AppearanceThemeView: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        // Plain buttons only. A `ShareLink` placed in here took the menu over —
-        // the tile's long-press showed the share item and the system's own
-        // suggestion, and 編輯 / 刪除 were never drawn, which is what made custom
-        // themes look undeletable. Per-theme export lives in the editor instead.
-        .contextMenu {
-            if preset.isCustom, !locked {
-                Button {
-                    editingCustomThemeID = preset.id
-                    showCustomizer = true
-                } label: {
-                    Label(localized("編輯"), systemImage: "slider.horizontal.3")
-                }
-                // Only for an imported pack that the write-back has since edited;
-                // a theme built here has no author's version to return to.
-                if settings.canResetCustomAppearanceTheme(id: preset.id) {
-                    Menu {
-                        Button(role: .destructive) {
-                            settings.resetCustomAppearanceTheme(id: preset.id)
-                        } label: {
-                            Label(
-                                localized("還原主題包原始設定"),
-                                systemImage: "arrow.uturn.backward"
-                            )
-                        }
-                    } label: {
-                        Label(localized("重置此主題"), systemImage: "arrow.uturn.backward")
-                    }
-                }
-                // The confirmation is a nested menu rather than an alert: a modal
-                // raised from a context-menu action is launched while the menu's
-                // UIKit controller is dismissing, which iOS 17 can drop
-                // (Technotes/iOS17MenuModalPresentation.md). A submenu stays
-                // inside the one menu presentation and still takes two taps.
-                Menu {
-                    Button(role: .destructive) {
-                        settings.deleteCustomAppearanceTheme(id: preset.id)
-                    } label: {
-                        Label(
-                            String(format: localized("刪除「%@」"), preset.localizedName),
-                            systemImage: "trash"
-                        )
-                    }
-                } label: {
-                    Label(localized("刪除"), systemImage: "trash")
-                }
+        // A long press on a theme of the user's own asks 重新命名 or 刪除 in an alert —
+        // not a context menu, whose actions could not raise an alert on iOS 17
+        // (Technotes/iOS17MenuModalPresentation.md). 主題管理 has 刪除主題 as a row too.
+        .buttonStyle(ThemeTileButtonStyle(
+            onLongPress: editable ? { liftTheme(preset) } : nil,
+            isLifted: liftedThemeID == preset.id
+        ))
+        // Above its neighbours while it is lifted, or they would cover it.
+        .zIndex(liftedThemeID == preset.id ? 1 : 0)
+        .accessibilityActions {
+            if editable {
+                Button(localized("重新命名")) { beginRename(preset) }
+                Button(localized("刪除")) { deleteTarget = preset }
             }
         }
         .accessibilityLabel(preset.localizedName)
@@ -487,15 +501,8 @@ struct AppearanceThemeView: View {
                 paywallFeature = .readerThemePacks
                 return
             }
-            // Copies the whole theme — both appearances — and lands in the slot
-            // being edited, so creating from the 深色 tab does not silently
-            // replace the light selection.
-            let custom = settings.createCustomAppearanceTheme(
-                from: selectedTheme,
-                for: editingScheme
-            )
-            editingCustomThemeID = custom.id
-            showCustomizer = true
+            newThemeName = ""
+            showNewThemeAlert = true
         } label: {
             VStack(spacing: DSSpacing.sm) {
                 ZStack {
@@ -517,6 +524,23 @@ struct AppearanceThemeView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(localized("新建"))
+        // A name, then the whole look on screen — colours, page backgrounds, icons, font
+        // and all — becomes the new theme, selected in the slot being edited. This was
+        // two rows: 新建 copied the colours alone and opened an editor page, and
+        // 保存為新主題 saved the whole look (2026-09-29).
+        .alert(localized("新建主題"), isPresented: $showNewThemeAlert) {
+            TextField(localized("主題名稱"), text: $newThemeName)
+            Button(localized("新建")) {
+                settings.saveCurrentAppearanceAsTheme(
+                    named: newThemeName,
+                    basedOn: selectedTheme,
+                    for: editingScheme
+                )
+            }
+            Button(localized("取消"), role: .cancel) {}
+        } message: {
+            Text(localized("目前的整套外觀會存成這個新主題。"))
+        }
     }
 
     private var appearanceFollowsSystemBinding: Binding<Bool> {
@@ -531,26 +555,18 @@ struct AppearanceThemeView: View {
         )
     }
 
-    /// One appearance's reading-background pick, shown while 自動切換閱讀背景 is on.
+    /// One appearance's reading-background pick, shown while 綁定閱讀主題 is on.
     private func boundReaderThemeRow(titleKey: String, systemImage: String, appearance: ColorScheme) -> some View {
         Picker(selection: Binding(
             get: { settings.boundReaderTheme(for: appearance) },
             set: { settings.setBoundReaderTheme($0, for: appearance) }
         )) {
-            ForEach(ReaderBoundTheme.menuOptions) { option in
-                Text(option.localizedTitle).tag(option)
+            ForEach(settings.boundReaderThemeOptions) { option in
+                Text(settings.title(for: option)).tag(option)
             }
         } label: {
             SettingsRowLabel(localized(titleKey), systemImage: systemImage)
         }
-    }
-
-    private var globalFontDisplayName: String {
-        guard let selected = settings.resolvedGlobalFontPostScript else {
-            return localized("系統字體")
-        }
-        return settings.userFonts.first { $0.postScriptName == selected }?.displayName
-            ?? localized("系統字體")
     }
 
     /// Names whichever effects are on, so the row says something useful without
@@ -577,13 +593,13 @@ struct AppearanceThemeView: View {
                 LaunchImageSettingsView()
             } label: {
                 SettingsValueLabel(
-                    title: localized("啟動畫面"),
+                    title: localized("啟動圖"),
                     systemImage: "iphone",
                     value: localized(settings.launchImageEnabled ? "已開啟" : "已關閉")
                 )
             }
         } else {
-            SettingsLockedRow(title: localized("啟動畫面"), systemImage: "iphone") {
+            SettingsLockedRow(title: localized("啟動圖"), systemImage: "iphone") {
                 paywallFeature = .launchScreen
             }
         }
@@ -604,249 +620,36 @@ struct AppearanceThemeView: View {
         }
     }
 
-    // MARK: - 頁面背景 (page background editor)
-
-    private func pageBackgroundColorRow(
-        titleKey: String,
-        systemImage: String,
-        scheme: ColorScheme,
-        slot: PageBackgroundColorSlot
-    ) -> some View {
-        ColorPicker(selection: pageBackgroundColorBinding(scheme: scheme, slot: slot), supportsOpacity: false) {
-            SettingsRowLabel(localized(titleKey), systemImage: systemImage)
-        }
-    }
-
-    private func pageBackgroundColorBinding(
-        scheme: ColorScheme,
-        slot: PageBackgroundColorSlot
-    ) -> Binding<Color> {
-        Binding(
-            get: {
-                let config = settings.pageBackgroundConfig(for: pageBackgroundScope)
-                let stored = slot == .primary
-                    ? config.primaryHex(for: scheme)
-                    : config.secondaryHex(for: scheme)
-                if let stored {
-                    return Color(uiColor: AppearanceThemePreset.hex(stored))
-                }
-                if pageBackgroundScope != .global {
-                    let globalConfig = settings.pageBackgroundConfig(for: .global)
-                    let globalStored = slot == .primary
-                        ? globalConfig.primaryHex(for: scheme)
-                        : globalConfig.secondaryHex(for: scheme)
-                    if let globalStored {
-                        return Color(uiColor: AppearanceThemePreset.hex(globalStored))
-                    }
-                }
-                return Color(uiColor: AppearanceThemePreset.hex(
-                    Self.defaultPageBackgroundHex(scheme: scheme, slot: slot)
-                ))
-            },
-            set: { value in
-                guard let hex = UIColor(value).rgbHex else { return }
-                var config = settings.pageBackgroundConfig(for: pageBackgroundScope)
-                if slot == .primary {
-                    config.setPrimaryHex(hex, for: scheme)
-                } else {
-                    config.setSecondaryHex(hex, for: scheme)
-                }
-                settings.updatePageBackgroundConfig(config, for: pageBackgroundScope)
-            }
-        )
-    }
-
-    /// Placeholder swatch values shown before the user picks anything; chosen to
-    /// match the stock system page look for each appearance.
-    private static func defaultPageBackgroundHex(
-        scheme: ColorScheme,
-        slot: PageBackgroundColorSlot
-    ) -> UInt32 {
-        if scheme == .dark {
-            return slot == .primary ? 0x1C1C1E : 0x2C2C2E
-        }
-        return slot == .primary ? 0xF2F2F7 : 0xFFFFFF
-    }
-
-    private func hasBackgroundImage(scheme: ColorScheme) -> Bool {
-        settings.pageBackgroundConfig(for: pageBackgroundScope).imageFileName(for: scheme) != nil
-    }
-
-    /// The whole row opens the picker: 背景圖 and, once chosen, the picture itself.
-    private func backgroundImagePickerRow(scheme: ColorScheme) -> some View {
-        let titleKey = scheme == .dark ? "深色背景圖" : "亮色背景圖"
-        let fileName = settings.pageBackgroundConfig(for: pageBackgroundScope).imageFileName(for: scheme)
-        return ImageSourcePickerButton(
-            accessibilityTitle: localized(titleKey),
-            extraActions: fileName == nil ? [] : [
-                ImageSourcePickerAction(
-                    title: localized("移除背景圖"),
-                    systemImage: "trash",
-                    isDestructive: true,
-                    action: {
-                        settings.clearPageBackgroundImage(
-                            scope: pageBackgroundScope,
-                            appearance: scheme
-                        )
-                    }
-                )
-            ],
-            onPick: { result in handleBackgroundPick(result, for: scheme) }
-        ) {
-            LabeledContent {
-                if let fileName,
-                   let image = AppearancePageBackgroundImageStore.shared.image(fileName: fileName) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 44, height: 30)
-                        .clipShape(RoundedRectangle(cornerRadius: DSRadius.sm, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: DSRadius.sm, style: .continuous)
-                                .stroke(DSColor.border, lineWidth: 0.5)
-                        )
-                        .accessibilityHidden(true)
-                } else {
-                    Text(localized("選擇"))
-                        .foregroundStyle(DSColor.textSecondary)
-                }
-            } label: {
-                SettingsRowLabel(localized("背景圖"), systemImage: "photo")
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func backgroundImageOpacityRow(scheme: ColorScheme) -> some View {
-        SettingsSliderRow(
-            title: localized("不透明度"),
-            systemImage: "drop.halffull",
-            valueText: imageOpacityPercentText(scheme: scheme),
-            value: imageOpacityBinding(scheme: scheme),
-            range: 0...1,
-            step: 0.05
-        )
-    }
-
-    private func imageOpacityBinding(scheme: ColorScheme) -> Binding<Double> {
-        Binding(
-            get: {
-                let config = settings.pageBackgroundConfig(for: pageBackgroundScope)
-                let stored = config.imageOpacity(for: scheme)
-                if stored != 1.0 { return stored }
-                if pageBackgroundScope != .global {
-                    let globalConfig = settings.pageBackgroundConfig(for: .global)
-                    let globalStored = globalConfig.imageOpacity(for: scheme)
-                    if globalStored != 1.0 { return globalStored }
-                }
-                return 1.0
-            },
-            set: { value in
-                var config = settings.pageBackgroundConfig(for: pageBackgroundScope)
-                config.setImageOpacity(value, for: scheme)
-                settings.updatePageBackgroundConfig(config, for: pageBackgroundScope)
-            }
-        )
-    }
-
-    private func imageOpacityDisplayValue(scheme: ColorScheme) -> Double {
-        imageOpacityBinding(scheme: scheme).wrappedValue
-    }
-
-    /// The one source for both the printed percentage and the slider's VoiceOver
-    /// value, so what is spoken can never drift from what is shown.
-    private func imageOpacityPercentText(scheme: ColorScheme) -> String {
-        String(format: "%.0f%%", imageOpacityDisplayValue(scheme: scheme) * 100)
-    }
-
-    /// Live preview of the effective background for the edited scope in the
-    /// current appearance (with global fallback), or the stock look when the
-    /// scope has nothing configured.
-    private var pageBackgroundPreviewCard: some View {
-        let slice = settings.resolvedPageBackgroundSlice(
-            for: pageBackgroundScope,
-            colorScheme: colorScheme
-        )
-        let modeName = colorScheme == .dark ? localized("深色模式") : localized("亮色模式")
-        return ZStack {
-            if let slice {
-                AppearancePageBackgroundLayerView(slice: slice)
-            } else {
-                DSColor.groupedBackground
-            }
-            VStack(spacing: DSSpacing.sm) {
-                Text(localized("背景預覽"))
-                    .font(DSFont.headline)
-                    .foregroundStyle(DSColor.textPrimary)
-                Text("\(pageBackgroundScope.localizedTitle) · \(modeName)")
-                    .font(DSFont.subheadline)
-                    .foregroundStyle(DSColor.textSecondary)
-                Text(localized("弱文字樣例"))
-                    .font(DSFont.footnote)
-                    .foregroundStyle(DSColor.textSecondary.opacity(0.72))
-            }
-            .padding(DSSpacing.lg)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 200)
-        .clipShape(RoundedRectangle(cornerRadius: DSRadius.xl, style: .continuous))
-        .shadow(color: Color.primary.opacity(0.15), radius: 16, x: 0, y: 6)
-        .overlay {
-            RoundedRectangle(cornerRadius: DSRadius.xl, style: .continuous)
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(0.5),
-                            .clear,
-                            .black.opacity(0.15)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1.5
-                )
-                .blur(radius: 2)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
     // MARK: - Theme actions (save / export / import / reset)
 
     @ViewBuilder
     private var themeActionRows: some View {
-        Button {
-            newThemeName = ""
-            showSaveThemeAlert = true
-        } label: {
-            SettingsRowLabel(localized("保存為新主題"), systemImage: "plus.square.on.square", role: .action)
-        }
-        .alert(localized("保存為新主題"), isPresented: $showSaveThemeAlert) {
-            TextField(localized("主題名稱"), text: $newThemeName)
-            Button(localized("保存")) {
-                settings.saveCurrentAppearanceAsTheme(
-                    named: newThemeName,
-                    basedOn: selectedTheme,
-                    for: editingScheme
-                )
-            }
-            Button(localized("取消"), role: .cancel) {}
-        } message: {
-            Text(localized("將當前配色與頁面背景保存為自訂主題。"))
-        }
-
+        // One export for the whole look, named after the theme on screen. There used to
+        // be two — 導出主題 (one theme's colours and page backgrounds) and 導出全部自定義 —
+        // but a theme is the whole look now, as an imported pack is (2026-09-29).
         ShareLink(
-            item: exportPayload(for: selectedTheme),
+            item: themeExportPayload,
             preview: SharePreview(selectedTheme.localizedName)
         ) {
             SettingsRowLabel(localized("導出主題"), systemImage: "square.and.arrow.up", role: .action)
         }
-
-        ShareLink(
-            item: fullCustomizationPayload,
-            preview: SharePreview(localized("導出全部自定義"))
-        ) {
-            SettingsRowLabel(localized("導出全部自定義"), systemImage: "square.and.arrow.up.on.square", role: .action)
+        // 刪除主題's confirmation, on a row that is always there: the 刪除主題 row goes
+        // with the theme, and an alert torn down by its own action can be left
+        // half-dismissed.
+        .alert(
+            String(format: localized("刪除「%@」？"), deleteTarget?.localizedName ?? ""),
+            isPresented: Binding(
+                get: { deleteTarget != nil },
+                set: { if !$0 { deleteTarget = nil } }
+            ),
+            presenting: deleteTarget
+        ) { preset in
+            Button(localized("刪除"), role: .destructive) {
+                settings.deleteCustomAppearanceTheme(id: preset.id)
+            }
+            Button(localized("取消"), role: .cancel) {}
+        } message: { _ in
+            Text(localized("刪除後，使用此主題的外觀會回到預設。"))
         }
 
         Button {
@@ -864,49 +667,42 @@ struct AppearanceThemeView: View {
             allowsMultipleSelection: false,
             onCompletion: handleThemeImport
         )
-        .customizationImportPrompt($pendingQiTheme, prompt: \.prompt) { pending, reading in
-            applyQiTheme(pending.theme, reading: reading)
+
+        if let custom = selectedCustomTheme {
+            Button(role: .destructive) {
+                deleteTarget = AppearanceThemePreset.preset(from: custom)
+            } label: {
+                SettingsRowLabel(localized("刪除主題"), systemImage: "trash", role: .destructive)
+            }
+        }
+
+        // A built-in theme's only: it has a default look to go back to. A theme of the
+        // user's own — an imported pack included — is its own look, and is renamed or
+        // deleted instead (2026-09-29).
+        if selectedCustomTheme == nil {
+            Button(role: .destructive) {
+                showResetAppearanceConfirm = true
+            } label: {
+                SettingsRowLabel(localized("重置為默認"), systemImage: "arrow.counterclockwise", role: .destructive)
+            }
+            .alert(localized("重置為默認？"), isPresented: $showResetAppearanceConfirm) {
+                Button(localized("重置為默認"), role: .destructive) {
+                    settings.resetAppearanceToDefault()
+                }
+                Button(localized("取消"), role: .cancel) {}
+            } message: {
+                Text(localized("主題、自帶主題的配色、頁面背景、Tab 圖示、全局字體、介面效果、閱讀介面與啟動圖會回到預設。你的主題、主題包、書架與封面設定、閱讀設定都會保留。"))
+            }
         }
     }
 
-    /// Cheap to build (colors + background file names), so it is safe to
-    /// construct in a menu row — see `AppearanceThemeExportPayload`.
-    private func exportPayload(for preset: AppearanceThemePreset) -> AppearanceThemeExportPayload {
-        AppearanceThemeExportPayload(
-            filename: AppearanceThemeExportPayload.filename(for: preset.localizedName),
-            themes: [settings.appearanceThemeExportSnapshot(for: preset)]
-        )
-    }
-
-    /// Cheap for the same reason: file names now, bytes at share time.
-    private var fullCustomizationPayload: AppearanceCustomizationExportPayload {
+    /// Cheap to build — values and file names now, bytes at share time — so it is
+    /// safe in a row SwiftUI rebuilds with its parent.
+    private var themeExportPayload: AppearanceCustomizationExportPayload {
         AppearanceCustomizationExportPayload(
-            filename: AppearanceCustomizationExportPayload.filename(for: localized("全部自定義")),
+            filename: AppearanceCustomizationExportPayload.filename(for: selectedTheme.localizedName),
             snapshot: settings.appearanceCustomizationSnapshot()
         )
-    }
-
-    // MARK: - Background import handlers
-
-    private func handleBackgroundPick(
-        _ result: Result<PickedImageSource, PickedImageError>,
-        for scheme: ColorScheme
-    ) {
-        let scope = pageBackgroundScope
-        do {
-            switch result {
-            case .success(.data(let data)):
-                try settings.importPageBackgroundImage(data: data, scope: scope, appearance: scheme)
-            case .success(.file(let url)):
-                try settings.importPageBackgroundImage(from: url, scope: scope, appearance: scheme)
-            case .failure(let error):
-                showImportFailure(localized(error.messageKey))
-            }
-        } catch let error as AppearancePageBackgroundImageError {
-            showImportFailure(localized(error.messageKey))
-        } catch {
-            showImportFailure(localized("無法讀取圖片。"))
-        }
     }
 
     private func handleThemeImport(_ result: Result<[URL], Error>) {
@@ -951,17 +747,8 @@ struct AppearanceThemeView: View {
     private func handleQiThemeImport(_ data: Data) {
         Task { @MainActor in
             do {
-                let theme = try await QiThemeImportService.load(data)
-                let readingParts = QiThemeImportService.readingParts(of: theme)
-                if readingParts.isEmpty {
-                    // Nothing about reading to decide: the pack is only a look.
-                    applyQiTheme(theme, reading: .followTheme)
-                } else {
-                    pendingQiTheme = PendingQiThemeImport(
-                        theme: theme,
-                        prompt: .themePack(named: theme.name, readingParts: readingParts)
-                    )
-                }
+                // Nothing to ask: the pack's reading setup is its theme's own.
+                applyQiTheme(try await QiThemeImportService.load(data))
             } catch let error as QiThemeImportError {
                 showImportFailure(error.errorDescription ?? localized("匯入主題失敗。"))
             } catch {
@@ -970,13 +757,13 @@ struct AppearanceThemeView: View {
         }
     }
 
-    private func applyQiTheme(_ theme: QiThemeImport, reading: ReadingSettingsDisposition) {
+    private func applyQiTheme(_ theme: QiThemeImport) {
         // Installing a pack's font takes a moment; the sheet shows it happening.
         let progress = CustomizationImportProgress()
         importProgress = progress
         Task { @MainActor in
             do {
-                let outcome = try await QiThemeImportService.apply(theme, reading: reading)
+                let outcome = try await QiThemeImportService.apply(theme)
                 progress.phase = .finished(CustomizationImportOverview(qiTheme: outcome))
             } catch {
                 AppLogger.error("⟐ qitheme import failed", error: error)
@@ -1120,6 +907,7 @@ private struct AppearanceReaderInterfaceView: View {
                         Text(option.localizedTitle)
                             .font(DSFont.body)
                             .tag(option)
+                            .foregroundStyle(DSColor.textPrimary)
                     }
                 } label: {
                     Text(localized("閱讀界面"))
@@ -1369,338 +1157,61 @@ private struct AppearanceReaderInterfaceView: View {
     }
 }
 
-private struct AppearanceThemeCustomizationView: View {
-    @ObservedObject private var settings = GlobalSettings.shared
-    @Environment(\.dismiss) private var dismiss
-    let themeID: String
-    /// Appearance being edited. Unlike the theme grid this is always explicit —
-    /// a custom theme owns both palettes, so there is no "follow the device".
-    @State private var editingScheme: ColorScheme
-    @State private var showDeleteConfirmation = false
-    @State private var showResetConfirmation = false
+/// A theme tile: a tap selects; a long press on one of the user's own themes opens
+/// 重新命名／刪除. Primitive, so the two cannot both fire — a long-press gesture added to
+/// a plain button would still select the theme on the release that ends it.
+private struct ThemeTileButtonStyle: PrimitiveButtonStyle {
+    /// Nil for a theme that has nothing to rename or delete.
+    let onLongPress: (() -> Void)?
+    /// Its 重新命名／刪除 is up, or on its way.
+    var isLifted = false
 
-    init(themeID: String, initialScheme: ColorScheme = .light) {
-        self.themeID = themeID
-        _editingScheme = State(initialValue: initialScheme)
+    func makeBody(configuration: Configuration) -> some View {
+        ThemeTileButtonBody(configuration: configuration, onLongPress: onLongPress, isLifted: isLifted)
     }
+}
 
-    private var themeBinding: Binding<AppearanceCustomTheme>? {
-        guard let index = settings.customAppearanceThemes.firstIndex(where: { $0.id == themeID }) else {
-            return nil
-        }
-        return Binding(
-            get: { settings.customAppearanceThemes[index] },
-            set: { settings.customAppearanceThemes[index] = $0 }
-        )
-    }
+/// The tile under a finger grows while it is held — a long press is on its way — and
+/// pops up once it lands (2026-09-29). Under Reduce Motion it stays put and the haptic
+/// alone says the press landed.
+private struct ThemeTileButtonBody: View {
+    let configuration: PrimitiveButtonStyleConfiguration
+    let onLongPress: (() -> Void)?
+    let isLifted: Bool
 
-    /// What the theme looks like, then its colours, then what can be done with it — the
-    /// same order and the same row style as 外觀主題, which this page is pushed from.
+    @State private var isPressing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let pressingScale: CGFloat = 1.05
+    private static let liftedScale: CGFloat = 1.12
+
     var body: some View {
-        Form {
-            if let theme = themeBinding {
-                Section {
-                    ThemePreviewTile(
-                        preset: AppearanceThemePreset
-                            .preset(from: theme.wrappedValue)
-                            .palette(for: editingScheme),
-                        isSelected: true,
-                        isLocked: false,
-                        colorScheme: editingScheme
-                    )
-                    .frame(maxWidth: 180)
-                    .frame(maxWidth: .infinity)
-                    .listRowBackground(Color.clear)
-                    .accessibilityHidden(true)
+        if let onLongPress {
+            configuration.label
+                .scaleEffect(scale)
+                .animation(pressAnimation, value: isPressing)
+                .onTapGesture { configuration.trigger() }
+                .onLongPressGesture(minimumDuration: 0.5, perform: onLongPress) { pressing in
+                    isPressing = pressing
                 }
-
-                Section {
-                    LabeledContent {
-                        TextField(localized("名稱"), text: stringBinding(theme, \.name))
-                            .multilineTextAlignment(.trailing)
-                            .accessibilityLabel(localized("名稱"))
-                    } label: {
-                        SettingsRowLabel(localized("名稱"), systemImage: "pencil")
-                    }
-                }
-                .interfaceSectionSurface()
-
-                Section {
-                    Picker(localized("主題外觀"), selection: $editingScheme) {
-                        Text(localized("淺色")).tag(ColorScheme.light)
-                        Text(localized("深色")).tag(ColorScheme.dark)
-                    }
-                    .pickerStyle(.segmented)
-                    .accessibilityLabel(localized("主題外觀"))
-
-                    if editingScheme == .light {
-                        lightColorPickers(theme)
-                    } else {
-                        darkColorSection(theme)
-                    }
-                } header: {
-                    Text(localized("配色"))
-                } footer: {
-                    if editingScheme == .dark, theme.wrappedValue.dark == nil {
-                        Text(localized("關閉「自動深色配色」後，可以單獨指定這個主題的深色配色。"))
-                            .dsSectionFooter()
-                    }
-                }
-                .interfaceSectionSurface()
-
-                // This theme's own actions. Export is a row rather than a
-                // long-press menu item because a `ShareLink` inside a context
-                // menu takes the whole menu over (see the theme grid).
-                Section {
-                    ShareLink(
-                        item: AppearanceThemeExportPayload(
-                            filename: AppearanceThemeExportPayload.filename(
-                                for: theme.wrappedValue.name
-                            ),
-                            themes: [theme.wrappedValue]
-                        ),
-                        preview: SharePreview(theme.wrappedValue.name)
-                    ) {
-                        SettingsRowLabel(localized("導出主題"), systemImage: "square.and.arrow.up", role: .action)
-                    }
-
-                    // Only an imported pack the write-back has since edited: a theme made
-                    // here has no author's version to go back to.
-                    if settings.canResetCustomAppearanceTheme(id: themeID) {
-                        Button(role: .destructive) {
-                            showResetConfirmation = true
-                        } label: {
-                            SettingsRowLabel(localized("重置此主題"), systemImage: "arrow.uturn.backward", role: .destructive)
-                        }
-                    }
-
-                    Button(role: .destructive) {
-                        showDeleteConfirmation = true
-                    } label: {
-                        SettingsRowLabel(localized("刪除主題"), systemImage: "trash", role: .destructive)
-                    }
-                } header: {
-                    Text(localized("主題管理"))
-                } footer: {
-                    Text(localized("刪除後，使用此主題的外觀會回到預設。"))
-                        .dsSectionFooter()
-                }
-                .interfaceSectionSurface()
-            } else {
-                Text(localized("找不到主題"))
-                    .font(DSFont.body)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .interfaceSectionSurface()
-            }
-        }
-        .softScrollEdges()
-        .scrollContentBackground(.hidden)
-        .background(DSColor.groupedBackground)
-        // Same rule as the theme grid: the appearance being edited is the
-        // appearance shown, so the colors can be judged where they will live.
-        // `.preferredColorScheme` alone leaves the environment reading the
-        // device scheme on pushed destinations; overriding the environment
-        // value is what actually repaints the Form (see the theme grid).
-        .preferredColorScheme(editingScheme)
-        .environment(\.colorScheme, editingScheme)
-        .animation(DSAnimation.standard, value: editingScheme)
-        .navigationTitle(localized("編輯主題"))
-        .toolbarTitleDisplayMode(.inline)
-        // Attached to the Form, not to the actions Section: confirming removes
-        // the theme, which removes that Section, and an alert torn down by its
-        // own action is a presentation that can be left half-dismissed.
-        .alert(
-            localized("刪除此自訂主題？"),
-            isPresented: $showDeleteConfirmation
-        ) {
-            Button(localized("刪除"), role: .destructive) {
-                settings.deleteCustomAppearanceTheme(id: themeID)
-                dismiss()
-            }
-            Button(localized("取消"), role: .cancel) {}
-        } message: {
-            Text(themeBinding?.wrappedValue.name ?? "")
-        }
-        .alert(
-            localized("重設此主題？"),
-            isPresented: $showResetConfirmation
-        ) {
-            Button(localized("重設"), role: .destructive) {
-                settings.resetCustomAppearanceTheme(id: themeID)
-            }
-            Button(localized("取消"), role: .cancel) {}
-        } message: {
-            Text(localized("主題會回到主題包原本的樣子，之後的修改都會捨棄。"))
+        } else {
+            configuration.label
+                .onTapGesture { configuration.trigger() }
         }
     }
 
-    @ViewBuilder
-    private func lightColorPickers(_ theme: Binding<AppearanceCustomTheme>) -> some View {
-        ForEach(ThemeColorSlot.allCases) { slot in
-            themeColorPicker(slot, selection: colorBinding(theme, slot.lightKeyPath))
-        }
+    private var scale: CGFloat {
+        guard !reduceMotion else { return 1 }
+        if isLifted { return Self.liftedScale }
+        return isPressing ? Self.pressingScale : 1
     }
 
-    /// Dark tab: automatic by default (colors derived from the light palette),
-    /// with the pickers appearing only once the user takes it over. Switching
-    /// the toggle off seeds them with what the derivation produced, so the first
-    /// thing they see is what they were already looking at.
-    @ViewBuilder
-    private func darkColorSection(_ theme: Binding<AppearanceCustomTheme>) -> some View {
-        Toggle(isOn: automaticDarkBinding(theme)) {
-            SettingsRowLabel(localized("自動深色配色"), systemImage: "wand.and.stars")
-        }
-
-        if theme.wrappedValue.dark != nil {
-            ForEach(ThemeColorSlot.allCases) { slot in
-                themeColorPicker(slot, selection: darkColorBinding(theme, slot.darkKeyPath))
-            }
-        }
+    /// Growing takes most of the hold, so a quick tap barely moves the tile; letting go
+    /// early settles it at once.
+    private var pressAnimation: Animation? {
+        guard !reduceMotion else { return nil }
+        return isPressing ? DSAnimation.slow : DSAnimation.fast
     }
-
-    private func automaticDarkBinding(
-        _ theme: Binding<AppearanceCustomTheme>
-    ) -> Binding<Bool> {
-        Binding(
-            get: { theme.wrappedValue.dark == nil },
-            set: { isAutomatic in
-                var copy = theme.wrappedValue
-                copy.dark = isAutomatic ? nil : Self.derivedDarkColors(of: copy)
-                theme.wrappedValue = copy
-            }
-        )
-    }
-
-    /// What the automatic derivation currently produces for this theme, in
-    /// storage form — the seed for hand editing.
-    private static func derivedDarkColors(
-        of theme: AppearanceCustomTheme
-    ) -> AppearanceCustomThemeDarkColors {
-        var withoutOverride = theme
-        withoutOverride.dark = nil
-        let derived = AppearanceThemePreset.preset(from: withoutOverride).palette(for: .dark)
-        return AppearanceThemeDarkColors(
-            background: derived.background,
-            text: derived.text,
-            bar: derived.bar,
-            accent: derived.accent,
-            dialogue: derived.dialogue
-        ).stored
-    }
-
-    private func themeColorPicker(_ slot: ThemeColorSlot, selection: Binding<Color>) -> some View {
-        ColorPicker(selection: selection, supportsOpacity: false) {
-            SettingsRowLabel(localized(slot.titleKey), systemImage: slot.systemImage)
-        }
-    }
-
-    private func stringBinding(
-        _ theme: Binding<AppearanceCustomTheme>,
-        _ keyPath: WritableKeyPath<AppearanceCustomTheme, String>
-    ) -> Binding<String> {
-        Binding(
-            get: { theme.wrappedValue[keyPath: keyPath] },
-            set: { value in
-                var copy = theme.wrappedValue
-                copy[keyPath: keyPath] = value
-                theme.wrappedValue = copy
-            }
-        )
-    }
-
-    private func colorBinding(
-        _ theme: Binding<AppearanceCustomTheme>,
-        _ keyPath: WritableKeyPath<AppearanceCustomTheme, UInt32>
-    ) -> Binding<Color> {
-        Binding(
-            get: { Color(uiColor: AppearanceThemePreset.hex(theme.wrappedValue[keyPath: keyPath])) },
-            set: { value in
-                var copy = theme.wrappedValue
-                copy[keyPath: keyPath] = UIColor(value).rgbHex ?? copy[keyPath: keyPath]
-                theme.wrappedValue = copy
-            }
-        )
-    }
-
-    /// Same as `colorBinding`, on the optional dark palette. Only reachable
-    /// while it exists (the pickers are hidden under 自動深色配色), so a missing
-    /// palette reads as the derived value and writes seed one.
-    private func darkColorBinding(
-        _ theme: Binding<AppearanceCustomTheme>,
-        _ keyPath: WritableKeyPath<AppearanceCustomThemeDarkColors, UInt32>
-    ) -> Binding<Color> {
-        Binding(
-            get: {
-                let colors = theme.wrappedValue.dark ?? Self.derivedDarkColors(of: theme.wrappedValue)
-                return Color(uiColor: AppearanceThemePreset.hex(colors[keyPath: keyPath]))
-            },
-            set: { value in
-                var copy = theme.wrappedValue
-                var colors = copy.dark ?? Self.derivedDarkColors(of: copy)
-                colors[keyPath: keyPath] = UIColor(value).rgbHex ?? colors[keyPath: keyPath]
-                copy.dark = colors
-                theme.wrappedValue = copy
-            }
-        )
-    }
-}
-
-/// One of a custom theme's five colours, in the order the editor lists them — the
-/// light and dark tabs share it, so the two lists can never come out different.
-private enum ThemeColorSlot: CaseIterable, Identifiable {
-    case accent
-    case background
-    case text
-    case bar
-    case dialogue
-
-    var id: Self { self }
-
-    var titleKey: String {
-        switch self {
-        case .accent: return "主色"
-        case .background: return "背景"
-        case .text: return "文字"
-        case .bar: return "工具列"
-        case .dialogue: return "對話高亮"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .accent: return "paintpalette"
-        case .background: return "rectangle.inset.filled"
-        case .text: return "textformat.abc"
-        case .bar: return "menubar.rectangle"
-        case .dialogue: return "text.quote"
-        }
-    }
-
-    var lightKeyPath: WritableKeyPath<AppearanceCustomTheme, UInt32> {
-        switch self {
-        case .accent: return \.accentHex
-        case .background: return \.backgroundHex
-        case .text: return \.textHex
-        case .bar: return \.barHex
-        case .dialogue: return \.dialogueHex
-        }
-    }
-
-    var darkKeyPath: WritableKeyPath<AppearanceCustomThemeDarkColors, UInt32> {
-        switch self {
-        case .accent: return \.accentHex
-        case .background: return \.backgroundHex
-        case .text: return \.textHex
-        case .bar: return \.barHex
-        case .dialogue: return \.dialogueHex
-        }
-    }
-}
-
-/// Which end of the page-background gradient a color row edits.
-private enum PageBackgroundColorSlot {
-    case primary
-    case secondary
 }
 
 #Preview {
@@ -1714,20 +1225,4 @@ private enum PageBackgroundColorSlot {
     NavigationStack {
         AppearanceReaderInterfaceView()
     }
-}
-
-#Preview("主題自定義 · 深色") {
-    let settings = GlobalSettings.shared
-    let theme = settings.customAppearanceThemes.first
-        ?? settings.createCustomAppearanceTheme(from: AppearanceThemePreset.freeSolidPresets[0])
-    return NavigationStack {
-        AppearanceThemeCustomizationView(themeID: theme.id, initialScheme: .dark)
-    }
-}
-
-/// A parsed QiReader pack held between the reading-setup question and the apply.
-struct PendingQiThemeImport: Identifiable {
-    let id = UUID()
-    let theme: QiThemeImport
-    let prompt: CustomizationImportPrompt
 }

@@ -261,14 +261,14 @@ struct AudiobookDetailView: View {
 
             VStack(alignment: .leading, spacing: DSSpacing.xs) {
                 Text(displayName)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(DSColor.textPrimary)
                     .font(DSFont.title2.weight(.bold))
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(displayAuthor)
                     .font(DSFont.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
@@ -285,7 +285,7 @@ struct AudiobookDetailView: View {
             ForEach(tags, id: \.self) { tag in
                 Text(tag)
                     .font(DSFont.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .padding(.horizontal, DSSpacing.md)
                     .padding(.vertical, 6)
                     .interfaceCardSurface(in: Capsule())
@@ -352,9 +352,10 @@ struct AudiobookDetailView: View {
     private var introSection: some View {
         VStack(alignment: .leading, spacing: DSSpacing.sm) {
             Text(localized("簡介")).font(DSFont.headline)
+                .foregroundStyle(DSColor.textPrimary)
             Text(displayIntro)
                 .font(DSFont.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DSColor.textSecondary)
                 .lineSpacing(3)
                 .lineLimit(introExpanded ? nil : 4)
             if displayIntro.count > 80 {
@@ -383,6 +384,7 @@ struct AudiobookDetailView: View {
         VStack(alignment: .leading, spacing: DSSpacing.sm) {
             Text(localized("來源"))
                 .font(DSFont.headline)
+                .foregroundStyle(DSColor.textPrimary)
 
             Button {
                 showSourcePicker = true
@@ -394,7 +396,7 @@ struct AudiobookDetailView: View {
 
                     Text(sourceName)
                         .font(DSFont.subheadline.weight(.medium))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(DSColor.textPrimary)
                         .lineLimit(1)
 
                     Spacer(minLength: DSSpacing.sm)
@@ -404,7 +406,7 @@ struct AudiobookDetailView: View {
                         .foregroundStyle(DSColor.accent)
                     Image(systemName: "chevron.right")
                         .font(DSFont.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(DSColor.textTertiary)
                 }
                 .padding(.horizontal, DSSpacing.lg)
                 .padding(.vertical, DSSpacing.md)
@@ -432,18 +434,19 @@ struct AudiobookDetailView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(localized("目錄"))
                     .font(DSFont.headline)
+                    .foregroundStyle(DSColor.textPrimary)
                 Spacer()
                 if !chapters.isEmpty {
                     Text(String(format: localized("%d 章"), chapters.count))
                         .font(DSFont.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DSColor.textSecondary)
                 }
             }
 
             if !displayLatestChapter.isEmpty {
                 Label(displayLatestChapter, systemImage: "clock.arrow.circlepath")
                     .font(DSFont.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .lineLimit(1)
             }
 
@@ -468,7 +471,7 @@ struct AudiobookDetailView: View {
                     .foregroundStyle(DSColor.warning)
                 Text(loadError)
                     .font(DSFont.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .multilineTextAlignment(.center)
                 Button(localized("重試")) { load() }
                     .font(DSFont.subheadline.weight(.medium))
@@ -479,7 +482,7 @@ struct AudiobookDetailView: View {
         } else if chapters.isEmpty {
             Text(localized("目錄為空"))
                 .font(DSFont.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DSColor.textSecondary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, DSSpacing.lg)
         } else {
@@ -497,7 +500,7 @@ struct AudiobookDetailView: View {
                              ? String(format: localized("第 %d 章"), index + 1)
                              : chapter.title)
                             .font(DSFont.subheadline)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(DSColor.textPrimary)
                             .lineLimit(1)
                         Spacer(minLength: DSSpacing.sm)
                         if chapter.isVip || chapter.isPay {
@@ -507,7 +510,7 @@ struct AudiobookDetailView: View {
                         }
                         Image(systemName: "chevron.right")
                             .font(DSFont.caption)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(DSColor.textTertiary)
                     }
                     .padding(.horizontal, DSSpacing.lg)
                     .padding(.vertical, DSSpacing.md)

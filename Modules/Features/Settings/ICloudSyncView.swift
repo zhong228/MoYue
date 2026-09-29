@@ -8,6 +8,7 @@ struct ICloudSyncView: View {
     @State private var showAlert = false
     @State private var alertTitle = ""
     @State private var alertMessage = ""
+    @State private var showDeleteConfirmation = false
 
     private var iCloudReady: Bool { manager.accountStatus == .available }
 
@@ -17,6 +18,7 @@ struct ICloudSyncView: View {
             autoSyncSection
             actionsSection
             statusSection
+            deleteSection
         }
         .softScrollEdges()
         .navigationTitle(localized("iCloud 同步"))
@@ -51,6 +53,7 @@ struct ICloudSyncView: View {
             }
         } header: {
             Text(localized("帳號狀態"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             if !iCloudReady {
                 Text(localized("請確認系統設定中已登入 iCloud，且 iCloud Drive/CloudKit 可用"))
@@ -68,14 +71,14 @@ struct ICloudSyncView: View {
                     if on, iCloudReady { Task { try? await manager.sync(reason: "toggle-on") } }
                 }
         } footer: {
-            Text(localized("啟動與切背景時自動同步書庫、書源、替換規則與書檔。多台裝置會合併，不會互相覆蓋。"))
+            Text(localized("啟動與切背景時自動同步書庫、書源、替換規則、書檔、閱讀設定、氣泡樣式與自訂閱讀背景。多台裝置會合併，不會互相覆蓋。"))
                 .dsSectionFooter()
         }
         .interfaceSectionSurface()
     }
 
     private var actionsSection: some View {
-        Section(header: Text(localized("操作"))) {
+        Section(header: Text(localized("操作")).foregroundStyle(DSColor.textSecondary)) {
             Button {
                 Task { await runSync() }
             } label: {
@@ -95,7 +98,7 @@ struct ICloudSyncView: View {
     }
 
     private var statusSection: some View {
-        Section(header: Text(localized("狀態"))) {
+        Section(header: Text(localized("狀態")).foregroundStyle(DSColor.textSecondary)) {
             if let date = manager.lastSyncDate {
                 HStack {
                     Text(localized("上次同步"))
@@ -113,6 +116,27 @@ struct ICloudSyncView: View {
             }
         }
         .interfaceSectionSurface()
+    }
+
+    /// Apart from the other actions, at the bottom: it cannot be undone.
+    private var deleteSection: some View {
+        Section {
+            Button(role: .destructive) {
+                showDeleteConfirmation = true
+            } label: {
+                Label(localized("刪除 iCloud 上的資料"), systemImage: "trash")
+            }
+            .disabled(!iCloudReady)
+        }
+        .interfaceSectionSurface()
+        .alert(localized("刪除 iCloud 上的資料？"), isPresented: $showDeleteConfirmation) {
+            Button(localized("刪除"), role: .destructive) {
+                Task { await runDeleteRemoteData() }
+            }
+            Button(localized("取消"), role: .cancel) {}
+        } message: {
+            Text(localized("會刪除 iCloud 上的書庫、書源、替換規則、書檔、閱讀設定、氣泡樣式與閱讀背景，並關閉這台裝置的自動同步。這台裝置上的資料不受影響；其他裝置開著自動同步時，會再上傳它們的資料。"))
+        }
     }
 
     private var statusIcon: String {
@@ -163,6 +187,22 @@ struct ICloudSyncView: View {
             await MainActor.run {
                 alertTitle = localized("同步成功")
                 alertMessage = localized("書庫、書源與替換規則已更新")
+                showAlert = true
+            }
+        } catch {
+            presentError(error)
+        }
+    }
+
+    private func runDeleteRemoteData() async {
+        // Off first: a sync on the way to the background would upload it all again,
+        // mid-deletion or right after.
+        await MainActor.run { gs.iCloudAutoSync = false }
+        do {
+            try await manager.deleteRemoteData()
+            await MainActor.run {
+                alertTitle = localized("已刪除 iCloud 上的同步資料")
+                alertMessage = localized("這台裝置的自動同步已關閉。")
                 showAlert = true
             }
         } catch {

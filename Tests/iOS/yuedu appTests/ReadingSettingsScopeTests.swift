@@ -3,8 +3,9 @@ import Testing
 @testable import yuedu_app
 
 /// 排版生效範圍: per reading setting, the worn theme's own value or the one every theme
-/// shares. Nothing a theme keeps is lost by changing the scope — the complaint this
-/// replaced was a per-theme switch that threw the theme's setup away when turned off.
+/// shares. Every setting follows the theme unless the user shares it — a theme, a pack
+/// above all, is a whole look (「主題包的設置要獨立」, 2026-09-29). Nothing a theme keeps is
+/// lost by changing the scope.
 @Suite("排版生效範圍", .serialized)
 @MainActor
 struct ReadingSettingsScopeTests {
@@ -12,7 +13,8 @@ struct ReadingSettingsScopeTests {
 
     // MARK: - Wearing
 
-    @Test func everythingIsSharedUntilASettingFollowsTheTheme() throws {
+    /// The report: a pack's reading setup has to be worn with the pack, and only there.
+    @Test func aThemesOwnSetupIsWornWithTheTheme() throws {
         let settings = GlobalSettings.shared
         let fixture = Fixture(settings)
         defer { fixture.restore() }
@@ -24,26 +26,56 @@ struct ReadingSettingsScopeTests {
         let pack = Self.theme("Pack", reading: reading)
         settings.customAppearanceThemes.append(pack)
 
-        // The default: a theme's own values wait.
         settings.appearanceThemeID = pack.id
-        #expect(settings.readerFontSize == 18)
-        #expect(!settings.scrollMode)
-
-        // One setting follows the theme; the other stays shared.
-        settings.setReadingSettingsScope(.theme, for: .fontSize)
         #expect(settings.readerFontSize == 24)
-        #expect(!settings.scrollMode)
+        #expect(settings.scrollMode)
         #expect(ReaderConfig.shared.fontSize == 24)
 
         settings.appearanceThemeID = defaultID
         #expect(settings.readerFontSize == 18)
+        #expect(!settings.scrollMode)
         #expect(ReaderConfig.shared.fontSize == 18)
-        settings.appearanceThemeID = pack.id
-        #expect(settings.readerFontSize == 24)
     }
 
-    /// The report: a theme's reading setup has to survive being switched off and on.
-    @Test func sharingASettingAndFollowingAgainBringsTheThemesValueBack() throws {
+    /// Two packs, each its own: switching swaps the whole setup, and an edit made under
+    /// one reaches neither the other nor 默認.
+    @Test func eachPackKeepsItsOwnSetup() throws {
+        let settings = GlobalSettings.shared
+        let fixture = Fixture(settings)
+        defer { fixture.restore() }
+        fixture.reset()
+
+        var first = AppearanceThemeReadingSettings()
+        first.fontSize = 24
+        var second = AppearanceThemeReadingSettings()
+        second.fontSize = 28
+        second.lineHeightMultiple = 2.0
+        let packA = Self.theme("A", reading: first)
+        let packB = Self.theme("B", reading: second)
+        settings.customAppearanceThemes.append(contentsOf: [packA, packB])
+
+        settings.appearanceThemeID = packA.id
+        settings.letterSpacing = 1.5
+        #expect(Self.ownReading(of: packA.id)?.letterSpacing == 1.5)
+
+        settings.appearanceThemeID = packB.id
+        #expect(settings.readerFontSize == 28)
+        #expect(settings.lineHeightMultiple == 2.0)
+        #expect(settings.letterSpacing == 0)
+
+        settings.appearanceThemeID = defaultID
+        #expect(settings.readerFontSize == 18)
+        #expect(settings.lineHeightMultiple == 1.6)
+        #expect(settings.letterSpacing == 0)
+
+        settings.appearanceThemeID = packA.id
+        #expect(settings.readerFontSize == 24)
+        #expect(settings.letterSpacing == 1.5)
+        // A pack has no value of its own for this one: it wears 全域's.
+        #expect(settings.lineHeightMultiple == 1.6)
+    }
+
+    @Test func aSettingTheUserSharesIsTheSameOnEveryTheme() throws {
         let settings = GlobalSettings.shared
         let fixture = Fixture(settings)
         defer { fixture.restore() }
@@ -53,22 +85,21 @@ struct ReadingSettingsScopeTests {
         reading.fontSize = 24
         let pack = Self.theme("Pack", reading: reading)
         settings.customAppearanceThemes.append(pack)
-        settings.setReadingSettingsScope(.theme, for: .fontSize)
-        settings.appearanceThemeID = pack.id
-        #expect(settings.readerFontSize == 24)
-
-        // Shared: the one every theme uses, and an edit now belongs to it.
         settings.setReadingSettingsScope(.global, for: .fontSize)
+
+        settings.appearanceThemeID = pack.id
         #expect(settings.readerFontSize == 18)
         settings.readerFontSize = 20
-
-        // Following again: the theme's own, untouched.
-        settings.setReadingSettingsScope(.theme, for: .fontSize)
-        #expect(settings.readerFontSize == 24)
+        #expect(settings.globalReadingSettings.fontSize == 20)
+        // Kept all the same, for when it follows the theme again.
         #expect(Self.ownReading(of: pack.id)?.fontSize == 24)
 
         settings.appearanceThemeID = defaultID
         #expect(settings.readerFontSize == 20)
+
+        settings.appearanceThemeID = pack.id
+        settings.setReadingSettingsScope(.theme, for: .fontSize)
+        #expect(settings.readerFontSize == 24)
     }
 
     // MARK: - Editing
@@ -81,7 +112,7 @@ struct ReadingSettingsScopeTests {
 
         let plain = Self.theme("Plain", reading: nil)
         settings.customAppearanceThemes.append(plain)
-        settings.setReadingSettingsScope(.theme, for: .fontSize)
+        settings.setReadingSettingsScope(.global, for: .letterSpacing)
         settings.appearanceThemeID = plain.id
 
         settings.readerFontSize = 21
@@ -108,7 +139,7 @@ struct ReadingSettingsScopeTests {
         defer { fixture.restore() }
         fixture.reset()
         ReaderConfig.shared.theme = .white
-        settings.setReadingSettingsScope(.theme, for: .background)
+        fixture.forgetEdits()
 
         ReaderConfig.shared.theme = .green
         #expect(settings.themeReadingSettings(themeID: defaultID)?.readerTheme == ReaderTheme.green.rawValue)
@@ -124,7 +155,7 @@ struct ReadingSettingsScopeTests {
         #expect(ReaderConfig.shared.theme == .green)
     }
 
-    @Test func resettingTheScopeKeepsEveryThemesValues() throws {
+    @Test func resettingTheScopeWearsEveryThemesOwnValuesAgain() throws {
         let settings = GlobalSettings.shared
         let fixture = Fixture(settings)
         defer { fixture.restore() }
@@ -135,27 +166,55 @@ struct ReadingSettingsScopeTests {
         let pack = Self.theme("Pack", reading: reading)
         settings.customAppearanceThemes.append(pack)
         settings.appearanceThemeID = pack.id
-        settings.setReadingSettingsScope(.theme, for: .fontSize)
-        settings.setReadingSettingsScope(.theme, for: .lineSpacing)
-        #expect(settings.readingSettingsScope.themeItems == [.fontSize, .lineSpacing])
+        settings.setReadingSettingsScope(.global, for: .fontSize)
+        settings.setReadingSettingsScope(.global, for: .lineSpacing)
+        #expect(!settings.readingSettingsScope.themeItems.contains(.fontSize))
+        #expect(settings.readerFontSize == 18)
 
         settings.readingSettingsScope = .default
-        #expect(settings.readingSettingsScope.themeItems.isEmpty)
-        #expect(settings.readerFontSize == 18)
-        #expect(Self.ownReading(of: pack.id)?.fontSize == 24)
+        #expect(settings.readingSettingsScope.themeItems == Set(ReadingSettingsScopeItem.allCases))
+        #expect(settings.readerFontSize == 24)
     }
 
     @Test func aRowSetToTheDefaultMovesWithTheDefault() {
         var scope = ReadingSettingsScopeConfiguration.default
-        scope.setScope(.theme, for: .font)
-        scope.setScope(.global, for: .fontSize)
-        #expect(scope.themeItems == [.font])
+        #expect(scope.defaultScope == .theme)
+        scope.setScope(.global, for: .font)
+        scope.setScope(.theme, for: .fontSize)
+        #expect(!scope.themeItems.contains(.font))
+        #expect(scope.themeItems.contains(.fontSize))
 
-        scope.defaultScope = .theme
+        scope.defaultScope = .global
         // 字體 was set on its own; 字體大小 only ever said what the default said.
-        #expect(scope.scope(of: .font) == .theme)
-        #expect(scope.scope(of: .fontSize) == .theme)
-        #expect(scope.scope(of: .background) == .theme)
+        #expect(scope.scope(of: .font) == .global)
+        #expect(scope.scope(of: .fontSize) == .global)
+        #expect(scope.scope(of: .background) == .global)
+    }
+
+    /// A scope saved on the day the default was 全域 held nothing the user chose — its
+    /// overrides could only be rows an import set to 跟隨主題 — so it gives way to the new
+    /// default. One whose default the user had made 跟隨主題 is kept, shared rows and all.
+    @Test func theOneDayGlobalDefaultGivesWayToFollowingTheTheme() throws {
+        let settings = GlobalSettings.shared
+        let fixture = Fixture(settings)
+        defer { fixture.restore() }
+        fixture.reset()
+        let legacyKey = "yd_reading_settings_scope"
+
+        var importMade = ReadingSettingsScopeConfiguration.default
+        importMade.defaultScope = .global
+        importMade.setScope(.theme, for: .fontSize)
+        ReadingSettingsStoresSnapshot.clear()
+        UserDefaults.standard.set(try JSONEncoder().encode(importMade), forKey: legacyKey)
+        #expect(settings.readingSettingsScope == .default)
+        #expect(UserDefaults.standard.data(forKey: legacyKey) == nil)
+
+        var chosen = ReadingSettingsScopeConfiguration.default
+        chosen.setScope(.global, for: .pageTurn)
+        ReadingSettingsStoresSnapshot.clear()
+        UserDefaults.standard.set(try JSONEncoder().encode(chosen), forKey: legacyKey)
+        #expect(settings.readingSettingsScope == chosen)
+        #expect(settings.readingSettingsScope.scope(of: .pageTurn) == .global)
     }
 
     /// A theme that only keeps reading values speaks for no appearance setting, so
@@ -190,19 +249,24 @@ struct ReadingSettingsScopeTests {
 
     // MARK: - Imports
 
-    @Test func aPackImportedToFollowTheThemeWearsItsSetupOnlyOnItsTheme() async throws {
+    /// Nothing is asked: the pack's setup rides its theme, is worn at once, and leaves
+    /// with it — 「老子原本外觀主題所有設定都隨著閱讀主題切換」.
+    @Test func aPackIsWornWithItsThemeWithoutAQuestion() async throws {
         let settings = GlobalSettings.shared
         let fixture = Fixture(settings)
         defer { fixture.restore() }
         fixture.reset()
 
-        let outcome = try await QiThemeImportService.apply(Self.pack(textSize: 26), reading: .followTheme)
+        let pack = Self.pack(textSize: 26)
+        #expect(SharedCustomizationImportService.Plan.qiTheme(pack).prompt == nil)
+
+        let outcome = try await QiThemeImportService.apply(pack)
         let theme = try #require(outcome.theme)
         fixture.imported.append(theme.id)
-        #expect(outcome.readingDisposition == .followTheme)
         #expect(theme.extras?.reading?.fontSize == 26)
-        #expect(settings.readingSettingsScope.scope(of: .fontSize) == .theme)
+        #expect(settings.readingSettingsScope == .default)
         #expect(settings.readerFontSize == 26)
+        #expect(settings.globalReadingSettings.fontSize == 18)
 
         let overview = CustomizationImportOverview(qiTheme: outcome)
         #expect(overview.readingPlacement == .followsTheme(name: theme.name))
@@ -210,27 +274,23 @@ struct ReadingSettingsScopeTests {
 
         settings.appearanceThemeID = defaultID
         #expect(settings.readerFontSize == 18)
+        settings.appearanceThemeID = theme.id
+        #expect(settings.readerFontSize == 26)
     }
 
-    @Test func aPackImportedToReplaceGlobalBecomesTheSharedSetup() async throws {
+    @Test func aPackLeavesASettingTheUserSharesAlone() async throws {
         let settings = GlobalSettings.shared
         let fixture = Fixture(settings)
         defer { fixture.restore() }
         fixture.reset()
+        settings.setReadingSettingsScope(.global, for: .fontSize)
 
-        let outcome = try await QiThemeImportService.apply(Self.pack(textSize: 26), reading: .replaceGlobal)
+        let outcome = try await QiThemeImportService.apply(Self.pack(textSize: 26))
         let theme = try #require(outcome.theme)
         fixture.imported.append(theme.id)
-        #expect(outcome.readingDisposition == .replaceGlobal)
-        // Still the theme's own too, for when a setting is set to follow it.
+        #expect(settings.readingSettingsScope.scope(of: .fontSize) == .global)
+        #expect(settings.readerFontSize == 18)
         #expect(theme.extras?.reading?.fontSize == 26)
-        #expect(settings.readingSettingsScope.themeItems.isEmpty)
-        #expect(settings.globalReadingSettings.fontSize == 26)
-        #expect(settings.readerFontSize == 26)
-        #expect(CustomizationImportOverview(qiTheme: outcome).readingPlacement == .global)
-
-        settings.appearanceThemeID = defaultID
-        #expect(settings.readerFontSize == 26)
     }
 
     /// A reading-settings file lands like an edit: the settings that follow the theme on
@@ -240,7 +300,7 @@ struct ReadingSettingsScopeTests {
         let fixture = Fixture(settings)
         defer { fixture.restore() }
         fixture.reset()
-        settings.setReadingSettingsScope(.theme, for: .fontSize)
+        settings.setReadingSettingsScope(.global, for: .lineSpacing)
 
         var file = AppearanceThemeReadingSettings()
         file.fontSize = 30
@@ -252,25 +312,6 @@ struct ReadingSettingsScopeTests {
         #expect(settings.themeReadingSettings(themeID: defaultID)?.fontSize == 30)
         #expect(settings.globalReadingSettings.fontSize == 18)
         #expect(settings.globalReadingSettings.lineHeightMultiple == 2.0)
-    }
-
-    @Test func theQuestionNamesTheWholeReadingSetup() throws {
-        var pack = Self.pack(textSize: 20)
-        pack.chapterTitleStyle = .default
-        let parts = QiThemeImportService.readingParts(of: pack)
-        #expect(parts.contains(.layout))
-        #expect(parts.contains(.chapterTitle))
-
-        let prompt = CustomizationImportPrompt.themePack(named: pack.name, readingParts: parts)
-        #expect(prompt.choices.options.map(\.disposition) == [.followTheme, .replaceGlobal])
-        #expect(prompt.choices.options.first?.isPreferred == true)
-        for part in parts {
-            #expect(prompt.message.contains(localized(part.titleKey)))
-        }
-
-        // A look with nothing about reading asks nothing.
-        let lookOnly = QiThemeImport(name: "Look", themeFile: nil)
-        #expect(QiThemeImportService.readingParts(of: lookOnly).isEmpty)
     }
 
     // MARK: - Files
@@ -345,7 +386,7 @@ struct ReadingSettingsScopeTests {
             reading = settings.currentReadingSettingsSnapshot()
         }
 
-        /// 默認, everything shared, and a known shared setup, so each test reads the
+        /// 默認, the default scope, and a known shared setup, so each test reads the
         /// mechanism rather than whatever the simulator was left in.
         func reset() {
             settings.appearanceThemeID = GlobalSettings.defaultAppearanceThemeID
@@ -360,7 +401,14 @@ struct ReadingSettingsScopeTests {
             settings.readerFollowSystemTheme = false
             settings.appearanceBindReaderTheme = false
             ReaderConfig.shared.syncFromGlobalSettings()
-            // Captured now, from the values above.
+            forgetEdits()
+        }
+
+        /// Every setting follows the theme by default, so the writes above were recorded
+        /// on 默認 as edits. Empties the stores again and captures 全域 from what is on
+        /// screen, so each test starts with no theme holding values of its own.
+        func forgetEdits() {
+            ReadingSettingsStoresSnapshot.clear()
             _ = settings.globalReadingSettings
         }
 

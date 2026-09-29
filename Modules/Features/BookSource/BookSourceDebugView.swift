@@ -25,6 +25,7 @@ struct BookSourceDebugView: View {
                         .disabled(!debugger.isRecording)
                 } header: {
                     Text(localized("錄製"))
+                        .foregroundStyle(DSColor.textSecondary)
                 } footer: {
                     Text(localized("記下每一次請求與回應。規則比對量太大，預設不收。"))
                         .dsSectionFooter()
@@ -41,6 +42,7 @@ struct BookSourceDebugView: View {
                     }
                 } header: {
                     Text(localized("篩選"))
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 .interfaceSectionSurface()
 
@@ -57,6 +59,7 @@ struct BookSourceDebugView: View {
                     .disabled(debugger.logs.isEmpty)
                 } header: {
                     Text(localized("操作"))
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 .interfaceSectionSurface()
 
@@ -70,6 +73,7 @@ struct BookSourceDebugView: View {
                     }
                 } header: {
                     Text(localized("紀錄"))
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 .interfaceSectionSurface()
             }
@@ -124,11 +128,11 @@ struct BookSourceDebugView: View {
 
     private var emptyState: some View {
         ContentUnavailableView {
-            Label(localized("沒有紀錄"), systemImage: "antenna.radiowaves.left.and.right.slash")
+            UnavailableLabel(localized("沒有紀錄"), systemImage: "antenna.radiowaves.left.and.right.slash")
         } description: {
             Text(debugger.isRecording
                  ? localized("錄製中。回到書源做一次搜索或開啟章節，請求就會出現在這裡。")
-                 : localized("先打開上面的錄製開關，再回到書源操作一次。"))
+                 : localized("先打開上面的錄製開關，再回到書源操作一次。")).foregroundStyle(DSColor.textSecondary)
         }
     }
 

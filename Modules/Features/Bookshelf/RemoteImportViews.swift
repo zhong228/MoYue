@@ -47,10 +47,9 @@ struct WebDAVDirectoryView: View {
             if isLoading && entries.isEmpty && loadError == nil {
                 ProgressView(localized("正在載入書庫"))
             } else if !isLoading && visibleEntries.isEmpty && loadError == nil {
-                ContentUnavailableView(
-                    localized(searchText.isEmpty ? "此資料夾沒有內容" : "沒有搜尋結果"),
-                    systemImage: "folder"
-                )
+                ContentUnavailableView {
+                    UnavailableLabel(localized(searchText.isEmpty ? "此資料夾沒有內容" : "沒有搜尋結果"), systemImage: "folder")
+                }
             }
         }
         .navigationTitle(route.title)

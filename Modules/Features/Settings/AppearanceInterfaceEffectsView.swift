@@ -19,14 +19,6 @@ struct AppearanceInterfaceEffectsView: View {
             }
 
             Section {
-                glowRow
-            } footer: {
-                Text(localized("光暈從浮動元素的邊緣向外擴散，顏色跟隨主題色。"))
-                    .dsSectionFooter()
-            }
-            .interfaceSectionSurface()
-
-            Section {
                 Toggle(isOn: $settings.interfaceFrostedGlass) {
                     Text(localized("毛玻璃"))
                         .font(DSFont.body)
@@ -57,6 +49,16 @@ struct AppearanceInterfaceEffectsView: View {
                 }
                 .interfaceSectionSurface()
             }
+
+            // The switches first and the glow after, as the reference the user handed over
+            // groups them (2026-09-29).
+            Section {
+                glowRow
+            } footer: {
+                Text(localized("光暈從浮動元素的邊緣向外擴散，顏色跟隨主題色。"))
+                    .dsSectionFooter()
+            }
+            .interfaceSectionSurface()
         }
         .softScrollEdges()
         .scrollContentBackground(.hidden)

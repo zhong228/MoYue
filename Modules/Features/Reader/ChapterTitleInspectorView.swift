@@ -23,11 +23,11 @@ struct ChapterTitleInspectorView: View {
                 borderSection(layer).interfaceSectionSurface()
                 contrastSection(layer).interfaceSectionSurface()
             } else {
-                ContentUnavailableView(
-                    localized("未選擇元素"),
-                    systemImage: "square.dashed",
-                    description: Text(localized("在畫布或元素列表選擇一個圖層。"))
-                )
+                ContentUnavailableView {
+                    UnavailableLabel(localized("未選擇元素"), systemImage: "square.dashed")
+                } description: {
+                    Text(localized("在畫布或元素列表選擇一個圖層。")).foregroundStyle(DSColor.textSecondary)
+                }
             }
         }
         .softScrollEdges()
@@ -243,7 +243,7 @@ struct ChapterTitleInspectorView: View {
                 in: 100...900,
                 step: 100
             ) {
-                LabeledContent(localized("字重"), value: "\(appearanceStyle(selectedLayer ?? layer).ruleStyle.text.fontWeight ?? 400)")
+                ThemedLabeledContent(localized("字重"), value: "\(appearanceStyle(selectedLayer ?? layer).ruleStyle.text.fontWeight ?? 400)")
             }
             Toggle(
                 localized("斜體"),
@@ -648,7 +648,7 @@ struct ChapterTitleInspectorView: View {
         displayMultiplier: Double = 1
     ) -> some View {
         let formatted = String(format: "%.0f %@", value.wrappedValue * displayMultiplier, unit)
-        LabeledContent(title, value: formatted)
+        ThemedLabeledContent(title, value: formatted)
         Slider(value: value, in: range, step: step)
             .accessibilityLabel(title)
             .accessibilityValue(formatted)

@@ -3,6 +3,14 @@ import UIKit
 
 enum GlobalAppTypography {
     nonisolated(unsafe) static var activePostScriptName: String?
+    /// Bold Text (Settings › Accessibility) is on. The system font turns heavier by
+    /// itself; a custom one SwiftUI never touches — measured 2026-09-29: with
+    /// `legibilityWeight` set to `.bold`, a custom font drew exactly as without — so the
+    /// fonts below take one step heavier themselves, as Apple's HIG asks of custom fonts.
+    /// A single-weight font has no heavier face and SwiftUI synthesizes none, so
+    /// `effectivePostScriptName(_:boldText:)` sets it aside for the system font meanwhile.
+    nonisolated(unsafe) static var isBoldTextActive = false
+    nonisolated(unsafe) private static var bolderFaceCache: [String: Bool] = [:]
 
     enum Style {
         case caption2
@@ -95,9 +103,58 @@ enum GlobalAppTypography {
         }
     }
 
-    static func activate(postScriptName: String?) {
+    static func activate(postScriptName: String?, boldText: Bool) {
         let trimmed = postScriptName?.trimmingCharacters(in: .whitespacesAndNewlines)
         activePostScriptName = trimmed.flatMap { $0.isEmpty ? nil : $0 }
+        isBoldTextActive = boldText
+    }
+
+    /// The global font to draw with: the one chosen, except that while Bold Text is on a
+    /// font with no bolder face gives way to the system font, which does turn bold — the
+    /// user's call (2026-09-29): Bold Text is on to make the interface readable.
+    static func effectivePostScriptName(_ postScriptName: String?, boldText: Bool) -> String? {
+        guard let postScriptName, boldText else { return postScriptName }
+        return hasBolderFace(postScriptName) ? postScriptName : nil
+    }
+
+    /// Whether the font's family has a bold face to step to. Asked on every font change,
+    /// so the answer is kept per name — a family's faces do not change while it is
+    /// installed.
+    static func hasBolderFace(_ postScriptName: String) -> Bool {
+        if let known = bolderFaceCache[postScriptName] { return known }
+        let answer: Bool
+        if let font = UIFont(name: postScriptName, size: 17),
+           let descriptor = font.fontDescriptor.withSymbolicTraits(
+               font.fontDescriptor.symbolicTraits.union(.traitBold)
+           ) {
+            answer = UIFont(descriptor: descriptor, size: 17).fontName != font.fontName
+        } else {
+            answer = false
+        }
+        bolderFaceCache[postScriptName] = answer
+        return answer
+    }
+
+    /// One step heavier, for Bold Text on a custom font.
+    static func boldTextWeight(_ weight: Font.Weight) -> Font.Weight {
+        switch weight {
+        case .ultraLight: .light
+        case .thin: .regular
+        case .light: .medium
+        case .regular: .semibold
+        case .medium, .semibold: .bold
+        case .bold: .heavy
+        default: .black
+        }
+    }
+
+    /// The UIKit side of `boldTextWeight(_:)`, for the bar fonts — the same steps.
+    static func boldTextWeight(_ weight: UIFont.Weight) -> UIFont.Weight {
+        let steps: [(from: UIFont.Weight, to: UIFont.Weight)] = [
+            (.ultraLight, .light), (.thin, .regular), (.light, .medium), (.regular, .semibold),
+            (.medium, .bold), (.semibold, .bold), (.bold, .heavy), (.heavy, .black),
+        ]
+        return steps.first { weight.rawValue <= $0.from.rawValue }?.to ?? .black
     }
 
     static func font(_ style: Style, weight: Font.Weight? = nil) -> Font {
@@ -119,7 +176,11 @@ enum GlobalAppTypography {
             size: style.basePointSize,
             relativeTo: style.swiftUIStyle
         )
-        return (weight ?? style.defaultSwiftUIWeight).map { custom.weight($0) } ?? custom
+        let requested = weight ?? style.defaultSwiftUIWeight
+        guard isBoldTextActive else {
+            return requested.map { custom.weight($0) } ?? custom
+        }
+        return custom.weight(boldTextWeight(requested ?? .regular))
     }
 
     static func fixedFont(
@@ -134,7 +195,8 @@ enum GlobalAppTypography {
               UIFont(name: activePostScriptName, size: size) != nil else {
             return .system(size: size, weight: weight, design: systemDesign)
         }
-        return Font.custom(activePostScriptName, fixedSize: size).weight(weight)
+        return Font.custom(activePostScriptName, fixedSize: size)
+            .weight(isBoldTextActive ? boldTextWeight(weight) : weight)
     }
 
     /// The point size UIKit's own font for `style` reaches at
@@ -186,11 +248,13 @@ enum GlobalAppTypography {
         postScriptName: String?,
         weight: UIFont.Weight?
     ) -> UIFont {
-        let resolvedWeight = weight ?? style.defaultUIKitWeight
         guard let postScriptName,
               let customFont = UIFont(name: postScriptName, size: style.basePointSize) else {
-            return UIFont.systemFont(ofSize: style.basePointSize, weight: resolvedWeight)
+            // The system font: UIKit applies Bold Text to it by itself.
+            return UIFont.systemFont(ofSize: style.basePointSize, weight: weight ?? style.defaultUIKitWeight)
         }
+        let requested = weight ?? style.defaultUIKitWeight
+        let resolvedWeight = isBoldTextActive ? boldTextWeight(requested) : requested
 
         if resolvedWeight.rawValue >= UIFont.Weight.semibold.rawValue,
            let descriptor = customFont.fontDescriptor.withSymbolicTraits(.traitBold) {

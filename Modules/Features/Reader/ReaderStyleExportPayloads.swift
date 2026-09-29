@@ -2,8 +2,9 @@ import CoreTransferable
 import Foundation
 import UniformTypeIdentifiers
 
-/// The `.yuedustyle` archives handed to `ShareLink` for 匯出正則高亮 and
-/// 匯出閱讀設定 — AirDrop, 訊息 and 儲存到「檔案」 all come out of the one share sheet.
+/// The `.yuedustyle` archives handed to `ShareLink` for 匯出正則高亮 and the chapter
+/// title style — AirDrop, 訊息 and 儲存到「檔案」 all come out of the one share sheet —
+/// and the one 匯出閱讀設定 writes under a name of the user's.
 ///
 /// `ShareLink` rather than `.fileExporter` for the reason recorded in
 /// `Technotes/iOS17MenuModalPresentation.md`. These links stay as direct Form rows
@@ -80,28 +81,21 @@ struct RegexHighlightExportPayload: Transferable {
     }
 }
 
-struct ReaderSettingsExportPayload: Transferable {
-    let filename: String
-    let inputs: ReaderSettingsExportInputs
-
-    init(inputs: ReaderSettingsExportInputs) {
-        self.filename = ReaderStyleExportFilename.make(localized("閱讀設定"))
-        self.inputs = inputs
-    }
-
-    static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(exportedContentType: .yueduReaderStyle) { payload in
-            let bundle = try payload.inputs.makeBundle()
-            let stylePayload = try ReaderStylePackagePayload.encode(
-                bundle,
-                kind: .readerSettings,
-                assetIDs: bundle.assetIDs
-            )
-            let data = try await ReaderStylePackage.export(stylePayload, assetStore: .shared)
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent(payload.filename)
-            try data.write(to: url, options: .atomic)
-            return SentTransferredFile(url)
-        }
+/// 匯出閱讀設定's archive, written under the name the user typed into its alert. Not a
+/// `ShareLink` payload like the two above: the name comes first, so the file is written
+/// once it is asked for and handed to `SystemShareSheet` (2026-09-29).
+enum ReaderSettingsExportFile {
+    static func write(_ inputs: ReaderSettingsExportInputs, named name: String) async throws -> URL {
+        let bundle = try inputs.makeBundle()
+        let stylePayload = try ReaderStylePackagePayload.encode(
+            bundle,
+            kind: .readerSettings,
+            assetIDs: bundle.assetIDs
+        )
+        let data = try await ReaderStylePackage.export(stylePayload, assetStore: .shared)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(ReaderStyleExportFilename.make(name))
+        try data.write(to: url, options: .atomic)
+        return url
     }
 }

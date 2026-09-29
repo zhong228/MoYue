@@ -131,6 +131,7 @@ struct ReaderBarLayoutEditorView: View {
                 }
             } header: {
                 Text(localized("顯示組件"))
+                    .foregroundStyle(DSColor.textSecondary)
             }
             .interfaceSectionSurface()
 
@@ -146,6 +147,7 @@ struct ReaderBarLayoutEditorView: View {
                     }
                 } header: {
                     Text(localized(ReaderBarFieldNaming.titleKey(for: selected.kind)))
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 .interfaceSectionSurface()
             }
@@ -198,6 +200,7 @@ struct ReaderBarLayoutEditorView: View {
             }
         } label: {
             Text(title)
+                .foregroundStyle(DSColor.textPrimary)
         }
         .font(DSFont.body)
     }
@@ -297,7 +300,7 @@ struct ReaderBarLayoutEditorView: View {
                 NavigationLink {
                     slotEditor(slot)
                 } label: {
-                    LabeledContent(localized(slot.titleKey), value: slotSummary(slot))
+                    ThemedLabeledContent(localized(slot.titleKey), value: slotSummary(slot))
                 }
             }
 
@@ -315,6 +318,7 @@ struct ReaderBarLayoutEditorView: View {
             BarSliderRow(title: localized("右邊距"), value: sideMarginBinding(for: which, right: true), range: 0...200)
         } header: {
             Text(localized(which.titleKey))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("頁眉上邊距與頁腳下邊距從畫面邊緣計算，另一側控制與正文的間距。"))
                 .dsSectionFooter()
@@ -387,6 +391,7 @@ struct ReaderBarLayoutEditorView: View {
             )
         } header: {
             Text(localized("樣式"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("此處設定共用樣式；各位置選中的組件可開啟自訂選項。"))
                 .dsSectionFooter()

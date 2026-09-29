@@ -81,6 +81,7 @@ struct AIServiceEditorView: View {
             modelRow
         } header: {
             Text(localized("AI 服務"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(
                 loadFailed
@@ -173,6 +174,7 @@ struct AIServiceEditorView: View {
             .accessibilityLabel(localized("API Key"))
         } header: {
             Text(localized("API Key"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("只留在本機鑰匙圈，不同步 iCloud。費用由服務商向你收取。"))
                 .dsSectionFooter()
@@ -333,13 +335,13 @@ struct AISettingsView: View {
                         Label(localized("新增 AI 服務"), systemImage: "plus")
                             .labelStyle(IconConsistentLabelStyle())
                     }
-                } header: { Text(localized("AI 服務")) }
+                } header: { Text(localized("AI 服務")).foregroundStyle(DSColor.textSecondary) }
                 footer: { Text(localized("API Key 只保存在本機，各服務分開儲存。費用由服務商收取。")).dsSectionFooter() }
                 .interfaceSectionSurface()
                 Section {
                     NavigationLink { AICustomPromptListView() } label: {
                         LabeledContent {
-                            if !prompts.prompts.isEmpty { Text("\(prompts.prompts.count)") }
+                            if !prompts.prompts.isEmpty { Text("\(prompts.prompts.count)").foregroundStyle(DSColor.textSecondary) }
                         } label: {
                             Label(localized("自訂提示詞"), systemImage: "text.badge.plus")
                                 .foregroundStyle(DSColor.textPrimary)

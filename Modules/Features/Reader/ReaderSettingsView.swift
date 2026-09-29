@@ -36,6 +36,9 @@ struct ReaderSettingsView: View {
     @State private var showingLayoutResetConfirmation = false
     /// Set only on iOS 18+, where this sheet can own the picker itself.
     @State private var styleImportRoute: ReaderStyleImportRoute?
+    /// 匯出閱讀設定's name prompt, and the name typed into it.
+    @State private var showingReaderSettingsExport = false
+    @State private var readerSettingsExportName = ""
 
     private var supportsFontSize: Bool { capabilities.contains(.fontSize) }
     private var supportsUserFont: Bool { supportsFontSize && allowsUserSelectedReaderFont }
@@ -261,9 +264,9 @@ struct ReaderSettingsView: View {
 
             if hasReaderTextColorOverride {
                 Button {
-                    settings.setReaderTextColorOverride(nil, for: theme)
+                    setReaderTextColor(nil)
                 } label: {
-                    SettingsRowLabel(localized("重設文字顏色"), systemImage: "arrow.counterclockwise", role: .action)
+                    SettingsRowLabel(localized("跟隨主題文字顏色"), systemImage: "arrow.counterclockwise", role: .action)
                 }
             }
 
@@ -278,26 +281,46 @@ struct ReaderSettingsView: View {
             }
         } header: {
             Text(localized("文字"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
-            Text(String(format: localized("文字顏色只套用到目前的閱讀背景（%@）。"), theme.localizedTitle))
-                .dsSectionFooter()
+            Text(String(
+                format: localized("文字顏色只套用到目前的閱讀背景（%@）。"),
+                wornSavedBackground?.name ?? theme.localizedTitle
+            ))
+            .dsSectionFooter()
         }
         .interfaceSectionSurface()
     }
 
+    /// The saved background on the page, if one is: its text colour is its own, not the
+    /// one set for the built-in background under it.
+    private var wornSavedBackground: ReaderCustomBackground? {
+        theme.activeReaderBackgroundID.flatMap(settings.readerCustomBackground(id:))
+    }
+
     private var hasReaderTextColorOverride: Bool {
-        settings.readerTextColorOverride(for: theme) != nil
+        if let background = wornSavedBackground { return background.textColorHex != nil }
+        return settings.readerTextColorOverride(for: theme) != nil
+    }
+
+    /// Nil goes back to the colour the background picks for itself.
+    private func setReaderTextColor(_ rgbHex: UInt32?) {
+        if let background = wornSavedBackground {
+            settings.setReaderCustomBackgroundTextColor(rgbHex, id: background.id)
+        } else {
+            settings.setReaderTextColorOverride(rgbHex, for: theme)
+        }
     }
 
     /// Reads the color the reader is actually painting with, so opening the picker
     /// starts from what is on screen rather than from a blank swatch. Writing one
-    /// stores an override for the *current* reading background only.
+    /// stores it for the *current* reading background only.
     private var readerTextColorBinding: Binding<Color> {
         Binding(
             get: { Color(uiColor: theme.uiTextColor) },
             set: { newColor in
                 guard let rgbHex = UIColor(newColor).rgbHex else { return }
-                settings.setReaderTextColorOverride(rgbHex, for: theme)
+                setReaderTextColor(rgbHex)
             }
         )
     }
@@ -326,6 +349,7 @@ struct ReaderSettingsView: View {
                         }
                     } header: {
                         Text(localized("已匯入字體"))
+                            .foregroundStyle(DSColor.textSecondary)
                     }
 
                     Menu(localized("刪除字體")) {
@@ -466,6 +490,7 @@ struct ReaderSettingsView: View {
             .disabled(!hasCustomLayout)
         } header: {
             Text(localized("排版"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             if supportsLineHeight, !settings.scrollMode {
                 Text(localized("上下邊距同時是頁首頁尾的容身空間，改動不會移動頁首頁尾本身。"))
@@ -520,7 +545,7 @@ struct ReaderSettingsView: View {
                 )
             } label: {
                 SettingsRowLabel(
-                    localized(ReadingSettingsScopeItem.headerFooter.titleKey),
+                    localized("頁首頁尾編輯"),
                     systemImage: ReadingSettingsScopeItem.headerFooter.systemImage
                 )
             }
@@ -545,11 +570,34 @@ struct ReaderSettingsView: View {
             }
         } header: {
             Text(localized("頁首頁尾與標題"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("正文與頁首頁尾的距離在「排版」的上下邊距調整。"))
                 .dsSectionFooter()
         }
         .interfaceSectionSurface()
+    }
+
+    /// Writes the archive under `name` — 閱讀設定 when left blank — and hands it to the
+    /// share sheet. The values are read now, on the main actor; the zip is made off it.
+    private func exportReaderSettings(named name: String) {
+        let inputs = ReaderSettingsExportSnapshot.make()
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task { @MainActor in
+            do {
+                let url = try await ReaderSettingsExportFile.write(
+                    inputs,
+                    named: trimmed.isEmpty ? localized("閱讀設定") : trimmed
+                )
+                SystemShareSheet.present(fileURL: url)
+            } catch {
+                AppLogger.error("⟐ reading settings export failed", error: error)
+                layoutImportAlert = LayoutImportAlert(
+                    titleKey: "匯出失敗",
+                    message: error.localizedDescription
+                )
+            }
+        }
     }
 
     private func resetReaderOverlayLayout() {
@@ -572,7 +620,7 @@ struct ReaderSettingsView: View {
                         ReaderCommentBubbleSettingsView()
                     } label: {
                         SettingsRowLabel(
-                            localized(ReadingSettingsScopeItem.commentBubble.titleKey),
+                            localized("氣泡設定"),
                             systemImage: ReadingSettingsScopeItem.commentBubble.systemImage
                         )
                     }
@@ -617,13 +665,17 @@ struct ReaderSettingsView: View {
                 }
             } else {
                 ForEach(lockedDecorationItems) { item in
-                    SettingsLockedRow(title: localized(item.titleKey), systemImage: item.systemImage) {
+                    SettingsLockedRow(
+                        title: localized(item == .commentBubble ? "氣泡設定" : item.titleKey),
+                        systemImage: item.systemImage
+                    ) {
                         requestPaywall(.dialogueHighlight)
                     }
                 }
             }
         } header: {
             Text(localized("閱讀裝飾"))
+                .foregroundStyle(DSColor.textSecondary)
         }
         .interfaceSectionSurface()
     }
@@ -679,6 +731,7 @@ struct ReaderSettingsView: View {
             }
         } header: {
             Text(localized("翻頁與手勢"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("全局翻頁：點畫面左右兩側都翻到下一頁，中間仍呼出選單。上滑退出與下拉書籤都要滑過一半再鬆手。"))
                 .dsSectionFooter()
@@ -713,6 +766,7 @@ struct ReaderSettingsView: View {
             )
         } header: {
             Text(localized("亮度"))
+                .foregroundStyle(DSColor.textSecondary)
         }
         .interfaceSectionSurface()
     }
@@ -756,11 +810,20 @@ struct ReaderSettingsView: View {
     private var readerSettingsBackupSection: some View {
         Section {
             if premiumVisibility.showsLayoutPresetImport {
-                ShareLink(
-                    item: ReaderSettingsExportPayload(inputs: ReaderSettingsExportSnapshot.make()),
-                    preview: SharePreview(localized("閱讀設定"))
-                ) {
+                Button {
+                    readerSettingsExportName = localized("閱讀設定")
+                    showingReaderSettingsExport = true
+                } label: {
                     SettingsRowLabel(localized("匯出閱讀設定"), systemImage: "square.and.arrow.up", role: .action)
+                }
+                // The file is named first, then shared: the file name is all that
+                // tells one exported setup from another.
+                .alert(localized("匯出閱讀設定"), isPresented: $showingReaderSettingsExport) {
+                    TextField(localized("名稱"), text: $readerSettingsExportName)
+                    Button(localized("匯出")) {
+                        exportReaderSettings(named: readerSettingsExportName)
+                    }
+                    Button(localized("取消"), role: .cancel) {}
                 }
 
                 Button {
@@ -778,6 +841,7 @@ struct ReaderSettingsView: View {
             }
         } header: {
             Text(localized("閱讀設定備份"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("包含排版、章節標題樣式與正則高亮。匯入也接受 legado 的 readConfig.json。"))
                 .dsSectionFooter()

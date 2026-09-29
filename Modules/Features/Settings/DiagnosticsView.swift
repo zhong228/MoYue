@@ -132,6 +132,7 @@ struct DiagnosticsView: View {
                     }
                 } header: {
                     Text(localized("上次未正常結束"))
+                        .foregroundStyle(DSColor.textSecondary)
                 } footer: {
                     Text(localized("App 在使用中結束，不是被系統回收。詳細內容下次啟動後才會送達。"))
                         .dsSectionFooter()
@@ -154,6 +155,7 @@ struct DiagnosticsView: View {
                 Toggle(localized("記錄詳細追蹤"), isOn: $model.isVerboseEnabled)
             } header: {
                 Text(localized("篩選"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 Text(localized("記下每一次翻頁與解析步驟。關閉時仍會記錄錯誤。"))
                     .dsSectionFooter()
@@ -177,6 +179,7 @@ struct DiagnosticsView: View {
                 }
             } header: {
                 Text(localized("紀錄"))
+                    .foregroundStyle(DSColor.textSecondary)
             }
             .interfaceSectionSurface()
         }
@@ -263,11 +266,11 @@ struct DiagnosticsView: View {
 
     private var emptyState: some View {
         ContentUnavailableView {
-            Label(localized("沒有符合的紀錄"), systemImage: "text.magnifyingglass")
+            UnavailableLabel(localized("沒有符合的紀錄"), systemImage: "text.magnifyingglass")
         } description: {
             Text(model.entries.isEmpty
                  ? localized("目前沒有任何診斷紀錄。繼續使用 app，有狀況時就會出現在這裡。")
-                 : localized("換一個篩選條件或搜尋字詞試試。"))
+                 : localized("換一個篩選條件或搜尋字詞試試。")).foregroundStyle(DSColor.textSecondary)
         }
     }
 }

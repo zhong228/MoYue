@@ -100,9 +100,13 @@ struct ReadingSettingsScopeConfiguration: Codable, Equatable, Sendable {
     /// ignored instead of failing the whole decode.
     private var overrides: [String: ReadingSettingsScope]
 
-    /// Everything shared until the reader says otherwise: selecting a theme changes how
-    /// the app looks, not how the book reads.
-    static let `default` = Self(defaultScope: .global, overrides: [:])
+    /// Everything follows the theme until the reader says otherwise: a theme — a pack above
+    /// all — is a whole look, its reading setup included, and switching themes switches
+    /// all of it. A theme that has no value of its own for a setting wears 全域's.
+    ///
+    /// Was `.global` for a day (171aa952), which left every pack's reading values stored
+    /// on its theme and never worn — 「主題包的設置要獨立」, 2026-09-29.
+    static let `default` = Self(defaultScope: .theme, overrides: [:])
 
     private init(defaultScope: ReadingSettingsScope, overrides: [String: ReadingSettingsScope]) {
         self.defaultScope = defaultScope
@@ -165,6 +169,7 @@ extension AppearanceThemeReadingSettings {
             bindsAppearanceReaderTheme = nil
             boundLightReaderTheme = nil
             boundDarkReaderTheme = nil
+            readerBackgroundID = nil
             customBackground = nil
         case .pageTurn:
             pageTurnStyle = nil

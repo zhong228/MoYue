@@ -58,6 +58,7 @@ struct ReaderBatterySVGImportView: View {
                     content
                 } header: {
                     Text(localized("電量 SVG 模板"))
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 .interfaceSectionSurface()
 
@@ -159,9 +160,9 @@ struct ReaderBatterySVGImportView: View {
             .accessibilityElement(children: .combine)
         } else if assets.isEmpty {
             ContentUnavailableView {
-                Label(localized("尚無電量 SVG 模板"), systemImage: "battery.100")
+                UnavailableLabel(localized("尚無電量 SVG 模板"), systemImage: "battery.100")
             } description: {
-                Text(localized("匯入 SVG 模板後，可用於閱讀頁的電量元件。"))
+                Text(localized("匯入 SVG 模板後，可用於閱讀頁的電量元件。")).foregroundStyle(DSColor.textSecondary)
             } actions: {
                 Button(localized("匯入 SVG")) {
                     showingImporter = true
@@ -289,6 +290,7 @@ struct ReaderBatterySVGImportView: View {
 private struct ReaderBatterySVGAssetRow: View {
     @Environment(\.displayScale) private var displayScale
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appThemes) private var appThemes
 
     let asset: ReaderOverlaySVGAsset
     let store: ReaderOverlaySVGAssetStore
@@ -423,7 +425,7 @@ private struct ReaderBatterySVGAssetRow: View {
             let source = try await store.source(for: asset.id)
             try Task.checkCancellation()
             let template = try ReaderBatterySVGTemplate(source: source)
-            let rgbaHex = try UIColor(DSColor.textPrimary).rgbaHex(for: colorScheme)
+            let rgbaHex = try UIColor(DSColor.textPrimary).rgbaHex(for: colorScheme, themes: appThemes)
             let pixelSize = CGSize(
                 width: DSLayout.readerBatterySVGPreviewWidth * displayScale,
                 height: DSLayout.readerBatterySVGPreviewHeight * displayScale
@@ -663,9 +665,13 @@ private enum ReaderBatterySVGPreviewError: Error {
 }
 
 private extension UIColor {
-    func rgbaHex(for colorScheme: ColorScheme) throws -> String {
-        let style: UIUserInterfaceStyle = colorScheme == .dark ? .dark : .light
-        let resolved = resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
+    /// `themes` because a themed colour reads them from the traits it resolves with
+    /// (`AppThemesTrait`); traits made from the scheme alone would give the system colour.
+    func rgbaHex(for colorScheme: ColorScheme, themes: ActiveAppThemes) throws -> String {
+        let resolved = resolvedColor(with: UITraitCollection { traits in
+            traits.userInterfaceStyle = colorScheme == .dark ? .dark : .light
+            traits[AppThemesTrait.self] = themes
+        })
         var red: CGFloat = 0
         var green: CGFloat = 0
         var blue: CGFloat = 0

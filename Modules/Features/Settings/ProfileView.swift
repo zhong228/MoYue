@@ -79,13 +79,14 @@ struct SettingsView: View {
                         )
                     } header: {
                         Text(localized("App 語言"))
+                            .foregroundStyle(DSColor.textSecondary)
                     } footer: {
                         Text(appLanguageFooter)
                             .dsSectionFooter()
                     }
                     .interfaceSectionSurface()
 
-                    Section(header: Text(localized("外觀"))) {
+                    Section(header: Text(localized("外觀")).foregroundStyle(DSColor.textSecondary)) {
                         NavigationLink {
                             AppearanceThemeView()
                         } label: {
@@ -102,31 +103,10 @@ struct SettingsView: View {
                     }
                     .interfaceSectionSurface()
 
-                    Section(header: Text(localized("書架顯示"))) {
-                        Picker(selection: $gs.bookshelfGridColumnCount) {
-                            ForEach(GlobalSettings.bookshelfGridColumnCountOptions, id: \.self) { columnCount in
-                                Text(String(format: localized("%d 欄"), columnCount))
-                                    .tag(columnCount)
-                            }
-                        } label: {
-                            Label(localized("每列欄數"), systemImage: "square.grid.3x3.fill")
-                                .foregroundColor(DSColor.textPrimary)
-                                .labelStyle(IconConsistentLabelStyle())
-                        }
-                        .pickerStyle(.menu)
-
-                        NavigationLink {
-                            DefaultCoverSettingsView()
-                        } label: {
-                            Label(localized("預設封面"), systemImage: "photo.stack.fill")
-                                .foregroundColor(DSColor.textPrimary)
-                                .labelStyle(IconConsistentLabelStyle())
-                        }
-                    }
-                    .interfaceSectionSurface()
+                    // 書架顯示 (每列欄數, 預設封面) lives in 外觀主題's 介面 since 2026-09-29.
 
                     // ── Book Source Management ──
-                    Section(header: Text(localized("書源管理"))) {
+                    Section(header: Text(localized("書源管理")).foregroundStyle(DSColor.textSecondary)) {
                         DSSettingsRow(
                             icon: "books.vertical.fill",
                             title: localized("管理書源"),
@@ -150,7 +130,7 @@ struct SettingsView: View {
                     .interfaceSectionSurface()
 
                     // ── Reading Tools ──
-                    Section(header: Text(localized("閱讀工具"))) {
+                    Section(header: Text(localized("閱讀工具")).foregroundStyle(DSColor.textSecondary)) {
                         DSSettingsRow(
                             icon: "waveform",
                             title: localized("語音朗讀設定"),
@@ -179,7 +159,7 @@ struct SettingsView: View {
                     .interfaceSectionSurface()
 
                     // ── Data Management ──
-                    Section(header: Text(localized("資料管理"))) {
+                    Section(header: Text(localized("資料管理")).foregroundStyle(DSColor.textSecondary)) {
                         DSSettingsRow(
                             icon: "arrow.triangle.2.circlepath.icloud",
                             title: localized("備份與同步"),
@@ -207,7 +187,7 @@ struct SettingsView: View {
                     .interfaceSectionSurface()
 
                     // ── Advanced ──
-                    Section(header: Text(localized("進階"))) {
+                    Section(header: Text(localized("進階")).foregroundStyle(DSColor.textSecondary)) {
                         NavigationLink {
                             DiagnosticsView()
                         } label: {
@@ -219,7 +199,7 @@ struct SettingsView: View {
                     .interfaceSectionSurface()
 
                     // ── About ──
-                    Section(header: Text(localized("關於"))) {
+                    Section(header: Text(localized("關於")).foregroundStyle(DSColor.textSecondary)) {
                         NavigationLink {
                             AboutSupportView(
                                 appVersion: appVersion,
@@ -349,8 +329,9 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(gs.isLoggedIn ? (gs.accountDisplayName.isEmpty ? localized("已登入") : gs.accountDisplayName) : localized("尚未登入"))
                     .font(DSFont.headline)
+                    .foregroundStyle(DSColor.textPrimary)
                 Text(gs.accountSubtitle)
-                    .font(DSFont.caption).foregroundColor(.secondary)
+                    .font(DSFont.caption).foregroundStyle(DSColor.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -389,6 +370,7 @@ private struct AboutSupportView: View {
 
                     Text(localized("閱讀"))
                         .font(DSFont.title3.weight(.semibold))
+                        .foregroundStyle(DSColor.textPrimary)
 
                     Text(localized("聯絡方式、版本資訊與政策協議"))
                         .font(DSFont.footnote)
@@ -401,7 +383,7 @@ private struct AboutSupportView: View {
             }
             .interfaceSectionSurface()
 
-            Section(header: Text(localized("版本資訊"))) {
+            Section(header: Text(localized("版本資訊")).foregroundStyle(DSColor.textSecondary)) {
                 HStack {
                     Label(localized("版本"), systemImage: "number")
                         .foregroundColor(DSColor.textPrimary)
@@ -415,7 +397,7 @@ private struct AboutSupportView: View {
             .interfaceSectionSurface()
 
             if gs.isLoggedIn && subscriptionStore.accountIsProActive {
-                Section(header: Text(localized("加入測試"))) {
+                Section(header: Text(localized("加入測試")).foregroundStyle(DSColor.textSecondary)) {
                     NavigationLink {
                         TestFlightApplyView()
                     } label: {
@@ -433,7 +415,7 @@ private struct AboutSupportView: View {
                 .interfaceSectionSurface()
             }
 
-            Section(header: Text(localized("開放原始碼"))) {
+            Section(header: Text(localized("開放原始碼")).foregroundStyle(DSColor.textSecondary)) {
                 actionRow(
                     icon: "chevron.left.forwardslash.chevron.right",
                     title: localized("原始碼與開源授權"),
@@ -447,7 +429,7 @@ private struct AboutSupportView: View {
             }
             .interfaceSectionSurface()
 
-            Section(header: Text(localized("聯絡方式"))) {
+            Section(header: Text(localized("聯絡方式")).foregroundStyle(DSColor.textSecondary)) {
                 actionRow(
                     icon: "envelope.fill",
                     title: localized("電子郵件"),
@@ -517,6 +499,7 @@ private struct AboutSupportView: View {
                 }
             } header: {
                 Text(localized("政策與協議"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 Text(localized("使用書源、第三方服務與未來付費功能前，請先閱讀相關條款。"))
                     .dsSectionFooter()

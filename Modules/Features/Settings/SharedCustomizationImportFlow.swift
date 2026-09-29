@@ -45,8 +45,8 @@ final class SharedCustomizationImportFlow: NSObject {
             if let prompt = plan.prompt {
                 ask(prompt, about: plan)
             } else {
-                // Nothing about reading to decide — a look, or a file with no layout.
-                apply(plan, reading: .followTheme)
+                // Nothing to decide — a look, a theme pack, or a file with no layout.
+                apply(plan)
             }
         }
     }
@@ -55,24 +55,20 @@ final class SharedCustomizationImportFlow: NSObject {
 
     private func ask(_ prompt: CustomizationImportPrompt, about plan: SharedCustomizationImportService.Plan) {
         let alert = UIAlertController(title: prompt.title, message: prompt.message, preferredStyle: .alert)
-        for option in prompt.choices.options {
-            let action = UIAlertAction(
-                title: localized(option.titleKey),
-                style: option.isDestructive ? .destructive : .default
-            ) { [self] _ in
-                // UIKit calls this once the alert is gone, so the sheet can go straight up.
-                apply(plan, reading: option.disposition)
-            }
-            alert.addAction(action)
-            if option.isPreferred { alert.preferredAction = action }
-        }
+        alert.addAction(UIAlertAction(
+            title: localized(CustomizationImportPrompt.confirmTitleKey),
+            style: .destructive
+        ) { [self] _ in
+            // UIKit calls this once the alert is gone, so the sheet can go straight up.
+            apply(plan)
+        })
         alert.addAction(UIAlertAction(title: localized("取消"), style: .cancel) { [self] _ in
             complete()
         })
         present(alert)
     }
 
-    private func apply(_ plan: SharedCustomizationImportService.Plan, reading: ReadingSettingsDisposition) {
+    private func apply(_ plan: SharedCustomizationImportService.Plan) {
         let progress = CustomizationImportProgress()
         let sheet = UIHostingController(rootView: CustomizationImportOverviewView(progress: progress) { [weak self] in
             self?.dismissOverview()
@@ -82,7 +78,7 @@ final class SharedCustomizationImportFlow: NSObject {
         present(sheet)
         Task { @MainActor in
             do {
-                progress.phase = .finished(try await SharedCustomizationImportService.apply(plan, reading: reading))
+                progress.phase = .finished(try await SharedCustomizationImportService.apply(plan))
             } catch {
                 AppLogger.error("⟐ shared customization import failed", error: error, context: [
                     "kind": "\(document.kind)",

@@ -236,9 +236,8 @@ enum ReaderOverlayLayoutPersistenceError: LocalizedError {
 }
 
 /// The cheap main-actor value read a 匯出閱讀設定 archive is built from — no
-/// encoding and no disk I/O, because `ShareLink` menu/list content is rebuilt on
-/// every layout pass. `ReaderSettingsExportPayload` does the work in its
-/// transfer closure, where a failure can surface instead of being swallowed.
+/// encoding and no disk I/O here. `ReaderSettingsExportFile` does the work off it,
+/// where a failure can surface instead of being swallowed.
 struct ReaderSettingsExportInputs: Sendable {
     var layout: ReaderLayoutSnapshot
     var chapterTitleStyle: ChapterTitleStyle

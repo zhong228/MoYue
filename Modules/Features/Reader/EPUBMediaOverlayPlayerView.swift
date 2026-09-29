@@ -20,15 +20,16 @@ struct EPUBMediaOverlayPlayerView: View {
                     Text(title)
                         .font(DSFont.headline)
                         .multilineTextAlignment(.center)
+                        .foregroundStyle(DSColor.textPrimary)
                     Text("\(overlay.fragments.count) \(localized("段落"))")
                         .font(DSFont.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DSColor.textSecondary)
                 }
 
                 if let fragment = coordinator.currentFragment {
                     Text(fragment.textFragmentID ?? fragment.id)
                         .font(DSFont.footnote.monospaced())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DSColor.textSecondary)
                         .lineLimit(1)
                 }
 

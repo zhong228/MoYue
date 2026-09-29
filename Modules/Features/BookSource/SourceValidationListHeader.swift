@@ -100,6 +100,7 @@ struct SourceValidationListHeader: View {
                 .foregroundColor(DSColor.accent)
             Text(title)
                 .font(DSFont.subheadline)
+                .foregroundStyle(DSColor.textPrimary)
             Spacer()
             Text(value)
                 .font(DSFont.subheadline)

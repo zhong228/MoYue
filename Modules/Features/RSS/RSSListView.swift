@@ -349,7 +349,7 @@ struct RSSListView: View {
             if hideReadFeeds && visibleFolders.isEmpty && rootSources.isEmpty && !store.sources.isEmpty {
                 Text(localized("沒有未讀訂閱"))
                     .font(DSFont.body)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 26)
                     .padding(.vertical, 14)
@@ -863,19 +863,19 @@ private struct RSSHomeSection<Content: View>: View {
                 HStack {
                     Text(title)
                         .font(DSFont.title3.weight(.bold))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(DSColor.textPrimary)
 
                     Spacer()
 
                     if !isExpanded && unreadCount > 0 {
                         Text(unreadCount.formatted())
                             .font(DSFont.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(DSColor.textSecondary)
                     }
 
                     Image(systemName: "chevron.down")
                         .font(DSFont.fixed(size: 17, weight: .bold))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(DSColor.textPrimary)
                         .rotationEffect(.degrees(isExpanded ? 0 : -90))
                 }
                 .padding(.horizontal, 4)
@@ -1066,7 +1066,7 @@ private struct RSSOPMLImportSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text(localized("OPML 網址"))) {
+                Section(header: Text(localized("OPML 網址")).foregroundStyle(DSColor.textSecondary)) {
                     TextField("https://example.com/subscriptions.opml", text: $urlString)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
@@ -1081,7 +1081,7 @@ private struct RSSOPMLImportSheet: View {
                 }
                 .interfaceSectionSurface()
 
-                Section(header: Text(localized("本機文件"))) {
+                Section(header: Text(localized("本機文件")).foregroundStyle(DSColor.textSecondary)) {
                     Button {
                         showFileImporter = true
                     } label: {
@@ -1193,10 +1193,10 @@ private struct RSSMainFeedSectionHeader: View {
             if !isExpanded && unreadCount > 0 {
                 Text(unreadCount.formatted())
                     .font(DSFont.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
             }
         }
-        .foregroundStyle(.secondary)
+        .foregroundStyle(DSColor.textSecondary)
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(.easeInOut(duration: 0.2)) {
@@ -1222,7 +1222,7 @@ private struct RSSMainFeedFolderRow: View {
 
             Text(title)
                 .font(DSFont.body)
-                .foregroundStyle(.primary)
+                .foregroundStyle(DSColor.textPrimary)
                 .lineLimit(1)
 
             Spacer()
@@ -1230,12 +1230,12 @@ private struct RSSMainFeedFolderRow: View {
             if !isExpanded && unreadCount > 0 {
                 Text(unreadCount.formatted())
                     .font(DSFont.body)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
             }
 
             Image(systemName: "chevron.down")
                 .font(DSFont.fixed(size: 13, weight: .bold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DSColor.textSecondary)
                 .rotationEffect(.degrees(isExpanded ? 0 : -90))
                 .frame(width: 16)
         }
@@ -1258,7 +1258,7 @@ private struct RSSMainFeedRow: View {
 
             Text(title)
                 .font(DSFont.body)
-                .foregroundStyle(.primary)
+                .foregroundStyle(DSColor.textPrimary)
                 .lineLimit(1)
 
             Spacer()
@@ -1266,7 +1266,7 @@ private struct RSSMainFeedRow: View {
             if unreadCount > 0 {
                 Text(unreadCount.formatted())
                     .font(DSFont.body)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
             }
         }
         .padding(.leading, 24 + indent)
@@ -1300,7 +1300,7 @@ private struct RSSRefreshProgressBar: View {
                 .controlSize(.small)
             Text(String(format: localized("已刷新 %d / %d"), progress.completed, progress.total))
                 .font(DSFont.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DSColor.textSecondary)
             Spacer()
         }
         .padding(.horizontal, 16)
@@ -1344,7 +1344,7 @@ private struct ImportLegadoJSONURLSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text(localized("Legado JSON 網址"))) {
+                Section(header: Text(localized("Legado JSON 網址")).foregroundStyle(DSColor.textSecondary)) {
                     TextField("https://.../sources/xxx.json", text: $urlString)
                         .keyboardType(.URL)
                         .autocapitalization(.none)
@@ -1435,18 +1435,18 @@ private struct AddRSSSourceSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text(localized("來源名稱（選填）"))) {
+                Section(header: Text(localized("來源名稱（選填）")).foregroundStyle(DSColor.textSecondary)) {
                     TextField(localized("留空將自動從 RSS 抓取"), text: $name)
                 }
                 .interfaceSectionSurface()
-                Section(header: Text(localized("RSS 網址"))) {
+                Section(header: Text(localized("RSS 網址")).foregroundStyle(DSColor.textSecondary)) {
                     TextField("https://", text: $url)
                         .keyboardType(.URL)
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
                 }
                 .interfaceSectionSurface()
-                Section(header: Text(localized("資料夾"))) {
+                Section(header: Text(localized("資料夾")).foregroundStyle(DSColor.textSecondary)) {
                     Picker(localized("資料夾"), selection: $selectedFolderID) {
                         Text(localized("無資料夾")).tag(Self.rootFolderID)
                         ForEach(folders) { folder in
@@ -1550,7 +1550,7 @@ private struct AddRSSFolderSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text(localized("資料夾名稱"))) {
+                Section(header: Text(localized("資料夾名稱")).foregroundStyle(DSColor.textSecondary)) {
                     TextField(localized("資料夾名稱"), text: $name)
                 }
                 .interfaceSectionSurface()
@@ -1601,7 +1601,7 @@ private struct RenameRSSFolderSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text(localized("資料夾名稱"))) {
+                Section(header: Text(localized("資料夾名稱")).foregroundStyle(DSColor.textSecondary)) {
                     TextField(localized("資料夾名稱"), text: $name)
                 }
                 .interfaceSectionSurface()
@@ -1646,17 +1646,17 @@ private struct RSSSourceInfoSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text(localized("基本資訊"))) {
-                    LabeledContent(localized("來源名稱"), value: currentSource.name)
-                    LabeledContent(localized("RSS 網址"), value: currentSource.url)
+                Section(header: Text(localized("基本資訊")).foregroundStyle(DSColor.textSecondary)) {
+                    ThemedLabeledContent(localized("來源名稱"), value: currentSource.name)
+                    ThemedLabeledContent(localized("RSS 網址"), value: currentSource.url)
                     if let homepageURL = currentSource.homepageURL, !homepageURL.isEmpty {
-                        LabeledContent(localized("首頁"), value: homepageURL)
+                        ThemedLabeledContent(localized("首頁"), value: homepageURL)
                     }
                     if let faviconURL = currentSource.displayFaviconURL, !faviconURL.isEmpty {
-                        LabeledContent(localized("圖示"), value: faviconURL)
+                        ThemedLabeledContent(localized("圖示"), value: faviconURL)
                     }
                     if let group = currentSource.sourceGroup, !group.isEmpty {
-                        LabeledContent(localized("資料夾"), value: group)
+                        ThemedLabeledContent(localized("資料夾"), value: group)
                     }
                 }
                 .interfaceSectionSurface()

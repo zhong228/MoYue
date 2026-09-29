@@ -30,9 +30,9 @@ struct ChapterTitleDesignerCanvas: View {
                         .accessibilityHidden(true)
                 } else if let renderError {
                     ContentUnavailableView {
-                        Label(localized("預覽失敗"), systemImage: "exclamationmark.triangle")
+                        UnavailableLabel(localized("預覽失敗"), systemImage: "exclamationmark.triangle")
                     } description: {
-                        Text(renderError.localizedDescription)
+                        Text(renderError.localizedDescription).foregroundStyle(DSColor.textSecondary)
                     }
                 } else {
                     ProgressView(localized("正在產生預覽"))

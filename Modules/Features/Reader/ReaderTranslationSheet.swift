@@ -32,6 +32,7 @@ struct ReaderTranslationSheet: View {
                     .labelsHidden()
                 } header: {
                     Text(localized("顯示方式"))
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 .interfaceSectionSurface()
 
@@ -80,8 +81,10 @@ struct ReaderTranslationSheet: View {
             case let .running(completed, total):
                 ProgressView(value: Double(completed), total: Double(max(total, 1))) {
                     Text(localized("翻譯中…"))
+                        .foregroundStyle(DSColor.textPrimary)
                 } currentValueLabel: {
                     Text(verbatim: "\(completed)/\(total)")
+                        .foregroundStyle(DSColor.textSecondary)
                 }
             case .finished:
                 Label(localized("本章已翻譯"), systemImage: "checkmark.circle")
@@ -105,6 +108,7 @@ struct ReaderTranslationSheet: View {
             }
         } header: {
             Text(localized("本章"))
+                .foregroundStyle(DSColor.textSecondary)
         }
         .interfaceSectionSurface()
     }
@@ -113,8 +117,8 @@ struct ReaderTranslationSheet: View {
         switch service.service() {
         case let .success(active):
             Section {
-                LabeledContent(localized("生成服務"), value: active.name)
-                LabeledContent(localized("生成模型"), value: active.model)
+                ThemedLabeledContent(localized("生成服務"), value: active.name)
+                ThemedLabeledContent(localized("生成模型"), value: active.model)
             } footer: {
                 Text(localized("會翻譯你讀到的章節和下一章，約每 2,000 字一次模型呼叫；原文、劃線與閱讀進度不受影響。"))
                     .dsSectionFooter()

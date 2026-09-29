@@ -71,6 +71,7 @@ struct BookSourceImportOptionsView: View {
                 Toggle(localized("保留啟用狀態"), isOn: $options.keepEnable)
             } header: {
                 Text(localized("覆蓋已有書源時"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 Text(localized("書源包會帶著作者自己的名稱、分組與啟用狀態。開啟後，這幾項沿用本機的設定，只更新規則。"))
                     .dsSectionFooter()
@@ -109,6 +110,7 @@ struct BookSourceImportOptionsView: View {
                 }
             } header: {
                 Text(localized("分組"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 if options.trimmedGroupName != nil, options.keepGroup {
                     Text(localized("已開啟「保留分組」：本機已有的書源會先還原成原本的分組，再套用這裡的指定。"))

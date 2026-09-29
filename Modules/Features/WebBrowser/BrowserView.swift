@@ -923,23 +923,23 @@ struct BrowserView: View {
             Button { withAnimation(DSAnimation.standard) { showHome = true } } label: {
                 Image(systemName: "house")
                     .font(DSFont.fixed(size: 16, weight: .medium))
-                    .foregroundColor(.primary)
+                    .foregroundStyle(DSColor.textPrimary)
             }
 
             Button { browser.goBack() } label: {
                 Image(systemName: "chevron.left")
                     .font(DSFont.fixed(size: 17, weight: .medium))
-                    .foregroundColor(browser.canGoBack ? .primary : Color.secondary.opacity(0.35))
+                    .foregroundColor(browser.canGoBack ? DSColor.textPrimary : DSColor.textSecondary.opacity(0.35))
             }.disabled(!browser.canGoBack)
 
             Button { browser.goForward() } label: {
                 Image(systemName: "chevron.right")
                     .font(DSFont.fixed(size: 17, weight: .medium))
-                    .foregroundColor(browser.canGoForward ? .primary : Color.secondary.opacity(0.35))
+                    .foregroundColor(browser.canGoForward ? DSColor.textPrimary : DSColor.textSecondary.opacity(0.35))
             }.disabled(!browser.canGoForward)
 
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").font(DSFont.caption).foregroundColor(.secondary)
+                Image(systemName: "magnifyingglass").font(DSFont.caption).foregroundStyle(DSColor.textSecondary)
                 TextField(localized("輸入網址或搜尋"), text: $addressText)
                     .font(DSFont.fixed(size: 14))
                     .disableAutocorrection(true)
@@ -951,7 +951,7 @@ struct BrowserView: View {
                 if !addressText.isEmpty {
                     Button { addressText = "" } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(Color.secondary.opacity(0.6))
+                            .foregroundStyle(DSColor.textSecondary.opacity(0.6))
                     }
                 }
             }
@@ -961,7 +961,7 @@ struct BrowserView: View {
 
             Button { browser.reload() } label: {
                 Image(systemName: browser.isLoading ? "xmark" : "arrow.clockwise")
-                    .font(DSFont.fixed(size: 15)).foregroundColor(.secondary)
+                    .font(DSFont.fixed(size: 15)).foregroundStyle(DSColor.textSecondary)
             }
 
             Button {
@@ -997,7 +997,7 @@ struct BrowserView: View {
                                 .font(DSFont.fixed(size: 12, weight: .bold)).foregroundColor(.white)
                                 .frame(width: 22, height: 22)
                                 .background(engine.color).clipShape(Circle())
-                            Text(engine.rawValue).font(DSFont.subheadline).foregroundColor(.primary)
+                            Text(engine.rawValue).font(DSFont.subheadline).foregroundStyle(DSColor.textPrimary)
                         }
                         .padding(.horizontal, 12).padding(.vertical, 8)
                         .background(Color.secondary.opacity(0.15)).clipShape(Capsule())
@@ -1005,7 +1005,7 @@ struct BrowserView: View {
                 }
                 Divider().frame(height: 20)
                 Text(localized("進入小說章節頁，點「轉碼閱讀」直接開書"))
-                    .font(DSFont.caption).foregroundColor(.secondary).lineLimit(1)
+                    .font(DSFont.caption).foregroundStyle(DSColor.textSecondary).lineLimit(1)
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
             .frame(maxWidth: browserContentMaxWidth, alignment: .leading)
@@ -1032,13 +1032,14 @@ struct WebTOCSheet: View {
                         Text(title)
                             .font(DSFont.subheadline.weight(.medium))
                             .lineLimit(1)
+                            .foregroundStyle(DSColor.textPrimary)
                     }
                     Text(
                         String(
                             format: localized("共偵測到 %d 章，選擇開始閱讀的章節"),
                             chapters.count))
                         .font(DSFont.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, 16)
@@ -1054,14 +1055,14 @@ struct WebTOCSheet: View {
                         HStack {
                             Text("\(idx + 1).")
                                 .font(DSFont.caption.monospacedDigit())
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(DSColor.textSecondary)
                                 .frame(width: 36, alignment: .trailing)
                             Text(
                                 chapters[idx].title.isEmpty
                                     ? String(format: localized("第 %d 章"), idx + 1)
                                     : chapters[idx].title)
                                 .font(DSFont.body)
-                                .foregroundColor(.primary)
+                                .foregroundStyle(DSColor.textPrimary)
                                 .lineLimit(1)
                             Spacer()
                             if idx == selectedIndex {

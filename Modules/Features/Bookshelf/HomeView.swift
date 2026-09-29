@@ -347,7 +347,7 @@ struct HomeView: View {
                         } label: {
                             Text(localized(isAllSelected ? "全不選" : "全選"))
                                 .font(DSFont.subheadline.weight(.medium))
-                                .foregroundColor(.primary)
+                                .foregroundStyle(DSColor.textPrimary)
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(.clear)
@@ -1012,21 +1012,24 @@ struct EditBookSheet: View {
                 Form {
                     coverSection
 
-                    Section(header: Text(localized("基本資訊"))) {
+                    Section(header: Text(localized("基本資訊")).foregroundStyle(DSColor.textSecondary)) {
                         HStack {
                             Text(localized("書名"))
+                                .foregroundStyle(DSColor.textPrimary)
                             Spacer()
                             TextField(localized("書名"), text: $titleInput)
                                 .multilineTextAlignment(.trailing)
                         }
                         HStack {
                             Text(localized("作者"))
+                                .foregroundStyle(DSColor.textPrimary)
                             Spacer()
                             TextField(localized("作者"), text: $authorInput)
                                 .multilineTextAlignment(.trailing)
                         }
                         HStack {
                             Text(localized("分組"))
+                                .foregroundStyle(DSColor.textPrimary)
                             Spacer()
                             TextField(localized("未分組"), text: $groupInput)
                                 .multilineTextAlignment(.trailing)
@@ -1047,24 +1050,27 @@ struct EditBookSheet: View {
                         }
                     }
                     .interfaceSectionSurface()
-                    Section(header: Text(localized("閱讀進度"))) {
+                    Section(header: Text(localized("閱讀進度")).foregroundStyle(DSColor.textSecondary)) {
                         HStack {
                             Text(localized("目前進度"))
+                                .foregroundStyle(DSColor.textPrimary)
                             Spacer()
                             Text("\(Int(book.currentPosition * 100))%")
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(DSColor.textSecondary)
                         }
                         HStack {
                             Text(localized("加入時間"))
+                                .foregroundStyle(DSColor.textPrimary)
                             Spacer()
                             Text(book.addedDate, style: .date)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(DSColor.textSecondary)
                         }
                         HStack {
                             Text(localized("來源"))
+                                .foregroundStyle(DSColor.textPrimary)
                             Spacer()
                             Text(book.source == "local" ? localized("本機文件") : localized("網頁匯入"))
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(DSColor.textSecondary)
                         }
                     }
                     .interfaceSectionSurface()
@@ -1113,7 +1119,7 @@ struct EditBookSheet: View {
                     applyCover(url: candidate.coverUrl, sourceId: candidate.sourceId)
                 }
             } label: {
-                Label(localized("封面搜索"), systemImage: "globe")
+                SettingsRowLabel(localized("封面搜索"), systemImage: "globe")
             }
             .disabled(isApplyingCover)
 
@@ -1126,7 +1132,7 @@ struct EditBookSheet: View {
                     applyCover(url: candidate.coverUrl, sourceId: candidate.sourceId)
                 }
             } label: {
-                Label(localized("換封面"), systemImage: "books.vertical")
+                SettingsRowLabel(localized("換封面"), systemImage: "books.vertical")
             }
             .disabled(isApplyingCover)
 
@@ -1149,6 +1155,7 @@ struct EditBookSheet: View {
             }
         } header: {
             Text(localized("封面"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("封面搜索會上網找封面；換封面則在你已加入的書源裡，尋找同書名同作者的封面。"))
                 .dsSectionFooter()
@@ -1320,6 +1327,7 @@ struct EmptyLibraryView: View {
                 .foregroundColor(DSColor.textSecondary.opacity(0.35))
             Text(localized("書架還是空的"))
                 .font(DSFont.title2.weight(.semibold))
+                .foregroundStyle(DSColor.textPrimary)
             Text(localized("匯入 TXT 文件，或是輸入網址\n抓取網頁小說加入書架"))
                 .font(DSFont.subheadline).foregroundColor(DSColor.textSecondary).multilineTextAlignment(.center)
             Button {
@@ -1335,6 +1343,7 @@ struct EmptyLibraryView: View {
             } label: {
                 Label(localized("搜索書籍"), systemImage: "magnifyingglass")
                     .font(DSFont.subheadline.weight(.medium))
+                    .foregroundStyle(DSColor.textPrimary)
             }
             .buttonStyle(.plain)
             Spacer()
@@ -1442,7 +1451,7 @@ struct BookRow: View {
                 Text(book.title)
                     .font(DSFont.fixed(size: 15, weight: .medium))
                     .lineLimit(2)
-                    .foregroundColor(.primary)
+                    .foregroundStyle(DSColor.textPrimary)
 
                 if !book.author.isEmpty {
                     Text(book.author)
@@ -1653,6 +1662,7 @@ struct BookGridCell: View {
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(DSColor.textPrimary)
 
                 HStack(alignment: .center, spacing: 2) {
                     Text(book.author)
@@ -1784,7 +1794,7 @@ struct BulkAddToGroupSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text(localized("分組名稱"))) {
+                Section(header: Text(localized("分組名稱")).foregroundStyle(DSColor.textSecondary)) {
                     TextField(localized("輸入分組名稱（留空＝未分組）"), text: $groupInput)
                     if !store.allGroups.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {

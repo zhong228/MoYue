@@ -3,8 +3,8 @@ import Testing
 import UIKit
 @testable import yuedu_app
 
-/// A theme pack's toolbar icon file is named by the theme, by its pack original (for
-/// 重置此主題) and, while the theme is worn, by the live set. Replacing or removing the
+/// A theme pack's toolbar icon file is named by the theme, by its pack original and,
+/// while the theme is worn, by the live set. Replacing or removing the
 /// icon while wearing the theme used to delete that file outright.
 @Suite("Reader button icon ownership", .serialized)
 @MainActor
@@ -33,11 +33,6 @@ struct ReaderChromeIconOwnershipTests {
         )
         fixture.created.append(mine)
         #expect(FileManager.default.fileExists(atPath: try Self.path(of: packIcon)))
-
-        // 重置此主題 puts the pack's icon back, and it still draws.
-        settings.resetCustomAppearanceTheme(id: pack.id)
-        #expect(settings.readerChromeIcon(for: ReaderChromeToolItem.settings)?.fileName == packIcon.fileName)
-        #expect(settings.readerChromeIconImage(for: ReaderChromeToolItem.settings) != nil)
     }
 
     @Test func removingAnIconNothingElseNamesDeletesItsFile() throws {

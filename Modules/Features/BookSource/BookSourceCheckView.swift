@@ -109,6 +109,7 @@ struct BookSourceCheckView: View {
                 .foregroundColor(DSColor.textSecondary.opacity(0.35))
             Text(localized("沒有選取的書源"))
                 .font(DSFont.title3.weight(.semibold))
+                .foregroundStyle(DSColor.textPrimary)
             Spacer()
         }
         .padding()
@@ -163,11 +164,13 @@ struct BookSourceCheckView: View {
                 ProgressView().scaleEffect(0.9)
                 Text(localized("驗證中…"))
                     .font(DSFont.bodyBold)
+                    .foregroundStyle(DSColor.textPrimary)
             } else {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundColor(DSColor.success)
                 Text(localized("驗證完成"))
                     .font(DSFont.bodyBold)
+                    .foregroundStyle(DSColor.textPrimary)
             }
             Spacer()
             Text("\(checker.finishedCount)/\(checker.items.count)")
@@ -186,6 +189,7 @@ struct BookSourceCheckView: View {
         VStack(alignment: .leading, spacing: DSSpacing.sm) {
             Text(localized("失敗類型細分"))
                 .font(DSFont.headline)
+                .foregroundStyle(DSColor.textPrimary)
             // A `Grid` row, not an `HStack` of capsules: four labels of different
             // widths ("全部" vs "Environment Issues") squeezed into one line each,
             // so the capsules came out at four different widths and wrapped their

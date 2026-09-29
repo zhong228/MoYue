@@ -208,6 +208,7 @@ struct BookSourceEditView: View {
                 Toggle(isOn: $source.presentsAndroidIdentity) {
                     VStack(alignment: .leading, spacing: DSSpacing.xs) {
                         Text(localized("提供裝置識別碼"))
+                            .foregroundStyle(DSColor.textPrimary)
                         Text(localized("預設開啟，書源要裝置碼時才拿得到。只有在某個書源不能被當成 Android 時才關閉。"))
                             .font(DSFont.caption)
                             .foregroundStyle(DSColor.textSecondary)
@@ -255,7 +256,7 @@ struct BookSourceEditView: View {
                         .foregroundColor(DSColor.textSecondary)
                     Text(displayValue(for: spec))
                         .font(DSFont.fixed(size: 13, design: .monospaced))
-                        .foregroundColor(displayValueIsEmpty(spec) ? DSColor.textSecondary.opacity(0.6) : Color.primary)
+                        .foregroundColor(displayValueIsEmpty(spec) ? DSColor.textSecondary.opacity(0.6) : DSColor.textPrimary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 8)

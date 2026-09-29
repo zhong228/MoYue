@@ -38,12 +38,12 @@ struct EditRSSSourceSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text(localized("來源名稱"))) {
+                Section(header: Text(localized("來源名稱")).foregroundStyle(DSColor.textSecondary)) {
                     TextField(localized("來源名稱"), text: $name)
                 }
                 .interfaceSectionSurface()
 
-                Section(header: Text(localized("RSS 網址"))) {
+                Section(header: Text(localized("RSS 網址")).foregroundStyle(DSColor.textSecondary)) {
                     TextField("https://", text: $url)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
@@ -52,7 +52,7 @@ struct EditRSSSourceSheet: View {
                 }
                 .interfaceSectionSurface()
 
-                Section(header: Text(localized("資料夾"))) {
+                Section(header: Text(localized("資料夾")).foregroundStyle(DSColor.textSecondary)) {
                     Picker(localized("資料夾"), selection: $selectedFolderID) {
                         Text(localized("無資料夾")).tag(Self.rootFolderID)
                         ForEach(folders) { folder in
@@ -199,10 +199,10 @@ struct RSSOrganizeSheet: View {
                 let folders = store.orderedFolders()
 
                 if folders.count > 1 {
-                    Section(header: Text(localized("資料夾"))) {
+                    Section(header: Text(localized("資料夾")).foregroundStyle(DSColor.textSecondary)) {
                         ForEach(folders) { folder in
                             Label(folder.name, systemImage: "folder")
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(DSColor.textPrimary)
                         }
                         .onMove { offsets, destination in
                             store.moveFolders(fromOffsets: offsets, toOffset: destination)
@@ -214,7 +214,7 @@ struct RSSOrganizeSheet: View {
                 ForEach(folders) { folder in
                     let folderSources = store.sources(in: folder)
                     if !folderSources.isEmpty {
-                        Section(header: Text(folder.name)) {
+                        Section(header: Text(folder.name).foregroundStyle(DSColor.textSecondary)) {
                             ForEach(folderSources) { source in
                                 sourceRow(source)
                             }
@@ -228,7 +228,7 @@ struct RSSOrganizeSheet: View {
 
                 let rootSources = store.rootSources()
                 if !rootSources.isEmpty {
-                    Section(header: Text(folders.isEmpty ? "" : localized("未分類"))) {
+                    Section(header: Text(folders.isEmpty ? "" : localized("未分類")).foregroundStyle(DSColor.textSecondary)) {
                         ForEach(rootSources) { source in
                             sourceRow(source)
                         }
@@ -279,11 +279,11 @@ struct RSSOrganizeSheet: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(source.name)
                         .font(DSFont.body)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(DSColor.textPrimary)
                         .lineLimit(1)
                     Text(source.url)
                         .font(DSFont.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DSColor.textSecondary)
                         .lineLimit(1)
                 }
 

@@ -117,6 +117,7 @@ struct TTSPanelView: View {
                                 .foregroundColor(DSColor.accent)
                                 .accessibilityHidden(true)
                             Text(localized("語音源設定"))
+                                .foregroundStyle(DSColor.textPrimary)
                             Spacer()
                         }
                     }
@@ -137,6 +138,7 @@ struct TTSPanelView: View {
                                 .foregroundColor(DSColor.accent)
                                 .accessibilityHidden(true)
                             Text(localized("多角色朗讀"))
+                                .foregroundStyle(DSColor.textPrimary)
                             Spacer()
                             if gs.ttsMultiRoleEnabled {
                                 Text(localized("開啟"))
@@ -255,6 +257,7 @@ struct TTSPanelView: View {
                                 .foregroundColor(DSColor.accent)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(localized("目錄"))
+                                    .foregroundStyle(DSColor.textPrimary)
                                 Text(activeChapterTitle)
                                     .font(DSFont.caption)
                                     .foregroundColor(DSColor.textSecondary)
@@ -269,7 +272,7 @@ struct TTSPanelView: View {
                 }
                 .interfaceSectionSurface()
 
-                Section(header: Text(localized("語速"))) {
+                Section(header: Text(localized("語速")).foregroundStyle(DSColor.textSecondary)) {
                     HStack {
                         // Slow/fast end-caps, the same tortoise/hare pair Apple uses for
                         // playback speed. Hidden from VoiceOver: as plain images they were
@@ -311,7 +314,7 @@ struct TTSPanelView: View {
                 }
                 .interfaceSectionSurface()
 
-                Section(header: Text(localized("定時停止"))) {
+                Section(header: Text(localized("定時停止")).foregroundStyle(DSColor.textSecondary)) {
                     Menu {
                         Button(localized("不定時")) { tts.setSleepTimer(minutes: 0) }
                         ForEach([15, 30, 60, 90], id: \.self) { min in
@@ -322,7 +325,7 @@ struct TTSPanelView: View {
                             Image(systemName: "moon.zzz")
                                 .foregroundColor(DSColor.textSecondary)
                             Text(localized("定時停止"))
-                                .foregroundColor(.primary)
+                                .foregroundStyle(DSColor.textPrimary)
                             Spacer()
                             Text(sleepTimerLabel)
                                 .foregroundColor(DSColor.textSecondary)
@@ -336,6 +339,7 @@ struct TTSPanelView: View {
                     Toggle(localized("朗讀時保持螢幕開啟"), isOn: $gs.ttsKeepsScreenAwake)
                 } header: {
                     Text(localized("播放行為"))
+                        .foregroundStyle(DSColor.textSecondary)
                 } footer: {
                     Text(localized("只防止自動鎖定，按下電源鍵仍可鎖屏並繼續朗讀。"))
                         .dsSectionFooter()
@@ -370,6 +374,7 @@ struct TTSPanelView: View {
                     }
                 } header: {
                     Text(localized("高亮"))
+                        .foregroundStyle(DSColor.textSecondary)
                 } footer: {
                     Text(localized("朗讀時高亮目前正在唸的文字。"))
                         .dsSectionFooter()
@@ -415,7 +420,7 @@ struct TTSPanelView: View {
                         } label: {
                             HStack {
                                 Text(chapters[index].title)
-                                    .foregroundColor(.primary)
+                                    .foregroundStyle(DSColor.textPrimary)
                                 Spacer()
                                 if index == controlChapterIndex {
                                     Image(systemName: "checkmark")

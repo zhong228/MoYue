@@ -23,7 +23,7 @@ struct GlobalFontSettingsView: View {
             }
             .interfaceSectionSurface()
 
-            Section(header: Text(localized("已匯入字體"))) {
+            Section(header: Text(localized("已匯入字體")).foregroundStyle(DSColor.textSecondary)) {
                 if settings.userFonts.isEmpty {
                     Text(localized("尚未匯入字體"))
                         .font(DSFont.subheadline)

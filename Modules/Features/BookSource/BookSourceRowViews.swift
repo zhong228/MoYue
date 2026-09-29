@@ -490,7 +490,7 @@ struct BookSourceGroupHeaderRow: View {
                         .accessibilityHidden(true)
                     Text(group.name)
                         .font(DSFont.toolbarIcon)
-                        .foregroundColor(.primary)
+                        .foregroundStyle(DSColor.textPrimary)
                         .lineLimit(1)
                     Text("\(group.sourceIDs.count)")
                         .font(DSFont.fixed(size: 12))

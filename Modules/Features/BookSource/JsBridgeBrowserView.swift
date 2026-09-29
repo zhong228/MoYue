@@ -231,6 +231,7 @@ struct JsBridgeBrowserView: View {
                     .foregroundStyle(DSColor.textSecondary)
                 Text(localized("載入失敗"))
                     .font(DSFont.headline)
+                    .foregroundStyle(DSColor.textPrimary)
                 if let detail = bridge.errorText, !detail.isEmpty {
                     Text(detail)
                         .font(DSFont.caption)

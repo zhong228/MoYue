@@ -20,6 +20,7 @@ struct CalibreWirelessView: View {
                 }
             } header: {
                 Text(localized("連線狀態"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 Text(localized("先在電腦 Calibre 的「連線／分享」啟動無線裝置連線。"))
                     .dsSectionFooter()
@@ -59,6 +60,7 @@ struct CalibreWirelessView: View {
                     }
                 } header: {
                     Text(localized("附近的 Calibre"))
+                        .foregroundStyle(DSColor.textSecondary)
                 } footer: {
                     Text(localized("需要同一區域網路，並允許本 App 存取本機網路。"))
                         .dsSectionFooter()
@@ -91,6 +93,7 @@ struct CalibreWirelessView: View {
                 }
             } header: {
                 Text(localized("接收紀錄"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 Text(localized("傳送期間請保持此頁開啟，離開或切背景會中斷。支援 EPUB、PDF、TXT、Markdown。"))
                     .dsSectionFooter()
@@ -138,10 +141,11 @@ struct CalibreWirelessView: View {
         switch service.state {
         case .disconnected:
             Label(localized("尚未連線"), systemImage: "network")
+                .foregroundStyle(DSColor.textSecondary)
         case .connecting:
             ProgressView(localized("正在連接 Calibre…"))
         case .connected(let name):
-            LabeledContent(localized("已連線"), value: name)
+            ThemedLabeledContent(localized("已連線"), value: name)
         case .failed(let message):
             VStack(alignment: .leading, spacing: DSSpacing.sm) {
                 Label(localized("連線失敗"), systemImage: "exclamationmark.triangle")
@@ -153,12 +157,15 @@ struct CalibreWirelessView: View {
     private func transferRow(_ transfer: CalibreTransferStatus) -> some View {
         VStack(alignment: .leading, spacing: DSSpacing.sm) {
             Text(transfer.title).font(DSFont.body)
+                .foregroundStyle(DSColor.textPrimary)
             switch transfer.phase {
             case .receiving:
                 ProgressView(value: Double(transfer.receivedBytes), total: Double(transfer.totalBytes)) {
                     Text(localized("正在接收"))
+                        .foregroundStyle(DSColor.textPrimary)
                 } currentValueLabel: {
                     Text(byteProgress(transfer))
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 .accessibilityValue(byteProgress(transfer))
             case .importing:
@@ -166,6 +173,7 @@ struct CalibreWirelessView: View {
             case .completed:
                 Label(localized("已加入書架"), systemImage: "checkmark.circle")
                     .font(DSFont.footnote)
+                    .foregroundStyle(DSColor.textSecondary)
             case .failed(let message):
                 Text(message).font(DSFont.footnote).foregroundStyle(DSColor.textSecondary)
             case .cancelled:

@@ -83,35 +83,19 @@ enum ReadingSetupPart: CaseIterable, Hashable {
 
 // MARK: - Pre-import question
 
-/// The alert asked after a file parsed and before anything lands, when the import would
-/// change the reading setup. Built here so the three entry points — 外觀主題 › 導入主題,
-/// 閱讀設定 › 匯入閱讀設定, and a file opened from another app — ask the same question
-/// in the same words.
+/// The alert asked after a reading-settings file parsed and before anything lands. Built
+/// here so both entry points — 閱讀設定 › 匯入閱讀設定 and a file opened from another app —
+/// ask the same question in the same words.
+///
+/// A theme pack asks nothing: its reading setup is its theme's own, worn while the theme
+/// is and switched away with it. It used to ask 跟隨主題 or 取代全域設定 (2026-09-29).
 struct CustomizationImportPrompt: Identifiable {
-    enum Choices {
-        /// A theme pack: 跟隨主題 or 取代全域設定.
-        case followOrReplace
-        /// A settings file with no theme of its own: 取代 or not.
-        case replaceOnly
-    }
-
     let id = UUID()
     let title: String
     let message: String
-    let choices: Choices
 
-    /// A theme pack whose reading half is more than one control — the case that used to
-    /// be phrased as a question about the header/footer alone.
-    static func themePack(named name: String, readingParts: [ReadingSetupPart]) -> Self {
-        CustomizationImportPrompt(
-            title: String(format: localized("匯入「%@」"), name),
-            message: String(
-                format: localized("除了外觀主題，也包含整套閱讀設定：%@。"),
-                ReadingSetupPart.localizedList(readingParts)
-            ) + "\n\n" + localized("閱讀設定要跟隨主題，還是取代全域設定？"),
-            choices: .followOrReplace
-        )
-    }
+    /// The one answer besides 取消. Drawn red: the file overwrites the settings it names.
+    static let confirmTitleKey = "取代"
 
     /// A reading-settings file. It lands like an edit, setting by setting: on the worn
     /// theme for what follows the theme, in 全域 for the rest — so the message names the
@@ -133,48 +117,21 @@ struct CustomizationImportPrompt: Identifiable {
         } ?? localized("會取代全域閱讀設定。")
         return CustomizationImportPrompt(
             title: localized("取代目前的閱讀設定？"),
-            message: contents + consequence,
-            choices: .replaceOnly
+            message: contents + consequence
         )
     }
 }
 
-extension CustomizationImportPrompt.Choices {
-    struct Option {
-        let titleKey: String
-        let disposition: ReadingSettingsDisposition
-        /// Drawn bold: the safe answer, which leaves every other theme as it was.
-        let isPreferred: Bool
-        /// Drawn red: the shared setup every theme falls back on is overwritten.
-        let isDestructive: Bool
-    }
-
-    /// The answers in alert order, preferred first. Both presenters — the SwiftUI
-    /// modifier below and the UIKit one for files opened from another app — build their
-    /// buttons from this, so the two cannot drift apart.
-    var options: [Option] {
-        switch self {
-        case .followOrReplace:
-            return [
-                Option(titleKey: "跟隨主題", disposition: .followTheme, isPreferred: true, isDestructive: false),
-                Option(titleKey: "取代全域設定", disposition: .replaceGlobal, isPreferred: false, isDestructive: true),
-            ]
-        case .replaceOnly:
-            return [Option(titleKey: "取代", disposition: .replaceGlobal, isPreferred: false, isDestructive: true)]
-        }
-    }
-}
-
 extension View {
-    /// The pre-import alert for the SwiftUI entry points. `pending` carries the parsed
-    /// file, so the chosen answer arrives together with what it applies to.
+    /// The pre-import alert for the SwiftUI entry point. `pending` carries the parsed
+    /// file, so the answer arrives together with what it applies to.
     ///
-    /// A sheet may be presented straight from `onChoose`: SwiftUI's alert runs its
+    /// A sheet may be presented straight from `onConfirm`: SwiftUI's alert runs its
     /// actions from the `UIAlertAction` handler, after the alert has been dismissed.
     func customizationImportPrompt<Pending>(
         _ pending: Binding<Pending?>,
         prompt: @escaping (Pending) -> CustomizationImportPrompt,
-        onChoose: @escaping (Pending, ReadingSettingsDisposition) -> Void
+        onConfirm: @escaping (Pending) -> Void
     ) -> some View {
         alert(
             pending.wrappedValue.map { prompt($0).title } ?? "",
@@ -184,21 +141,9 @@ extension View {
             ),
             presenting: pending.wrappedValue
         ) { item in
-            // Spelled out rather than looped: alert actions are a fixed set of buttons.
-            // The titles and roles still come from `options`, shared with UIKit.
-            let options = prompt(item).choices.options
-            if let preferred = options.first(where: { $0.isPreferred }) {
-                Button(localized(preferred.titleKey)) {
-                    pending.wrappedValue = nil
-                    onChoose(item, preferred.disposition)
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-            if let other = options.first(where: { !$0.isPreferred }) {
-                Button(localized(other.titleKey), role: other.isDestructive ? .destructive : nil) {
-                    pending.wrappedValue = nil
-                    onChoose(item, other.disposition)
-                }
+            Button(localized(CustomizationImportPrompt.confirmTitleKey), role: .destructive) {
+                pending.wrappedValue = nil
+                onConfirm(item)
             }
             Button(localized("取消"), role: .cancel) {
                 pending.wrappedValue = nil
@@ -230,7 +175,7 @@ struct CustomizationImportOverview {
 
     /// Where an imported reading setup ended up.
     enum ReadingPlacement: Equatable {
-        /// 跟隨主題: the pack's settings now follow the theme, so its theme wears them.
+        /// A theme pack: its setup is its theme's own, worn while the theme is.
         case followsTheme(name: String)
         /// Every setting in the file follows the theme, so all of it went there.
         case theme(name: String)
@@ -279,13 +224,8 @@ extension CustomizationImportOverview {
                 in: reading,
                 fontName: outcome.readerUsesInstalledFont ? outcome.installedFontName : nil
             )
-            switch outcome.readingDisposition {
-            case .followTheme:
-                readingPlacement = .followsTheme(name: outcome.theme?.name ?? "")
-            case .replaceGlobal:
-                readingPlacement = .global
-            case nil:
-                break
+            if let theme = outcome.theme {
+                readingPlacement = .followsTheme(name: theme.name)
             }
         }
         notes = outcome.notes
@@ -531,14 +471,14 @@ struct CustomizationImportOverviewView: View {
                 .background(DSColor.groupedBackground)
         case .failed(let message):
             ContentUnavailableView {
-                Label(localized("匯入失敗"), systemImage: "exclamationmark.triangle")
+                UnavailableLabel(localized("匯入失敗"), systemImage: "exclamationmark.triangle")
             } description: {
-                Text(message)
+                Text(message).foregroundStyle(DSColor.textSecondary)
             }
             .background(DSColor.groupedBackground)
         case .finished(let overview) where overview.isEmpty && overview.notes.isEmpty:
             ContentUnavailableView {
-                Label(localized("這個檔案沒有可匯入的內容。"), systemImage: "doc")
+                UnavailableLabel(localized("這個檔案沒有可匯入的內容。"), systemImage: "doc")
             }
             .background(DSColor.groupedBackground)
         case .finished(let overview):
@@ -553,6 +493,7 @@ struct CustomizationImportOverviewView: View {
                     ForEach(overview.appearanceItems) { itemRow($0) }
                 } header: {
                     Text(localized("外觀"))
+                        .foregroundStyle(DSColor.textSecondary)
                 } footer: {
                     if let name = overview.selectedThemeName {
                         Text(String(format: localized("「%@」已設為目前的外觀主題。"), name))
@@ -567,6 +508,7 @@ struct CustomizationImportOverviewView: View {
                     ForEach(overview.readingItems) { itemRow($0) }
                 } header: {
                     Text(localized("閱讀設定"))
+                        .foregroundStyle(DSColor.textSecondary)
                 } footer: {
                     if let placement = overview.readingPlacement {
                         Text(placementText(placement))
@@ -585,6 +527,7 @@ struct CustomizationImportOverviewView: View {
                     }
                 } header: {
                     Text(localized("未完全套用"))
+                        .foregroundStyle(DSColor.textSecondary)
                 }
                 .interfaceSectionSurface()
             }
@@ -603,6 +546,7 @@ struct CustomizationImportOverviewView: View {
         } label: {
             Label {
                 Text(item.title)
+                    .foregroundStyle(DSColor.textPrimary)
             } icon: {
                 Image(systemName: item.systemImage)
                     .foregroundStyle(DSColor.accent)
@@ -615,7 +559,7 @@ struct CustomizationImportOverviewView: View {
     private func placementText(_ placement: CustomizationImportOverview.ReadingPlacement) -> String {
         switch placement {
         case .followsTheme(let name):
-            return String(format: localized("這些設定改為跟隨主題，選「%@」時套用，其他主題照舊。"), name)
+            return String(format: localized("這些設定屬於主題「%@」，選這個主題時套用，其他主題照舊。"), name)
         case .theme(let name):
             return String(format: localized("已存進主題「%@」。"), name)
         case .split(let name):

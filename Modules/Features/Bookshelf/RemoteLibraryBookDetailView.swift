@@ -116,7 +116,7 @@ struct RemoteLibraryBookDetailView: View {
                 }
                 .accessibilityElement(children: .combine)
                 if let size = selectedFormat?.size, size > 0 {
-                    LabeledContent(localized("檔案大小"), value: ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                    ThemedLabeledContent(localized("檔案大小"), value: ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
                 }
             }
             .interfaceSectionSurface()
@@ -152,7 +152,7 @@ struct RemoteLibraryBookDetailView: View {
                             selectedFormatID = RemoteLibraryBrowsePresentation.preferredFormat(in: updated)?.id ?? ""
                         }
                     } label: {
-                        Label(localized("編輯遠端資料"), systemImage: "pencil")
+                        SettingsRowLabel(localized("編輯遠端資料"), systemImage: "pencil")
                     }.disabled(action != nil)
                 }.interfaceSectionSurface()
             }

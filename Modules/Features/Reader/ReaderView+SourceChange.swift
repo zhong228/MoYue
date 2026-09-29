@@ -14,11 +14,11 @@ extension ReaderView {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(currentSourceName)
-                                .foregroundColor(.primary)
+                                .foregroundStyle(DSColor.textPrimary)
                             if let last = book?.onlineChapters?.last?.title, !last.isEmpty {
                                 Text(last)
                                     .font(DSFont.caption)
-                                    .foregroundColor(.secondary)
+                                    .foregroundStyle(DSColor.textSecondary)
                                     .lineLimit(1)
                             }
                         }
@@ -52,21 +52,22 @@ extension ReaderView {
                                 ProgressView()
                                 Text(localized("正在搜尋更多書源…"))
                                     .font(DSFont.footnote)
-                                    .foregroundColor(.secondary)
+                                    .foregroundStyle(DSColor.textSecondary)
                             }
                         }
                     } else if changeSourceLoading {
                         HStack(spacing: 8) {
                             ProgressView()
                             Text(localized("正在搜尋其他書源…"))
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(DSColor.textSecondary)
                         }
                     } else {
                         Text(localized("暫無其他書源"))
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(DSColor.textSecondary)
                     }
                 } header: {
                     Text(localized("其他書源"))
+                        .foregroundStyle(DSColor.textSecondary)
                 } footer: {
                     if let err = changeSourceError {
                         Label(err, systemImage: "exclamationmark.triangle")
@@ -197,13 +198,13 @@ extension ReaderView {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(origin.sourceName)
-                    .foregroundColor(.primary)
+                    .foregroundStyle(DSColor.textPrimary)
                 // Aggregation sources share one sourceName across channels;
                 // lastChapter distinguishes them.
                 if !origin.lastChapter.isEmpty {
                     Text(origin.lastChapter)
                         .font(DSFont.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(DSColor.textSecondary)
                         .lineLimit(1)
                 }
             }
@@ -217,7 +218,7 @@ extension ReaderView {
                     ProgressView()
                     Text(localized("正在載入目錄…"))
                         .font(DSFont.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(DSColor.textSecondary)
                 }
             } else if changeSourceFailedKeys.contains(originKey)
                 || changeSourceFailedKeys.contains(ChangeSourceCache.urlKey(origin.bookUrl)) {
@@ -230,7 +231,7 @@ extension ReaderView {
             } else {
                 Image(systemName: "chevron.right")
                     .font(DSFont.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .accessibilityHidden(true)   // 純裝飾，否則旁白念出 "chevron.right"
             }
         }

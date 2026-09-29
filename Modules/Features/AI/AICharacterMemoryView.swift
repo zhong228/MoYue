@@ -84,18 +84,20 @@ struct AICharacterMemoryView: View {
                 if viewScope == .chapter {
                     Stepper(String(format: localized("查看到第 %d 章"), viewChapter + 1), value: $viewChapter, in: 0...maximumViewChapter)
                 }
-                LabeledContent(localized("目前範圍人物數"), value: "\(visible.count)")
+                ThemedLabeledContent(localized("目前範圍人物數"), value: "\(visible.count)")
             }
             Section {
                 if loadedKey != viewKey {
                     ProgressView(localized("載入中…"))
                 } else if visible.cards.isEmpty {
-                    ContentUnavailableView(localized("此範圍尚無人物資料"), systemImage: "person.text.rectangle")
+                    ContentUnavailableView {
+                        UnavailableLabel(localized("此範圍尚無人物資料"), systemImage: "person.text.rectangle")
+                    }
                         .listRowBackground(Color.clear)
                 }
                 ForEach(visible.page(query: query, offset: page * 40)) { card in
                     Button { selected = Selection(id: card.id) } label: {
-                        LabeledContent(card.names.joined(separator: "、"), value: String(format: localized("%d 筆經歷記錄"), card.facts.count))
+                        ThemedLabeledContent(card.names.joined(separator: "、"), value: String(format: localized("%d 筆經歷記錄"), card.facts.count))
                     }
                 }
                 if page > 0 { Button(localized("上一頁")) { page -= 1 } }
@@ -176,13 +178,13 @@ struct AICharacterMemoryView: View {
     }
     private func jobSection(_ job: AIMemoryJob) -> some View {
         Section {
-            LabeledContent(localized("建檔狀態"), value: state(job.state))
+            ThemedLabeledContent(localized("建檔狀態"), value: state(job.state))
             if let coverage, coverage.plannedUnits > 0 {
                 ProgressView(value: Double(coverage.committedUnits), total: Double(coverage.plannedUnits)) {
-                    LabeledContent(localized("已保存批次"), value: "\(coverage.committedUnits) / \(coverage.plannedUnits)")
+                    ThemedLabeledContent(localized("已保存批次"), value: "\(coverage.committedUnits) / \(coverage.plannedUnits)")
                 }
             }
-            LabeledContent(localized("模型呼叫"), value: "\(job.calls) / \(job.budget.maximumCalls)")
+            ThemedLabeledContent(localized("模型呼叫"), value: "\(job.calls) / \(job.budget.maximumCalls)")
             if let failure = job.failure {
                 Text(failure == "length" ? localized("抽取輸出被截斷，可分拆該批後再確認續跑。") :
                     AIMemoryFailure(rawValue: failure)?.localizedDescription ?? localized("該批抽取失敗，未保存為成功。"))
@@ -199,13 +201,13 @@ struct AICharacterMemoryView: View {
                 }
             }
             DisclosureGroup(localized("詳細資料")) {
-                LabeledContent(localized("生成模型"), value: job.model)
+                ThemedLabeledContent(localized("生成模型"), value: job.model)
                 if let coverage {
-                    LabeledContent(localized("目錄目標章節"), value: "\(job.targetChapters)")
-                    LabeledContent(localized("可分析章節／已分析章節"), value: "\(coverage.availableChapters) / \(coverage.analyzedChapters)")
-                    LabeledContent(localized("已保存主要正文 UTF-16"), value: "\(coverage.committedUTF16) / \(coverage.plannedUTF16)")
+                    ThemedLabeledContent(localized("目錄目標章節"), value: "\(job.targetChapters)")
+                    ThemedLabeledContent(localized("可分析章節／已分析章節"), value: "\(coverage.availableChapters) / \(coverage.analyzedChapters)")
+                    ThemedLabeledContent(localized("已保存主要正文 UTF-16"), value: "\(coverage.committedUTF16) / \(coverage.plannedUTF16)")
                     ForEach(coverage.missing, id: \.order) { chapter in
-                        LabeledContent(String(format: localized("第 %d 章"), chapter.order + 1), value: missing(chapter.status))
+                        ThemedLabeledContent(String(format: localized("第 %d 章"), chapter.order + 1), value: missing(chapter.status))
                     }
                 }
             }
@@ -218,17 +220,17 @@ struct AICharacterMemoryView: View {
         NavigationStack {
             Form {
                 Section {
-                    LabeledContent(localized("生成服務"), value: job.providerDisplayName)
-                    LabeledContent(localized("生成模型"), value: job.model)
-                    LabeledContent(localized("建檔範圍"), value: job.boundary.wholeBook ? localized("本機可用全書正文") : localized("截至目前閱讀位置"))
-                    LabeledContent(localized("初始批次數"), value: "\(job.units.count)")
-                    LabeledContent(localized("總模型呼叫上限"), value: "\(job.budget.maximumCalls)")
-                    LabeledContent(localized("token 數與金額估算"), value: localized("未知"))
+                    ThemedLabeledContent(localized("生成服務"), value: job.providerDisplayName)
+                    ThemedLabeledContent(localized("生成模型"), value: job.model)
+                    ThemedLabeledContent(localized("建檔範圍"), value: job.boundary.wholeBook ? localized("本機可用全書正文") : localized("截至目前閱讀位置"))
+                    ThemedLabeledContent(localized("初始批次數"), value: "\(job.units.count)")
+                    ThemedLabeledContent(localized("總模型呼叫上限"), value: "\(job.budget.maximumCalls)")
+                    ThemedLabeledContent(localized("token 數與金額估算"), value: localized("未知"))
                     DisclosureGroup(localized("詳細資料")) {
-                        LabeledContent(localized("每批輸出 token 上限"), value: "\(job.budget.outputTokens)")
+                        ThemedLabeledContent(localized("每批輸出 token 上限"), value: "\(job.budget.outputTokens)")
                         if let info = proposalCoverage {
-                            LabeledContent(localized("可分析字元／UTF-16／bytes"), value: "\(info.characters) / \(info.plannedUTF16) / \(info.bytes)")
-                            LabeledContent(localized("可重用已保存批次"), value: "\(info.committedUnits)")
+                            ThemedLabeledContent(localized("可分析字元／UTF-16／bytes"), value: "\(info.characters) / \(info.plannedUTF16) / \(info.bytes)")
+                            ThemedLabeledContent(localized("可重用已保存批次"), value: "\(info.committedUnits)")
                         }
                     }
                 } footer: {
@@ -288,10 +290,11 @@ struct AIMemoryCardView: View {
         List {
             if let card {
                 Section {
-                    Text(card.names.joined(separator: "、")).font(DSFont.title3)
-                    if card.mentions.allSatisfy(\.unresolved) { Text(localized("包含未決稱呼，身分仍待確認。")) }
+                    Text(card.names.joined(separator: "、")).font(DSFont.title3).foregroundStyle(DSColor.textPrimary)
+                    if card.mentions.allSatisfy(\.unresolved) { Text(localized("包含未決稱呼，身分仍待確認。")).foregroundStyle(DSColor.textSecondary) }
                     if let earliest = card.earliest {
                         Text(localized("目前找到最早的明確提及"))
+                            .foregroundStyle(DSColor.textSecondary)
                         evidence(earliest.evidence)
                     }
                 }
@@ -299,7 +302,7 @@ struct AIMemoryCardView: View {
                     ForEach(card.facts.dropFirst(page * 30).prefix(30)) { fact in
                         VStack(alignment: .leading, spacing: DSSpacing.xs) {
                             Text(kind(fact.kind)).font(DSFont.caption).foregroundStyle(DSColor.textSecondary)
-                            Text(fact.text).textSelection(.enabled)
+                            Text(fact.text).textSelection(.enabled).foregroundStyle(DSColor.textPrimary)
                             ForEach(fact.evidence) { evidence($0) }
                         }
                     }
@@ -307,6 +310,7 @@ struct AIMemoryCardView: View {
                     if (page + 1) * 30 < card.facts.count { Button(localized("下一頁")) { page += 1 } }
                 } header: {
                     Text(localized("經歷與關係（原文揭露順序）"))
+                        .foregroundStyle(DSColor.textSecondary)
                 } footer: {
                     if onOpenCitation == nil {
                         Text(localized("此入口無法精準跳轉，請依章節與引文核對。"))
@@ -317,7 +321,9 @@ struct AIMemoryCardView: View {
                     Section {
                         let otherIDs = [alias.first, alias.second]
                         Text(view.cards.filter { !$0.entityIDs.isDisjoint(with: otherIDs) }.flatMap(\.names).joined(separator: "、"))
+                            .foregroundStyle(DSColor.textPrimary)
                         Text(localized("是否同一人物：請核對原文"))
+                            .foregroundStyle(DSColor.textSecondary)
                         ForEach(alias.evidence) { evidence($0) }
                         Button(view.approvedAliasIDs.contains(alias.id) ? localized("撤回身分合併") : localized("確認是同一人物")) {
                             Task { do { try await service.decide(alias: alias, approved: !view.approvedAliasIDs.contains(alias.id), source: source, boundary: boundary) }
@@ -329,7 +335,9 @@ struct AIMemoryCardView: View {
                     }
                 }
             } else if loading { ProgressView(localized("載入中…")) }
-            else { ContentUnavailableView(localized("此範圍尚無人物資料"), systemImage: "person.crop.circle") }
+            else { ContentUnavailableView {
+                UnavailableLabel(localized("此範圍尚無人物資料"), systemImage: "person.crop.circle")
+            } }
             if let error { Text(error).foregroundStyle(DSColor.destructive) }
         }
         .softScrollEdges()
@@ -345,7 +353,7 @@ struct AIMemoryCardView: View {
     }
     @ViewBuilder private func evidence(_ proof: AIMemoryEvidence) -> some View {
         Text(String(format: localized("第 %d 章"), proof.span.spine + 1)).font(DSFont.caption).foregroundStyle(DSColor.textSecondary)
-        Text(proof.quote).font(DSFont.callout).textSelection(.enabled)
+        Text(proof.quote).font(DSFont.callout).textSelection(.enabled).foregroundStyle(DSColor.textPrimary)
         // Without a jump handler the section footer says so once; here only a quote that
         // cannot be located, among ones that can, needs its own note.
         if let onOpenCitation {

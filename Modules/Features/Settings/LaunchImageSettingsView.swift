@@ -32,6 +32,7 @@ struct LaunchImageSettingsView: View {
                 launchImageSlot(.light)
             } header: {
                 Text(localized("淺色啟動圖"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 Text(localized("淺色模式啟動時顯示。"))
                     .dsSectionFooter()
@@ -42,6 +43,7 @@ struct LaunchImageSettingsView: View {
                 launchImageSlot(.dark)
             } header: {
                 Text(localized("深色啟動圖"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 Text(localized("深色模式啟動時顯示。若只設定一張，另一模式會沿用。"))
                     .dsSectionFooter()

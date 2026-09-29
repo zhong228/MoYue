@@ -175,15 +175,15 @@ struct BookmarkListSection: View {
         if items.isEmpty {
             if isBookmark {
                 ContentUnavailableView {
-                    Label(localized("沒有書籤"), systemImage: "bookmark")
+                    UnavailableLabel(localized("沒有書籤"), systemImage: "bookmark")
                 } description: {
-                    Text(localized("在想記住的那一頁向下滑動，或點一下右上角的書籤按鈕。"))
+                    Text(localized("在想記住的那一頁向下滑動，或點一下右上角的書籤按鈕。")).foregroundStyle(DSColor.textSecondary)
                 }
             } else {
                 ContentUnavailableView {
-                    Label(localized("沒有重點"), systemImage: "highlighter")
+                    UnavailableLabel(localized("沒有重點"), systemImage: "highlighter")
                 } description: {
-                    Text(localized("在閱讀時選取文字，加入底線或螢光筆即可在此查看。"))
+                    Text(localized("在閱讀時選取文字，加入底線或螢光筆即可在此查看。")).foregroundStyle(DSColor.textSecondary)
                 }
             }
         } else {

@@ -67,13 +67,13 @@ struct UserDetailView: View {
                         if gs.isLoggedIn, let date = firestoreSync.lastSyncDate {
                             Text("\(localized("上次同步")) \(date.formatted(date: .abbreviated, time: .shortened))")
                                 .font(DSFont.fixed(size: 10))
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(DSColor.textSecondary)
                         }
 
                         if !gs.isLoggedIn {
                             Text(localized("登入後可跨設備同步書籍與進度"))
                                 .font(DSFont.fixed(size: 10))
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(DSColor.textSecondary)
 
                             Button {
                                 showLogin = true
@@ -117,10 +117,10 @@ struct UserDetailView: View {
                         AppIconImage(size: DSLayout.settingsRowIconSize)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(localized("閱讀Pro"))
-                                .foregroundColor(.primary)
+                                .foregroundStyle(DSColor.textPrimary)
                             Text(proRowSubtitle)
                                 .font(DSFont.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(DSColor.textSecondary)
                         }
                         Spacer(minLength: 0)
                         if subscriptionStore.isProActive {
@@ -130,7 +130,7 @@ struct UserDetailView: View {
                         }
                         Image(systemName: "chevron.right")
                             .font(DSFont.fixed(size: 13, weight: .semibold))
-                            .foregroundColor(.secondary.opacity(0.5))
+                            .foregroundStyle(DSColor.textSecondary.opacity(0.5))
                             .accessibilityHidden(true)
                     }
                 }
@@ -139,17 +139,16 @@ struct UserDetailView: View {
             }
             .interfaceSectionSurface()
 
-            Section(header: Text(localized("閱讀工具"))) {
+            Section(header: Text(localized("閱讀工具")).foregroundStyle(DSColor.textSecondary)) {
                 Button {
                     showReadingStats = true
                 } label: {
                     HStack {
-                        Label(localized("閱讀統計"), systemImage: "chart.bar.fill")
-                            .foregroundColor(.primary)
+                        SettingsRowLabel(localized("閱讀統計"), systemImage: "chart.bar.fill")
                         Spacer()
                         Image(systemName: "chevron.right")
                             .font(DSFont.fixed(size: 13, weight: .semibold))
-                            .foregroundColor(.secondary.opacity(0.5))
+                            .foregroundStyle(DSColor.textTertiary)
                     }
                 }
                 .buttonStyle(.plain)
@@ -157,21 +156,21 @@ struct UserDetailView: View {
             .interfaceSectionSurface()
 
             if gs.isLoggedIn {
-                Section(header: Text(localized("帳號資訊"))) {
+                Section(header: Text(localized("帳號資訊")).foregroundStyle(DSColor.textSecondary)) {
                     Button {
                         draftDisplayName = gs.accountDisplayName
                         showRenameAlert = true
                     } label: {
                         HStack {
                             Text(localized("用戶名"))
-                                .foregroundColor(.primary)
+                                .foregroundStyle(DSColor.textPrimary)
                             Spacer()
                             Text(gs.accountDisplayName.isEmpty ? localized("未設定") : gs.accountDisplayName)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(DSColor.textSecondary)
                                 .lineLimit(1)
                             Image(systemName: "chevron.right")
                                 .font(DSFont.fixed(size: 13, weight: .semibold))
-                                .foregroundColor(.secondary.opacity(0.5))
+                                .foregroundStyle(DSColor.textSecondary.opacity(0.5))
                         }
                     }
                     .disabled(isSigningOut || isDeletingAccount)
@@ -179,9 +178,10 @@ struct UserDetailView: View {
                     if !gs.accountEmail.isEmpty {
                         HStack {
                             Text(localized("帳號"))
+                                .foregroundStyle(DSColor.textPrimary)
                             Spacer()
                             Text(gs.accountEmail)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(DSColor.textSecondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }
@@ -211,6 +211,7 @@ struct UserDetailView: View {
                     }
                 } header: {
                     Text(localized("連結登入方式"))
+                        .foregroundStyle(DSColor.textSecondary)
                 } footer: {
                     Text(localized("連結後可用任一方式登入同一個帳號，並且至少要保留一種。"))
                         .dsSectionFooter()
@@ -366,6 +367,7 @@ struct UserDetailView: View {
     private func linkRow(title: String, providerID: String) -> some View {
         HStack(spacing: DSSpacing.md) {
             Text(title)
+                .foregroundStyle(DSColor.textPrimary)
             Spacer(minLength: 0)
             if auth.linkedProviderIDs.contains(providerID) {
                 Label(localized("已連結"), systemImage: "checkmark.circle.fill")

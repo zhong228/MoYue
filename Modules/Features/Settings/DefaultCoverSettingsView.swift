@@ -32,6 +32,7 @@ struct DefaultCoverSettingsView: View {
                 VStack(alignment: .leading, spacing: DSSpacing.xs) {
                     HStack {
                         Text(localized("封面圓角"))
+                            .foregroundStyle(DSColor.textPrimary)
                         Spacer()
                         Text(cornerRadiusText)
                             .font(DSFont.subheadline)
@@ -79,6 +80,7 @@ struct DefaultCoverSettingsView: View {
                 )
             } header: {
                 Text(localized("自動生成的封面"))
+                    .foregroundStyle(DSColor.textSecondary)
             } footer: {
                 Text(localized("只影響自動生成的封面，你匯入的封面圖不受影響。"))
                     .dsSectionFooter()
@@ -142,6 +144,7 @@ struct DefaultCoverSettingsView: View {
             }
         } header: {
             Text(scheme.title)
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(
                 scheme == .dark

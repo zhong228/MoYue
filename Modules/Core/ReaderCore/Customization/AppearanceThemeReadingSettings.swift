@@ -14,8 +14,9 @@ import Foundation
 /// the reader *behaves*, not how the page looks, and a theme switch changing them
 /// would read as a malfunction rather than a new look.
 struct AppearanceThemeReadingSettings: Codable, Equatable, Sendable {
-    /// The reading surface's own picture or colour, applied as one value: a mode
-    /// without the image it names is not a background.
+    /// The one custom reading background as it was stored before backgrounds became a
+    /// saved list (2026-09-29): a mode and the colour or picture it names. Only read, by
+    /// `ReaderBackgroundMigration`, which makes a saved background of it.
     struct CustomBackground: Codable, Hashable, Sendable {
         /// `ReaderCustomBackgroundMode` raw value.
         var mode: String
@@ -96,6 +97,10 @@ struct AppearanceThemeReadingSettings: Codable, Equatable, Sendable {
     var bindsAppearanceReaderTheme: Bool?
     var boundLightReaderTheme: String?
     var boundDarkReaderTheme: String?
+    /// The saved background (`ReaderCustomBackground`) worn over `readerTheme`, as its id —
+    /// `""` for none.
+    var readerBackgroundID: String?
+    /// Written before saved backgrounds existed; see `CustomBackground`. Never written now.
     var customBackground: CustomBackground?
 
     // MARK: 閱讀裝飾
@@ -119,7 +124,7 @@ struct AppearanceThemeReadingSettings: Codable, Equatable, Sendable {
         case headerHorizontalPadding, footerHorizontalPadding, footerBottomPadding, footerTextGap
         case chapterTitleStyle
         case readerTheme, followsSystemTheme, bindsAppearanceReaderTheme
-        case boundLightReaderTheme, boundDarkReaderTheme, customBackground
+        case boundLightReaderTheme, boundDarkReaderTheme, readerBackgroundID, customBackground
         case commentBubble, dialogueBubbleStyle, regexHighlights, textUnderline
     }
 
@@ -168,6 +173,7 @@ struct AppearanceThemeReadingSettings: Codable, Equatable, Sendable {
         bindsAppearanceReaderTheme = field(.bindsAppearanceReaderTheme)
         boundLightReaderTheme = field(.boundLightReaderTheme)
         boundDarkReaderTheme = field(.boundDarkReaderTheme)
+        readerBackgroundID = field(.readerBackgroundID)
         customBackground = field(.customBackground)
         commentBubble = field(.commentBubble)
         dialogueBubbleStyle = field(.dialogueBubbleStyle)
@@ -208,6 +214,7 @@ struct AppearanceThemeReadingSettings: Codable, Equatable, Sendable {
         merged.bindsAppearanceReaderTheme = other.bindsAppearanceReaderTheme ?? bindsAppearanceReaderTheme
         merged.boundLightReaderTheme = other.boundLightReaderTheme ?? boundLightReaderTheme
         merged.boundDarkReaderTheme = other.boundDarkReaderTheme ?? boundDarkReaderTheme
+        merged.readerBackgroundID = other.readerBackgroundID ?? readerBackgroundID
         merged.customBackground = other.customBackground ?? customBackground
         merged.commentBubble = other.commentBubble ?? commentBubble
         merged.dialogueBubbleStyle = other.dialogueBubbleStyle ?? dialogueBubbleStyle
@@ -230,6 +237,7 @@ extension AppearanceThemeReadingSettings: Hashable {
         hasher.combine(pageTurnStyle)
         hasher.combine(scrollMode)
         hasher.combine(readerTheme)
+        hasher.combine(readerBackgroundID)
         hasher.combine(customBackground)
     }
 }

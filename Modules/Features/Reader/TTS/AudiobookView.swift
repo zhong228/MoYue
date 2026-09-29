@@ -350,7 +350,7 @@ struct AudiobookChapterListView: View {
                             Text(chapter.title.isEmpty
                                  ? String(format: localized("第 %d 章"), chapter.index + 1)
                                  : chapter.title)
-                                .foregroundColor(.primary)
+                                .foregroundStyle(DSColor.textPrimary)
                                 .font(DSFont.subheadline)
                                 .lineLimit(1)
                             Spacer()

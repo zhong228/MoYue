@@ -70,6 +70,7 @@ struct RootTabCustomizationView: View {
             }
         } header: {
             Text(localized("顯示頁面"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("至少保留一個內容頁，設定固定顯示，避免無法恢復頁面。"))
                 .dsSectionFooter()
@@ -82,6 +83,7 @@ struct RootTabCustomizationView: View {
             Toggle(isOn: hidesLabelsBinding) {
                 VStack(alignment: .leading, spacing: DSSpacing.xs) {
                     Text(localized("隱藏標籤文字"))
+                        .foregroundStyle(DSColor.textPrimary)
                     Text(localized("開啟後 Tab 欄只顯示圖標，不顯示文字標籤"))
                         .font(DSFont.caption)
                         .foregroundStyle(DSColor.textSecondary)
@@ -92,6 +94,7 @@ struct RootTabCustomizationView: View {
             Toggle(isOn: customIconSizeEnabledBinding) {
                 HStack {
                     Text(localized("自訂圖標大小"))
+                        .foregroundStyle(DSColor.textPrimary)
                     Spacer(minLength: DSSpacing.md)
                     Text(settings.usesCustomRootTabIconSize ? iconSizeText : localized("系統默認"))
                         .font(settings.usesCustomRootTabIconSize ? DSFont.body.monospacedDigit() : DSFont.body)
@@ -104,6 +107,7 @@ struct RootTabCustomizationView: View {
                 VStack(alignment: .leading, spacing: DSSpacing.sm) {
                     HStack {
                         Text(localized("圖標大小"))
+                            .foregroundStyle(DSColor.textPrimary)
                         Spacer()
                         Text(iconSizeText)
                             .font(DSFont.body.monospacedDigit())
@@ -124,6 +128,7 @@ struct RootTabCustomizationView: View {
             }
         } header: {
             Text(localized("Tab 圖標"))
+                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("不調整時保持系統 Tab 默認大小；開啟自訂大小後才套用滑桿。"))
                 .dsSectionFooter()
@@ -132,7 +137,7 @@ struct RootTabCustomizationView: View {
     }
 
     private func iconSection(for tab: RootTabItem) -> some View {
-        Section(header: Text(localized(tab.titleKey))) {
+        Section(header: Text(localized(tab.titleKey)).foregroundStyle(DSColor.textSecondary)) {
             ForEach(RootTabIconSlot.allCases) { slot in
                 iconRow(tab: tab, slot: slot)
             }

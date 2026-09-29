@@ -102,11 +102,11 @@ struct RSSArticleReaderView: View {
                     await loadSourceFaviconURLs()
                 }
             } else {
-                ContentUnavailableView(
-                    localized("目前沒有文章"),
-                    systemImage: "newspaper",
-                    description: Text(localized("重新載入"))
-                )
+                ContentUnavailableView {
+                    UnavailableLabel(localized("目前沒有文章"), systemImage: "newspaper")
+                } description: {
+                    Text(localized("重新載入")).foregroundStyle(DSColor.textSecondary)
+                }
             }
         }
         .sheet(item: $pendingShare) { export in

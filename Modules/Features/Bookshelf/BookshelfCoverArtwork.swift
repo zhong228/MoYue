@@ -6,7 +6,7 @@ import UIKit
 /// Cover styling the bookshelf shares between its list rows, its grid cells,
 /// 書籍資訊's preview and the open-book transition.
 enum BookshelfCoverStyle {
-    /// 設定 → 書架顯示 → 預設封面 → 封面圓角. Read unobserved: `HomeView` observes
+    /// 外觀主題 → 介面 → 預設封面 → 封面圓角. Read unobserved: `HomeView` observes
     /// `GlobalSettings`, so a change there rebuilds every row with the new value.
     static var cornerRadius: CGFloat {
         CGFloat(GlobalSettings.shared.bookshelfCoverCornerRadius)

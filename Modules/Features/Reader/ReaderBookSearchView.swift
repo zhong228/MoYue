@@ -35,17 +35,17 @@ struct ReaderBookSearchView: View {
         NavigationStack {
             Group {
                 if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    ContentUnavailableView(
-                        localized("搜尋書籍"),
-                        systemImage: "magnifyingglass",
-                        description: Text(localized("輸入關鍵字搜尋目前已載入的章節與頁面。"))
-                    )
+                    ContentUnavailableView {
+                        UnavailableLabel(localized("搜尋書籍"), systemImage: "magnifyingglass")
+                    } description: {
+                        Text(localized("輸入關鍵字搜尋目前已載入的章節與頁面。")).foregroundStyle(DSColor.textSecondary)
+                    }
                 } else if matches.isEmpty {
-                    ContentUnavailableView(
-                        localized("無搜尋結果"),
-                        systemImage: "doc.text.magnifyingglass",
-                        description: Text(localized("換個關鍵字再試一次。"))
-                    )
+                    ContentUnavailableView {
+                        UnavailableLabel(localized("無搜尋結果"), systemImage: "doc.text.magnifyingglass")
+                    } description: {
+                        Text(localized("換個關鍵字再試一次。")).foregroundStyle(DSColor.textSecondary)
+                    }
                 } else {
                     List(matches) { item in
                         Button {

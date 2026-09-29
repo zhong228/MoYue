@@ -30,6 +30,7 @@ struct BackupSyncView: View {
                     }
                 } header: {
                     Text(localized("備份與同步方式"))
+                        .foregroundStyle(DSColor.textSecondary)
                 } 
                 .interfaceSectionSurface()
             }

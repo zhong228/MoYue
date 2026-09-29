@@ -101,7 +101,7 @@ private struct VerticalTOCColumn: View {
                     isSelected: isSelected,
                     maxCharacters: 24
                 )
-                .foregroundStyle(isSelected ? DSColor.accent : Color.primary)
+                .foregroundStyle(isSelected ? DSColor.accent : DSColor.textPrimary)
                 .frame(width: VerticalTOCLayout.textWidth, alignment: .top)
                 .frame(maxHeight: .infinity, alignment: .top)
 
@@ -110,7 +110,7 @@ private struct VerticalTOCColumn: View {
                 if showsPageNumber {
                     Text("\(page)")
                         .font(DSFont.fixed(size: 15, weight: .regular))
-                        .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                        .foregroundStyle(isSelected ? DSColor.textPrimary : DSColor.textSecondary)
                 }
             }
             .frame(width: VerticalTOCLayout.columnWidth, alignment: .top)
@@ -300,7 +300,7 @@ struct ReaderTOCView: View {
     private var pageCountText: some View {
         Text(String(format: localized("第 %d 頁（共 %d 頁）"), currentPage + 1, totalPages))
             .font(DSFont.fixed(size: 14))
-            .foregroundColor(.primary)
+            .foregroundStyle(DSColor.textPrimary)
             .frame(maxWidth: .infinity, alignment: .center)
     }
 
@@ -373,7 +373,7 @@ struct ReaderTOCView: View {
                         ? .system(size: 14, weight: .semibold)
                         : .system(size: 12, weight: .regular)
                     )
-                    .foregroundColor(.primary)
+                    .foregroundStyle(DSColor.textPrimary)
                     .lineLimit(2)
 
                 Spacer()
@@ -381,7 +381,7 @@ struct ReaderTOCView: View {
                 if showsPageNumbers {
                     Text("\(pageNumber(for: chapter))")
                         .font(DSFont.fixed(size: 18, weight: .regular, design: .monospaced))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(DSColor.textSecondary)
                 }
             }
             .frame(height: 48)

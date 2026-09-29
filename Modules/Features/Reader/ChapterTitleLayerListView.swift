@@ -22,11 +22,11 @@ struct ChapterTitleLayerListView: View {
 
             Section(localized("圖層")) {
                 if model.draft.layers.isEmpty {
-                    ContentUnavailableView(
-                        localized("尚無元素"),
-                        systemImage: "square.dashed",
-                        description: Text(localized("加入章節數、章節名、文字、線條、色塊或圖片。"))
-                    )
+                    ContentUnavailableView {
+                        UnavailableLabel(localized("尚無元素"), systemImage: "square.dashed")
+                    } description: {
+                        Text(localized("加入章節數、章節名、文字、線條、色塊或圖片。")).foregroundStyle(DSColor.textSecondary)
+                    }
                 } else {
                     ForEach(model.draft.layers) { layer in
                         layerRow(layer)

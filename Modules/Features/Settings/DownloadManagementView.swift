@@ -101,7 +101,7 @@ struct DownloadManagementView: View {
     }
 
     private var summarySection: some View {
-        Section(header: Text(localized("總覽"))) {
+        Section(header: Text(localized("總覽")).foregroundStyle(DSColor.textSecondary)) {
             statRow(
                 title: localized("下載中"),
                 value: "\(activeDownloads.count)",
@@ -122,7 +122,7 @@ struct DownloadManagementView: View {
     }
 
     private var activeDownloadsSection: some View {
-        Section(header: Text(localized("下載中"))) {
+        Section(header: Text(localized("下載中")).foregroundStyle(DSColor.textSecondary)) {
             if activeDownloads.isEmpty {
                 Text(localized("目前沒有下載任務"))
                     .foregroundColor(DSColor.textSecondary)
@@ -132,6 +132,7 @@ struct DownloadManagementView: View {
                         HStack {
                             Text(book.title)
                                 .font(DSFont.body)
+                                .foregroundStyle(DSColor.textPrimary)
                             Spacer()
                             Text(progressLabel(for: book))
                                 .font(DSFont.caption.monospacedDigit())
@@ -226,7 +227,7 @@ struct DownloadManagementView: View {
     }
 
     private var downloadedBooksSection: some View {
-        Section(header: Text(localized("已下載書籍"))) {
+        Section(header: Text(localized("已下載書籍")).foregroundStyle(DSColor.textSecondary)) {
             if downloadedBooks.isEmpty {
                 Text(localized("尚未下載任何書籍"))
                     .foregroundColor(DSColor.textSecondary)
@@ -272,6 +273,7 @@ struct DownloadManagementView: View {
     private func statRow(title: String, value: String, detail: String) -> some View {
         HStack {
             Text(title)
+                .foregroundStyle(DSColor.textPrimary)
             Spacer()
             Text("\(value) \(detail)")
                 .foregroundColor(DSColor.textSecondary)

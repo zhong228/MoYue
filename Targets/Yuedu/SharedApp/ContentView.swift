@@ -6,6 +6,9 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// Bold Text: `.bold` while it is on. The global font needs telling; the system font
+    /// follows it by itself.
+    @Environment(\.legibilityWeight) private var legibilityWeight
     @ObservedObject private var gs = GlobalSettings.shared
     @StateObject private var rssStore = RSSStore.shared
     @ObservedObject private var importDrainer = SharedImportQueueDrainer.shared
@@ -36,11 +39,11 @@ struct ContentView: View {
         return gs.appearancePinnedColorScheme.colorScheme
     }
 
-    private var appearanceTheme: AppearanceThemePreset {
-        gs.appearanceTheme(
-            for: effectiveColorScheme,
-            isProActive: subscriptionStore.hasAccess(.readerThemePacks)
-        )
+    /// The theme on screen, nil for 默認: the surfaces and the tint wear the same one.
+    /// (The tint used to skip the launch-time optimism the surfaces had, so a Pro
+    /// theme's colours came up under 默認's accent until StoreKit answered.)
+    private var appearanceTheme: AppearanceThemePreset? {
+        resolvedAppTheme(for: effectiveColorScheme)
     }
 
     /// The theme whose surface colors should retint the whole app, or nil for
@@ -49,32 +52,16 @@ struct ContentView: View {
     /// dark mode, so dark mode is the theme's dark version rather than plain
     /// system black. Classic = no override.
     ///
-    /// > **Optimistic Pro theme.** On cold launch StoreKit entitlements are
-    /// > still loading, so `subscriptionStore.hasAccess(.readerThemePacks)`
-    /// > returns false even for Pro users. Without the optimistic fallback
-    /// > below, the first render would fall back to classic → an empty
-    /// > `activeAppThemes` → the entire UI flashes in system colors until entitlements
-    /// > resolve. Instead, we detect the intended theme from UserDefaults and
-    /// > apply it optimistically when it requires Pro. If the user turns out
-    /// > not to be Pro, the theme downgrades on the next render pass (~1
-    /// > frame), which is imperceptible compared to the 500ms–2s flash.
+    /// On cold launch the entitlement is still being read, and a Pro user's theme is
+    /// worn optimistically until it is — see `GlobalSettings.appThemeOnScreen`. The
+    /// optimism used to last as long as `hasAccess` was false, so a user without Pro
+    /// kept a Pro theme for good (2026-09-29).
     private func resolvedAppTheme(for scheme: ColorScheme) -> AppearanceThemePreset? {
-        let theme = gs.appearanceTheme(
+        gs.appThemeOnScreen(
             for: scheme,
-            isProActive: subscriptionStore.hasAccess(.readerThemePacks)
+            isProActive: subscriptionStore.hasAccess(.readerThemePacks),
+            hasResolvedEntitlements: subscriptionStore.hasResolvedEntitlements
         )
-        if theme.isClassic {
-            // The intended theme may be a Pro theme that requires Pro, but
-            // entitlements haven't resolved yet. Look up the intended theme
-            // from UserDefaults (synchronous) and use it optimistically.
-            let selectedID = gs.selectedAppearanceThemeID(for: scheme)
-            if let intended = AppearanceThemePreset.preset(
-                id: selectedID, customThemes: gs.customAppearanceThemes
-            ), !intended.isClassic, intended.requiresPro {
-                return intended.palette(for: scheme)
-            }
-        }
-        return theme.isClassic ? nil : theme
     }
 
     /// Both appearances, resolved together. `DSColor` turns these into dynamic colors, so
@@ -87,22 +74,37 @@ struct ContentView: View {
         )
     }
 
+    private var isBoldTextOn: Bool { legibilityWeight == .bold }
+
+    /// The global font as drawn: while Bold Text is on, a font with no bold face gives
+    /// way to the system font (`GlobalAppTypography.effectivePostScriptName`).
+    private var drawnGlobalFont: String? {
+        GlobalAppTypography.effectivePostScriptName(gs.resolvedGlobalFontPostScript, boldText: isBoldTextOn)
+    }
+
     private var typographyRefreshID: String {
-        "\(gs.resolvedGlobalFontPostScript ?? "system")|\(dynamicTypeSize)"
+        "\(drawnGlobalFont ?? "system")|\(dynamicTypeSize)|\(isBoldTextOn)"
     }
 
     var body: some View {
-        // Sync the app-wide themed surfaces (read by DSColor) with the current
-        // appearance before descendants read them this render pass. This is a
-        // plain global, not SwiftUI state, so assigning it here is side-effect
-        // free as far as invalidation goes.
+        // For what reads the themes outside a view's colours (whether a page background
+        // hides the bar material, the 光暈 tint) — `DSColor` reads the environment value
+        // set at the end of this chain. A plain global, not SwiftUI state, so assigning
+        // it here is side-effect free as far as invalidation goes.
         AppearanceThemePreset.activeAppThemes = resolvedAppThemes
-        GlobalAppTypography.activate(postScriptName: gs.resolvedGlobalFontPostScript)
+        GlobalAppTypography.activate(postScriptName: drawnGlobalFont, boldText: isBoldTextOn)
         return tabView
         // Classic (默認) = the app's original look: no tint override at all.
-        .tint(appearanceTheme.isClassic ? nil : appearanceTheme.accentColor)
-        .accentColor(appearanceTheme.isClassic ? nil : appearanceTheme.accentColor)
+        .tint(appearanceTheme?.accentColor)
+        .accentColor(appearanceTheme?.accentColor)
         .preferredColorScheme(preferredAppearanceColorScheme)
+        // While 單獨設定深色主題 is on, the appearance on screen picks whose theme is worn.
+        .onChange(of: effectiveColorScheme, initial: true) { _, scheme in
+            let onScreen = AppearanceColorScheme(scheme)
+            if gs.appearanceOnScreen != onScreen {
+                gs.appearanceOnScreen = onScreen
+            }
+        }
         .font(DSFont.body)
         .overlay {
             // App-wide audiobook mini-player: controls the long-lived audiobook session
@@ -182,10 +184,15 @@ struct ContentView: View {
         } message: { outcome in
             Text(Self.sharedImportMessage(for: outcome))
         }
+        // Screens that set a font of their own redraw with the new weight, as they do
+        // when the global font changes; the root `.font` above reaches the rest.
+        .onChange(of: isBoldTextOn) { _, _ in
+            gs.typographyDidChange()
+        }
         .task(id: typographyRefreshID) {
             await MainActor.run {
                 GlobalAppTypographyUIKitBridge.apply(
-                    postScriptName: gs.resolvedGlobalFontPostScript
+                    postScriptName: drawnGlobalFont
                 )
             }
         }
@@ -234,6 +241,14 @@ struct ContentView: View {
                         }
                     }
             }
+        }
+        // Outermost, so the sheets and overlays above resolve their colours from it too:
+        // `DSColor`'s themed colours read the themes from here when they draw
+        // (`AppThemesTrait`), and follow a switch without their views being rebuilt.
+        .environment(\.appThemes, resolvedAppThemes)
+        // The same for UIKit views outside this environment.
+        .onChange(of: resolvedAppThemes, initial: true) { _, themes in
+            AppThemesTrait.apply(themes)
         }
     }
 
@@ -556,7 +571,7 @@ struct NowPlayingMiniPlayer: View {
             } label: {
                 Image(systemName: hub.playbackState == .playing ? "pause.fill" : "play.fill")
                     .font(DSFont.fixed(size: 18, weight: .bold))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .frame(width: 48, height: 48)
                     .background(.thinMaterial, in: Circle())
                     .overlay(Circle().stroke(Color.secondary.opacity(0.35), lineWidth: 2))
@@ -570,7 +585,7 @@ struct NowPlayingMiniPlayer: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(DSFont.fixed(size: 17, weight: .semibold))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .frame(width: trailingButtonWidth, height: 48)
             }
             .accessibilityLabel(localized("停止播放"))
@@ -584,7 +599,7 @@ struct NowPlayingMiniPlayer: View {
             } label: {
                 Image(systemName: nearestSide(in: size) == .left ? "chevron.left" : "chevron.right")
                     .font(DSFont.fixed(size: 17, weight: .semibold))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(DSColor.textSecondary)
                     .frame(width: trailingButtonWidth, height: 48)
                     .accessibilityHidden(true)
             }
@@ -672,7 +687,7 @@ struct NowPlayingMiniPlayer: View {
         } label: {
             Image(systemName: side == .left ? "chevron.right" : "chevron.left")
                 .font(DSFont.fixed(size: 13, weight: .semibold))
-                .foregroundColor(.secondary)
+                .foregroundStyle(DSColor.textSecondary)
                 .accessibilityHidden(true)
                 .frame(
                     width: DSLayout.miniPlayerEdgeHandleWidth,

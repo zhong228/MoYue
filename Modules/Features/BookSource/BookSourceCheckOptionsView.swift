@@ -34,6 +34,7 @@ struct BookSourceCheckOptionsView: View {
                     VStack(spacing: DSSpacing.sm) {
                         Text(localized("準備驗證"))
                             .font(DSFont.title2.weight(.bold))
+                            .foregroundStyle(DSColor.textPrimary)
                         Text(
                             String(
                                 format: localized("將對 %d 個書源進行五階段驗證"), sourceCount)
@@ -101,6 +102,7 @@ struct BookSourceCheckOptionsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Stage \(stage.rawValue + 1) · \(stage.longTitle)")
                             .font(DSFont.bodyBold)
+                            .foregroundStyle(DSColor.textPrimary)
                         Text(stage.explanation)
                             .font(DSFont.caption)
                             .foregroundColor(DSColor.textSecondary)

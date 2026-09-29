@@ -57,6 +57,52 @@ struct SettingsValueLabel: View {
     }
 }
 
+/// `LabeledContent(title, value:)` in the theme's text colours: the title as 主文字, the
+/// value as 次級文字. The plain initializer draws both in the system's own colours, which
+/// 外觀主題 › 文字顏色 cannot reach. Layout and VoiceOver are LabeledContent's own.
+struct ThemedLabeledContent: View {
+    let title: String
+    let value: String
+
+    init(_ title: String, value: String) {
+        self.title = title
+        self.value = value
+    }
+
+    var body: some View {
+        LabeledContent {
+            Text(value)
+                .foregroundStyle(DSColor.textSecondary)
+        } label: {
+            Text(title)
+                .foregroundStyle(DSColor.textPrimary)
+        }
+    }
+}
+
+/// The label of a `ContentUnavailableView` in the theme's text colours: the title as 主文字,
+/// the symbol as 次級文字 — what the view gives them itself, in the system's colours,
+/// which 外觀主題 › 文字顏色 cannot reach. The description goes in 次級文字 at the call site.
+struct UnavailableLabel: View {
+    let title: String
+    let systemImage: String
+
+    init(_ title: String, systemImage: String) {
+        self.title = title
+        self.systemImage = systemImage
+    }
+
+    var body: some View {
+        Label {
+            Text(title)
+                .foregroundStyle(DSColor.textPrimary)
+        } icon: {
+            Image(systemName: systemImage)
+                .foregroundStyle(DSColor.textSecondary)
+        }
+    }
+}
+
 /// A value adjusted by dragging: title and value on one line, the slider under them.
 struct SettingsSliderRow<Value: BinaryFloatingPoint>: View where Value.Stride: BinaryFloatingPoint {
     let title: String
