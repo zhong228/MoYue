@@ -35,11 +35,20 @@ enum ChapterAudioProviderError: LocalizedError {
 
 @MainActor
 protocol ChapterAudioProvider: AnyObject {
+    /// The chapter's playable link. `priority` is `.immediate` for the chapter the listener
+    /// is waiting on and `.prefetch` for a look-ahead (`AudiobookResourcePreloader`).
     func audio(
         for book: ReadingBook,
         chapterIndex: Int,
+        priority: ChapterFetchPriority,
         store: BookStore
     ) async throws -> ChapterAudio
+
+    /// Forgets the chapter's resolved link so the next `audio` call resolves it again —
+    /// legado's `AudioPlayManager.refreshChapter` (`chapter.resourceUrl = null`), which its
+    /// player runs once, silently, when a link fails to play: most links are time-signed,
+    /// so a failure usually means the link expired while it sat resolved.
+    func discardResolvedAudio(for book: ReadingBook, chapterIndex: Int, store: BookStore)
 }
 
 @MainActor
@@ -47,12 +56,15 @@ final class OnlineChapterAudioProvider: ChapterAudioProvider {
     func audio(
         for book: ReadingBook,
         chapterIndex: Int,
+        priority: ChapterFetchPriority,
         store: BookStore
     ) async throws -> ChapterAudio {
+        // Cache first, like every online chapter: the cached content is this chapter's
+        // resolved link (legado keeps it in `BookChapter.resourceUrl`).
         let package = try await ChapterFetchManager.shared.fetchChapter(
             book: book,
             chapterIndex: chapterIndex,
-            priority: .immediate,
+            priority: priority,
             store: store
         )
 
@@ -73,6 +85,13 @@ final class OnlineChapterAudioProvider: ChapterAudioProvider {
         )
     }
 
+    /// The same two steps the reader's refetch takes: the cached chapter file, and the
+    /// shelf record's pointer to it.
+    func discardResolvedAudio(for book: ReadingBook, chapterIndex: Int, store: BookStore) {
+        BookSourceFetcher.shared.clearChapterCache(bookId: book.id, chapterIndex: chapterIndex)
+        store.clearCachedChapter(bookId: book.id, chapterIndex: chapterIndex)
+    }
+
     private func sourceHeaders(for book: ReadingBook) -> [String: String] {
         let source = book.bookSourceId.flatMap { id in
             BookSourceStore.shared.sources.first { $0.id == id }
@@ -89,6 +108,7 @@ final class LocalChapterAudioProvider: ChapterAudioProvider {
     func audio(
         for book: ReadingBook,
         chapterIndex: Int,
+        priority: ChapterFetchPriority,
         store: BookStore
     ) async throws -> ChapterAudio {
         guard let refs = book.onlineChapters, refs.indices.contains(chapterIndex) else {
@@ -107,6 +127,9 @@ final class LocalChapterAudioProvider: ChapterAudioProvider {
             chapterDurationSeconds: ref.audioDurationSeconds
         )
     }
+
+    /// A local chapter's link is a file path; there is nothing resolved to forget.
+    func discardResolvedAudio(for book: ReadingBook, chapterIndex: Int, store: BookStore) {}
 
     /// Audio extracted from a user-supplied archive (`local_audio/<id>/…`) or the
     /// audiobook file itself — user content, so it stays in Documents.

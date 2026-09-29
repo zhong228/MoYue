@@ -141,6 +141,7 @@ struct LocalChapterAudioProviderTests {
         let audio = try await LocalChapterAudioProvider().audio(
             for: book,
             chapterIndex: 0,
+            priority: .immediate,
             store: BookStore(metadataFileURL: tempMetadataURL())
         )
 
@@ -162,6 +163,7 @@ struct LocalChapterAudioProviderTests {
             _ = try await LocalChapterAudioProvider().audio(
                 for: book,
                 chapterIndex: 0,
+                priority: .immediate,
                 store: BookStore(metadataFileURL: tempMetadataURL())
             )
             Issue.record("Expected missing local audio to throw")

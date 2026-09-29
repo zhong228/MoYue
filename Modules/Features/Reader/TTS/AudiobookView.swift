@@ -18,6 +18,8 @@ struct AudiobookReaderView: View {
 
     @State private var sliderValue: Double = 0
     @State private var isDraggingSlider = false
+    /// The chapter the slider is scrubbing; its position is only meaningful on that chapter.
+    @State private var scrubbedChapter: Int?
     @State private var showChapterList = false
     @State private var showSleepTimer = false
     @State private var baseColor: Color = DSColor.coverGradients[0][0]
@@ -161,7 +163,7 @@ struct AudiobookReaderView: View {
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
             Button(localized("重試")) {
-                player.selectChapter(player.chapterIndex)
+                player.retryCurrentChapter()
             }
             .foregroundColor(.white)
             .font(DSFont.subheadline.weight(.semibold))
@@ -178,8 +180,18 @@ struct AudiobookReaderView: View {
                 value: $sliderValue,
                 in: 0...max(player.duration, 1),
                 onEditingChanged: { editing in
-                    isDraggingSlider = editing
-                    if !editing { player.seek(to: sliderValue) }
+                    if editing {
+                        isDraggingSlider = true
+                        scrubbedChapter = player.chapterIndex
+                    } else if isDraggingSlider {
+                        // Seek once per scrub. After a release at the far end the player
+                        // received a seek to the current chapter's end every ~40 ms
+                        // (simulator, CoreMedia log), and each one finished whichever
+                        // chapter was current by then — chapters were skipped.
+                        isDraggingSlider = false
+                        player.seek(to: sliderValue, inChapter: scrubbedChapter)
+                        scrubbedChapter = nil
+                    }
                 }
             )
             .tint(.white)
