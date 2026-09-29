@@ -210,6 +210,10 @@ struct AppearanceColorsAndFontView: View {
             set: { value in
                 var copy = theme.wrappedValue
                 copy[keyPath: keyPath] = UIColor(value).rgbHex ?? copy[keyPath: keyPath]
+                // 默認 keeps the system's backgrounds until 背景 itself is changed.
+                if keyPath == \AppearanceCustomTheme.backgroundHex {
+                    copy.hasEditedBackground = true
+                }
                 theme.wrappedValue = copy
             }
         )
@@ -232,6 +236,9 @@ struct AppearanceColorsAndFontView: View {
                 var colors = copy.dark ?? Self.derivedDarkColors(of: copy)
                 colors[keyPath: keyPath] = UIColor(value).rgbHex ?? colors[keyPath: keyPath]
                 copy.dark = colors
+                if keyPath == \AppearanceCustomThemeDarkColors.backgroundHex {
+                    copy.hasEditedDarkBackground = true
+                }
                 theme.wrappedValue = copy
             }
         )
@@ -246,6 +253,8 @@ struct AppearanceColorsAndFontView: View {
             set: { isAutomatic in
                 var copy = theme.wrappedValue
                 copy.dark = isAutomatic ? nil : Self.derivedDarkColors(of: copy)
+                // A dark palette just seeded, or none: its 背景 has not been changed.
+                copy.hasEditedDarkBackground = nil
                 theme.wrappedValue = copy
             }
         )

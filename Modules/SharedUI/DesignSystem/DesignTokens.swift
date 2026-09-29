@@ -85,14 +85,17 @@ enum DSColor {
     /// paint light-mode surfaces if a screen re-rendered before `ContentView.body` did,
     /// and a view SwiftUI did not rebuild kept the old theme after a switch.
     ///
-    /// - Parameter fallback: the system color for an appearance with no theme (classic).
+    /// - Parameter fallback: the system color for an appearance with no theme (classic),
+    ///   or with 默認 whose 背景 is as shipped (`keepsSystemBackgrounds`).
     private static func themed(
         _ keyPath: KeyPath<AppearanceThemePreset, UIColor>,
         fallback: UIColor
     ) -> Color {
         Color(uiColor: UIColor { traits in
-            traits[AppThemesTrait.self].theme(for: traits.userInterfaceStyle)?[keyPath: keyPath]
-                ?? fallback.resolvedColor(with: traits)
+            guard let theme = traits[AppThemesTrait.self].theme(for: traits.userInterfaceStyle),
+                  !theme.keepsSystemBackgrounds
+            else { return fallback.resolvedColor(with: traits) }
+            return theme[keyPath: keyPath]
         })
     }
 

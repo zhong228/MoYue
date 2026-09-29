@@ -81,6 +81,12 @@ struct AppearanceCustomTheme: Identifiable, Codable, Hashable {
     var darkTextPrimaryHex: UInt32?
     var darkTextSecondaryHex: UInt32?
     var darkTextTertiaryHex: UInt32?
+    /// Set once 背景 itself is changed in 顏色與字體 — 亮色模式, and 深色模式 while
+    /// 自動深色配色 is off. Read for 默認 only, which keeps the system's backgrounds until
+    /// then (`AppearanceThemePreset.keepsSystemBackgrounds`). nil in a record written
+    /// before 2026-09-29, read as unchanged.
+    var hasEditedBackground: Bool?
+    var hasEditedDarkBackground: Bool?
     /// Everything this theme owns beyond colours — tab icons, font, covers,
     /// effects, card artwork. nil for a plain colour theme.
     ///
@@ -236,6 +242,15 @@ struct AppearanceThemePreset: Identifiable, Hashable {
     /// A built-in theme painted with colours the user edited in 配色 (2026-09-29) — see
     /// `withEditedColors`. Carried into the dark palette too.
     var hasEditedColors = false
+    /// 默認 while its 背景 is as shipped: the app keeps the system's grouped backgrounds,
+    /// and the separators drawn on them, whatever else was edited on it — `DSColor`
+    /// draws its system fallbacks, as for 默認 unedited. An edit to 強調色 or 文字顏色
+    /// alone used to swap them for surfaces worked out from 默認's near-white 背景, and
+    /// every page turned white (user's call, 2026-09-29: only a change to 背景 changes
+    /// the page).
+    var keepsSystemBackgrounds = false
+    /// The same for the dark palette, kept on the light one for `palette(for:)` to hand over.
+    var keepsSystemDarkBackgrounds = false
 
     var localizedName: String { displayName ?? localized(nameKey) }
     var backgroundColor: Color { Color(uiColor: background) }
@@ -246,7 +261,8 @@ struct AppearanceThemePreset: Identifiable, Hashable {
     var previewBackgroundColor: Color { Color(uiColor: previewBackground) }
 
     /// The app's original look: no tint override, system default accent. A 默認 whose
-    /// colours the user edited is a palette like any other.
+    /// colours the user edited is a palette like any other, except that it keeps the
+    /// system's backgrounds until its 背景 is changed (`keepsSystemBackgrounds`).
     var isClassic: Bool { id == Self.classicID && !hasEditedColors }
 
     // MARK: - App-wide surface colors (drive DSColor when a theme is active)
@@ -309,6 +325,8 @@ struct AppearanceThemePreset: Identifiable, Hashable {
         dark.authoredTextColors = authoredDarkTextColors
         dark.authoredDarkTextColors = authoredDarkTextColors
         dark.hasEditedColors = hasEditedColors
+        dark.keepsSystemBackgrounds = keepsSystemDarkBackgrounds
+        dark.keepsSystemDarkBackgrounds = keepsSystemDarkBackgrounds
         return dark
     }
 
@@ -336,6 +354,13 @@ struct AppearanceThemePreset: Identifiable, Hashable {
         edited.authoredTextColors = colors.textColors ?? authoredTextColors
         edited.authoredDarkTextColors = colors.darkTextColors ?? authoredDarkTextColors
         edited.hasEditedColors = true
+        if id == Self.classicID {
+            // Dark follows the light 背景 while 自動深色配色 derives it; once that is off,
+            // the dark palette has a 背景 of its own to change.
+            edited.keepsSystemBackgrounds = colors.hasEditedBackground != true
+            edited.keepsSystemDarkBackgrounds = edited.keepsSystemBackgrounds
+                && !(colors.dark != nil && colors.hasEditedDarkBackground == true)
+        }
         return edited
     }
 

@@ -166,7 +166,9 @@ private struct PageBackgroundToolbarModifier: ViewModifier {
            gs.resolvedPageBackgroundSlice(for: scope, colorScheme: colorScheme) != nil {
             return true
         }
-        return AppearanceThemePreset.activeAppThemes.theme(for: colorScheme) != nil
+        // 默認 with its 背景 as shipped keeps the system's page, and the bar that goes with it.
+        guard let theme = AppearanceThemePreset.activeAppThemes.theme(for: colorScheme) else { return false }
+        return !theme.keepsSystemBackgrounds
     }
 
     /// Always the same modifier, only its visibility changes (`.automatic` is
