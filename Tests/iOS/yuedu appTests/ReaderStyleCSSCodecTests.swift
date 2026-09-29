@@ -4,6 +4,34 @@ import Testing
 
 @Suite("Reader style CSS codec")
 struct ReaderStyleCSSCodecTests {
+    @Test("image offsets survive CSS and JSON without changing legacy focus")
+    func imageOffsetsRoundTrip() throws {
+        let image = ReaderStyleImagePresentation(assetID: readerStyleFixtureUUID(76), focalX: 0.5, focalY: 0)
+        let style = ReaderStyleRuleStyle(decoration: .init(
+            backgroundImage: image, backgroundImageOffsetX: -24, backgroundImageOffsetY: 17
+        ))
+        let css = ReaderStyleCSSCodec.encodeDeclarations(style, context: .regexHighlight)
+        #expect(try ReaderStyleCSSCodec.decodeDeclarations(css, context: .regexHighlight) == style)
+        #expect(try JSONDecoder().decode(ReaderStyleRuleStyle.self, from: JSONEncoder().encode(style)) == style)
+        let legacy = ReaderStyleRuleStyle(decoration: .init(backgroundImage: image))
+        let decoded = try JSONDecoder().decode(ReaderStyleRuleStyle.self, from: JSONEncoder().encode(legacy))
+        #expect(decoded.decoration.backgroundImageOffsetX == nil)
+        #expect(decoded.decoration.backgroundImageOffsetY == nil)
+        #expect(decoded.decoration.backgroundImage == image)
+    }
+
+    @Test("image offsets reject invalid lengths and remain regex specific")
+    func rejectsInvalidImageOffsets() {
+        for value in ["49px", "-49px", "nan", "20%"] {
+            #expect(throws: ReaderStyleCSSCodecError.self) {
+                try ReaderStyleCSSCodec.decodeDeclarations("-yuedu-background-offset-x: \(value)", context: .regexHighlight)
+            }
+        }
+        #expect(throws: ReaderStyleCSSCodecError.self) {
+            try ReaderStyleCSSCodec.decodeDeclarations("-yuedu-background-offset-y: 12px", context: .chapterLayer)
+        }
+    }
+
     @Test("appearance values resolve independently")
     func appearanceResolution() {
         let value = ReaderStyleAppearanceValue(light: 0x112233, dark: 0xAABBCC)

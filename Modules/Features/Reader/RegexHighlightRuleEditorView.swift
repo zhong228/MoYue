@@ -194,7 +194,7 @@ struct RegexHighlightRuleEditorView: View {
     @ViewBuilder
     private var backgroundSections: some View {
         appearanceSection
-        Section(localized("背景")) {
+        Section {
                 Picker(localized("背景類型"), selection: backgroundKindBinding) {
                     ForEach(BackgroundKind.allCases) { kind in
                         Text(localized(kind.titleKey)).tag(kind)
@@ -218,14 +218,27 @@ struct RegexHighlightRuleEditorView: View {
                 case .image:
                     imageControls
                 }
+        } header: {
+            Text(localized("背景"))
+        } footer: {
+            if activeStyle.decoration.backgroundImage != nil {
+                Text(localized("圖片位移只移動底圖：X 正值向右、Y 正值向下，負值反向；文字、邊框與陰影留在原位。裁切焦點只選擇圖內範圍，不會移動整張底圖。"))
+                    .dsSectionFooter()
+            }
+        }
+        .interfaceSectionSurface()
+        Section {
                 metricSlider(
-                    localized("透明度"),
+                    localized("裝飾不透明度"),
                     value: styleDoubleBinding(\.decoration.opacity, fallback: 1),
                     range: 0...1,
                     step: 0.05,
                     unit: "%",
                     multiplier: 100
                 )
+        } footer: {
+            Text(localized("裝飾不透明度影響背景、圖片、邊框與陰影，不影響文字；圖片不透明度只影響圖片，兩者相乘。0% 完全透明，100% 完全顯示；只有圖片時，調整任一項會有相同效果。"))
+                .dsSectionFooter()
         }
         .interfaceSectionSurface()
         stylePreviewSection
@@ -394,9 +407,14 @@ struct RegexHighlightRuleEditorView: View {
                     Text(localized(mode.editorTitleKey)).tag(mode)
                 }
             }
-            metricSlider(localized("圖片焦點 X"), value: imageDoubleBinding(\.focalX, image.focalX), range: 0...1, step: 0.05, unit: "%", multiplier: 100)
-            metricSlider(localized("圖片焦點 Y"), value: imageDoubleBinding(\.focalY, image.focalY), range: 0...1, step: 0.05, unit: "%", multiplier: 100)
-            metricSlider(localized("圖片透明度"), value: imageDoubleBinding(\.opacity, image.opacity), range: 0...1, step: 0.05, unit: "%", multiplier: 100)
+            metricSlider(localized("圖片位移 X"), value: styleDoubleBinding(\.decoration.backgroundImageOffsetX, fallback: 0), range: ReaderStyleDecorationStyle.imageOffsetRange, step: 1, unit: "pt")
+            metricSlider(localized("圖片位移 Y"), value: styleDoubleBinding(\.decoration.backgroundImageOffsetY, fallback: 0), range: ReaderStyleDecorationStyle.imageOffsetRange, step: 1, unit: "pt")
+            DisclosureGroup(localized("裁切焦點")) {
+                metricSlider(localized("圖片焦點 X"), value: imageDoubleBinding(\.focalX, image.focalX), range: 0...1, step: 0.05, unit: "%", multiplier: 100)
+                metricSlider(localized("圖片焦點 Y"), value: imageDoubleBinding(\.focalY, image.focalY), range: 0...1, step: 0.05, unit: "%", multiplier: 100)
+            }
+            .disabled(image.contentMode == .stretch)
+            metricSlider(localized("圖片不透明度"), value: imageDoubleBinding(\.opacity, image.opacity), range: 0...1, step: 0.05, unit: "%", multiplier: 100)
         } else {
             Text(localized("請從共用素材庫選擇或匯入圖片。"))
                 .foregroundStyle(.secondary)
@@ -425,6 +443,17 @@ struct RegexHighlightRuleEditorView: View {
         appearance == .light ? .white : .night
     }
 
+    // Keep the text anchored while either offset slider moves in both directions.
+    // Padding outside the UIView cannot prevent its own backing layer from clipping.
+    private var previewImageInset: CGFloat {
+        guard activeStyle.decoration.backgroundImage != nil else { return 0 }
+        let edges = RegexHighlightDecorationGeometry.combinedEdges(
+            padding: activeStyle.decoration.padding, margin: activeStyle.decoration.margin
+        )
+        return CGFloat(ReaderStyleDecorationStyle.imageOffsetRange.upperBound
+            + max(0, edges.top, edges.leading, edges.bottom, edges.trailing))
+    }
+
     @ViewBuilder
     private var highlightedPreview: some View {
         switch Result(catching: {
@@ -434,8 +463,8 @@ struct RegexHighlightRuleEditorView: View {
             )
         }) {
         case .success(let attributed):
-            RegexHighlightLivePreview(attributed: attributed)
-                .frame(minHeight: DSLayout.minimumTapTarget * 3)
+            RegexHighlightLivePreview(attributed: attributed, contentInset: previewImageInset)
+                .frame(minHeight: DSLayout.minimumTapTarget * 3 + previewImageInset * 2)
                 .padding(DSSpacing.md)
                 .background(
                     previewTheme.previewBackgroundColor,
@@ -711,17 +740,22 @@ struct RegexHighlightRuleEditorView: View {
 
 private struct RegexHighlightLivePreview: UIViewRepresentable {
     let attributed: NSAttributedString
+    let contentInset: CGFloat
 
     func makeUIView(context: Context) -> RegexHighlightLivePreviewView {
         RegexHighlightLivePreviewView()
     }
 
     func updateUIView(_ view: RegexHighlightLivePreviewView, context: Context) {
+        view.contentInset = contentInset
         view.attributed = attributed
     }
 }
 
-private final class RegexHighlightLivePreviewView: UIView {
+final class RegexHighlightLivePreviewView: UIView {
+    var contentInset: CGFloat = 0 {
+        didSet { if contentInset != oldValue { setNeedsDisplay() } }
+    }
     var attributed = NSAttributedString() {
         didSet { setNeedsDisplay() }
     }
@@ -742,7 +776,9 @@ private final class RegexHighlightLivePreviewView: UIView {
               let context = UIGraphicsGetCurrentContext() else { return }
 
         let framesetter = CTFramesetterCreateWithAttributedString(attributed)
-        let path = CGPath(rect: bounds, transform: nil)
+        let contentRect = bounds.insetBy(dx: contentInset, dy: contentInset)
+        guard contentRect.width > 0, contentRect.height > 0 else { return }
+        let path = CGPath(rect: CGRect(origin: .zero, size: contentRect.size), transform: nil)
         let frame = CTFramesetterCreateFrame(
             framesetter,
             CFRange(location: 0, length: attributed.length),
@@ -756,9 +792,9 @@ private final class RegexHighlightLivePreviewView: UIView {
         context.scaleBy(x: 1, y: -1)
         CoreTextHorizontalLineDrawer.drawLines(
             of: frame,
-            contentWidth: bounds.width,
-            contentMinX: 0,
-            contentMinY: 0,
+            contentWidth: contentRect.width,
+            contentMinX: contentRect.minX,
+            contentMinY: contentRect.minY,
             isLastPage: true,
             attrStr: attributed,
             hrDividerKey: HTMLAttributedStringBuilder.hrDividerAttribute,
@@ -822,5 +858,11 @@ extension Color {
         return UInt32((red * 255).rounded()) << 16
             | UInt32((green * 255).rounded()) << 8
             | UInt32((blue * 255).rounded())
+    }
+}
+
+#Preview {
+    NavigationStack {
+        RegexHighlightRuleEditorView(rule: .custom(name: "Preview", pattern: "Sample")) { _ in }
     }
 }

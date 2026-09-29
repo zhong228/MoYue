@@ -69,8 +69,18 @@ struct CoreTextPaintFragment {
                     max(8, CGFloat($0.radius) * 4 + abs(CGFloat($0.y)))
                 }.max() ?? 0
                 let rect = decoration.rect
-                bounds = bounds.union(CGRect(x: rect.minX, y: chunk.height - rect.maxY,
-                                            width: rect.width, height: rect.height).insetBy(dx: -spread, dy: -spread))
+                let decorationRect = CGRect(x: rect.minX, y: chunk.height - rect.maxY,
+                                            width: rect.width, height: rect.height)
+                bounds = bounds.union(decorationRect.insetBy(dx: -spread, dy: -spread))
+                let style = decoration.decoration.style
+                if style.backgroundImage != nil {
+                    // A shifted image may enter a neighbouring partition even
+                    // when its source text line is outside that partition.
+                    bounds = bounds.union(decorationRect.offsetBy(
+                        dx: CGFloat(style.backgroundImageOffsetX ?? 0),
+                        dy: CGFloat(style.backgroundImageOffsetY ?? 0)
+                    ))
+                }
             }
             ink.append(bounds.insetBy(dx: -halo, dy: -halo))
             let lineRange = CTLineGetStringRange(line)

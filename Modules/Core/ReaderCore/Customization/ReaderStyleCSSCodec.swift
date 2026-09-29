@@ -178,6 +178,10 @@ enum ReaderStyleCSSCodec {
         "border-radius", "box-shadow", "opacity"
     ]
 
+    static let regexOnlyProperties: Set<String> = [
+        "-yuedu-background-offset-x", "-yuedu-background-offset-y"
+    ]
+
     static let chapterOnlyProperties: Set<String> = [
         "position", "left", "top", "width", "height", "box-sizing",
         "text-align", "transform", "writing-mode", "object-fit", "object-position",
@@ -189,7 +193,7 @@ enum ReaderStyleCSSCodec {
         context: ReaderStyleCSSContext
     ) throws -> ReaderStyleRuleStyle {
         let declarations = try ReaderStyleDeclarationScanner.scan(source)
-        let allowed = sharedProperties.union(context == .chapterLayer ? chapterOnlyProperties : [])
+        let allowed = sharedProperties.union(context == .chapterLayer ? chapterOnlyProperties : regexOnlyProperties)
         var style = ReaderStyleRuleStyle(text: .init(), decoration: .init(shadows: []))
         var deferredImageDeclarations: [ReaderStyleCSSDeclaration] = []
         for declaration in declarations {
@@ -444,6 +448,14 @@ enum ReaderStyleCSSCodec {
             default: throw invalid()
             }
             style.decoration.backgroundImage = image
+        case "-yuedu-background-offset-x", "-yuedu-background-offset-y":
+            guard let offset = parseLength(value),
+                  ReaderStyleDecorationStyle.imageOffsetRange.contains(offset) else { throw invalid() }
+            if declaration.name == "-yuedu-background-offset-x" {
+                style.decoration.backgroundImageOffsetX = offset
+            } else {
+                style.decoration.backgroundImageOffsetY = offset
+            }
         case "background-position":
             guard var image = style.decoration.backgroundImage,
                   let focalPoint = parseBackgroundPosition(value) else { throw invalid() }
@@ -571,6 +583,14 @@ enum ReaderStyleCSSCodec {
                 "\(formatColor($0.colorHex)) \(formatNumber($0.location * 100))%"
             }.joined(separator: ", ")
             result.append("background-image: linear-gradient(\(formatNumber(gradient.angleDegrees))deg, \(stops));")
+        }
+        if context == .regexHighlight {
+            if let x = style.decoration.backgroundImageOffsetX {
+                result.append("-yuedu-background-offset-x: \(formatLength(x));")
+            }
+            if let y = style.decoration.backgroundImageOffsetY {
+                result.append("-yuedu-background-offset-y: \(formatLength(y));")
+            }
         }
         if let margin = style.decoration.margin {
             result.append("margin: \(formatEdges(margin));")

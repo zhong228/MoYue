@@ -115,6 +115,10 @@ enum CoreTextHorizontalLineDrawer {
             context: ctx
         )
 
+        // Paint every background before any glyph: a translated image from a
+        // later line must not cover text that was already drawn on an earlier line.
+        var preparedLines: [(original: CTLine, drawn: CTLine, origin: CGPoint, range: CFRange)] = []
+        preparedLines.reserveCapacity(lines.count)
         for (lineIdx, line) in lines.enumerated() {
             // The continuous viewport owns small, retained paint surfaces.
             // Unrelated lines must not be justified or submitted to Core Graphics.
@@ -197,6 +201,16 @@ enum CoreTextHorizontalLineDrawer {
                 range: boundedLineRange,
                 context: ctx
             )
+
+            preparedLines.append((line, lineToDraw, origin, lineRange))
+        }
+
+        for prepared in preparedLines {
+            let line = prepared.original
+            let lineToDraw = prepared.drawn
+            let origin = prepared.origin
+            let lineRange = prepared.range
+            let lineStart = lineRange.location
 
             // Inline border "chips" (e.g. page-number badges) are drawn behind the glyphs so the
             // text sits on top of any fill. Offsets are read from the original (un-justified) line;

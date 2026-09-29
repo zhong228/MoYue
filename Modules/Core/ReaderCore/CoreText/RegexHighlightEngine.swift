@@ -626,6 +626,8 @@ private extension ReaderStyleDecorationStyle {
         backgroundColorHex == nil
             && backgroundGradient == nil
             && backgroundImage == nil
+            && backgroundImageOffsetX == nil
+            && backgroundImageOffsetY == nil
             && padding == nil
             && margin == nil
             && visualGap == nil
@@ -639,6 +641,8 @@ private extension ReaderStyleDecorationStyle {
         if let value = later.backgroundColorHex { backgroundColorHex = value }
         if let value = later.backgroundGradient { backgroundGradient = value }
         if let value = later.backgroundImage { backgroundImage = value }
+        if let value = later.backgroundImageOffsetX { backgroundImageOffsetX = value }
+        if let value = later.backgroundImageOffsetY { backgroundImageOffsetY = value }
         if let value = later.padding { padding = value }
         if let value = later.margin { margin = value }
         if let value = later.visualGap { visualGap = value }

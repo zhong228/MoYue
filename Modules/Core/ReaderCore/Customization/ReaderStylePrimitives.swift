@@ -210,9 +210,15 @@ struct ReaderStyleTextStyle: Codable, Equatable, Sendable {
 }
 
 struct ReaderStyleDecorationStyle: Codable, Equatable, Sendable {
+    static let imageOffsetRange: ClosedRange<Double> = -48...48
+
     var backgroundColorHex: UInt32?
     var backgroundGradient: ReaderStyleGradient?
     var backgroundImage: ReaderStyleImagePresentation?
+    // Physical point offsets, independent of the image's crop alignment.
+    // Optional fields keep existing style packages at their original position.
+    var backgroundImageOffsetX: Double?
+    var backgroundImageOffsetY: Double?
     var padding: ReaderStyleEdges?
     var margin: ReaderStyleEdges?
     var visualGap: Double?
@@ -225,6 +231,8 @@ struct ReaderStyleDecorationStyle: Codable, Equatable, Sendable {
         backgroundColorHex: UInt32? = nil,
         backgroundGradient: ReaderStyleGradient? = nil,
         backgroundImage: ReaderStyleImagePresentation? = nil,
+        backgroundImageOffsetX: Double? = nil,
+        backgroundImageOffsetY: Double? = nil,
         padding: ReaderStyleEdges? = nil,
         margin: ReaderStyleEdges? = nil,
         visualGap: Double? = nil,
@@ -236,6 +244,8 @@ struct ReaderStyleDecorationStyle: Codable, Equatable, Sendable {
         self.backgroundColorHex = backgroundColorHex.map { $0 & 0xFFFFFF }
         self.backgroundGradient = backgroundGradient
         self.backgroundImage = backgroundImage
+        self.backgroundImageOffsetX = backgroundImageOffsetX
+        self.backgroundImageOffsetY = backgroundImageOffsetY
         self.padding = padding
         self.margin = margin
         self.visualGap = Self.nonnegative(visualGap)

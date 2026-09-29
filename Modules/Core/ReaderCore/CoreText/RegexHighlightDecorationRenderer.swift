@@ -305,6 +305,12 @@ enum RegexHighlightDecorationRenderer {
 
         context.saveGState()
         context.setAlpha(CGFloat(style.opacity ?? 1) * CGFloat(presentation.opacity))
+        // Translate before clipping so the entire image (including its rounded
+        // boundary) moves. CoreText is y-up; editor Y is positive downwards.
+        context.translateBy(
+            x: CGFloat(style.backgroundImageOffsetX ?? 0),
+            y: -CGFloat(style.backgroundImageOffsetY ?? 0)
+        )
         context.addPath(roundedPath(rect: fragment.rect, radius: style.cornerRadius))
         context.clip()
         context.interpolationQuality = .high
