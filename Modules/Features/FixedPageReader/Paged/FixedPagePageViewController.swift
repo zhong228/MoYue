@@ -1,42 +1,43 @@
 import UIKit
 import VisionKit
 
-// MARK: - Single paged page
+// MARK: - Page
 //
-// One zoomable, aspect-fit image page for the paged reader (port of Aidoku's
-// ReaderPageViewController, enhanced with Live Text & border cropping).
-// Loads via Nuke with source headers; shows a spinner while loading and a retry
-// button on failure.
+// One page of a spread: the whole image fitted into the page's slot, with a spinner while
+// it loads, a retry button when it fails, and Live Text. It does not zoom; the spread
+// around it does, and asks it to re-render for the zoom (`refineImage(forZoomScale:)`).
 
 final class FixedPagePageViewController: UIViewController {
+
+    /// Where a two-page spread's spine is, seen from this page. The page sits against it
+    /// rather than in the middle of its half, so the two pages meet at the spine.
+    enum SpineSide {
+        case none
+        case left
+        case right
+    }
 
     let pageIndex: Int
     private let page: FixedPage
     private let fixedPageReaderConfiguration: FixedPageReaderConfiguration
     private let targetWidth: CGFloat
 
-    var isEmbeddedInSpread = false {
-        didSet {
-            scrollView.zoomEnabled = !isEmbeddedInSpread && fixedPageReaderConfiguration.isZoomEnabled
-        }
-    }
-
     var onImageLoaded: ((UIImage) -> Void)?
-    var currentImage: UIImage? { imageView.image }
-
-    var aspectRatio: CGFloat {
-        guard let img = imageView.image, img.size.height > 0 else { return 1.435 }
-        return img.size.width / img.size.height
+    var spineSide: SpineSide = .none {
+        didSet { if isViewLoaded { layoutImage() } }
     }
 
-    private let scrollView = FixedPageZoomableScrollView()
     let imageView = UIImageView()
     private let spinner = UIActivityIndicatorView(style: .medium)
     private let retryButton = UIButton(type: .system)
-    private var loadTask: Task<Void, Never>?
-    private var refineTask: Task<Void, Never>?
+    private(set) var loadTask: Task<Void, Never>?
+    private(set) var refineTask: Task<Void, Never>?
     private var liveTextTask: Task<Void, Never>?
     private var imageAnalysisInteraction: ImageAnalysisInteraction?
+
+    /// Whether Live Text's button shows (`FixedPageZoom.showsLiveTextButton`). Kept so an
+    /// analysis that lands later honours it.
+    private(set) var showsLiveTextButton = false
 
     /// The 1x render, kept so zooming back out drops the large one.
     private var baseImage: UIImage?
@@ -62,19 +63,14 @@ final class FixedPagePageViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .clear
 
-        scrollView.frame = view.bounds
-        scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.addSubview(scrollView)
-
         imageView.contentMode = .scaleAspectFit
-        scrollView.zoomEnabled = !isEmbeddedInSpread && fixedPageReaderConfiguration.isZoomEnabled
-        scrollView.zoomView = imageView
-        scrollView.onZoomSettled = { [weak self] scale in self?.refineImage(forZoomScale: scale) }
+        view.addSubview(imageView)
 
         // Live Text (VisionKit) support
         if fixedPageReaderConfiguration.isLiveTextEnabled, ImageAnalyzer.isSupported {
             let interaction = ImageAnalysisInteraction()
             interaction.preferredInteractionTypes = .automatic
+            interaction.isSupplementaryInterfaceHidden = !showsLiveTextButton
             imageView.addInteraction(interaction)
             self.imageAnalysisInteraction = interaction
         }
@@ -106,16 +102,22 @@ final class FixedPagePageViewController: UIViewController {
         layoutImage()
     }
 
+    /// The whole page fitted into its slot — the paged modes' `fitPage` — centred, or
+    /// against the spine in a spread. It used to fill the slot's width and cut off what fell
+    /// below: in landscape, most of a portrait page, out of reach even when zoomed.
     private func layoutImage() {
-        guard let image = imageView.image else { return }
-        let bounds = scrollView.bounds
-        guard bounds.width > 0, image.size.width > 0 else { return }
-        scrollView.resetZoom()
-        refineImage(forZoomScale: 1)
-        let height = bounds.width * (image.size.height / image.size.width)
-        imageView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
-        scrollView.contentSize = imageView.frame.size
-        scrollView.centerView()
+        guard let image = imageView.image, image.size.width > 0, image.size.height > 0 else { return }
+        let bounds = view.bounds
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let scale = min(bounds.width / image.size.width, bounds.height / image.size.height)
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let originX: CGFloat
+        switch spineSide {
+        case .none: originX = (bounds.width - size.width) / 2
+        case .left: originX = 0
+        case .right: originX = bounds.width - size.width
+        }
+        imageView.frame = CGRect(origin: CGPoint(x: originX, y: (bounds.height - size.height) / 2), size: size)
     }
 
     private func load() {
@@ -158,7 +160,9 @@ final class FixedPagePageViewController: UIViewController {
                 let analysis = try await analyzer.analyze(image, configuration: config)
                 if Task.isCancelled { return }
                 await MainActor.run {
-                    self?.imageAnalysisInteraction?.analysis = analysis
+                    guard let self, let interaction = self.imageAnalysisInteraction else { return }
+                    interaction.analysis = analysis
+                    interaction.setLiveTextButtonHidden(!self.showsLiveTextButton)
                 }
             } catch {
                 // Ignore background analysis failures
@@ -166,9 +170,10 @@ final class FixedPagePageViewController: UIViewController {
         }
     }
 
-    /// Re-rasterize a vector-backed page (PDF, fixed-layout EPUB) at the zoomed-in
-    /// scale. An image page has no detail beyond its own pixels, so it stays put.
-    private func refineImage(forZoomScale zoomScale: CGFloat) {
+    /// Re-rasterize a vector-backed page (PDF, fixed-layout EPUB) for the spread's zoom
+    /// scale, and go back to the 1x render once zoomed out. An image page has no detail
+    /// beyond its own pixels, so it stays put.
+    func refineImage(forZoomScale zoomScale: CGFloat) {
         guard page.renderSource != .image, targetWidth > 0, baseImage != nil else { return }
 
         if zoomScale <= 1.05 {
@@ -201,6 +206,12 @@ final class FixedPagePageViewController: UIViewController {
         }
     }
 
+    func setShowsLiveTextButton(_ shows: Bool) {
+        guard shows != showsLiveTextButton else { return }
+        showsLiveTextButton = shows
+        imageAnalysisInteraction?.setLiveTextButtonHidden(!shows)
+    }
+
     @objc private func retry() { load() }
 
     func clearImage() {
@@ -211,6 +222,5 @@ final class FixedPagePageViewController: UIViewController {
         imageView.accessibilityIdentifier = nil
         baseImage = nil
         renderedWidthMultiple = 1
-        scrollView.resetZoom()
     }
 }

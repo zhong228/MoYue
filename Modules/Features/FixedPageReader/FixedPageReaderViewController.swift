@@ -1,3 +1,4 @@
+import Combine
 import UIKit
 import Nuke
 
@@ -17,7 +18,11 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
     private let chapters: [OnlineChapterRef]
     private let chapterFetcher: any ChapterFetching
 
+    /// Chapter of the page on screen. Found through `heldChapters` as the reader moves.
     private var chapterIndex: Int
+    /// The chapters the mode reader holds, each once: the webtoon strip grows at both ends
+    /// and counts its pages straight through them (`FixedPageHeldChapters`).
+    private var heldChapters = FixedPageHeldChapters()
     private var fixedPageReaderConfiguration: FixedPageReaderConfiguration
     private var reader: (any FixedPageModeReader)?
     private var loadToken = UUID()
@@ -29,6 +34,10 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
     /// Single-chapter documents only: the file's own table of contents, used as
     /// in-document jump targets.
     private var documentSections: [FixedPageDocumentSection] = []
+    /// The controls are shown and hidden from both sides — this controller and the
+    /// SwiftUI overlay (VoiceOver, the touch-zone editor) — so the reader follows the
+    /// state itself rather than each place that changes it.
+    private var controlsObservation: AnyCancellable?
 
     init(
         book: ReadingBook,
@@ -76,7 +85,7 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
         super.viewDidLoad()
         view.backgroundColor = .black
 
-        state.onJumpToPage = { [weak self] page in self?.reader?.goToPage(page, animated: false) }
+        state.onJumpToPage = { [weak self] page in self?.showPage(page) }
         state.onSelectChapter = { [weak self] index in self?.selectTableOfContentsEntry(at: index) }
         state.onSetConfiguration = { [weak self] configuration in self?.changeConfiguration(configuration) }
         state.onNextChapter = { [weak self] in self?.loadNextChapter() }
@@ -85,10 +94,15 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
         state.onToggleAutoScroll = { [weak self] in self?.reader?.toggleAutoScroll() }
         state.onReload = { [weak self] in
             guard let self else { return }
-            self.loadChapter(at: self.chapterIndex, startPage: self.reader?.currentPageIndex() ?? 0)
+            self.loadChapter(at: self.chapterIndex, startPage: self.currentChapterPage)
         }
 
         installReader()
+        controlsObservation = state.$showControls
+            .removeDuplicates()
+            .sink { [weak self] shown in
+                self?.reader?.setControlsShown(shown)
+            }
         if isSingleChapterDocumentBook { chapterIndex = 0 }
         // SwiftUI loads this view while it builds FixedPageReaderView, which observes
         // `state`: writing it here is publishing from within that view update. The
@@ -121,10 +135,16 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
         isSingleChapterDocumentBook ? 1 : chapters.count
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        backShelfBars()
+    }
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        restoreShelfToolbar()
         saveTask?.cancel()
-        let page = reader?.currentPageIndex() ?? 0
+        let page = currentChapterPage
         store?.updateMangaPosition(
             bookId: book.id,
             chapter: chapterIndex,
@@ -132,6 +152,55 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
             totalChapters: progressChapterCount,
             pageProgress: documentProgress(forPage: page)
         )
+    }
+
+    // MARK: Bars under the shelf's card push (iOS 17)
+
+    /// The shelf's own toolbar edge appearances, put back when the reader goes.
+    private var shelfToolbarEdgeAppearances: (scrollEdge: UIToolbarAppearance?, compactScrollEdge: UIToolbarAppearance?)?
+
+    /// The shelf pushes this reader in a `ReaderHostingController` straight onto its own
+    /// UIKit navigation controller, so the controls sit in the shelf's bars. A user's
+    /// iOS 17 screenshot (2026-09-28) shows both bars clear over the page, with a dark
+    /// title: `toolbarBackground(.visible)` and `toolbarColorScheme(.dark)` in
+    /// `FixedPageReaderView` did not reach them, leaving the bars' own look — clear at the
+    /// scroll edge by default, and the shelf hides its bar background under an app theme.
+    /// iOS 27 takes both modifiers; iOS 18–25 have not been looked at. Here, on iOS 17
+    /// only, the two bars get the system's default backdrop in UIKit: on the host's
+    /// navigation item, which leaves with it, and on the shared toolbar, whose edge
+    /// appearances are handed back on the way out. Unverified until tested on iOS 17.
+    /// Delete once the deployment target is iOS 18.
+    private func backShelfBars() {
+        guard #unavailable(iOS 18.0),
+              let parent,
+              let host = sequence(first: parent, next: { $0.parent }).lazy
+                .compactMap({ $0 as? ReaderHostingController }).first,
+              let toolbar = host.navigationController?.toolbar
+        else { return }
+
+        let bar = UINavigationBarAppearance()
+        bar.configureWithDefaultBackground()
+        host.navigationItem.standardAppearance = bar
+        host.navigationItem.compactAppearance = bar
+        host.navigationItem.scrollEdgeAppearance = bar
+        host.navigationItem.compactScrollEdgeAppearance = bar
+
+        if shelfToolbarEdgeAppearances == nil {
+            shelfToolbarEdgeAppearances = (toolbar.scrollEdgeAppearance, toolbar.compactScrollEdgeAppearance)
+        }
+        let bottom = UIToolbarAppearance()
+        bottom.configureWithDefaultBackground()
+        toolbar.scrollEdgeAppearance = bottom
+        toolbar.compactScrollEdgeAppearance = bottom
+    }
+
+    private func restoreShelfToolbar() {
+        guard let saved = shelfToolbarEdgeAppearances,
+              let toolbar = navigationController?.toolbar
+        else { return }
+        toolbar.scrollEdgeAppearance = saved.scrollEdge
+        toolbar.compactScrollEdgeAppearance = saved.compactScrollEdge
+        shelfToolbarEdgeAppearances = nil
     }
 
     // MARK: Reader installation
@@ -153,6 +222,7 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
                 targetWidth: targetWidth
             )
         newReader.container = self
+        newReader.setControlsShown(state.showControls)
         addChild(newReader)
         newReader.view.frame = view.bounds
         newReader.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -167,6 +237,7 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
         guard chapters.indices.contains(index) else { return }
         chapterIndex = index
         currentPages = []
+        heldChapters.clear()
         prefetchTask?.cancel()
         state.currentChapterIndex = index
         state.isLoading = true
@@ -198,6 +269,7 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
                     return
                 }
                 self.currentPages = pages
+                self.heldChapters.reset(to: index, pageCount: pages.count)
                 self.reader?.setPages(pages, startPage: max(0, min(startPage, pages.count - 1)))
                 self.prefetchAroundChapters()
                 self.prefetchCurrentChapterPages(pages: pages, currentPage: max(0, min(startPage, pages.count - 1)))
@@ -288,6 +360,7 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
             self.state.chapterListItems = sections.enumerated().map { offset, section in
                 FixedPageChapterListItem(id: UUID(), index: offset, title: section.title)
             }
+            self.heldChapters.reset(to: self.chapterIndex, pageCount: pages.count)
             self.reader?.setPages(pages, startPage: resolvedStart)
             self.syncDocumentSection(forPage: resolvedStart)
             self.prefetchCurrentChapterPages(pages: pages, currentPage: resolvedStart)
@@ -306,14 +379,14 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
 
     private func jumpToDocumentSection(at index: Int) {
         guard documentSections.indices.contains(index) else { return }
-        reader?.goToPage(documentSections[index].startPage, animated: false)
+        showPage(documentSections[index].startPage)
         syncDocumentSection(forPage: documentSections[index].startPage)
     }
 
     /// The current page's section, or nil when the document has no table of contents.
     private var currentDocumentSectionIndex: Int? {
         guard !documentSections.isEmpty else { return nil }
-        let page = reader?.currentPageIndex() ?? 0
+        let page = currentChapterPage
         return documentSections.lastIndex { $0.startPage <= page } ?? 0
     }
 
@@ -340,6 +413,7 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
                     self.state.errorMessage = localized("未找到圖片")
                     return
                 }
+                self.heldChapters.reset(to: index, pageCount: pages.count)
                 self.reader?.setPages(pages, startPage: max(0, min(startPage, pages.count - 1)))
             } catch {
                 guard self.loadToken == token else { return }
@@ -378,7 +452,7 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
         if isSingleChapterDocumentBook {
             guard let current = currentDocumentSectionIndex else { return }
             // Already past a section's first page: go back to that page first.
-            let page = reader?.currentPageIndex() ?? 0
+            let page = currentChapterPage
             jumpToDocumentSection(at: documentSections[current].startPage < page ? current : current - 1)
             return
         }
@@ -388,7 +462,7 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
 
     private func changeConfiguration(_ newConfiguration: FixedPageReaderConfiguration) {
         guard newConfiguration != fixedPageReaderConfiguration else { return }
-        let page = reader?.currentPageIndex() ?? 0
+        let page = currentChapterPage
         fixedPageReaderConfiguration = newConfiguration
         store?.readerSettings.setFixedPageConfiguration(newConfiguration, for: book.id)
         state.fixedPageReaderConfiguration = newConfiguration
@@ -398,16 +472,35 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
 
     // MARK: FixedPageReaderContainer
 
+    /// `page` counts through every held chapter; the title, the slider and the saved
+    /// position all take the chapter it falls in and the page within it.
     func reader(didMoveToPage page: Int, total: Int) {
-        state.currentPage = page
-        state.totalPages = total
-        scheduleSave(page: page)
-        if isSingleChapterDocumentBook { syncDocumentSection(forPage: page) }
+        guard let position = heldChapters.position(ofHeldPage: page) else { return }
+        if position.chapter != chapterIndex {
+            chapterIndex = position.chapter
+            state.currentChapterIndex = position.chapter
+            state.chapterTitle = chapters[position.chapter].title
+        }
+        state.currentPage = position.page
+        state.totalPages = position.chapterPageCount
+        scheduleSave(page: position.page)
+        if isSingleChapterDocumentBook { syncDocumentSection(forPage: position.page) }
         guard !currentPages.isEmpty else { return }
         prefetchCurrentChapterPages(pages: currentPages, currentPage: page)
-        if total > 3, page >= total * 3 / 4 {
+        if position.chapterPageCount > 3, position.page >= position.chapterPageCount * 3 / 4 {
             prefetchNextChapterImages()
         }
+    }
+
+    /// The page on screen, within its own chapter.
+    private var currentChapterPage: Int {
+        heldChapters.position(ofHeldPage: reader?.currentPageIndex() ?? 0)?.page ?? 0
+    }
+
+    /// Shows `page` of the current chapter, wherever the reader holds it.
+    private func showPage(_ page: Int) {
+        guard let held = heldChapters.heldPage(forPage: page, inChapter: chapterIndex) else { return }
+        reader?.goToPage(held, animated: false)
     }
 
     func readerRequestsNextChapter() { loadNextChapter() }
@@ -423,7 +516,7 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
     }
     func readerToggleBookmark() {
         guard chapters.indices.contains(chapterIndex) else { return }
-        let page = reader?.currentPageIndex() ?? 0
+        let page = currentChapterPage
         // 一頁一個書籤：這些書沒有字元位移，頁序號就是位置，一頁佔一格。
         let range = ReaderPageBookmarkRange(
             spineIndex: chapterIndex, startOffset: page, endOffset: page + 1)
@@ -439,6 +532,7 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
         )
     }
     func readerAutoScrollStateChanged(_ isActive: Bool) { state.isAutoScrolling = isActive }
+    func readerContentScrollingChanged(_ isScrolling: Bool) { state.isContentScrolling = isScrolling }
 
     func readerShowTableOfContents() {
         reader?.stopAutoScroll()
@@ -446,19 +540,21 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
     }
 
     func readerAppendNextChapter() async -> [FixedPage]? {
-        guard !isSingleChapterDocumentBook else { return nil }
-        let nextIndex = chapterIndex + 1
-        guard chapters.indices.contains(nextIndex) else { return nil }
+        guard !isSingleChapterDocumentBook,
+              let nextIndex = heldChapters.nextToAppend,
+              chapters.indices.contains(nextIndex)
+        else { return nil }
+        let token = loadToken
 
         do {
             let package = try await chapterFetcher.fetchChapter(
                 book: book, chapterIndex: nextIndex, priority: .immediate, store: store)
             let localDir = MangaChapterParser.chapterDirectory(bookId: book.id, chapterIndex: nextIndex)
             let pages = MangaChapterParser.pages(from: package.content, headers: headers, localDir: localDir)
+            // Another chapter opened meanwhile: this one belongs to a strip that is gone.
+            guard loadToken == token else { return nil }
             if !pages.isEmpty {
-                chapterIndex = nextIndex
-                state.currentChapterIndex = nextIndex
-                state.chapterTitle = chapters[nextIndex].title
+                heldChapters.append(nextIndex, pageCount: pages.count)
                 currentPages.append(contentsOf: pages)
                 return pages
             }
@@ -469,19 +565,21 @@ final class FixedPageReaderViewController: UIViewController, FixedPageReaderCont
     }
 
     func readerPrependPreviousChapter() async -> [FixedPage]? {
-        guard !isSingleChapterDocumentBook else { return nil }
-        let prevIndex = chapterIndex - 1
-        guard prevIndex >= 0, chapters.indices.contains(prevIndex) else { return nil }
+        guard !isSingleChapterDocumentBook,
+              let prevIndex = heldChapters.previousToPrepend,
+              chapters.indices.contains(prevIndex)
+        else { return nil }
+        let token = loadToken
 
         do {
             let package = try await chapterFetcher.fetchChapter(
                 book: book, chapterIndex: prevIndex, priority: .immediate, store: store)
             let localDir = MangaChapterParser.chapterDirectory(bookId: book.id, chapterIndex: prevIndex)
             let pages = MangaChapterParser.pages(from: package.content, headers: headers, localDir: localDir)
+            // Another chapter opened meanwhile: this one belongs to a strip that is gone.
+            guard loadToken == token else { return nil }
             if !pages.isEmpty {
-                chapterIndex = prevIndex
-                state.currentChapterIndex = prevIndex
-                state.chapterTitle = chapters[prevIndex].title
+                heldChapters.prepend(prevIndex, pageCount: pages.count)
                 currentPages.insert(contentsOf: pages, at: 0)
                 return pages
             }

@@ -23,6 +23,9 @@ final class FixedPageWebtoonCell: UICollectionViewCell {
     private var cropBorders = false
     private var isLiveTextEnabled = true
     private var onRatio: ((Int, CGFloat) -> Void)?
+    /// Whether Live Text's button shows (`FixedPageZoom.showsLiveTextButton`). Kept so an
+    /// analysis that lands later honours it.
+    private var showsLiveTextButton = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -37,6 +40,7 @@ final class FixedPageWebtoonCell: UICollectionViewCell {
         if ImageAnalyzer.isSupported {
             let interaction = ImageAnalysisInteraction()
             interaction.preferredInteractionTypes = .automatic
+            interaction.isSupplementaryInterfaceHidden = !showsLiveTextButton
             imageView.addInteraction(interaction)
             self.imageAnalysisInteraction = interaction
         }
@@ -84,6 +88,10 @@ final class FixedPageWebtoonCell: UICollectionViewCell {
             self.spinner.stopAnimating()
             guard let image, image.size.width > 0 else { return }
             self.imageView.image = image
+            // UI tests find a strip page by its position once its image is on screen
+            // (DetailReaderBackSwipeUITests); cells are reused, so the index is in it.
+            // VoiceOver never reads an identifier.
+            self.imageView.accessibilityIdentifier = "webtoon_page_\(self.index)"
             self.onRatio?(self.index, image.size.height / image.size.width)
             self.analyzeLiveText(for: image)
         }
@@ -99,7 +107,9 @@ final class FixedPageWebtoonCell: UICollectionViewCell {
                 let analysis = try await analyzer.analyze(image, configuration: config)
                 if Task.isCancelled { return }
                 await MainActor.run {
-                    self?.imageAnalysisInteraction?.analysis = analysis
+                    guard let self, let interaction = self.imageAnalysisInteraction else { return }
+                    interaction.analysis = analysis
+                    interaction.setLiveTextButtonHidden(!self.showsLiveTextButton)
                 }
             } catch {
                 // Ignore background analysis failures
@@ -107,10 +117,17 @@ final class FixedPageWebtoonCell: UICollectionViewCell {
         }
     }
 
+    func setShowsLiveTextButton(_ shows: Bool) {
+        guard shows != showsLiveTextButton else { return }
+        showsLiveTextButton = shows
+        imageAnalysisInteraction?.setLiveTextButtonHidden(!shows)
+    }
+
     func unload() {
         loadTask?.cancel()
         liveTextTask?.cancel()
         imageView.image = nil
+        imageView.accessibilityIdentifier = nil
         spinner.stopAnimating()
     }
 

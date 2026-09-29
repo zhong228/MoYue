@@ -23,6 +23,8 @@ final class FixedPageReaderState: ObservableObject {
     @Published var showControls: Bool = UIAccessibility.isVoiceOverRunning
     @Published var showChapterList: Bool = false
     @Published var isAutoScrolling: Bool = false
+    /// The page is moving: a finger, a glide or auto-scroll. The auto-scroll button dims.
+    @Published var isContentScrolling: Bool = false
 
     // Actions wired by the controller.
     var onJumpToPage: ((Int) -> Void)?
@@ -67,6 +69,7 @@ struct FixedPageReaderView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.appDependencies) private var dependencies
     @StateObject private var state = FixedPageReaderState()
+    @ObservedObject private var globalSettings = GlobalSettings.shared
     @State private var readingStatsTracker: ReadingStatsSessionTracker?
     @State private var showTouchZoneEditor = false
 
@@ -125,29 +128,14 @@ struct FixedPageReaderView: View {
                         .transition(.opacity)
                 }
 
-                if state.fixedPageReaderConfiguration.layout == .continuousVerticalScroll {
-                    VStack {
-                        Spacer()
-                        HStack {
-                            Spacer()
-                            Button {
-                                state.onToggleAutoScroll?()
-                            } label: {
-                                Image(systemName: state.isAutoScrolling ? "pause.fill" : "play.fill")
-                                    .font(DSFont.bodyBold)
-                                    .foregroundStyle(DSColor.textPrimary)
-                                    .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
-                                    .contentShape(Rectangle())
-                                    .accessibilityHidden(true)
-                            }
-                            .background(.regularMaterial, in: Circle())
-                            .accessibilityLabel(
-                                state.isAutoScrolling ? localized("暫停自動捲動") : localized("開始自動捲動")
-                            )
-                            .padding(.trailing, DSSpacing.lg)
-                            .padding(.bottom, DSSpacing.lg)
-                        }
-                    }
+                if state.fixedPageReaderConfiguration.layout == .continuousVerticalScroll,
+                   globalSettings.fixedPageAutoScrollButton {
+                    FixedPageAutoScrollButton(
+                        isAutoScrolling: state.isAutoScrolling,
+                        isContentScrolling: state.isContentScrolling,
+                        position: globalSettings.fixedPageAutoScrollButtonPosition,
+                        action: { state.onToggleAutoScroll?() }
+                    )
                     .transition(.opacity)
                 }
 
@@ -215,6 +203,10 @@ struct FixedPageReaderView: View {
         }
         .onChange(of: state.showChapterList) { _, isPresented in
             if isPresented { state.onStopAutoScroll?() }
+        }
+        // Switched off in settings: its button goes, so nothing would be left to stop it.
+        .onChange(of: globalSettings.fixedPageAutoScrollButton) { _, isOn in
+            if !isOn { state.onStopAutoScroll?() }
         }
         // VoiceOver turned on while the controls were away: they are its only way out.
         .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.voiceOverStatusDidChangeNotification)) { _ in
@@ -444,6 +436,7 @@ struct FixedPageReaderSettingsView: View {
     var onOpenPaywall: ((PremiumFeature) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var subscriptionStore = SubscriptionStore.shared
+    @ObservedObject private var globalSettings = GlobalSettings.shared
     @State private var paywallFeature: PremiumFeature?
 
     private var configuration: FixedPageReaderConfiguration { state.fixedPageReaderConfiguration }
@@ -484,6 +477,26 @@ struct FixedPageReaderSettingsView: View {
                     }
                     Toggle(localized("自動裁切留白邊框"), isOn: binding(\.cropBorders))
                     Toggle(localized("原文字選取與識別"), isOn: binding(\.isLiveTextEnabled))
+                }
+                Section {
+                    Toggle(localized("雙擊放大"), isOn: $globalSettings.fixedPageDoubleTapToZoom)
+                } footer: {
+                    Text(localized("關閉後，點一下會立即翻頁或呼出選單；雙指縮放照常可用。所有書共用這個設定。"))
+                        .dsSectionFooter()
+                }
+                if configuration.layout == .continuousVerticalScroll {
+                    Section {
+                        Toggle(localized("自動捲動"), isOn: $globalSettings.fixedPageAutoScrollButton)
+                        if globalSettings.fixedPageAutoScrollButton {
+                            Picker(localized("按鈕位置"), selection: $globalSettings.fixedPageAutoScrollButtonPosition) {
+                                Text(localized("左側")).tag(FixedPageAutoScrollButtonPosition.left)
+                                Text(localized("右側")).tag(FixedPageAutoScrollButtonPosition.right)
+                            }
+                        }
+                    } footer: {
+                        Text(localized("開啟後，畫面角落會出現播放按鈕，點一下開始或暫停自動捲動。"))
+                            .dsSectionFooter()
+                    }
                 }
                 if configuration.layout == .paged {
                     Section {

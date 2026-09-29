@@ -20,6 +20,13 @@ final class FixedPagePagedViewController: UIViewController, FixedPageModeReader,
     private var spreads: [[FixedPage]] = []
     private var currentSpreadIndex = 0
     private let pageVC: UIPageViewController
+    /// The zoom each spread was left at, so a page turned away from and back to comes
+    /// back as it was. A spread is rebuilt every time it comes on screen (Aidoku keeps
+    /// its page controllers alive instead), so only the zoom is kept — not the images.
+    /// Keyed by spread index, which means something else once the spreads are rebuilt.
+    private var spreadZooms: [Int: FixedPageSpreadViewController.Zoom] = [:]
+    private var spreadsGeneration = 0
+    private var controlsShown = false
 
     init(fixedPageReaderConfiguration: FixedPageReaderConfiguration, targetWidth: CGFloat) {
         self.fixedPageReaderConfiguration = fixedPageReaderConfiguration
@@ -89,6 +96,13 @@ final class FixedPagePagedViewController: UIViewController, FixedPageModeReader,
         return spreads[currentSpreadIndex].first?.id ?? 0
     }
 
+    func setControlsShown(_ shown: Bool) {
+        controlsShown = shown
+        for case let spread as FixedPageSpreadViewController in pageVC.viewControllers ?? [] {
+            spread.controlsShown = shown
+        }
+    }
+
     func goToPage(_ index: Int, animated: Bool) {
         let targetSpread = spreadIndex(forPageIndex: index)
         guard spreads.indices.contains(targetSpread),
@@ -137,6 +151,8 @@ final class FixedPagePagedViewController: UIViewController, FixedPageModeReader,
     }
 
     private func buildSpreads() {
+        spreadsGeneration += 1
+        spreadZooms = [:]
         guard !displayPages.isEmpty else {
             spreads = []
             return
@@ -187,12 +203,21 @@ final class FixedPagePagedViewController: UIViewController, FixedPageModeReader,
 
     private func makeViewController(forSpread index: Int) -> UIViewController? {
         guard spreads.indices.contains(index) else { return nil }
-        return FixedPageSpreadViewController(
+        let spread = FixedPageSpreadViewController(
             spreadIndex: index,
             pages: spreads[index],
             fixedPageReaderConfiguration: fixedPageReaderConfiguration,
             targetWidth: targetWidth
         )
+        spread.restoredZoom = spreadZooms[index]
+        spread.controlsShown = controlsShown
+        let generation = spreadsGeneration
+        spread.onDisappear = { [weak self] spread in
+            // From before a rebuild (another chapter, a rotation), this index is another spread.
+            guard let self, self.spreadsGeneration == generation else { return }
+            self.spreadZooms[spread.spreadIndex] = spread.currentZoom
+        }
+        return spread
     }
 
     private var usesRightToLeftProgression: Bool {
@@ -323,6 +348,10 @@ final class FixedPagePagedViewController: UIViewController, FixedPageModeReader,
     ) {
         // UIKit calls this only for a swipe, never for setViewControllers.
         container?.readerHideControlsForPageTurn()
+        // The incoming spread was made before the controls went away.
+        for case let spread as FixedPageSpreadViewController in pendingViewControllers {
+            spread.controlsShown = controlsShown
+        }
     }
 
     func pageViewController(

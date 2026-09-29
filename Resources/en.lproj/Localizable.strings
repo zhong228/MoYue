@@ -904,7 +904,14 @@
 "寬屏黑邊限制" = "Pillarbox";
 "自動滾動" = "Auto Scroll";
 "原文字選取與識別" = "Live Text";
+"雙擊放大" = "Double-Tap to Zoom";
+"關閉後，點一下會立即翻頁或呼出選單；雙指縮放照常可用。所有書共用這個設定。" = "When off, a tap turns the page or shows the menu right away; pinch to zoom still works. Applies to all books.";
 "開始自動捲動" = "Start Auto-Scroll";
+"自動捲動" = "Auto-Scroll";
+"按鈕位置" = "Button Position";
+"左側" = "Left";
+"右側" = "Right";
+"開啟後，畫面角落會出現播放按鈕，點一下開始或暫停自動捲動。" = "When on, a play button appears in a corner of the screen; tap it to start or pause auto-scroll.";
 "暫停自動捲動" = "Pause Auto-Scroll";
 "下一章：%@" = "Next: %@";
 "上一章：%@" = "Previous: %@";

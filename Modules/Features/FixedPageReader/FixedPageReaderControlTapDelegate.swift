@@ -8,6 +8,15 @@ final class FixedPageReaderControlTapDelegate: NSObject, UIGestureRecognizerDele
         Self.acceptsReaderTap(on: touch.view)
     }
 
+    /// A reader tap waits for the double tap that zooms, so the first tap of a double tap
+    /// never turns the page or brings up the controls on its own.
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        otherGestureRecognizer is FixedPageDoubleTapZoomGestureRecognizer
+    }
+
     static func acceptsReaderTap(on view: UIView?) -> Bool {
         var candidate = view
         while let current = candidate {

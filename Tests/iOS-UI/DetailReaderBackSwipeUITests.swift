@@ -174,6 +174,244 @@ final class DetailReaderBackSwipeUITests: XCTestCase {
         XCTAssertTrue(book.waitForExistence(timeout: 8), "Back must return to the shelf.\n\(app.debugDescription)")
     }
 
+    /// A pinch zooms a fixed page in and back out, and a double tap zooms without its
+    /// first tap doing anything else. Each page used to sit in a second, disabled zoom
+    /// layer that still claimed the pinch, so a double tap was the only way to zoom —
+    /// and the reader's single tap did not wait for it, so on a turning zone the first
+    /// tap of a double tap turned the page. A zoomed page turned away from and back to
+    /// is still zoomed, as in Aidoku.
+    @MainActor
+    func testMangaPageZoomsWithPinchAndDoubleTap() throws {
+        let app = try openMangaFromExplore()
+        let fitted = try XCTUnwrap(pageFrameOnScreen(app), app.debugDescription)
+        let isFitted = { (frame: CGRect) in
+            abs(frame.width - fitted.width) < 2 && abs(frame.minX - fitted.minX) < 2 && abs(frame.minY - fitted.minY) < 2
+        }
+        app.pinch(withScale: 2.5, velocity: 1)
+        waitForPageOnScreen(app, because: "A pinch out must zoom the page in") { $0.width > fitted.width * 1.5 }
+        attachScreenshot(app, named: "Manga reader - pinched in")
+        app.pinch(withScale: 0.3, velocity: -1)
+        waitForPageOnScreen(app, because: "A pinch in must bring the page back to its fitted size and place", isFitted)
+
+        // Right to left: the left side is the next-page zone.
+        let nextZone = app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
+        let previousZone = app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
+        nextZone.doubleTap()
+        waitForPageOnScreen(app, because: "A double tap on a turning zone must zoom in") { $0.width > fitted.width * 1.5 }
+        let zoomed = try XCTUnwrap(pageFrameOnScreen(app))
+        let isZoomedAsLeft = { (frame: CGRect) in
+            abs(frame.width - zoomed.width) < 2 && abs(frame.minX - zoomed.minX) < 2 && abs(frame.minY - zoomed.minY) < 2
+        }
+        nextZone.tap()
+        waitForPageOnScreen(app, because: "The next page must open at its fitted size", isFitted)
+        previousZone.tap()
+        waitForPageOnScreen(app, because: "The page turned back to must still be zoomed where it was left", isZoomedAsLeft)
+        // It is the first page again — and bringing the controls up leaves its zoom alone.
+        showMangaControls(app, expecting: "Page 1 / 3")
+        waitForPageOnScreen(app, because: "Bringing up the controls must leave the zoom alone", isZoomedAsLeft)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        waitForMangaControlsHidden(app, because: "A tap in the middle must put the controls away")
+        nextZone.doubleTap()
+        waitForPageOnScreen(app, because: "A second double tap must zoom back out", isFitted)
+        leaveMangaReader(app)
+    }
+
+    /// With double-tap zoom switched off in settings, a double tap is just two taps and
+    /// zooms nothing; a pinch still zooms.
+    @MainActor
+    func testMangaDoubleTapZoomCanBeTurnedOff() throws {
+        let app = try openMangaFromExplore(extraArguments: ["-yd_fixed_page_double_tap_zoom", "NO"])
+        let fitted = try XCTUnwrap(pageFrameOnScreen(app), app.debugDescription)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).doubleTap()
+        let zoomed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (self.pageFrameOnScreen(app)?.width ?? 0) > fitted.width * 1.5
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [zoomed], timeout: 2), .timedOut,
+                       "With double-tap zoom off, a double tap must not zoom.\n\(app.debugDescription)")
+        app.pinch(withScale: 2.5, velocity: 1)
+        waitForPageOnScreen(app, because: "A pinch must still zoom") { $0.width > fitted.width * 1.5 }
+        leaveMangaReader(app)
+    }
+
+    /// The webtoon strip zooms through its layout: a pinch grows the pages, a zoomed strip
+    /// pans sideways, and a double tap zooms in and back out. The strip used to be scaled
+    /// as one view around the middle of the screen, its sides out of reach. The reading
+    /// mode is kept with the book when it is closed and opened again, and the auto-scroll
+    /// button stays away until switched on in settings.
+    /// The book goes on the shelf first: a book only browsed from a detail page keeps
+    /// nothing once closed, its settings included.
+    /// The test puts the mode back to right to left and leaves the book on the shelf, as
+    /// `testShelfMangaOpensOnThePage` does; the next run needs `navigation_swipe_fixture.py`
+    /// `clean` and `prepare`.
+    @MainActor
+    func testWebtoonStripZoomsAndPansSideways() throws {
+        let app = try openMangaFromExplore(addingToLibrary: true)
+        setMangaReadingMode("Webtoon", in: app)
+        XCTAssertFalse(app.buttons["Start Auto-Scroll"].exists,
+                       "The auto-scroll button stays away until it is switched on.\n\(app.debugDescription)")
+
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(app.sliders["Progress"].waitForExistence(timeout: 5), app.debugDescription)
+        app.navigationBars.buttons["Back"].tap()
+        let read = app.buttons.matching(NSPredicate(format: "label IN %@", ["Read Now", "Continue Reading"])).firstMatch
+        XCTAssertTrue(read.waitForExistence(timeout: 8), app.debugDescription)
+        read.tap()
+        let strip = "webtoon_page_"
+        XCTAssertTrue(app.images.matching(NSPredicate(format: "identifier BEGINSWITH %@", strip))
+            .firstMatch.waitForExistence(timeout: 15),
+                      "Opened again, the book must still read as a webtoon.\n\(app.debugDescription)")
+        // Measured on whichever page covers the middle of the screen: the book may open on
+        // any page, and chapters loading around it renumber the pages.
+        let fitted = try XCTUnwrap(pageFrameOnScreen(app, identifier: strip), app.debugDescription)
+
+        app.pinch(withScale: 2.5, velocity: 1)
+        waitForPageOnScreen(app, identifier: strip, because: "A pinch out must zoom the strip in") {
+            $0.width > fitted.width * 1.5
+        }
+        attachScreenshot(app, named: "Webtoon - pinched in")
+        let zoomed = try XCTUnwrap(pageFrameOnScreen(app, identifier: strip))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)))
+        waitForPageOnScreen(app, identifier: strip, because: "A zoomed strip must pan sideways") {
+            $0.minX < zoomed.minX - 50
+        }
+        app.pinch(withScale: 0.2, velocity: -1)
+        waitForPageOnScreen(app, identifier: strip, because: "A pinch in must bring the strip back to the screen's width") {
+            abs($0.width - fitted.width) < 2 && abs($0.minX - fitted.minX) < 2
+        }
+
+        let tapPoint = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+        tapPoint.doubleTap()
+        waitForPageOnScreen(app, identifier: strip, because: "A double tap must zoom the strip to 2x") {
+            abs($0.width - fitted.width * 2) < 4
+        }
+        tapPoint.doubleTap()
+        waitForPageOnScreen(app, identifier: strip, because: "A second double tap must zoom it back out") {
+            abs($0.width - fitted.width) < 2
+        }
+
+        // The three-page chapter has long pulled the next one in below. Back at its top, the
+        // strip still holds each chapter once — the first page is still page 0, where a
+        // second copy of this chapter used to be prepended — and the controls speak for the
+        // chapter on screen, with its own page count and title.
+        XCTAssertTrue(app.images["webtoon_page_0"].exists,
+                      "The chapter must not be loaded above itself.\n\(app.debugDescription)")
+        showMangaControls(app, expecting: "Page 1 / 3")
+        XCTAssertTrue(app.navigationBars["Chapter 1"].exists,
+                      "The title must stay on the chapter being read.\n\(app.debugDescription)")
+        setMangaReadingMode("Right to Left", in: app)
+        leaveMangaReader(app)
+    }
+
+    /// Switches the open manga's reading mode in its settings sheet, and puts the
+    /// controls away again.
+    @MainActor
+    private func setMangaReadingMode(_ mode: String, in app: XCUIApplication,
+                                     file: StaticString = #filePath, line: UInt = #line) {
+        let settings = app.buttons["Reading Settings"]
+        if !settings.exists {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        XCTAssertTrue(settings.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        settings.tap()
+        let picker = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reading Mode")).firstMatch
+        XCTAssertTrue(picker.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        picker.tap()
+        let option = app.buttons[mode].firstMatch
+        XCTAssertTrue(option.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        option.tap()
+        let close = app.buttons["Close"].firstMatch
+        XCTAssertTrue(close.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        close.tap()
+        XCTAssertTrue(app.sliders["Progress"].waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        waitForMangaControlsHidden(app, because: "A tap in the middle must put the controls away", file: file, line: line)
+    }
+
+    /// Opens the manga fixture from its Explore list, on its first page — first putting it
+    /// on the shelf when asked.
+    @MainActor
+    private func openMangaFromExplore(extraArguments: [String] = [],
+                                      addingToLibrary: Bool = false) throws -> XCUIApplication {
+        continueAfterFailure = false
+        try configureStoreKit()
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+                               "-yd_root_tab_visible_ids", "(explore, settings)",
+                               "-discover.selectedSourceId", "42017D70-DAD6-4EDE-845E-C5DBAC606CA4"]
+            + extraArguments
+        app.launch()
+        let book = app.staticTexts["Navigation Manga Fixture"].firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 20), app.debugDescription)
+        book.tap()
+        if addingToLibrary {
+            let add = app.buttons["Bookmarked"]
+            let remove = app.buttons["Remove from Library"]
+            XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label IN %@", ["Bookmarked", "Remove from Library"]))
+                .firstMatch.waitForExistence(timeout: 15), app.debugDescription)
+            if add.exists {
+                let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: add)
+                XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 15), .completed, app.debugDescription)
+                add.tap()
+                XCTAssertTrue(remove.waitForExistence(timeout: 10), app.debugDescription)
+            }
+        }
+        let read = app.buttons.matching(NSPredicate(format: "label IN %@", ["Read Now", "Continue Reading"])).firstMatch
+        XCTAssertTrue(read.waitForExistence(timeout: 15), app.debugDescription)
+        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: read)
+        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 15), .completed, app.debugDescription)
+        read.tap()
+        waitForMangaPage(app)
+        return app
+    }
+
+    /// Leaves the reader for the detail it came from, and sends the app to the background.
+    /// A book read from a detail without being shelved is a temporary one, deleted when the
+    /// reader closes — but the shelf saves on a 2-second debounce, so a test that ends right
+    /// after would be killed before the deletion is written, and the next test would find
+    /// the book kept, opening on its last page. Leaving the foreground writes at once.
+    @MainActor
+    private func leaveMangaReader(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let slider = app.sliders["Progress"]
+        if !slider.exists {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        XCTAssertTrue(slider.waitForExistence(timeout: 5), app.debugDescription, file: file, line: line)
+        app.navigationBars.buttons["Back"].tap()
+        let read = app.buttons.matching(NSPredicate(format: "label IN %@", ["Read Now", "Continue Reading"])).firstMatch
+        XCTAssertTrue(read.waitForExistence(timeout: 8), "Back must return to the detail.\n\(app.debugDescription)",
+                      file: file, line: line)
+        XCUIDevice.shared.press(.home)
+        let left = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            app.state == .runningBackground || app.state == .runningBackgroundSuspended
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [left], timeout: 10), .completed, file: file, line: line)
+    }
+
+    /// The frame of the page covering the middle of the screen, among the images whose
+    /// identifier starts with `identifier`. The paged reader keeps its neighbours in the
+    /// hierarchy, off screen, under the same identifier; the webtoon strip numbers its pages.
+    @MainActor
+    private func pageFrameOnScreen(_ app: XCUIApplication, identifier: String = "fixed_page_image") -> CGRect? {
+        let middle = CGPoint(x: app.frame.midX, y: app.frame.midY)
+        return app.images.matching(NSPredicate(format: "identifier BEGINSWITH %@", identifier)).allElementsBoundByIndex
+            .map(\.frame)
+            .first { $0.contains(middle) }
+    }
+
+    @MainActor
+    private func waitForPageOnScreen(_ app: XCUIApplication, identifier: String = "fixed_page_image",
+                                     because reason: String,
+                                     file: StaticString = #filePath, line: UInt = #line,
+                                     _ condition: @escaping (CGRect) -> Bool) {
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.pageFrameOnScreen(app, identifier: identifier).map(condition) ?? false
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 5), .completed,
+                       "\(reason); the page on screen is at \(String(describing: pageFrameOnScreen(app, identifier: identifier))).\n\(app.debugDescription)",
+                       file: file, line: line)
+    }
+
     /// The fixed-page reader opens on the page, with no controls over it.
     @MainActor
     private func waitForMangaPage(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {

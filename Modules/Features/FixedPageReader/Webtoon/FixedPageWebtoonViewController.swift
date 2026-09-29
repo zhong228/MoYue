@@ -5,7 +5,9 @@ import UIKit
 // Displays chapters as a continuous vertical list. Features:
 // - Multi-chapter seamless infinite scrolling (auto-appends next & prepends previous chapters).
 // - CADisplayLink auto-scrolling with touch-pause support.
-// - Pinch-to-zoom support for examining comic details.
+// - Pinch and double-tap zoom through the layout (`FixedPageWebtoonLayout.zoomScale`):
+//   the list itself grows, so a zoomed strip pans in every direction with the list's
+//   own scrolling, and the pinch stays under the fingers.
 // - Tap zones for stepping and toggling controls.
 
 final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReader,
@@ -29,16 +31,53 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
             if oldValue != isAutoScrolling {
                 container?.readerAutoScrollStateChanged(isAutoScrolling)
             }
+            updateContentScrolling()
         }
     }
-    private var isPausedByTouch = false
+    private var isPausedByTouch = false {
+        didSet { updateContentScrolling() }
+    }
+    /// A finger is dragging the list, or it is still gliding after one.
+    private var isFingerScrolling = false {
+        didSet { updateContentScrolling() }
+    }
+    /// The page is moving under the auto-scroll button, which dims meanwhile.
+    private var isContentScrolling = false {
+        didSet {
+            if oldValue != isContentScrolling {
+                container?.readerContentScrollingChanged(isContentScrolling)
+            }
+        }
+    }
+
+    private func updateContentScrolling() {
+        isContentScrolling = isFingerScrolling || (isAutoScrolling && !isPausedByTouch)
+    }
 
     // Infinite scroll loading guards
     private var isLoadingNextChapter = false
     private var isLoadingPrevChapter = false
 
-    // Zoom state
-    private var currentZoomScale: CGFloat = 1.0
+    // Zoom
+    private struct ZoomAnimation {
+        let fromScale: CGFloat
+        let toScale: CGFloat
+        /// The point of the unzoomed content that the animation keeps in view...
+        let anchor: CGPoint
+        /// ...moving it on screen from here to there.
+        let fromPoint: CGPoint
+        let toPoint: CGPoint
+        var startTime: CFTimeInterval?
+    }
+    private static let zoomAnimationDuration: CFTimeInterval = 0.3
+    private var pinchStartScale: CGFloat = 1
+    private var pinchAnchor: CGPoint = .zero
+    private var zoomAnimation: ZoomAnimation?
+    private var zoomAnimationLink: CADisplayLink?
+    /// A pinch or a double-tap zoom is moving the content. The page counter and chapter
+    /// loading wait for it to settle rather than react to every frame of it.
+    private var isZooming = false
+    private var controlsShown = false
 
     init(fixedPageReaderConfiguration: FixedPageReaderConfiguration, targetWidth: CGFloat) {
         self.fixedPageReaderConfiguration = fixedPageReaderConfiguration
@@ -51,11 +90,13 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
 
     deinit {
         autoScrollDisplayLink?.invalidate()
+        zoomAnimationLink?.invalidate()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         stopAutoScroll()
+        cancelZoomAnimation()
     }
 
     override func viewDidLoad() {
@@ -72,19 +113,18 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
         collectionView.register(FixedPageWebtoonCell.self, forCellWithReuseIdentifier: FixedPageWebtoonCell.reuseID)
         view.addSubview(collectionView)
 
+        // Waits for the double tap below through its delegate.
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         tap.delegate = controlTapDelegate
         collectionView.addGestureRecognizer(tap)
 
         if fixedPageReaderConfiguration.isZoomEnabled {
-            let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
-            collectionView.addGestureRecognizer(pinch)
-
-            let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
-            doubleTap.delegate = controlTapDelegate
-            doubleTap.numberOfTapsRequired = 2
-            tap.require(toFail: doubleTap)
-            collectionView.addGestureRecognizer(doubleTap)
+            collectionView.addGestureRecognizer(
+                UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
+            )
+            collectionView.addGestureRecognizer(
+                FixedPageDoubleTapZoomGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+            )
         }
     }
 
@@ -94,6 +134,8 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
         self.pages = pages
         isLoadingNextChapter = false
         isLoadingPrevChapter = false
+        cancelZoomAnimation()
+        layout.zoomScale = 1
         layout.clearRatios()
         currentIndex = max(0, min(startPage, max(0, pages.count - 1)))
         collectionView.reloadData()
@@ -109,6 +151,23 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
     func goToPage(_ index: Int, animated: Bool) {
         guard pages.indices.contains(index) else { return }
         collectionView.scrollToItem(at: IndexPath(item: index, section: 0), at: .top, animated: animated)
+    }
+
+    func setControlsShown(_ shown: Bool) {
+        controlsShown = shown
+        updateLiveTextButtons()
+    }
+
+    private var showsLiveTextButton: Bool {
+        FixedPageZoom.showsLiveTextButton(controlsShown: controlsShown, zoomScale: layout.zoomScale)
+    }
+
+    private func updateLiveTextButtons() {
+        guard isViewLoaded else { return }
+        let shows = showsLiveTextButton
+        for case let cell as FixedPageWebtoonCell in collectionView.visibleCells {
+            cell.setShowsLiveTextButton(shows)
+        }
     }
 
     // MARK: Auto Scroll
@@ -168,33 +227,145 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
     // MARK: Pinch & Double-Tap Zoom
 
     @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
-        guard gesture.view != nil else { return }
-
-        if gesture.state == .began || gesture.state == .changed {
-            currentZoomScale *= gesture.scale
-            currentZoomScale = max(1.0, min(currentZoomScale, 3.5))
-            collectionView.transform = CGAffineTransform(scaleX: currentZoomScale, y: currentZoomScale)
-            gesture.scale = 1.0
-        } else if gesture.state == .ended || gesture.state == .cancelled {
-            if currentZoomScale <= 1.05 {
-                UIView.animate(withDuration: 0.2) {
-                    self.currentZoomScale = 1.0
-                    self.collectionView.transform = .identity
-                }
-            }
+        switch gesture.state {
+        case .began:
+            cancelZoomAnimation()
+            stopAutoScroll()
+            isZooming = true
+            // One writer for the offset: a fling in flight and the list's own pan would
+            // both fight the pinch for it.
+            collectionView.setContentOffset(collectionView.contentOffset, animated: false)
+            collectionView.panGestureRecognizer.isEnabled = false
+            pinchStartScale = layout.zoomScale
+            let point = gesture.location(in: collectionView)
+            pinchAnchor = CGPoint(x: point.x / pinchStartScale, y: point.y / pinchStartScale)
+        case .changed:
+            let scale = min(max(pinchStartScale * gesture.scale, 1), FixedPageZoom.maximumScale)
+            applyZoom(scale, keeping: pinchAnchor, at: viewportLocation(of: gesture))
+        case .ended, .cancelled, .failed:
+            collectionView.panGestureRecognizer.isEnabled = true
+            zoomDidSettle()
+        default:
+            break
         }
     }
 
     @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
-        UIView.animate(withDuration: 0.25) {
-            if self.currentZoomScale > 1.05 {
-                self.currentZoomScale = 1.0
-                self.collectionView.transform = .identity
-            } else {
-                self.currentZoomScale = 2.0
-                self.collectionView.transform = CGAffineTransform(scaleX: 2.0, y: 2.0)
-            }
+        stopAutoScroll()
+        let scale = layout.zoomScale
+        let middle = CGPoint(x: collectionView.bounds.width / 2, y: collectionView.bounds.height / 2)
+        if scale > 1.01 {
+            // Back to the fitted width, keeping what is in the middle of the screen there.
+            let offset = collectionView.contentOffset
+            let anchor = CGPoint(x: (offset.x + middle.x) / scale, y: (offset.y + middle.y) / scale)
+            animateZoom(to: 1, keeping: anchor, from: middle, to: middle)
+        } else {
+            // 2x, bringing the tapped spot to the middle of the screen.
+            let point = gesture.location(in: collectionView)
+            let anchor = CGPoint(x: point.x / scale, y: point.y / scale)
+            animateZoom(
+                to: FixedPageZoom.doubleTapScale,
+                keeping: anchor,
+                from: viewportLocation(of: gesture),
+                to: middle
+            )
         }
+    }
+
+    /// Where the gesture is within the list's visible area.
+    private func viewportLocation(of gesture: UIGestureRecognizer) -> CGPoint {
+        let point = gesture.location(in: collectionView)
+        return CGPoint(x: point.x - collectionView.contentOffset.x, y: point.y - collectionView.contentOffset.y)
+    }
+
+    /// Lays the list out at `scale` with `anchor` — a point of the unzoomed content —
+    /// under `viewportPoint`.
+    private func applyZoom(_ scale: CGFloat, keeping anchor: CGPoint, at viewportPoint: CGPoint) {
+        layout.zoomScale = scale
+        layout.invalidateLayout()
+        collectionView.layoutIfNeeded()
+        collectionView.contentOffset = Self.zoomedContentOffset(
+            anchor: anchor,
+            scale: scale,
+            viewportPoint: viewportPoint,
+            contentSize: collectionView.contentSize,
+            viewportSize: collectionView.bounds.size
+        )
+        updateLiveTextButtons()
+    }
+
+    /// Content offset that puts `anchor` — a point of the unzoomed content — under
+    /// `viewportPoint` at `scale`, kept inside the scrollable range. The list has no
+    /// content inset (`contentInsetAdjustmentBehavior = .never`), so the range starts at 0.
+    nonisolated static func zoomedContentOffset(
+        anchor: CGPoint,
+        scale: CGFloat,
+        viewportPoint: CGPoint,
+        contentSize: CGSize,
+        viewportSize: CGSize
+    ) -> CGPoint {
+        let maxX = max(0, contentSize.width - viewportSize.width)
+        let maxY = max(0, contentSize.height - viewportSize.height)
+        return CGPoint(
+            x: min(max(0, anchor.x * scale - viewportPoint.x), maxX),
+            y: min(max(0, anchor.y * scale - viewportPoint.y), maxY)
+        )
+    }
+
+    private func animateZoom(to scale: CGFloat, keeping anchor: CGPoint, from start: CGPoint, to end: CGPoint) {
+        cancelZoomAnimation()
+        // Stop a fling in flight; it would keep moving the offset under the animation.
+        collectionView.setContentOffset(collectionView.contentOffset, animated: false)
+        isZooming = true
+        zoomAnimation = ZoomAnimation(
+            fromScale: layout.zoomScale,
+            toScale: scale,
+            anchor: anchor,
+            fromPoint: start,
+            toPoint: end
+        )
+        let link = CADisplayLink(target: self, selector: #selector(stepZoomAnimation(_:)))
+        link.add(to: .main, forMode: .common)
+        zoomAnimationLink = link
+    }
+
+    /// One frame of a double-tap zoom. The layout itself changes every frame — nothing
+    /// that UIView animation could interpolate — so the frames are driven here.
+    @objc private func stepZoomAnimation(_ link: CADisplayLink) {
+        guard var animation = zoomAnimation else {
+            cancelZoomAnimation()
+            return
+        }
+        let startTime = animation.startTime ?? link.timestamp
+        animation.startTime = startTime
+        zoomAnimation = animation
+        let progress = min(1, (link.targetTimestamp - startTime) / Self.zoomAnimationDuration)
+        let eased = progress * progress * (3 - 2 * progress)
+        let scale = animation.fromScale + (animation.toScale - animation.fromScale) * eased
+        let point = CGPoint(
+            x: animation.fromPoint.x + (animation.toPoint.x - animation.fromPoint.x) * eased,
+            y: animation.fromPoint.y + (animation.toPoint.y - animation.fromPoint.y) * eased
+        )
+        applyZoom(scale, keeping: animation.anchor, at: point)
+        if progress >= 1 {
+            cancelZoomAnimation()
+            zoomDidSettle()
+        }
+    }
+
+    /// Stops a double-tap zoom where it is. Callers that stay on these pages settle it
+    /// (`zoomDidSettle`); leaving the reader or replacing its pages does not.
+    private func cancelZoomAnimation() {
+        zoomAnimationLink?.invalidate()
+        zoomAnimationLink = nil
+        zoomAnimation = nil
+        isZooming = false
+    }
+
+    /// The page counter and chapter loading catch up with the zoomed position.
+    private func zoomDidSettle() {
+        isZooming = false
+        scrollViewDidScroll(collectionView)
     }
 
     // MARK: Data source
@@ -217,6 +388,7 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
             self.layout.setRatio(ratio, forItem: index)
             self.layout.invalidateLayout()
         }
+        cell.setShowsLiveTextButton(showsLiveTextButton)
         return cell
     }
 
@@ -232,20 +404,33 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         container?.readerHideControlsForPageTurn()
+        isFingerScrolling = true
         if isAutoScrolling { isPausedByTouch = true }
+        // A drag takes over from a double-tap zoom still running.
+        if zoomAnimation != nil {
+            cancelZoomAnimation()
+            zoomDidSettle()
+        }
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { isFingerScrolling = false }
         if isAutoScrolling && !decelerate { isPausedByTouch = false }
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        isFingerScrolling = false
         if isAutoScrolling { isPausedByTouch = false }
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        // Zooming moves the offset every frame; this runs once it settles instead.
+        guard !isZooming else { return }
         let midY = scrollView.contentOffset.y + scrollView.bounds.height / 2
-        if let indexPath = collectionView.indexPathForItem(at: CGPoint(x: collectionView.bounds.midX, y: midY)),
+        // The page column is centred in the content, which a zoomed list may have
+        // panned away from the middle of the screen.
+        let columnX = scrollView.contentSize.width / 2
+        if let indexPath = collectionView.indexPathForItem(at: CGPoint(x: columnX, y: midY)),
            indexPath.item != currentIndex {
             currentIndex = indexPath.item
             container?.reader(didMoveToPage: currentIndex, total: pages.count)
@@ -275,6 +460,8 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
                 if let prevPages = await self.container?.readerPrependPreviousChapter(), !prevPages.isEmpty {
                     self.layout.isInsertingCellsAbove = true
                     self.pages.insert(contentsOf: prevPages, at: 0)
+                    // The page on screen stays put, now further down the strip.
+                    self.currentIndex += prevPages.count
                     self.collectionView.reloadData()
                 }
                 self.isLoadingPrevChapter = false
@@ -291,12 +478,14 @@ final class FixedPageWebtoonViewController: UIViewController, FixedPageModeReade
            container?.readerHideControlsForPageTurn() == true {
             return
         }
+        // A zoomed list keeps its sideways position while the tap moves it up or down.
+        let x = collectionView.contentOffset.x
         if point.y < third {
             let target = max(-collectionView.adjustedContentInset.top, collectionView.contentOffset.y - page)
-            collectionView.setContentOffset(CGPoint(x: 0, y: target), animated: true)
+            collectionView.setContentOffset(CGPoint(x: x, y: target), animated: true)
         } else if point.y > 2 * third {
             let maxY = max(0, collectionView.contentSize.height - collectionView.bounds.height)
-            collectionView.setContentOffset(CGPoint(x: 0, y: min(maxY, collectionView.contentOffset.y + page)), animated: true)
+            collectionView.setContentOffset(CGPoint(x: x, y: min(maxY, collectionView.contentOffset.y + page)), animated: true)
         } else {
             container?.readerToggleControls()
         }

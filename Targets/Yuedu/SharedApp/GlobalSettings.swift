@@ -913,6 +913,28 @@ class GlobalSettings: ObservableObject {
     @Published var readerTapBothSidesNextPage: Bool {
         didSet { UserDefaults.standard.set(readerTapBothSidesNextPage, forKey: "yd_reader_tap_both_next") }
     }
+    /// Fixed-page reader (manga, PDF, fixed-layout EPUB): a double tap zooms in and back
+    /// out. Defaults ON. Off, a single tap turns the page or brings up the controls without
+    /// first waiting to see whether a second tap follows; pinch zoom stays. One setting for
+    /// every book. Read per touch by `FixedPageDoubleTapZoomGate` — no reload needed.
+    @Published var fixedPageDoubleTapToZoom: Bool {
+        didSet { UserDefaults.standard.set(fixedPageDoubleTapToZoom, forKey: "yd_fixed_page_double_tap_zoom") }
+    }
+    /// Webtoon layout of the fixed-page reader: a floating button that starts and pauses
+    /// auto-scroll. Off by default, as in Aidoku — most reading never uses it, and it
+    /// would otherwise sit over the page the whole time. One setting for every book.
+    @Published var fixedPageAutoScrollButton: Bool {
+        didSet { UserDefaults.standard.set(fixedPageAutoScrollButton, forKey: "yd_fixed_page_auto_scroll_button") }
+    }
+    /// Which bottom corner that button sits in. Right by default, as in Aidoku.
+    @Published var fixedPageAutoScrollButtonPosition: FixedPageAutoScrollButtonPosition {
+        didSet {
+            UserDefaults.standard.set(
+                fixedPageAutoScrollButtonPosition.rawValue,
+                forKey: "yd_fixed_page_auto_scroll_button_position"
+            )
+        }
+    }
     /// Paged mode only: swiping up shows a growing ✕ chip and releasing closes
     /// the reader. Defaults ON; scroll mode never installs the gesture. Read at
     /// gesture-begin time by `CoreTextPageEngineView` — no relayout needed.
@@ -1978,6 +2000,14 @@ class GlobalSettings: ObservableObject {
         let rawWritingMode = UserDefaults.standard.string(forKey: "yd_reader_writing_mode") ?? ""
         readerWritingMode = ReaderWritingMode(rawValue: rawWritingMode) ?? .horizontal
         readerTapBothSidesNextPage = UserDefaults.standard.bool(forKey: "yd_reader_tap_both_next")
+        // `bool(forKey:)` also reads a launch argument's "NO", which `as? Bool` does not.
+        fixedPageDoubleTapToZoom = UserDefaults.standard.object(forKey: "yd_fixed_page_double_tap_zoom") == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: "yd_fixed_page_double_tap_zoom")
+        fixedPageAutoScrollButton = UserDefaults.standard.bool(forKey: "yd_fixed_page_auto_scroll_button")
+        fixedPageAutoScrollButtonPosition = FixedPageAutoScrollButtonPosition(
+            rawValue: UserDefaults.standard.string(forKey: "yd_fixed_page_auto_scroll_button_position") ?? ""
+        ) ?? .right
         readerSwipeUpToExit =
             (UserDefaults.standard.object(forKey: "yd_reader_swipe_up_exit") as? Bool) ?? true
         readerPullDownToBookmark =

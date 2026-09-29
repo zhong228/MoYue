@@ -23,6 +23,12 @@ final class FixedPageWebtoonLayout: UICollectionViewFlowLayout {
     }
     private var contentSizeBeforeInsertingAbove: CGSize?
 
+    /// Pinch and double-tap zoom: every page and every gap between pages scales by this,
+    /// so the content grows in both directions and a zoomed strip scrolls sideways
+    /// natively. Pages get larger frames rather than a transform, which keeps hit
+    /// testing and the visible-page lookups in the same coordinates as what is drawn.
+    var zoomScale: CGFloat = 1
+
     init(fixedPageReaderConfiguration: FixedPageReaderConfiguration) {
         self.fixedPageReaderConfiguration = fixedPageReaderConfiguration
         super.init()
@@ -57,6 +63,7 @@ final class FixedPageWebtoonLayout: UICollectionViewFlowLayout {
             ? min(totalWidth, max(200, totalWidth * fixedPageReaderConfiguration.pillarboxAmount))
             : totalWidth
         let originX = (totalWidth - effectiveWidth) / 2
+        let scale = zoomScale
 
         var originY: CGFloat = 0
         let count = collectionView.numberOfItems(inSection: 0)
@@ -64,11 +71,19 @@ final class FixedPageWebtoonLayout: UICollectionViewFlowLayout {
             let indexPath = IndexPath(item: item, section: 0)
             let attributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
             let h = height(for: item, width: effectiveWidth)
-            attributes.frame = CGRect(x: originX, y: originY, width: effectiveWidth, height: h)
+            attributes.frame = CGRect(
+                x: originX * scale,
+                y: originY * scale,
+                width: effectiveWidth * scale,
+                height: h * scale
+            )
             currentAttributes[indexPath] = attributes
             originY += h + minimumLineSpacing
         }
-        computedContentSize = CGSize(width: totalWidth, height: max(0, originY - minimumLineSpacing))
+        computedContentSize = CGSize(
+            width: totalWidth * scale,
+            height: max(0, originY - minimumLineSpacing) * scale
+        )
 
         // Preserve scroll offset when inserting cells above
         if isInsertingCellsAbove, let oldSize = contentSizeBeforeInsertingAbove {

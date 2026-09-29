@@ -266,6 +266,9 @@ enum DSLayout {
     /// A shelf cover the selection leaves out while 選取 is on, dimmed as Apple Books'
     /// library dims one: measured off its screenshots at 60% over the page.
     static let bookshelfUnselectedCoverOpacity: Double = 0.6
+    /// A button floating over the page while the page scrolls under it (the webtoon
+    /// reader's auto-scroll button), dimmed as Aidoku dims its own.
+    static let readerFloatingControlScrollingOpacity: Double = 0.5
     /// The most a selected shelf cover grows: Apple Books' own lift, about 11%.
     static let bookshelfSelectedCoverMaximumScale: CGFloat = 1.11
     /// Height a selected grid cover may gain. `BookshelfGridSelectionStyle.liftAnchor`
