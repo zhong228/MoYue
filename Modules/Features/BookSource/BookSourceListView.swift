@@ -414,10 +414,8 @@ struct BookSourceListView: View {
                 Button(localized("取消"), role: .cancel) {}
                 Button(localized("確定")) {
                     let changed = store.groupByDomain()
-                    withAnimation {
-                        importSuccess =
-                            String(format: localized("已按域名分組 %d 個書源"), changed)
-                    }
+                    importSuccess =
+                        String(format: localized("已按域名分組 %d 個書源"), changed)
                 }
             } message: {
                 Text(localized("按域名分組將覆蓋現有分組，確定繼續？"))
@@ -755,10 +753,8 @@ struct BookSourceListView: View {
     private func copyGroupToPasteboard(_ group: BookSourceRowGroup) {
         let json = store.exportToJSON(ids: group.sourceIDs)
         UIPasteboard.general.string = json
-        withAnimation {
-            importSuccess = String(
-                format: localized("已複製 %d 個書源到剪貼簿"), group.sourceIDs.count)
-        }
+        importSuccess = String(
+            format: localized("已複製 %d 個書源到剪貼簿"), group.sourceIDs.count)
     }
 
     private func deleteGroup(_ pending: PendingGroupAction) {
@@ -877,7 +873,7 @@ struct BookSourceListView: View {
               let str = String(data: data, encoding: .utf8)
         else { return }
         UIPasteboard.general.string = str
-        withAnimation { importSuccess = localized("已複製書源 JSON") }
+        importSuccess = localized("已複製書源 JSON")
     }
 
     // MARK: - Pinning
@@ -961,7 +957,7 @@ struct BookSourceListView: View {
                 if let summary = healthChecker.lastSummary {
                     msg += "，\(summary)"
                 }
-                withAnimation { checkToast = msg }
+                checkToast = msg
             }
         }
     }
@@ -977,19 +973,15 @@ struct BookSourceListView: View {
     private func copySelectedToPasteboard() {
         let json = store.exportToJSON(ids: Array(model.selectedIDs))
         UIPasteboard.general.string = json
-        withAnimation {
-            importSuccess = String(
-                format: localized("已複製 %d 個書源到剪貼簿"), model.selectedIDs.count)
-        }
+        importSuccess = String(
+            format: localized("已複製 %d 個書源到剪貼簿"), model.selectedIDs.count)
     }
 
     private func copyAllToPasteboard() {
         let json = store.exportToJSON()
         UIPasteboard.general.string = json
-        withAnimation {
-            importSuccess = String(
-                format: localized("已複製全部 %d 個書源到剪貼簿"), store.sources.count)
-        }
+        importSuccess = String(
+            format: localized("已複製全部 %d 個書源到剪貼簿"), store.sources.count)
     }
 
     // MARK: - Empty State
@@ -1133,7 +1125,7 @@ struct BookSourceListView: View {
         do {
             queueImportReview(try store.parseForImport(data: data, fileExtension: ext))
         } catch {
-            withAnimation { importError = error.localizedDescription }
+            importError = error.localizedDescription
         }
     }
 
@@ -1143,7 +1135,7 @@ struct BookSourceListView: View {
         do {
             queueImportReview(try store.parseForImport(json: trimmed))
         } catch {
-            withAnimation { importError = error.localizedDescription }
+            importError = error.localizedDescription
         }
     }
 
@@ -1180,11 +1172,9 @@ struct BookSourceListView: View {
     private func commitImportReview() {
         do {
             let count = try importCoordinator.confirmImport()
-            withAnimation {
-                importSuccess = String(format: localized("成功匯入 %d 個書源"), count)
-            }
+            importSuccess = String(format: localized("成功匯入 %d 個書源"), count)
         } catch {
-            withAnimation { importError = error.localizedDescription }
+            importError = error.localizedDescription
         }
     }
 
@@ -1246,7 +1236,7 @@ struct BookSourceListView: View {
     private func doNetworkImport() {
         let urlString = importURLString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: urlString) else {
-            withAnimation { importError = localized("無效的 URL") }
+            importError = localized("無效的 URL")
             return
         }
         networkImportLoading = true
@@ -1254,12 +1244,12 @@ struct BookSourceListView: View {
             DispatchQueue.main.async {
                 networkImportLoading = false
                 if let err = error {
-                    withAnimation { importError = err.localizedDescription }
+                    importError = err.localizedDescription
                     return
                 }
                 guard let data, let text = String(data: data, encoding: .utf8)
                         ?? String(data: data, encoding: .isoLatin1) else {
-                    withAnimation { importError = localized("無法解析伺服器回應") }
+                    importError = localized("無法解析伺服器回應")
                     return
                 }
                 importURLString = ""
@@ -1274,7 +1264,7 @@ struct BookSourceListView: View {
     private func pasteFromClipboard() {
         guard let text = UIPasteboard.general.string,
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            withAnimation { importError = localized("剪貼簿為空") }
+            importError = localized("剪貼簿為空")
             return
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1286,7 +1276,7 @@ struct BookSourceListView: View {
         do {
             queueImportReview(try store.parseForImport(json: trimmed))
         } catch {
-            withAnimation { importError = error.localizedDescription }
+            importError = error.localizedDescription
         }
     }
 

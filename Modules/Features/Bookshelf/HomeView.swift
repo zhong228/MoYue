@@ -59,6 +59,7 @@ struct HomeView: View {
     @Environment(\.appDependencies) private var appDependencies
     @ObservedObject private var gs = GlobalSettings.shared
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var showAddSheet = false
     @State private var showWebDAVImport = false
@@ -761,7 +762,11 @@ struct HomeView: View {
                 .listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 0, leading: hInset, bottom: 0, trailing: hInset))
                 .listRowBackground(Color.clear)
-                .transition(.opacity.combined(with: .move(edge: .leading)))
+                .transition(
+                    reduceMotion
+                        ? .opacity
+                        : .opacity.combined(with: .move(edge: .leading))
+                )
             }
             .onMove { src, dst in
                 guard sortOrder == BookSortOrder.manual.rawValue else { return }

@@ -453,7 +453,7 @@ extension ReaderView {
                     guard self.book?.id == targetBook.id else { return }
                     AppLogger.error("TXT reader preparation failed", error: error)
                     showTXTIndexFailure = true
-                    showBars = true
+                    setReaderChromeVisible(true)
                     self.applyDocument(nil)
                     self.isLoadingPipeline = false
                     self.isRestoringPosition = false

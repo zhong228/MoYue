@@ -789,15 +789,22 @@ struct ReaderView: View {
         // 自動閱讀's panel is chrome too, and it goes first: one tap puts it away,
         // the next one is what raises the reading menu.
         guard !consumeTapForAutoReadPanel() else { return }
-        withAnimation(.easeInOut(duration: 0.2)) { showBars.toggle() }
+        setReaderChromeVisible(!showBars)
+    }
+
+    /// The only place `showBars` is written, so the menu comes and goes on one
+    /// timing however it was asked for. The reader tree carries no implicit
+    /// animation for it: a write that bypasses this shows or hides the menu abruptly.
+    func setReaderChromeVisible(_ visible: Bool) {
+        guard showBars != visible else { return }
+        withAnimation(DSAnimation.readerChrome) { showBars = visible }
     }
 
     /// Starting to turn the page — a swipe, a drag, a scroll — puts the menu away, in
     /// every reader and mode. A tap on a turning zone with the menu up does only this
     /// (`handleTouchAction`).
     func hideReaderChromeForPageTurn() {
-        guard showBars else { return }
-        withAnimation(.easeInOut(duration: uiFeedbackDuration)) { showBars = false }
+        setReaderChromeVisible(false)
     }
 
     var currentChapterOverlayState: ReaderChapterOverlayState {
@@ -1846,10 +1853,8 @@ struct ReaderView: View {
                             showTOC = true
                         },
                         onOpenReadingMenu: {
-                            withAnimation(DSAnimation.standard) {
-                                showAutoReadPanel = false
-                                showBars = true
-                            }
+                            withAnimation(DSAnimation.standard) { showAutoReadPanel = false }
+                            setReaderChromeVisible(true)
                         },
                         onOpenSettings: {
                             withAnimation(DSAnimation.standard) { showAutoReadPanel = false }
@@ -1863,7 +1868,11 @@ struct ReaderView: View {
                     )
                     .padding(.bottom, effectiveReaderSafeBottom + DSSpacing.sm)
                 }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(
+                    accessibilityReduceMotion
+                        ? .opacity
+                        : .move(edge: .bottom).combined(with: .opacity)
+                )
                 .zIndex(45)
             }
             if showBars { readerChrome }
@@ -1882,7 +1891,11 @@ struct ReaderView: View {
                         .padding(.horizontal, showBars ? 20 : 120)
                         .padding(.bottom, showBars ? 150 : ttsJumpPromptCollapsedBottomPadding)
                 }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(
+                    accessibilityReduceMotion
+                        ? .opacity
+                        : .move(edge: .bottom).combined(with: .opacity)
+                )
                 .zIndex(20)
             }
             // Always present (even with the reader bars hidden); it self-hides when
@@ -2001,7 +2014,6 @@ struct ReaderView: View {
                 isEditing: false
             ) ? .hidden : .automatic
         )
-        .animation(.easeInOut(duration: 0.25), value: showBars)
         // Chrome-owned panels close with the chrome, wherever the chrome was hidden
         // from — the tap zone, the touch-zone editor, or a search result jump. Clearing
         // this at each `showBars = false` site left panels that popped back up the next
@@ -2019,7 +2031,7 @@ struct ReaderView: View {
         }
         .modifier(HideTabBarModifier())
         .alert(localized("TXT 目錄修復未完成"), isPresented: $showTXTIndexFailure) {
-            Button(localized("確定"), role: .cancel) { showBars = true }
+            Button(localized("確定"), role: .cancel) { setReaderChromeVisible(true) }
         } message: {
             Text(localized("為避免閱讀進度或書籤錯移，尚未套用新目錄。原有位置資料已保留。請保留原始 TXT，並匯出診斷記錄以供檢查。"))
         }
@@ -2435,7 +2447,7 @@ struct ReaderView: View {
                     onOpenFontImporter: requestFirstLevelReaderFontImporter,
                     onOpenTouchZoneEditor: {
                         guard subscriptionStore.isProActive, !effectiveScrollMode else { return }
-                        showBars = false
+                        setReaderChromeVisible(false)
                         showTouchZoneEditor = true
                     },
                     onOpenStyleImporter: requestFirstLevelReaderStyleImporter,
@@ -2463,7 +2475,7 @@ struct ReaderView: View {
                     // the footer pill, which starts collapsed and opens on tap.
                     enterAutoRead()
                     showAutoReadPanel = false
-                    showBars = false
+                    setReaderChromeVisible(false)
                     showQuickThemePanel = false
                 },
                 onCustomize: {
@@ -2483,7 +2495,7 @@ struct ReaderView: View {
                     initialQuery: readerSearchSelection,
                     onSelect: { item in
                         showReaderSearch = false
-                        showBars = false
+                        setReaderChromeVisible(false)
                         issuePageTurn(to: item.pageIndex)
                     },
                     onClose: { showReaderSearch = false }
@@ -2920,9 +2932,7 @@ struct ReaderView: View {
         case .none:
             return
         case .toggleMenu:
-            withAnimation(.easeInOut(duration: uiFeedbackDuration)) {
-                showBars.toggle()
-            }
+            setReaderChromeVisible(!showBars)
         case .previousPage:
             goToPrevPage()
         case .nextPage:

@@ -42,7 +42,7 @@ extension ReaderView {
         autoReader.enter()
         showAutoReadPanel = false
         showQuickThemePanel = false
-        showBars = false
+        setReaderChromeVisible(false)
         applyAutoReadIdleTimer()
     }
 

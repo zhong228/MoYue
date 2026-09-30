@@ -733,7 +733,7 @@ struct TTSSettingsView: View {
         if let data = try? JSONEncoder().encode(source),
            let string = String(data: data, encoding: .utf8) {
             UIPasteboard.general.string = string
-            withAnimation { sourceImportMessage = localized("已複製語音源 JSON") }
+            sourceImportMessage = localized("已複製語音源 JSON")
         }
     }
 

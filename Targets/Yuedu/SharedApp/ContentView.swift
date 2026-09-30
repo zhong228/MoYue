@@ -532,7 +532,7 @@ struct NowPlayingMiniPlayer: View {
             if !visible { dockedSide = nil }
         }
         .onChange(of: barsVisible) { _, visible in
-            withAnimation(.easeInOut(duration: 0.25)) {
+            withAnimation(reduceMotion ? nil : DSAnimation.readerChrome) {
                 if visible {
                     // Bars appeared: lift the player just above the bottom toolbar (only if
                     // it was dragged into that zone), remembering where it sat so it can

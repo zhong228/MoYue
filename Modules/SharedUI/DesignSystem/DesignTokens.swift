@@ -475,6 +475,9 @@ enum DSAnimation {
     static let standard = Animation.easeOut(duration: 0.28)
     /// Slow expansion
     static let slow = Animation.easeInOut(duration: 0.4)
+    /// The reading menu coming up or going away, and whatever moves with it. One
+    /// timing for every way the menu is shown or hidden.
+    static let readerChrome = Animation.easeOut(duration: 0.2)
     /// Press feedback for pill buttons: Legado's `button_scale_animator` lands on
     /// scale 0.92 in 120ms with an overshoot interpolator — this spring is the
     /// SwiftUI equivalent. Callers must skip it under Reduce Motion.
