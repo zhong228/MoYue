@@ -475,7 +475,9 @@ class Provenance(unittest.TestCase):
         self.assertEqual(fidelity.resolved_package(log), ("https://github.com/CHANG-JUI-LIN/YueduCoreText", "0.6.1"))
 
     def test_a_folder_a_workspace_put_in_its_place_is_local(self):
-        log = self.LOG.format(location="/Users/someone/Desktop/Loop Copies/YueduCoreText", version="local")
+        # What xcodebuild 27 prints for it: the path and no version.
+        log = "Resolved source packages:\n  YueduCoreText: /Users/someone/Desktop/Loop Copies/YueduCoreText\n" \
+              "  Zip: https://github.com/marmelroy/Zip @ 2.1.2\n"
         self.assertEqual(fidelity.resolved_package(log), ("/Users/someone/Desktop/Loop Copies/YueduCoreText", "local"))
 
     def test_a_log_without_the_package_says_so(self):

@@ -1204,10 +1204,16 @@ def command_gate(args):
 
 def resolved_package(log_text, name="YueduCoreText"):
     """The line xcodebuild prints for one package under "Resolved source packages":
-    `<name>: <url> @ <version>` for a published package, `<name>: <path> @ local`
-    for a folder that a workspace put in its place. Returns (location, version)."""
-    match = re.search(rf"^\s*{re.escape(name)}: (.+) @ (\S+)\s*$", log_text, re.MULTILINE)
-    return (match.group(1).strip(), match.group(2)) if match else (None, None)
+    `<name>: <url> @ <version>` for a published package, and `<name>: <path>` with
+    no version for a folder that a workspace put in its place. Returns
+    (location, version), with version "local" for the folder."""
+    match = re.search(rf"^\s*{re.escape(name)}: (\S.*?)(?: @ (\S+))?\s*$", log_text, re.MULTILINE)
+    if not match:
+        return None, None
+    location, version = match.group(1).strip(), match.group(2)
+    if version is None:
+        return (location, "local") if location.startswith("/") else (location, None)
+    return location, version
 
 
 def describe_checkout(directory):

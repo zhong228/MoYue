@@ -125,20 +125,12 @@ python3 scripts/fidelity/fidelity.py compare --run 我的測試 --base baseline-
 python3 scripts/fidelity/test_fidelity.py
 ```
 
-## 還沒做的事
+## 前置作業（已完成）
 
-這些做完 loop 才能開始，都只要做一次。
+2026-10-01 做完，不用再做：
 
-1. **把這批檔案提交到 main。** 工作副本是從已提交的 main 建出來的，沒提交的東西不會在那邊。要一起進去的有三組：
-   - loop 本身：`scripts/fidelity/`、`docs/browser-layout/fidelity-loop/`、`Tests/iOS/yuedu appTests/RenderFidelityOracleTests.swift`、`.agents/skills/fidelity-*`（`.agents/` 被 gitignore，要 `git add -f`）
-   - Codex 已經做完、還沒提交的按需字型改動（基線量的就是含這些改動的引擎）
-   - `scripts/xctest.sh` 的 workspace 支援（loop 靠它才編得到自己那份引擎；`loop-worktrees.sh` 會檢查）
-2. **建立工作副本**：`bash scripts/fidelity/loop-worktrees.sh create`
-3. **在工作副本量一次，確認量的是工作副本裡的引擎、而且分數和基線一樣**：
-   ```bash
-   YUEDU_WORKSPACE=~/Desktop/Yuedu-fidelity-loop/Loop.xcworkspace bash scripts/fidelity/measure.sh \
-     --tree ~/Desktop/Yuedu-fidelity-loop/Yuedu-reader --sets dev,holdout --run loop-start
-   python3 scripts/fidelity/fidelity.py compare --run loop-start --base baseline-2026-09-30 --full
-   ```
-   報告開頭的 engine package 要是 `…/Yuedu-fidelity-loop/YueduCoreText @ local`，比較結果要是 `NO PROGRESS` 而且沒有失敗。
-4. **在 Codex 開新對話**，貼上面「先一次跑一個切片」那一段。
+- loop 的檔案和 Codex 的按需字型改動已提交到 main（`e00db072`、`f94a6133`）；另一個對話還在做的閱讀器介面改動沒有動。
+- 工作副本已建立：`~/Desktop/Yuedu-fidelity-loop/Yuedu-reader`、`~/Desktop/Yuedu-fidelity-loop/YueduCoreText`（分支 `loop/fidelity`），和把兩者配在一起的 `Loop.xcworkspace`。Codex 在工作副本裡找得到四個 fidelity skill。
+- 在工作副本完整編譯並量過一次（run `loop-start`）：報告開頭寫的是 `~/Desktop/Yuedu-fidelity-loop/YueduCoreText @ local`，也就是量到的是工作副本裡的引擎；和基線比較是 `NO PROGRESS`、沒有任何失敗，走新引擎的 177 章每一章分數都和基線相同。
+
+剩下的只有你這邊：在 Codex 開新對話，貼上面「先一次跑一個切片」那一段。
