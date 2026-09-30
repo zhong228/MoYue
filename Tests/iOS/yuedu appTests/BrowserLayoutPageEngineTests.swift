@@ -16,6 +16,7 @@ final class MockBrowserLayoutResource: BrowserLayoutResourceProviding {
     var chapters: [Chapter]
     var failChapterHTML: Set<Int> = []
     var failChapterCSS: Set<Int> = []
+    var preparedFontRequests: [Set<BrowserFontRequest>] = []
 
     init(chapters: [Chapter]) {
         self.chapters = chapters
@@ -35,6 +36,9 @@ final class MockBrowserLayoutResource: BrowserLayoutResourceProviding {
     func prefetchImages(forChapter index: Int, html: String, renderWidth: CGFloat) async -> [String: UIImage] { [:] }
     func loadImage(forChapter index: Int, source: String, renderWidth: CGFloat) async -> UIImage? { nil }
     func fontResolver() -> (([String], Int, Bool, CGFloat) -> UIFont?)? { nil }
+    func prepareFonts(requests: Set<BrowserFontRequest>) async {
+        preparedFontRequests.append(requests)
+    }
 
     enum MockError: Error { case failed }
 }

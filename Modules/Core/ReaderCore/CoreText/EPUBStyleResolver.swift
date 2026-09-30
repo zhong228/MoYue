@@ -199,10 +199,9 @@ final class EPUBStyleResolver {
         }
     }
 
-    /// Registers every pending `@font-face` family discovered so far (default
-    /// weight/italic requests). Used by the browser-layout adapter, which has no
-    /// AST to enumerate referenced fonts from — it registers everything and lets
-    /// `resolveRegisteredFont` pick the closest variant.
+    /// Preserves eager preparation for direct, pre-migration corpus diagnostics.
+    /// Production Browser admission passes its computed-style demand to
+    /// registerFontFaces instead; rejected chapters never prepare Browser fonts.
     func registerAllPendingFontFaces() async {
         let aliases = Array(pendingFontFaces.keys)
         var requests = Set<ResolvedFontRequest>()
@@ -223,8 +222,8 @@ final class EPUBStyleResolver {
     }
 
     /// The faces registered so far, as a value any thread may resolve from.
-    /// A chapter laid out off the main thread takes this once its own input is
-    /// collected (its faces are registered by then), while other chapters keep
+    /// A chapter laid out off the main thread takes this after its requested
+    /// faces are registered, while other chapters keep
     /// registering on the main actor without touching what it reads.
     var registeredFonts: RegisteredFonts {
         RegisteredFonts(faces: registeredFontFaces, variants: registeredFontVariants)

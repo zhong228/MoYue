@@ -110,7 +110,6 @@ enum EPUBStylesheetIngestion {
                 if alternate { report("inactive alternate stylesheet", order: ordinal, label: label) }
                 for message in result?.diagnostics ?? [] { report(message, order: ordinal, label: label) }
             }
-            await styleResolver.registerAllPendingFontFaces()
         } catch {
             AppLogger.parse("[EPUBStylesheetIngestion] HTML collection failed: \(error)")
             report("HTML collection failed: \(error)", order: 0, label: chapterHref)

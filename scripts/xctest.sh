@@ -13,6 +13,7 @@
 # Usage:
 #   scripts/xctest.sh [-l LOG] [-- <extra xcodebuild args>]
 #   scripts/xctest.sh -- -only-testing:'yuedu appTests/TTSRoleVoiceCastTests'
+#   YUEDU_PACKAGE_DIR=/path/to/package YUEDU_SCHEME=PackageName-Package scripts/xctest.sh -- ...
 set -uo pipefail
 
 LOG="/tmp/yuedu-test-$(date +%H%M%S).log"
@@ -32,6 +33,17 @@ cd "$ROOT" || exit 1
 
 export DEVELOPER_DIR="${DEVELOPER_DIR:-$(bash scripts/sim.sh xcode)}"
 DEST="${YUEDU_DEST:-$(bash scripts/sim.sh dest)}"
+SCHEME="${YUEDU_SCHEME:-Yuedu-Reader}"
+XCODEBUILD_COMMAND=(xcodebuild -project Yuedu-Reader.xcodeproj)
+# A workspace can override a remote package with its original local checkout
+# while a coordinated package change awaits publication. Default runs continue
+# to verify the normal project and its published dependency.
+if [[ -n "${YUEDU_PACKAGE_DIR:-}" ]]; then
+  cd "$YUEDU_PACKAGE_DIR" || exit 1
+  XCODEBUILD_COMMAND=(xcodebuild)
+elif [[ -n "${YUEDU_WORKSPACE:-}" ]]; then
+  XCODEBUILD_COMMAND=(xcodebuild -workspace "$YUEDU_WORKSPACE")
+fi
 
 echo "log:  $LOG"
 echo "dest: $DEST"
@@ -57,7 +69,7 @@ echo "dest: $DEST"
 drop_stale_app_module_copy() {
   local settings
   settings="$(mktemp)"
-  if ! xcodebuild -project Yuedu-Reader.xcodeproj -scheme Yuedu-Reader -destination "$DEST" \
+  if ! "${XCODEBUILD_COMMAND[@]}" -scheme "$SCHEME" -destination "$DEST" \
     -showBuildSettings -json > "$settings" 2>/dev/null; then
     echo "!! could not read build settings; app module copy not checked" >&2
     rm -f "$settings"
@@ -95,9 +107,8 @@ drop_stale_app_module_copy
 # (on-failure) runs `simctl diagnose ... --timeout=600` before it prints its verdict.
 # Measured 2026-09-21: Swift Testing finished at 20:37:44 and the run then sat in that
 # child process for ~10 minutes, twice in a row. Collect a sysdiagnose by hand when needed.
-xcodebuild test \
-  -project Yuedu-Reader.xcodeproj \
-  -scheme Yuedu-Reader \
+"${XCODEBUILD_COMMAND[@]}" test \
+  -scheme "$SCHEME" \
   -destination "$DEST" \
   -parallel-testing-enabled NO \
   -collect-test-diagnostics never \

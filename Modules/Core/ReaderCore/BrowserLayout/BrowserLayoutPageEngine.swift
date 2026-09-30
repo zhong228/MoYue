@@ -318,6 +318,9 @@ final class BrowserLayoutPageEngine: PageRenderingProvider, LinkNavigationProvid
     // MARK: - Per-chapter state
 
     private var choices: [Int: ChapterEngineChoice] = [:]
+    /// Font demand belongs to the admitted chapter's scan, with the same lifetime
+    /// as its engine choice. No second DOM/CSS parse is needed to discover faces.
+    private var chapterFontRequests: [Int: Set<BrowserFontRequest>] = [:]
     private var browserChapters: [Int: BrowserChapterLayout] = [:]
 
     /// Per-chapter lifecycle state — the SOURCE OF TRUTH for "is this chapter
@@ -603,8 +606,14 @@ final class BrowserLayoutPageEngine: PageRenderingProvider, LinkNavigationProvid
         // Parses the chapter's HTML and CSS: off the main thread, which a chapter
         // arriving mid-scroll would otherwise stall (14.trace: part of 235 ms).
         let writingMode = settings.writingMode
+        // Font tuples depend on the inherited family and reader bold setting,
+        // not the chapter's font-scale policy. Keep admission's existing geometry
+        // defaults and avoid another full DOM parse merely to obtain font sizes.
+        let scanConfig = BrowserLayoutConfig(
+            fontFamilies: settings.fontPostScriptName.map { [$0] } ?? [], isBold: settings.isBold)
         let scan = await Task.detached(priority: .userInitiated) {
-            BrowserLayoutCapabilityScanner.scan(input: input, writingMode: writingMode)
+            BrowserLayoutCapabilityScanner.scan(input: input, writingMode: writingMode,
+                configuration: scanConfig)
         }.value
         guard isCurrentWork(generation) else { return nil }
         let decision: ChapterEngineChoice
@@ -621,6 +630,7 @@ final class BrowserLayoutPageEngine: PageRenderingProvider, LinkNavigationProvid
         } else {
             decision = .legacyFallback(scan.unsupportedFeatures)
         }
+        if decision.isBrowser { chapterFontRequests[spineIndex] = scan.fontRequests }
         let isBrowser: Bool
         switch decision {
         case .browser: isBrowser = true
@@ -658,6 +668,8 @@ final class BrowserLayoutPageEngine: PageRenderingProvider, LinkNavigationProvid
                 return
             }
             let input = await resource.cssFrontendInput(forChapter: spineIndex, html: html)
+            guard isCurrentWork(generation) else { return }
+            await prepareBrowserFonts(at: spineIndex)
             guard isCurrentWork(generation) else { return }
             let store = BrowserLayoutImageStore(await resource.prefetchImages(
                 forChapter: spineIndex, html: html, renderWidth: contentWidth
@@ -840,6 +852,20 @@ final class BrowserLayoutPageEngine: PageRenderingProvider, LinkNavigationProvid
         )
     }
 
+    private func prepareBrowserFonts(at spine: Int) async {
+        let start = SourcePerfTrace.now
+        // The same override wins for every run in makeBrowserConfig. An invalid
+        // selection still needs the publication faces; never infer this from
+        // the selected name alone.
+        let hasReaderOverride = UserReaderFontResolver.epubOverride(
+            postScriptName: settings.fontPostScriptName, size: settings.fontSize,
+            weight: 400, italic: false) != nil
+        let requests: Set<BrowserFontRequest> = hasReaderOverride ? [] : (chapterFontRequests[spine] ?? [])
+        await resource.prepareFonts(requests: requests)
+        SourcePerfTrace.record("browser.font.prepare", "spine=\(spine) requests=\(requests.count)",
+            since: start, thresholdMs: 0)
+    }
+
     /// Chapter font-scale policy from the body inline style
     /// (`zy-fontsize-adjust: fixed` → fixed; otherwise reader-adjustable).
     static func fontScalePolicy(for html: String) -> PublicationFontScalePolicy {
@@ -945,6 +971,7 @@ final class BrowserLayoutPageEngine: PageRenderingProvider, LinkNavigationProvid
         for task in backgroundFinishTasks.values { task.cancel() }
         backgroundFinishTasks.removeAll()
         choices.removeAll()
+        chapterFontRequests.removeAll()
         engineStatus.removeAll()
         chapterLayoutStates.removeAll()
         forcedUnsupportedFeatures.removeAll()
@@ -1004,6 +1031,7 @@ final class BrowserLayoutPageEngine: PageRenderingProvider, LinkNavigationProvid
         browserSessions.removeValue(forKey: spineIndex)
         evictAllDisplayLists()
         choices.removeValue(forKey: spineIndex)
+        chapterFontRequests.removeValue(forKey: spineIndex)
         chapterLayoutStates.removeValue(forKey: spineIndex)
         forcedUnsupportedFeatures.removeValue(forKey: spineIndex)
         sessionEnsureCounts.removeValue(forKey: "\(layoutGeneration):\(spineIndex)")
@@ -1241,8 +1269,13 @@ final class BrowserLayoutPageEngine: PageRenderingProvider, LinkNavigationProvid
 
     func updateRenderSettings(_ settings: ReaderRenderSettings) {
         if self.settings != settings { discardScrollPreparation() }
-        // Which engine a chapter uses depends on whether translations are shown.
-        if self.settings.translation.isActive != settings.translation.isActive { choices.removeAll() }
+        // Admission owns font demand as well as the translation routing choice.
+        if self.settings.translation.isActive != settings.translation.isActive
+            || self.settings.fontPostScriptName != settings.fontPostScriptName
+            || self.settings.isBold != settings.isBold {
+            choices.removeAll()
+            chapterFontRequests.removeAll()
+        }
         let regexActive = self.settings.regexHighlightConfiguration.isEnabled
             || settings.regexHighlightConfiguration.isEnabled
         if regexActive,
@@ -1852,6 +1885,8 @@ extension BrowserLayoutPageEngine {
         guard choice(for: spine)?.isBrowser == true else { return nil }
         let html = try await resource.chapterHTML(at: spine)
         let input = await resource.cssFrontendInput(forChapter: spine, html: html)
+        await prepareBrowserFonts(at: spine)
+        try Task.checkCancellation()
         let store = BrowserLayoutImageStore(await resource.prefetchImages(
             forChapter: spine, html: html, renderWidth: contentSize.width))
         var config = makeBrowserConfig(fontScalePolicy: Self.fontScalePolicy(for: html),

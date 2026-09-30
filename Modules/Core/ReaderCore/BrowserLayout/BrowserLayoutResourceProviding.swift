@@ -20,6 +20,9 @@ protocol BrowserLayoutResourceProviding: AnyObject {
     /// CSS ready for the browser engine: @imports inlined, @font-face stripped,
     /// url() rewritten to absolute publication URLs.
     func cssFrontendInput(forChapter index: Int, html: String) async -> CSSFrontendInput
+    /// Registers cascade-matched faces only after Browser admission and before
+    /// taking the immutable resolver snapshot used by layout.
+    func prepareFonts(requests: Set<BrowserFontRequest>) async
     /// Pre-fetches every image the chapter's DOM references — `<img src>` and
     /// the SVG-wrapped cover idiom — so the box tree can measure them through a
     /// synchronous loader. These are the only images layout NEEDS: a CSS
@@ -42,4 +45,6 @@ protocol BrowserLayoutResourceProviding: AnyObject {
 
 extension BrowserLayoutResourceProviding {
     func resolveMediaAttachment(forChapter index: Int, media: EPUBMediaAttachment) -> EPUBMediaAttachment { media }
+    /// Providers without embedded fonts have no asynchronous resources to prepare.
+    func prepareFonts(requests: Set<BrowserFontRequest>) async {}
 }

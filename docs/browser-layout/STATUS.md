@@ -1,6 +1,6 @@
 ---
 title: BrowserLayout 目前狀態與下一步
-updated: 2026-09-12
+updated: 2026-09-30
 phase: 5A
 status: 進行中，未結案
 tags: [yuedu, browser-layout, status]
@@ -9,6 +9,32 @@ tags: [yuedu, browser-layout, status]
 # BrowserLayout 目前狀態與下一步
 
 [文件首頁](../README.md) · [歷史台帳](PHASES.md) · [5A 設計](../superpowers/specs/2026-09-04-lexbor-css-frontend-production-migration-design.md) · [5A 計畫](../superpowers/plans/2026-09-04-lexbor-css-frontend-production-migration.md)
+
+## 2026-09-30：按需字型與 0.6.1 正式套件整合已完成
+
+Browser ingestion 已只收集 CSS／字型描述；能力掃描沿用其 computed-style tree 產生字型需求，選中 Browser 後才準備對應 face。能力回退章不再先讀取 Browser 字型。分頁、捲動、讀者字型與粗體切換、ruby／首字及來源／版面均已做相關回歸。
+
+本機 App＋原始套件 checkout 的 **59 項回歸全部通過**，同批原書重測 120 筆／100 筆有效資料、來源校驗一致。Auto 分頁／捲動中位數降低：詭秘短章 **57.8%／57.6%**、遊戲設計師回退章 **35.0%／33.9%**、全職短章 **17.2%／14.4%**。長章約 7–8%，英文無內嵌字型章大致不變。Auto 仍慢於同輪 Legacy，第一輪提議的各重字型案例至少降低 30% 未全部達到。
+
+**[YueduCoreText 0.6.1](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.6.1) 已正式發布，普通 `.xcodeproj` 的要求與 Xcode 產生的 pin 均已更新為 0.6.1／`d7e16bd`。** 正常 project 使用遠端套件重跑上述六類 59 項回歸，全部通過；套件公開 API 2 項及發布 metadata 9 項也通過。其餘 27 個 pin 不變。量測仍保留發布前本機 workspace 的歷史來源校驗。[正式發布與 project 驗證](extraction/release-0.6.1.md)。
+
+下一個單位先拆量 scanner 的 declaration matching／style tree 與 Current frontend，再縮小安全規則的多餘 selector matching、重用解析結果；共享整份 DOM／cascade 準備產物前需固定字型與 used values 的邊界。Lexbor cutover 與歷史 gate 狀態保留。
+
+[第一輪改動、前後數字與驗收限制](loading-benchmark-2026-09-30-font-demand.md) · [本輪原始觀測](loading-benchmark-2026-09-30-font-demand.json) · [統計與來源校驗](loading-benchmark-2026-09-30-font-demand-summary.json)
+
+## 2026-09-30：優化前的 Auto／Legacy 基線與優先序
+
+以下舊段落保留 9/12 當時的 Phase 5A 快照。優化前量測時正常 `.xcodeproj` 使用遠端 **YueduCoreText 0.6.0 / `8cd1bf6`**，含 viewport 背景排版；Lexbor production cutover 仍沒有完成證據。9/23 的幾何基準處理另見 [0.5.0 之後的重錄與歸因](yueducoretext-0.5.0-baselines-2026-09-23.md)。
+
+本輪依使用者回報直接比較原書的 Auto 與純 Legacy：四本 EPUB、五個章節、翻頁與捲動，共 120 筆觀測，扣除暖機後使用 100 筆。正常 project、iPhone 18 Pro Max / iOS 27.0 Simulator、Debug；最小量測測試 `TEST SUCCEEDED`，效能相關源碼前後校驗一致。五個案例的 Auto 首屏中位數均較慢，約為 Legacy 的 **1.17–2.59 倍**；這是引擎內容就緒時間。
+
+已定位的優先工作：
+
+1. **先縮小字型資源準備範圍。** Browser ingestion 在 capability 判斷之前註冊所有待用字型；純 Legacy 只按章節實際需求載入。回退章節也先支付 Browser 字型準備成本。
+2. **再共用 scanner／Current 前端 evaluation。** CSS input cache 沒有省掉兩次 DOM／CSS／cascade；英文及長章仍有明顯掃描成本。
+3. **之後拆分 metadata startup 與章節排版。** 第 0 章先建 Legacy，再建 Browser；本次第 0 章都很短，尚未證明等待剩餘分頁是主要載入瓶頸。
+
+[完整數據、量測邊界及下一步驗收方案](loading-benchmark-2026-09-30.md) · [原始觀測](loading-benchmark-2026-09-30.json) · [統計與來源校驗](loading-benchmark-2026-09-30-summary.json)。本輪新增量測與文件，沒有啟動上述優化或變更產品路由。歷史能力擴充與 Lexbor gate 保留，載入效能工作建議優先處理。
 
 ## 現在的位置
 

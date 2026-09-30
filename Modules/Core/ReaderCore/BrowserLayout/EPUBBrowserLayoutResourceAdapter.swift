@@ -64,12 +64,16 @@ final class EPUBBrowserLayoutResourceAdapter: BrowserLayoutResourceProviding {
 
     func processedCSS(forChapter index: Int) async -> [String] {
         // Compatibility projection for pre-migration corpus diagnostics.
+        // Those direct layout callers historically expect fonts to be ready.
+        // Production admission uses cssFrontendInput, which never fetches fonts.
         if let cached = cssInputCache[index] {
+            await styleResolver.registerAllPendingFontFaces()
             return cached.productionStylesheetTexts
         }
         do {
             let html = try await chapterHTML(at: index)
             let input = await cssFrontendInput(forChapter: index, html: html)
+            await styleResolver.registerAllPendingFontFaces()
             return input.productionStylesheetTexts
         } catch {
             AppLogger.parse("[EPUBStylesheetIngestion] chapter load failed: \(error)")
@@ -171,6 +175,12 @@ final class EPUBBrowserLayoutResourceAdapter: BrowserLayoutResourceProviding {
 
     // MARK: - Fonts
 
+    func prepareFonts(requests: Set<BrowserFontRequest>) async {
+        await styleResolver.registerFontFaces(requests: Set(requests.map {
+            ResolvedFontRequest(family: $0.family, weight: $0.weight, italic: $0.italic)
+        }))
+    }
+
     func fontResolver() -> (([String], Int, Bool, CGFloat) -> UIFont?)? {
         // Continuous chapter preparation (including its current paged prerequisite)
         // resolves the same CSS font tuple for many runs/lines. The Sep 19 scroll
@@ -178,8 +188,8 @@ final class EPUBBrowserLayoutResourceAdapter: BrowserLayoutResourceProviding {
         // same authored cascades. Own bounded reuse at this existing resolver;
         // do not change font choice, registration, or either mode's layout rules.
         // Continuous layout runs off the main thread. It resolves from the faces
-        // registered when this chapter's input was collected (its own faces are
-        // registered by then); later registrations for other chapters happen on
+        // registered after this chapter's capability scan and before layout;
+        // later registrations for other chapters happen on
         // the main actor and never touch this value.
         let registered = styleResolver.registeredFonts
         let documentResolver = BrowserDocumentFontResolver { @Sendable families, weight, italic, size in
