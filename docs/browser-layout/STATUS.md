@@ -1,6 +1,6 @@
 ---
 title: BrowserLayout 目前狀態與下一步
-updated: 2026-09-30
+updated: 2026-10-01
 phase: 5A
 status: 進行中，未結案
 tags: [yuedu, browser-layout, status]
@@ -9,6 +9,16 @@ tags: [yuedu, browser-layout, status]
 # BrowserLayout 目前狀態與下一步
 
 [文件首頁](../README.md) · [歷史台帳](PHASES.md) · [5A 設計](../superpowers/specs/2026-09-04-lexbor-css-frontend-production-migration-design.md) · [5A 計畫](../superpowers/plans/2026-09-04-lexbor-css-frontend-production-migration.md)
+
+## 2026-10-01：和 WebView 的相似度有了量法與基線，loop 已備好交給 Codex
+
+目標：測試資料夾（`~/Desktop/Test document/EPUB Format`）裡每一本 EPUB，閱讀器的渲染和 WKWebView 至少 80 分相似。量法、基線、佇列與給 Codex 的操作手冊都在 [fidelity-loop/](fidelity-loop/README.md)。
+
+**基線（`baseline-2026-09-30`，16 本、249 章）：11 本過關，5 本沒過**——georgia 58.3、草枕 65.3、AI 術語詞典 75.2、紅樓夢脂評直排 76.6、Mahabharata 78.5。走新引擎的 177 章平均 91.8，回退舊引擎的 72 章平均 78.2；差距主要在回退的章節。[完整報告](fidelity-loop/reports/baseline-2026-09-30.md) · [佇列與記分板](fidelity-loop/STATE.md)。
+
+量法是 Claude 寫的，loop 不准改（`scripts/fidelity/oracle.lock`）：兩邊用同一個捲動版面（390×800、繁體中文語言環境），以「同一個字」對齊後比每段的換行、位置、字級與整頁畫面。51 個量法自測；每條擷取路徑（新引擎橫直排、舊引擎橫直排、由右至左）都把量到的方塊疊回截圖核對過。整份基線在同一台模擬器重量一次，走新引擎的 177 章每一章分數完全相同，舊引擎的章節最多漂移 2.8 分；換一台語言設定不同的模擬器重量同樣的章節，分數也一樣（抽 6 章驗證；量測固定用繁體中文）。
+
+這個目標把表格、flex／grid、直排圖片、`@media` 這些原本排在載入效能後面的能力往前拉。兩條主線會改到同一批檔案（能力掃描、CSS 前端），loop 的手冊規定合併時在這些檔案遇到衝突一律停下來等人；每合入五個切片要重跑一次按需字型的載入量測，慢超過 15% 就停。還沒有任何引擎修改，也還沒建立 loop 的工作副本。
 
 ## 2026-09-30：按需字型與 0.6.1 正式套件整合已完成
 
