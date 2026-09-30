@@ -35,6 +35,9 @@ struct AppleBooksReaderControls: View {
     let onOpenBookmarks: () -> Void
     let onOpenSearch: () -> Void
     let onOpenSettings: () -> Void
+    /// The reader's own dark mode, which the last menu row switches.
+    let isDarkMode: Bool
+    let onToggleDarkMode: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var sliderDraft: Double?
@@ -115,6 +118,15 @@ struct AppleBooksReaderControls: View {
                         performPanelAction(aiAssistant.action)
                     }
                 }
+
+                // 深色／白天: what 經典 and 現代 keep in their tool row. Last, so the rows
+                // above stay where they are. The menu stays up — it is a switch, and the
+                // page it changes shows behind the menu.
+                menuRow(
+                    localized(isDarkMode ? "白天" : "深色"),
+                    icon: ReaderChromeToolItem.nightMode.systemImage(isNight: isDarkMode),
+                    action: onToggleDarkMode
+                )
             }
 
             if !secondaryActions.isEmpty {
@@ -379,7 +391,9 @@ struct AppleBooksReaderControls: View {
             onOpenTOC: {},
             onOpenBookmarks: {},
             onOpenSearch: {},
-            onOpenSettings: {}
+            onOpenSettings: {},
+            isDarkMode: false,
+            onToggleDarkMode: {}
         )
     }
 }

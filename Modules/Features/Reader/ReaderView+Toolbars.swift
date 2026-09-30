@@ -394,7 +394,9 @@ extension ReaderView {
             onOpenTOC: { showTOC = true },
             onOpenBookmarks: { showBookmarkList = true },
             onOpenSearch: { showReaderSearch = true },
-            onOpenSettings: { showQuickThemePanel = true }
+            onOpenSettings: { showQuickThemePanel = true },
+            isDarkMode: settings.readerDarkMode,
+            onToggleDarkMode: { toggleReaderDarkMode() }
         )
         .environment(\.colorScheme, readerTheme == .night ? .dark : .light)
     }
