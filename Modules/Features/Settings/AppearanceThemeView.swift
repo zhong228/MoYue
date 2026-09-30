@@ -195,8 +195,8 @@ struct AppearanceThemeView: View {
         renameTarget = preset
     }
 
-    /// How the look follows the system's light and dark, and whether the reading
-    /// background does too.
+    /// How the look follows the system's light and dark, and which reading background
+    /// each of the reader's two modes wears.
     private var lightDarkSection: some View {
         Section {
             Toggle(isOn: appearanceFollowsSystemBinding) {
@@ -217,7 +217,7 @@ struct AppearanceThemeView: View {
                 .foregroundStyle(DSColor.textSecondary)
         } footer: {
             if settings.appearanceBindReaderTheme {
-                Text(localized("閱讀器會依系統的淺色／深色，自動套用上面選的閱讀主題。"))
+                Text(localized("閱讀器在淺色模式用淺色閱讀主題，深色模式用深色閱讀主題。要跟著裝置的深淺色自動切換，在閱讀器的「設置」面板開啟「跟隨裝置深淺色」。"))
                     .dsSectionFooter()
             }
         }

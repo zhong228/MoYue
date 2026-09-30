@@ -389,8 +389,8 @@ extension GlobalSettings {
         assign(\.footerTextGap, reading.footerTextGap)
         assign(\.chapterTitleStyle, reading.chapterTitleStyle)
 
-        // 綁定閱讀主題 before 跟隨系統: turning the binding on switches 跟隨系統 off in its
-        // own `didSet`, which must not overwrite the value the setup asks for.
+        // 綁定閱讀主題 before 跟隨裝置深淺色: turning the binding on switches that off in
+        // its own `didSet`, which must not overwrite the value the setup asks for.
         assign(\.appearanceBindReaderTheme, reading.bindsAppearanceReaderTheme)
         assign(\.readerFollowSystemTheme, reading.followsSystemTheme)
         assign(\.appearanceBoundLightReaderTheme, reading.boundLightReaderTheme.map {
@@ -399,11 +399,13 @@ extension GlobalSettings {
         assign(\.appearanceBoundDarkReaderTheme, reading.boundDarkReaderTheme.map {
             liveBoundReaderTheme($0, for: .dark)
         })
+        var arrivedTheme: ReaderTheme?
         if let raw = reading.readerTheme, let theme = ReaderTheme(rawValue: raw),
            theme != ReaderTheme.loadPersisted() {
             // Stored rather than set on `ReaderConfig`, which owns the live value and
             // reloads it from here on the notification below.
             theme.persist()
+            arrivedTheme = theme
             changed = true
         }
         if let raw = reading.readerBackgroundID {
@@ -415,6 +417,13 @@ extension GlobalSettings {
                 readerCustomBackgroundID = id
                 changed = true
             }
+        }
+        // A built-in background that arrived says which mode its reader was in: 黑色 is
+        // dark mode. Read after the saved background, which decides whether 黑色 is only
+        // what a dark one sits on. One already in use says nothing new: the setup is
+        // worn again whenever the appearance changes, and the mode stays the user's.
+        if let arrivedTheme {
+            adoptReaderDarkMode(from: arrivedTheme)
         }
 
         if let bubble = reading.commentBubble {

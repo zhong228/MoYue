@@ -11,7 +11,8 @@ import SwiftUI
 /// The book-scoped actions (刷新 / 換源 / 下載 / 聽書) are deliberately *not* here;
 /// 現代 puts them in `ReaderModernBookCard` behind the cover thumbnail.
 struct ReaderModernBottomControlBar: View {
-    @Binding var readerTheme: ReaderTheme
+    /// The built-in background the reader sits on: what the bar's colours are read from.
+    let readerTheme: ReaderTheme
     let overlayContentMaxWidth: CGFloat
     let canGoPrevChapter: Bool
     let canGoNextChapter: Bool
@@ -24,19 +25,22 @@ struct ReaderModernBottomControlBar: View {
     let onNextChapter: () -> Void
     let onOpenTOC: () -> Void
     let onOpenBookmarks: () -> Void
+    /// 深色／白天: the reader switches its own dark mode, and the background with it.
+    let onToggleDarkMode: () -> Void
     let onOpenSettings: () -> Void
 
     @ObservedObject private var settings = GlobalSettings.shared
 
     @State private var chapterSliderDraft: Double? = nil
 
-    private let feedbackDuration: Double = 0.25
 
     private var palette: ReaderChromePalette {
         ReaderChromePalette(interface: .modern, theme: readerTheme, settings: settings)
     }
 
-    private var isNightTheme: Bool { readerTheme == .night }
+    /// The reader's own dark mode, which 深色／白天 switches — not whether the background
+    /// it sits on is 黑色, which a dark saved background does in light mode too.
+    private var isDarkMode: Bool { settings.readerDarkMode }
 
     private var sliderProgress: Double {
         chapterSliderDraft ?? chapterSliderProgressValue()
@@ -157,25 +161,12 @@ struct ReaderModernBottomControlBar: View {
         case .nightMode:
             toolBtn(
                 item: item,
-                label: localized(isNightTheme ? "白天" : "深色"),
-                active: isNightTheme,
-                action: toggleNightTheme
+                label: localized(isDarkMode ? "白天" : "深色"),
+                active: isDarkMode,
+                action: onToggleDarkMode
             )
         case .settings:
             toolBtn(item: item, label: localized("設置"), action: onOpenSettings)
-        }
-    }
-
-    private func toggleNightTheme() {
-        withAnimation(.easeInOut(duration: feedbackDuration)) {
-            if isNightTheme {
-                let saved = UserDefaults.standard.string(forKey: "lastLightTheme")
-                    ?? ReaderTheme.white.rawValue
-                readerTheme = ReaderTheme(rawValue: saved) ?? .white
-            } else {
-                UserDefaults.standard.set(readerTheme.rawValue, forKey: "lastLightTheme")
-                readerTheme = .night
-            }
         }
     }
 
@@ -215,7 +206,7 @@ struct ReaderModernBottomControlBar: View {
                 .scaledToFit()
                 .frame(width: 22, height: 22)
         } else {
-            Image(systemName: item.systemImage(isNight: isNightTheme))
+            Image(systemName: item.systemImage(isNight: isDarkMode))
                 .imageScale(.large)
                 .foregroundStyle(active ? palette.bottomAccent : palette.bottomIcon)
         }
@@ -253,7 +244,7 @@ struct ReaderModernBottomControlBar: View {
             .padding(20)
 
         ReaderModernBottomControlBar(
-            readerTheme: $theme,
+            readerTheme: theme,
             overlayContentMaxWidth: 640,
             canGoPrevChapter: true,
             canGoNextChapter: true,
@@ -266,6 +257,7 @@ struct ReaderModernBottomControlBar: View {
             onNextChapter: {},
             onOpenTOC: {},
             onOpenBookmarks: {},
+            onToggleDarkMode: {},
             onOpenSettings: {}
         )
     }

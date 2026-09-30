@@ -3419,7 +3419,7 @@
 "重設排版？" = "Reset Layout?";
 "跟隨主題文字顏色" = "Use the Theme's Text Color";
 "重設生效範圍" = "Reset Scope";
-"閱讀器會依系統的淺色／深色，自動套用上面選的閱讀主題。" = "The reader applies the reading themes chosen above, following the system's light or dark appearance.";
+"閱讀器在淺色模式用淺色閱讀主題，深色模式用深色閱讀主題。要跟著裝置的深淺色自動切換，在閱讀器的「設置」面板開啟「跟隨裝置深淺色」。" = "The reader wears the Light Reading Theme in its light mode and the Dark Reading Theme in its dark mode. To switch with the device's appearance, turn on Match Device Appearance in the reader's Settings panel.";
 "閱讀背景與翻頁" = "Reading Background & Page Turn";
 "閱讀背景與翻頁方式在閱讀器的選單裡調整。" = "The reading background and page turn style are set from the reader's menu.";
 "頁首頁尾與標題" = "Header, Footer & Title";

@@ -2,8 +2,8 @@ import Foundation
 import UIKit
 
 /// A reading background the user made and named — a colour or a picture — kept in the
-/// list beside 白色／護眼綠／棕色／黑色, choosable for either appearance under 綁定閱讀主題
-/// and synced through iCloud (2026-09-29). Before this there was one custom slot, and
+/// list beside 白色／護眼綠／棕色／黑色, choosable for either of the reader's modes under
+/// 綁定閱讀主題 and synced through iCloud (2026-09-29). Before this there was one custom slot, and
 /// making a new background overwrote the last one.
 struct ReaderCustomBackground: Codable, Equatable, Identifiable, Sendable {
     var id: UUID
@@ -14,9 +14,11 @@ struct ReaderCustomBackground: Codable, Equatable, Identifiable, Sendable {
     var imageFileName: String?
     /// The body text colour; nil takes whichever of dark or light text reads better.
     var textColorHex: UInt32?
-    /// A dark background sits on 黑色: the reader's chrome goes dark with it, and it is
-    /// the one 夜間 wears. Measured when the background is made — a picture by its average
-    /// colour — since a picture cannot be measured on every page turn.
+    /// A dark background sits on 黑色, so the reader's chrome goes dark with it. It says
+    /// nothing about which of the reader's modes wears it: a saved background is the
+    /// light mode's, dark or not, unless 深色閱讀主題 picks it. Measured when the
+    /// background is made — a picture by its average colour — since a picture cannot be
+    /// measured on every page turn.
     var isDark: Bool
     /// iCloud merge clock: stamped on every local edit, never by a sync.
     var updatedAt: Date?

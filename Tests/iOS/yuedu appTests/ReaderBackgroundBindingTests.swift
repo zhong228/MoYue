@@ -6,7 +6,8 @@ import UIKit
 
 /// Saved reading backgrounds and 綁定閱讀主題 (2026-09-29): backgrounds of the user's own,
 /// by name, choosable for dark mode as well as light, synced, and a theme pack's picture
-/// kept in dark mode instead of 黑色.
+/// kept in dark mode instead of 黑色. Which of the two modes the reader is in is its own
+/// dark mode, not the device's appearance and not the tone of a background (2026-09-30).
 @Suite("閱讀背景", .serialized)
 @MainActor
 struct ReaderBackgroundBindingTests {
@@ -22,23 +23,23 @@ struct ReaderBackgroundBindingTests {
         defer { fixture.restore() }
 
         let pack = settings.saveReaderCustomBackground(Self.picture("Pack"))
-        _ = settings.wearReaderCustomBackground(pack, over: .white)
+        _ = settings.wearReaderCustomBackground(pack, over: .white, deviceIsDark: false)
         settings.appearanceBindReaderTheme = true
         settings.setBoundReaderTheme(.followAppearanceTheme, for: .light)
         settings.setBoundReaderTheme(.reading(.sepia), for: .dark)
 
-        let dark = settings.readerBackgroundResolution(appearance: .dark, wornTheme: .white)
+        let dark = settings.readerBackgroundResolution(mode: .dark, wornTheme: .white)
         #expect(dark.theme == .sepia)
         #expect(dark.customBackground == nil)
         #expect(!dark.paintsWithAppearanceTheme)
 
-        let light = settings.readerBackgroundResolution(appearance: .light, wornTheme: .white)
+        let light = settings.readerBackgroundResolution(mode: .light, wornTheme: .white)
         #expect(light.customBackground?.id == pack.id)
         #expect(!light.paintsWithAppearanceTheme)
 
         // A theme with no reading picture of its own is painted with its palette.
         settings.readerCustomBackgroundID = nil
-        #expect(settings.readerBackgroundResolution(appearance: .light, wornTheme: .white).paintsWithAppearanceTheme)
+        #expect(settings.readerBackgroundResolution(mode: .light, wornTheme: .white).paintsWithAppearanceTheme)
     }
 
     /// What the user asked for: dark mode wears a background of their own, not 黑色.
@@ -55,11 +56,11 @@ struct ReaderBackgroundBindingTests {
         settings.setBoundReaderTheme(.custom(day.id), for: .light)
         settings.setBoundReaderTheme(.custom(night.id), for: .dark)
 
-        let dark = settings.readerBackgroundResolution(appearance: .dark, wornTheme: .white)
+        let dark = settings.readerBackgroundResolution(mode: .dark, wornTheme: .white)
         #expect(dark.theme == .night)
         #expect(dark.customBackground?.id == night.id)
 
-        let light = settings.readerBackgroundResolution(appearance: .light, wornTheme: .night)
+        let light = settings.readerBackgroundResolution(mode: .light, wornTheme: .night)
         #expect(light.theme != .night)
         #expect(light.customBackground?.id == day.id)
 
@@ -77,30 +78,246 @@ struct ReaderBackgroundBindingTests {
 
     // MARK: - Worn from the reader
 
-    /// A saved background paints only a built-in of its own tone, so 夜間 can come and go
-    /// over a light one — and back to light from a dark one — as it always could.
-    @Test func aSavedBackgroundShowsOnlyOverItsOwnTone() {
+    /// A background made in the reader is the light mode's, dark or not; dark mode is 黑色
+    /// and gets one of its own only through 深色閱讀主題. A dark one used to put the reader
+    /// in dark mode and stay out of light mode (reported 2026-09-30).
+    @Test func aSavedBackgroundIsTheLightModesWhateverItsTone() {
         let settings = GlobalSettings.shared
         let fixture = Fixture(settings)
         defer { fixture.restore() }
 
-        let light = settings.saveReaderCustomBackground(Self.color("淺", 0xEFE6D2))
-        #expect(settings.wearReaderCustomBackground(light, over: .night) != .night)
-        #expect(settings.readerBackgroundResolution(appearance: .light, wornTheme: .white).customBackground?.id == light.id)
-        #expect(settings.readerBackgroundResolution(appearance: .light, wornTheme: .night).customBackground == nil)
-
+        // Made while the reader is in dark mode.
+        settings.readerDarkMode = true
         let dark = settings.saveReaderCustomBackground(Self.color("深", 0x1B1B28))
-        #expect(settings.wearReaderCustomBackground(dark, over: .white) == .night)
-        #expect(settings.readerBackgroundResolution(appearance: .light, wornTheme: .night).customBackground?.id == dark.id)
-        #expect(settings.readerBackgroundResolution(appearance: .light, wornTheme: .white).customBackground == nil)
+        #expect(dark.isDark)
+        let worn = settings.wearReaderCustomBackground(dark, over: .night, deviceIsDark: false)
+        #expect(!settings.readerDarkMode)
+        #expect(worn == .night, "a dark one sits on 黑色, for the chrome")
+        let lightMode = settings.readerBackgroundResolution(mode: .light, wornTheme: worn)
+        #expect(lightMode.customBackground?.id == dark.id)
+        #expect(lightMode.theme == .night)
+        let darkMode = settings.readerBackgroundResolution(mode: .dark, wornTheme: worn)
+        #expect(darkMode.customBackground == nil)
+        #expect(darkMode.theme == .night)
 
-        // The palette follows the same rule.
+        let light = settings.saveReaderCustomBackground(Self.color("淺", 0xEFE6D2))
+        #expect(settings.wearReaderCustomBackground(light, over: .night, deviceIsDark: false) != .night)
+        #expect(settings.readerBackgroundResolution(mode: .light, wornTheme: .white).customBackground?.id == light.id)
+        #expect(settings.readerBackgroundResolution(mode: .light, wornTheme: .white).theme == .white)
+        #expect(settings.readerBackgroundResolution(mode: .dark, wornTheme: .white).customBackground == nil)
+        #expect(settings.readerBackgroundResolution(mode: .dark, wornTheme: .white).theme == .night)
+
+        // The palette still paints only the built-in of its own tone, which is why a
+        // dark background sits on 黑色.
         AppearanceThemePreset.activeReaderTheme = settings.readerBackgroundPreset(for: dark)
         #expect(ReaderTheme.night.uiBackgroundColor.rgbHex == 0x1B1B28)
         #expect(ReaderTheme.white.uiBackgroundColor.rgbHex == 0xF4F5F7)
         AppearanceThemePreset.activeReaderTheme = settings.readerBackgroundPreset(for: light)
         #expect(ReaderTheme.white.uiBackgroundColor.rgbHex == 0xEFE6D2)
         #expect(ReaderTheme.night.uiBackgroundColor.rgbHex == 0x000000)
+    }
+
+    // MARK: - The reader's mode
+
+    /// 綁定閱讀主題's picks are worn by the reader's own dark mode — its 深色／白天 button —
+    /// not by the device's appearance, against which the button could do nothing
+    /// (reported 2026-09-30).
+    @Test func theReadersModeWearsTheBoundPickNotTheDevices() {
+        let settings = GlobalSettings.shared
+        let fixture = Fixture(settings)
+        defer { fixture.restore() }
+
+        settings.appearanceBindReaderTheme = true
+        settings.setBoundReaderTheme(.reading(.green), for: .light)
+        settings.setBoundReaderTheme(.reading(.sepia), for: .dark)
+        settings.readerDarkMode = false
+
+        // 深色, on a device in light appearance.
+        settings.setReaderDarkMode(true, deviceIsDark: false)
+        #expect(settings.readerMode == .dark)
+        #expect(settings.readerBackgroundResolution(mode: settings.readerMode, wornTheme: .green).theme == .sepia)
+        // The device turning dark and light again moves nothing: nothing follows it.
+        settings.alignReaderDarkMode(deviceIsDark: true)
+        settings.alignReaderDarkMode(deviceIsDark: false)
+        #expect(settings.readerDarkMode)
+        // 白天.
+        settings.setReaderDarkMode(false, deviceIsDark: false)
+        #expect(settings.readerBackgroundResolution(mode: settings.readerMode, wornTheme: .sepia).theme == .green)
+    }
+
+    /// 跟隨裝置深淺色 shows under 綁定閱讀主題, off to start with. On, the reader takes the
+    /// device's appearance; set against it by hand the switch goes back off, since the
+    /// two cannot both hold — and stays where the user left it after that.
+    @Test func followingTheDeviceEndsWhenTheModeIsSetAgainstIt() {
+        let settings = GlobalSettings.shared
+        let fixture = Fixture(settings)
+        defer { fixture.restore() }
+
+        settings.appearanceBindReaderTheme = false
+        settings.readerFollowSystemTheme = true
+        settings.appearanceBindReaderTheme = true
+        #expect(!settings.readerFollowSystemTheme, "off to start with")
+
+        settings.readerDarkMode = true
+        settings.setReaderFollowsDevice(true, deviceIsDark: false)
+        #expect(settings.readerFollowSystemTheme)
+        #expect(!settings.readerDarkMode)
+        settings.alignReaderDarkMode(deviceIsDark: true)
+        #expect(settings.readerDarkMode)
+
+        // By hand, the way the device already is: nothing to give up.
+        settings.setReaderDarkMode(true, deviceIsDark: true)
+        #expect(settings.readerFollowSystemTheme)
+        // Against it.
+        settings.setReaderDarkMode(false, deviceIsDark: true)
+        #expect(!settings.readerFollowSystemTheme)
+        #expect(!settings.readerDarkMode)
+        settings.alignReaderDarkMode(deviceIsDark: true)
+        #expect(!settings.readerDarkMode)
+        // Back to the device's by hand: the switch is the user's to turn on again.
+        settings.setReaderDarkMode(true, deviceIsDark: true)
+        #expect(!settings.readerFollowSystemTheme)
+    }
+
+    /// Without 綁定閱讀主題 no switch shows: the reader follows the device by itself, and a
+    /// mode set against the device holds until the device comes round to it.
+    @Test func withoutTheBindingTheReaderFollowsTheDeviceByItself() {
+        let settings = GlobalSettings.shared
+        let fixture = Fixture(settings)
+        defer { fixture.restore() }
+
+        settings.appearanceBindReaderTheme = false
+        settings.readerCustomBackgroundID = nil
+        settings.readerFollowSystemTheme = true
+        settings.readerDarkMode = false
+
+        settings.alignReaderDarkMode(deviceIsDark: true)
+        #expect(settings.readerDarkMode)
+        #expect(settings.readerBackgroundResolution(mode: settings.readerMode, wornTheme: .white).theme == .night)
+
+        // 白天 by hand while the device is dark: held.
+        settings.setReaderDarkMode(false, deviceIsDark: true)
+        #expect(!settings.readerFollowSystemTheme)
+        settings.alignReaderDarkMode(deviceIsDark: true)
+        #expect(!settings.readerDarkMode)
+        // The device comes round to it, and is followed from there.
+        settings.alignReaderDarkMode(deviceIsDark: false)
+        #expect(settings.readerFollowSystemTheme)
+        settings.alignReaderDarkMode(deviceIsDark: true)
+        #expect(settings.readerDarkMode)
+
+        // Set against the device and back by hand, it follows again at once.
+        settings.setReaderDarkMode(false, deviceIsDark: true)
+        settings.setReaderDarkMode(true, deviceIsDark: true)
+        #expect(settings.readerFollowSystemTheme)
+    }
+
+    /// What the reader lets go of or takes up again by itself is not a setting made here:
+    /// noted, every device would hand its own state to the others.
+    @Test func whatTheReaderFollowsByItselfIsNotNoted() {
+        let settings = GlobalSettings.shared
+        let fixture = Fixture(settings)
+        defer { fixture.restore() }
+
+        settings.appearanceBindReaderTheme = false
+        settings.readerFollowSystemTheme = true
+        settings.readerDarkMode = false
+        settings.readingSettingSyncRecords = []
+
+        settings.setReaderDarkMode(true, deviceIsDark: false)
+        #expect(!settings.readerFollowSystemTheme)
+        settings.alignReaderDarkMode(deviceIsDark: true)
+        #expect(settings.readerFollowSystemTheme)
+        #expect(Self.backgroundRecord(settings) == nil)
+    }
+
+    /// The reading setup is worn again whenever the appearance changes. That must take back
+    /// neither what the reader took up by itself nor the mode it is in — on the simulator
+    /// the reader stopped following the device at the first change of appearance, the
+    /// stored setup still saying it did not (2026-09-30).
+    @Test func wearingTheSetupAgainKeepsTheModeAndWhatItFollows() {
+        let settings = GlobalSettings.shared
+        let fixture = Fixture(settings)
+        defer { fixture.restore() }
+
+        settings.appearanceBindReaderTheme = false
+        settings.readerCustomBackgroundID = nil
+        settings.readerFollowSystemTheme = true
+        settings.readerDarkMode = false
+        ReaderConfig.shared.theme = .white
+
+        // 深色 by hand on a device in light appearance, the reader putting 黑色 in place.
+        settings.setReaderDarkMode(true, deviceIsDark: false)
+        ReaderConfig.shared.theme = .night
+        settings.synchronizeReadingSettings()
+        #expect(settings.readerDarkMode)
+        #expect(!settings.readerFollowSystemTheme)
+
+        // The device comes round to it, and the setup is worn again.
+        settings.alignReaderDarkMode(deviceIsDark: true)
+        settings.synchronizeReadingSettings()
+        #expect(settings.readerFollowSystemTheme)
+        #expect(settings.readerDarkMode)
+
+        // Back to light: followed, and still followed after the setup is worn again.
+        settings.alignReaderDarkMode(deviceIsDark: false)
+        ReaderConfig.shared.theme = .white
+        settings.synchronizeReadingSettings()
+        #expect(!settings.readerDarkMode)
+        #expect(settings.readerFollowSystemTheme)
+
+        // A dark saved background worn in light mode sits on 黑色; dark mode set by hand
+        // leaves 黑色 in place, and wearing the setup again must not read that as light mode.
+        let dark = settings.saveReaderCustomBackground(Self.color("深", 0x1B1B28))
+        ReaderConfig.shared.theme = settings.wearReaderCustomBackground(dark, over: .white, deviceIsDark: false)
+        settings.setReaderDarkMode(true, deviceIsDark: false)
+        settings.synchronizeReadingSettings()
+        #expect(settings.readerDarkMode)
+    }
+
+    /// A reader updated to this keeps what is on its screen: the mode starts from what it
+    /// used to be read off, and only a reader never given a background follows the device
+    /// from the start.
+    @Test func aReaderWithNoModeStoredStartsFromWhatIsOnScreen() {
+        #expect(GlobalSettings.startingReaderDarkMode(stored: nil, theme: .night, wornBackgroundIsDark: false, binds: false))
+        #expect(!GlobalSettings.startingReaderDarkMode(stored: nil, theme: .night, wornBackgroundIsDark: true, binds: false),
+                "黑色 under a dark saved background is the light mode")
+        #expect(!GlobalSettings.startingReaderDarkMode(stored: nil, theme: .sepia, wornBackgroundIsDark: false, binds: false))
+        #expect(GlobalSettings.startingReaderDarkMode(stored: nil, theme: .night, wornBackgroundIsDark: true, binds: true))
+        #expect(!GlobalSettings.startingReaderDarkMode(stored: false, theme: .night, wornBackgroundIsDark: false, binds: false))
+
+        #expect(GlobalSettings.startingReaderFollowsDevice(stored: nil, hasPickedBackground: false))
+        #expect(!GlobalSettings.startingReaderFollowsDevice(stored: nil, hasPickedBackground: true))
+        #expect(GlobalSettings.startingReaderFollowsDevice(stored: true, hasPickedBackground: true))
+    }
+
+    /// A built-in background arriving in place of the one in use — a theme's reading
+    /// setup, another device's — says which mode that reader was in: 黑色 is dark mode,
+    /// unless a dark saved background sits on it.
+    @Test func aBuiltInBackgroundArrivingSetsTheMode() throws {
+        let settings = GlobalSettings.shared
+        let fixture = Fixture(settings)
+        defer { fixture.restore() }
+        settings.appearanceBindReaderTheme = false
+        settings.readerCustomBackgroundID = nil
+        settings.readerDarkMode = false
+        ReaderTheme.white.persist()
+
+        var setup = AppearanceThemeReadingSettings()
+        setup.readerTheme = ReaderTheme.night.rawValue
+        setup.readerBackgroundID = ""
+        try settings.writeReadingSettings(setup, origin: .theme)
+        #expect(settings.readerDarkMode)
+
+        setup.readerTheme = ReaderTheme.green.rawValue
+        try settings.writeReadingSettings(setup, origin: .theme)
+        #expect(!settings.readerDarkMode)
+
+        let dark = settings.saveReaderCustomBackground(Self.color("深", 0x1B1B28))
+        setup.readerTheme = ReaderTheme.night.rawValue
+        setup.readerBackgroundID = dark.id.uuidString
+        try settings.writeReadingSettings(setup, origin: .theme)
+        #expect(!settings.readerDarkMode, "黑色 is what the dark saved background sits on")
     }
 
     /// Its text colour is its own, not the 文字顏色 set for the built-in under it.
@@ -156,7 +373,7 @@ struct ReaderBackgroundBindingTests {
         defer { fixture.restore() }
 
         let background = settings.saveReaderCustomBackground(Self.color("暫時", 0x223344))
-        _ = settings.wearReaderCustomBackground(background, over: .white)
+        _ = settings.wearReaderCustomBackground(background, over: .white, deviceIsDark: false)
         settings.setBoundReaderTheme(.custom(background.id), for: .light)
         settings.setBoundReaderTheme(.custom(background.id), for: .dark)
 
@@ -191,7 +408,7 @@ struct ReaderBackgroundBindingTests {
 
         let kept = settings.saveReaderCustomBackground(Self.color("留", 0xFAFAFA))
         let gone = settings.saveReaderCustomBackground(Self.color("走", 0x101010))
-        _ = settings.wearReaderCustomBackground(gone, over: .white)
+        _ = settings.wearReaderCustomBackground(gone, over: .white, deviceIsDark: false)
         settings.setBoundReaderTheme(.custom(gone.id), for: .dark)
 
         settings.applyReaderCustomBackgroundsSync(settings.readerCustomBackgrounds.filter { $0.id != gone.id })
@@ -241,7 +458,7 @@ struct ReaderBackgroundBindingTests {
         #expect(settings.appearanceBindReaderTheme)
         #expect(settings.boundReaderTheme(for: .dark) == .custom(saved.id))
 
-        let dark = settings.readerBackgroundResolution(appearance: .dark, wornTheme: .night)
+        let dark = settings.readerBackgroundResolution(mode: .dark, wornTheme: .night)
         #expect(dark.customBackground?.id == saved.id)
     }
 
@@ -479,7 +696,7 @@ struct ReaderBackgroundBindingTests {
             name: "照片", colorHex: picture.averageColorHex, imageFileName: picture.fileName, isDark: picture.isDark
         ))
         let plain = settings.saveReaderCustomBackground(Self.color("素色", 0xDDE8D8))
-        _ = settings.wearReaderCustomBackground(plain, over: .white)
+        _ = settings.wearReaderCustomBackground(plain, over: .white, deviceIsDark: false)
 
         let bundle = AppearanceCustomizationBundle(snapshot: settings.appearanceCustomizationSnapshot())
         let carried = try #require(bundle.savedReaderBackgrounds)
@@ -503,18 +720,24 @@ struct ReaderBackgroundBindingTests {
     // MARK: - 穿哪個背景, across devices
 
     /// A background picked here is this device's latest setting of the 閱讀背景 row,
-    /// snapshotted with its time; the reader setting the built-in background for the
-    /// appearance by itself is not, and neither is wearing a theme's own setup.
+    /// snapshotted with its time — with the built-in background it sits on, when the mode
+    /// it is worn in is held against the device. The reader setting the built-in
+    /// background for the device's appearance by itself is not, and neither is wearing a
+    /// theme's own setup.
     @Test func pickingABackgroundIsNotedAndFollowingTheSystemIsNot() throws {
         let settings = GlobalSettings.shared
         let fixture = Fixture(settings)
         defer { fixture.restore() }
         let saved = settings.saveReaderCustomBackground(Self.color("夜色", 0x102030))
         fixture.savedBackgrounds.append(saved.id)
+        ReaderConfig.shared.theme = .white
         settings.readingSettingSyncRecords = []
 
-        // A saved tile in the reader, as ReaderQuickThemePanelView wears it.
-        ReaderConfig.shared.theme = settings.wearReaderCustomBackground(saved, over: ReaderConfig.shared.theme)
+        // A saved tile in the reader, as ReaderQuickThemePanelView wears it, on a device
+        // in dark appearance: the light mode that wears it is held against the device.
+        ReaderConfig.shared.theme = settings.wearReaderCustomBackground(
+            saved, over: ReaderConfig.shared.theme, deviceIsDark: true
+        )
         let picked = try #require(Self.backgroundRecord(settings))
         #expect(picked.values.readerBackgroundID == saved.id.uuidString)
         #expect(picked.values.readerTheme == ReaderTheme.night.rawValue)
@@ -571,7 +794,7 @@ struct ReaderBackgroundBindingTests {
         #expect(!settings.appearanceBindReaderTheme)
         #expect(settings.readerCustomBackgroundID == saved.id)
         #expect(ReaderTheme.loadPersisted() == .sepia)
-        let resolution = settings.readerBackgroundResolution(appearance: .light, wornTheme: ReaderTheme.loadPersisted())
+        let resolution = settings.readerBackgroundResolution(mode: .light, wornTheme: ReaderTheme.loadPersisted())
         #expect(resolution.customBackground?.id == saved.id)
 
         settings.synchronizeReadingSettings()
@@ -587,7 +810,9 @@ struct ReaderBackgroundBindingTests {
         defer { fixture.restore() }
         let saved = settings.saveReaderCustomBackground(Self.color("暮色", 0x302010))
         fixture.savedBackgrounds.append(saved.id)
-        ReaderConfig.shared.theme = settings.wearReaderCustomBackground(saved, over: ReaderConfig.shared.theme)
+        ReaderConfig.shared.theme = settings.wearReaderCustomBackground(
+            saved, over: ReaderConfig.shared.theme, deviceIsDark: false
+        )
         let before = try #require(Self.backgroundRecord(settings))
 
         settings.applyReaderCustomBackgroundsSync(settings.readerCustomBackgrounds.filter { $0.id != saved.id })
@@ -630,6 +855,7 @@ struct ReaderBackgroundBindingTests {
         private let worn: UUID?
         private let binds: Bool
         private let followsSystem: Bool
+        private let darkMode: Bool
         private let light: String
         private let dark: String
         private let overrides: [String: UInt32]
@@ -659,6 +885,7 @@ struct ReaderBackgroundBindingTests {
         private let launchDark: String?
         private let preset: AppearanceThemePreset?
         private let readerTheme: ReaderTheme
+        private let lastLightTheme: ReaderTheme
         private let builtInColors: [String: AppearanceCustomTheme]
         private let reading: AppearanceThemeReadingSettings
         private let stores = ReadingSettingsStoresSnapshot()
@@ -671,6 +898,7 @@ struct ReaderBackgroundBindingTests {
             worn = settings.readerCustomBackgroundID
             binds = settings.appearanceBindReaderTheme
             followsSystem = settings.readerFollowSystemTheme
+            darkMode = settings.readerDarkMode
             light = settings.appearanceBoundLightReaderTheme
             dark = settings.appearanceBoundDarkReaderTheme
             overrides = settings.readerTextColorOverrides
@@ -700,6 +928,7 @@ struct ReaderBackgroundBindingTests {
             launchDark = settings.launchImageDarkFileName
             preset = AppearanceThemePreset.activeReaderTheme
             readerTheme = ReaderTheme.loadPersisted()
+            lastLightTheme = ReaderTheme.lastLightTheme
             builtInColors = settings.appearanceBuiltInThemeColors
             reading = settings.currentReadingSettingsSnapshot()
         }
@@ -740,11 +969,15 @@ struct ReaderBackgroundBindingTests {
             settings.launchImageLightFileName = launchLight
             settings.launchImageDarkFileName = launchDark
             settings.appearanceBuiltInThemeColors = builtInColors
+            // The light one first: persisting a light background makes it the last light
+            // one, which a test that wore another would otherwise leave behind.
+            lastLightTheme.persist()
             readerTheme.persist()
             try? settings.writeReadingSettings(reading, origin: .theme)
             settings.readerCustomBackgroundID = worn
             settings.appearanceBindReaderTheme = binds
             settings.readerFollowSystemTheme = followsSystem
+            settings.readerDarkMode = darkMode
             settings.appearanceBoundLightReaderTheme = light
             settings.appearanceBoundDarkReaderTheme = dark
             settings.readerTextColorOverrides = overrides

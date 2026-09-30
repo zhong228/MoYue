@@ -88,7 +88,10 @@ struct ReaderPreferences: Codable, Equatable {
         defer { updates.finish() }
         updates.set(\.readerFontSize, readerFontSize, field: "readerFontSize")
         if let theme = ReaderTheme(rawValue: theme) {
-            if ReaderTheme.loadPersisted() != theme { theme.persist() }
+            if ReaderTheme.loadPersisted() != theme {
+                theme.persist()
+                settings.adoptReaderDarkMode(from: theme)
+            }
         }
         updates.set(\.lineHeightMultiple, lineHeightMultiple, field: "lineHeightMultiple")
         updates.set(\.letterSpacing, letterSpacing, field: "letterSpacing")

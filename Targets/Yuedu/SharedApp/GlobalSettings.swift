@@ -112,16 +112,16 @@ enum ReaderTheme: String, CaseIterable {
         return ReaderTheme(rawValue: raw) ?? .white
     }
 
-    /// The most recently used non-night theme. Used by "follow system" mode to
-    /// pick a light-appearance theme when the system switches to light.
+    /// Whether the reader has ever been given a background: none is stored until one is.
+    static var hasPersistedChoice: Bool {
+        UserDefaults.standard.string(forKey: userDefaultsKey) != nil
+    }
+
+    /// The most recently used non-night theme: the light mode's built-in background
+    /// while the reader sits on 黑色.
     static var lastLightTheme: ReaderTheme {
         let raw = UserDefaults.standard.string(forKey: lastLightThemeKey) ?? ""
         return ReaderTheme(rawValue: raw) ?? .white
-    }
-
-    /// The theme to apply when "follow system" mode is on, for the given scheme.
-    static func forSystem(dark: Bool) -> ReaderTheme {
-        dark ? .night : lastLightTheme
     }
 
     func persist() {
@@ -151,11 +151,11 @@ enum ReaderTheme: String, CaseIterable {
         Color(uiColor: uiAccentColor)
     }
 
-    /// A palette repaints only the backgrounds of its own tone: a light one never paints
-    /// 黑色 — which is what keeps a light saved background (or a bound light theme) out of
-    /// night mode — and a dark one paints nothing but 黑色, so turning 夜間 off from a dark
-    /// saved background reaches the light page instead of leaving the dark one on screen.
-    /// Either stays configured underneath and comes back with its tone.
+    /// A palette repaints only the background of its own tone: a light one never paints
+    /// 黑色, and a dark one paints nothing else — the reader's chrome reads its darkness
+    /// off the built-in background, so the two have to agree. Which palette is in place,
+    /// and which built-in it sits on, is decided by the reader's mode
+    /// (`GlobalSettings.readerBackgroundResolution`), not by this.
     private var activeAppearancePreset: AppearanceThemePreset? {
         guard let preset = AppearanceThemePreset.activeReaderTheme else { return nil }
         guard (self == .night) == preset.isDarkAppearancePalette else { return nil }
@@ -235,13 +235,13 @@ enum ReaderTheme: String, CaseIterable {
     }
 }
 
-/// What paints the reader for one system appearance while 綁定閱讀主題 is on.
-/// The user picks one of these per appearance (淺色閱讀主題 / 深色閱讀主題), which
-/// is the whole content of the binding: light appearance applies the light pick,
-/// dark appearance applies the dark pick.
+/// What paints the reader in one of its two modes while 綁定閱讀主題 is on.
+/// The user picks one of these per mode (淺色閱讀主題 / 深色閱讀主題), which is the
+/// whole content of the binding: the reader's light mode wears the light pick, its
+/// dark mode (`GlobalSettings.readerDarkMode`) the dark pick.
 enum ReaderBoundTheme: Hashable, Identifiable {
     /// Paint the reader with the app appearance theme itself — its light palette
-    /// in light appearance, its dark palette in dark appearance.
+    /// in light mode, its dark palette in dark mode.
     case followAppearanceTheme
     /// Paint the reader with one of its own reading backgrounds.
     case reading(ReaderTheme)
@@ -590,6 +590,7 @@ class GlobalSettings: ObservableObject {
     private static let readerTextColorOverridesKey = "yd_reader_text_color_overrides"
     static let readerCustomBackgroundsKey = "yd_reader_custom_backgrounds"
     static let readerCustomBackgroundIDKey = "yd_reader_custom_background_id"
+    static let readerDarkModeKey = "yd_reader_dark_mode"
     private static let readerOverlayLayoutDataKey = "yd_reader_overlay_layout_data"
     private static let readerOverlayLayoutMigrationVersionKey = "yd_reader_overlay_layout_migration_version"
     private static let readerOverlayLayoutCorruptBackupKey = "yd_reader_overlay_layout_corrupt_backup"
@@ -949,14 +950,28 @@ class GlobalSettings: ObservableObject {
     @Published var readerPullDownToBookmark: Bool {
         didSet { UserDefaults.standard.set(readerPullDownToBookmark, forKey: "yd_reader_pull_down_bookmark") }
     }
-    /// When on, the reader theme automatically follows the system light/dark
-    /// appearance (light → last light theme, dark → night). Selecting a specific
-    /// theme from the menu turns this off. Applied live in `ReaderView`.
+    /// 跟隨裝置深淺色: the reader's dark mode (`readerDarkMode`) keeps to the device's
+    /// appearance. Its switch shows in the reader only under 綁定閱讀主題, off to start
+    /// with. Without the binding no switch shows and the reader follows the device by
+    /// itself: a mode set against the device holds until the device comes round to it
+    /// (`ReaderBackgroundResolution.swift`; the user's call, 2026-09-30).
     @Published var readerFollowSystemTheme: Bool {
         didSet {
             UserDefaults.standard.set(readerFollowSystemTheme, forKey: "yd_reader_follow_system_theme")
             recordReadingSettingEdit { $0.followsSystemTheme = readerFollowSystemTheme }
         }
+    }
+    /// The reader's own dark mode — what its 深色／白天 button switches, and what
+    /// 跟隨裝置深淺色 keeps on the device's appearance. It decides the background worn:
+    /// 黑色 or the light one, and under 綁定閱讀主題 which of the two picks
+    /// (`ReaderBackgroundResolution.swift`). This device's alone: the background it puts
+    /// on is what syncs.
+    ///
+    /// Until 2026-09-30 the mode was read off `ReaderTheme.night`, which a dark saved
+    /// background also sits on — so making one put the reader in dark mode — and under
+    /// 綁定閱讀主題 off the device's appearance alone, so the button did nothing there.
+    @Published var readerDarkMode: Bool {
+        didSet { UserDefaults.standard.set(readerDarkMode, forKey: Self.readerDarkModeKey) }
     }
     @Published var readerTextUnderlineDecorationEnabled: Bool {
         didSet {
@@ -1143,8 +1158,10 @@ class GlobalSettings: ObservableObject {
     @Published var readerCustomBackgrounds: [ReaderCustomBackground] {
         didSet { Self.saveReaderCustomBackgrounds(readerCustomBackgrounds) }
     }
-    /// The saved background worn over the reading background picked in the reader, or nil
-    /// for the built-in one alone. 綁定閱讀主題 picks per appearance and does not read it.
+    /// The saved background the reader's light mode wears in place of the built-in light
+    /// one, whatever its tone; nil for the built-in one alone. Dark mode is 黑色. Under
+    /// 綁定閱讀主題 the two picks decide instead, and only 跟隨外觀主題 reads this — as the
+    /// theme's own reading picture.
     @Published var readerCustomBackgroundID: UUID? {
         didSet {
             if let readerCustomBackgroundID {
@@ -1229,16 +1246,15 @@ class GlobalSettings: ObservableObject {
     @Published var appearanceBindReaderTheme: Bool {
         didSet {
             UserDefaults.standard.set(appearanceBindReaderTheme, forKey: Self.appearanceBindReaderThemeKey)
-            // 綁定 owns the appearance → reading-theme mapping once it is on,
-            // including the light/dark split. Leaving 跟隨系統 on would make two
-            // writers of `ReaderConfig.theme` that disagree whenever the user
-            // maps an appearance to something other than the system default.
+            // The binding is what shows 跟隨裝置深淺色 in the reader, and it shows off:
+            // the two picks are worn by the reader's own 深色／白天 until the user asks
+            // for the device's appearance (2026-09-30).
             if appearanceBindReaderTheme { readerFollowSystemTheme = false }
             recordReadingSettingEdit { $0.bindsAppearanceReaderTheme = appearanceBindReaderTheme }
         }
     }
-    /// Reading theme applied while 綁定閱讀主題 is on and the system is in light
-    /// appearance. Stored as `ReaderBoundTheme.storageValue`.
+    /// Reading theme applied while 綁定閱讀主題 is on and the reader is in light mode.
+    /// Stored as `ReaderBoundTheme.storageValue`.
     @Published var appearanceBoundLightReaderTheme: String {
         didSet {
             UserDefaults.standard.set(
@@ -1248,8 +1264,8 @@ class GlobalSettings: ObservableObject {
             recordReadingSettingEdit { $0.boundLightReaderTheme = appearanceBoundLightReaderTheme }
         }
     }
-    /// Reading theme applied while 綁定閱讀主題 is on and the system is in dark
-    /// appearance. Stored as `ReaderBoundTheme.storageValue`.
+    /// Reading theme applied while 綁定閱讀主題 is on and the reader is in dark mode.
+    /// Stored as `ReaderBoundTheme.storageValue`.
     @Published var appearanceBoundDarkReaderTheme: String {
         didSet {
             UserDefaults.standard.set(
@@ -2012,7 +2028,10 @@ class GlobalSettings: ObservableObject {
             (UserDefaults.standard.object(forKey: "yd_reader_swipe_up_exit") as? Bool) ?? true
         readerPullDownToBookmark =
             (UserDefaults.standard.object(forKey: "yd_reader_pull_down_bookmark") as? Bool) ?? true
-        readerFollowSystemTheme = UserDefaults.standard.bool(forKey: "yd_reader_follow_system_theme")
+        readerFollowSystemTheme = Self.startingReaderFollowsDevice(
+            stored: UserDefaults.standard.object(forKey: "yd_reader_follow_system_theme") as? Bool,
+            hasPickedBackground: ReaderTheme.hasPersistedChoice
+        )
         readerTextUnderlineDecorationEnabled = UserDefaults.standard.bool(forKey: Self.readerTextUnderlineDecorationKey)
         readerTextUnderlineDecorationColorHex = UInt32(clamping:
             (UserDefaults.standard.object(forKey: Self.readerTextUnderlineDecorationColorHexKey) as? Int)
@@ -2144,9 +2163,17 @@ class GlobalSettings: ObservableObject {
             (UserDefaults.standard.object(forKey: Self.commentBubbleTextScaleKey) as? Double)
                 ?? Self.defaultCommentBubbleTextScale
         )
-        readerCustomBackgrounds = Self.loadReaderCustomBackgrounds()
-        readerCustomBackgroundID = UserDefaults.standard.string(forKey: Self.readerCustomBackgroundIDKey)
+        let savedBackgrounds = Self.loadReaderCustomBackgrounds()
+        let wornBackgroundID = UserDefaults.standard.string(forKey: Self.readerCustomBackgroundIDKey)
             .flatMap(UUID.init(uuidString:))
+        readerCustomBackgrounds = savedBackgrounds
+        readerCustomBackgroundID = wornBackgroundID
+        readerDarkMode = Self.startingReaderDarkMode(
+            stored: UserDefaults.standard.object(forKey: Self.readerDarkModeKey) as? Bool,
+            theme: ReaderTheme.loadPersisted(),
+            wornBackgroundIsDark: savedBackgrounds.first { $0.id == wornBackgroundID }?.isDark == true,
+            binds: UserDefaults.standard.bool(forKey: Self.appearanceBindReaderThemeKey)
+        )
         customAppearanceThemes = Self.loadCustomAppearanceThemes()
         appearanceBuiltInThemeColors = Self.loadAppearanceBuiltInThemeColors()
         appearancePageBackgrounds = Self.loadPageBackgrounds()

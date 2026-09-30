@@ -348,9 +348,9 @@ struct ReaderView: View {
         return url
     }
 
-    /// The background on screen, for this appearance and the reader's own pick.
+    /// The background on screen, for the reader's mode and its own pick.
     var readerBackgroundResolution: ReaderBackgroundResolution {
-        settings.readerBackgroundResolution(appearance: systemColorScheme, wornTheme: readerTheme)
+        settings.readerBackgroundResolution(mode: settings.readerMode, wornTheme: readerTheme)
     }
 
     private var activeReaderBackgroundImage: UIImage? {
@@ -381,43 +381,37 @@ struct ReaderView: View {
             .accessibilityHidden(true)
     }
 
-    /// When "follow system" theme is on, align the reader theme with the current
-    /// system light/dark appearance. Setting `readerConfig.theme` triggers the
-    /// `.appearance` refresh through `ReaderConfig`'s binding, so pages recolor.
-    ///
-    /// 綁定閱讀主題 supersedes this: it maps each appearance to a theme the user
-    /// chose, so `syncActiveThemePreset` is the single writer while it is on.
-    func applyFollowSystemThemeIfNeeded() {
-        guard settings.readerFollowSystemTheme, !settings.appearanceBindReaderTheme else { return }
-        let desired = ReaderTheme.forSystem(dark: systemColorScheme == .dark)
-        if readerConfig.theme != desired {
-            readerConfig.theme = desired
+    /// The device's appearance, handed to the reader's mode as the reader opens and
+    /// whenever the appearance or what follows it changes. The mode decides the
+    /// background; this only moves the mode (`GlobalSettings.alignReaderDarkMode`).
+    func alignReaderModeWithDevice() {
+        settings.alignReaderDarkMode(deviceIsDark: systemColorScheme == .dark)
+    }
+
+    /// The 深色／白天 button: the reader's own dark mode, set by hand.
+    func toggleReaderDarkMode() {
+        withAnimation(DSAnimation.standard) {
+            settings.setReaderDarkMode(!settings.readerDarkMode, deviceIsDark: systemColorScheme == .dark)
+            syncActiveThemePreset()
         }
     }
 
-    /// Puts the palette of the background on screen in place: a saved background's, or
-    /// the appearance theme's under 綁定閱讀主題 › 跟隨外觀主題. While bound, the reader
-    /// follows the system appearance through the user's 淺色閱讀主題 / 深色閱讀主題 picks,
-    /// and this is the one writer of its reading background. `readerBackgroundResolution`
-    /// decides; this only applies it.
+    /// Puts the background of the reader's mode on screen: the built-in one it sits on,
+    /// and over it the palette of a saved background or — under 綁定閱讀主題 › 跟隨外觀主題
+    /// — of the appearance theme. `readerBackgroundResolution` decides; this is the one
+    /// place that applies it, so the button's symbol, which reads the mode, and the page
+    /// cannot part ways (reported 2026-09-30: switched by hand the symbol stayed as it
+    /// was, and a change of appearance moved the symbol without the page).
     func syncActiveThemePreset() {
         let resolution = readerBackgroundResolution
         var preset: AppearanceThemePreset?
-        var boundTheme: ReaderTheme?
-        if settings.appearanceBindReaderTheme {
-            boundTheme = resolution.theme
-            if let background = resolution.customBackground {
-                preset = settings.readerBackgroundPreset(for: background)
-            } else if resolution.paintsWithAppearanceTheme {
-                preset = settings.appearanceTheme(
-                    for: systemColorScheme,
-                    isProActive: subscriptionStore.hasAccess(.readerThemePacks)
-                )
-            }
-        } else if let background = settings.wornReaderCustomBackground {
-            // Put in place whatever its tone: `ReaderTheme` paints it only over a
-            // background of its own tone, so 夜間 can come and go without this running.
+        if let background = resolution.customBackground {
             preset = settings.readerBackgroundPreset(for: background)
+        } else if resolution.paintsWithAppearanceTheme {
+            preset = settings.appearanceTheme(
+                for: settings.readerMode,
+                isProActive: subscriptionStore.hasAccess(.readerThemePacks)
+            )
         }
 
         // Order matters: changing the theme recolors the render-settings snapshot, so
@@ -426,10 +420,10 @@ struct ReaderView: View {
         if presetChanged {
             AppearanceThemePreset.activeReaderTheme = preset
         }
-        if let boundTheme, readerConfig.theme != boundTheme {
+        if readerConfig.theme != resolution.theme {
             // The theme write flows through the unified settings observation, which
             // classifies it as an appearance refresh on its own.
-            readerConfig.theme = boundTheme
+            readerConfig.theme = resolution.theme
             return
         }
         // A preset-only change moves no observed property, so nothing else would notice
@@ -2075,8 +2069,8 @@ struct ReaderView: View {
                 ]
             )
             readerConfig.syncFromGlobalSettings()
+            alignReaderModeWithDevice()
             syncActiveThemePreset()
-            applyFollowSystemThemeIfNeeded()
             if !hasPerformedInitialLoad {
                 snapshotBook = book
                 hasPerformedInitialLoad = true
@@ -2214,11 +2208,15 @@ struct ReaderView: View {
             }
         }
         .onChanged(of: systemColorScheme) { _ in
-            applyFollowSystemThemeIfNeeded()
+            alignReaderModeWithDevice()
             syncActiveThemePreset()
         }
         .onChanged(of: settings.readerFollowSystemTheme) { _ in
-            applyFollowSystemThemeIfNeeded()
+            alignReaderModeWithDevice()
+            syncActiveThemePreset()
+        }
+        .onChanged(of: settings.readerDarkMode) { _ in
+            syncActiveThemePreset()
         }
         .onChanged(of: settings.appearanceThemeID) { _ in
             syncActiveThemePreset()
@@ -2230,6 +2228,7 @@ struct ReaderView: View {
             syncActiveThemePreset()
         }
         .onChanged(of: settings.appearanceBindReaderTheme) { _ in
+            alignReaderModeWithDevice()
             syncActiveThemePreset()
         }
         .onChanged(of: settings.appearanceBoundLightReaderTheme) { _ in

@@ -19,7 +19,8 @@ extension VerticalAlignment {
 }
 
 struct ReaderBottomControlBar: View {
-    @Binding var readerTheme: ReaderTheme
+    /// The built-in background the reader sits on: what the bar's colours are read from.
+    let readerTheme: ReaderTheme
     let overlayContentMaxWidth: CGFloat
     let showRefreshButton: Bool
     let showChangeSourceButton: Bool
@@ -40,13 +41,14 @@ struct ReaderBottomControlBar: View {
     let onOpenTTS: () -> Void
     let onOpenTOC: () -> Void
     let onOpenBookmarks: () -> Void
+    /// 深色／白天: the reader switches its own dark mode, and the background with it.
+    let onToggleDarkMode: () -> Void
     let onOpenSettings: () -> Void
 
     @ObservedObject private var settings = GlobalSettings.shared
 
     @State private var chapterSliderDraft: Double? = nil
 
-    private let feedbackDuration: Double = 0.25
 
     var body: some View {
         VStack(spacing: 0) {
@@ -116,7 +118,9 @@ struct ReaderBottomControlBar: View {
         ReaderChromePalette(interface: .classic, theme: readerTheme, settings: settings)
     }
 
-    private var isNightTheme: Bool { readerTheme == .night }
+    /// The reader's own dark mode, which 深色／白天 switches — not whether the background
+    /// it sits on is 黑色, which a dark saved background does in light mode too.
+    private var isDarkMode: Bool { settings.readerDarkMode }
 
     /// A floating secondary action, sitting directly on top of the CoreText page —
     /// unlike the tool row below, it has no bar behind it. The fill must therefore stay
@@ -264,25 +268,13 @@ struct ReaderBottomControlBar: View {
         case .nightMode:
             toolBtn(
                 item: item,
-                label: localized(isNightTheme ? "白天" : "深色"),
-                active: isNightTheme
+                label: localized(isDarkMode ? "白天" : "深色"),
+                active: isDarkMode
             ) {
-                toggleNightTheme()
+                onToggleDarkMode()
             }
         case .settings:
             toolBtn(item: item, label: localized("設置")) { onOpenSettings() }
-        }
-    }
-
-    private func toggleNightTheme() {
-        withAnimation(.easeInOut(duration: feedbackDuration)) {
-            if isNightTheme {
-                let saved = UserDefaults.standard.string(forKey: "lastLightTheme") ?? ReaderTheme.white.rawValue
-                readerTheme = ReaderTheme(rawValue: saved) ?? .white
-            } else {
-                UserDefaults.standard.set(readerTheme.rawValue, forKey: "lastLightTheme")
-                readerTheme = .night
-            }
         }
     }
 
@@ -329,7 +321,7 @@ struct ReaderBottomControlBar: View {
                 .scaledToFit()
                 .frame(width: 22, height: 22)
         } else {
-            Image(systemName: item.systemImage(isNight: isNightTheme))
+            Image(systemName: item.systemImage(isNight: isDarkMode))
                 .font(DSFont.fixed(size: 20))
         }
     }
@@ -349,7 +341,7 @@ struct ReaderBottomControlBar: View {
             .padding(24)
 
         ReaderBottomControlBar(
-            readerTheme: $theme,
+            readerTheme: theme,
             overlayContentMaxWidth: 520,
             showRefreshButton: true,
             showChangeSourceButton: true,
@@ -370,6 +362,7 @@ struct ReaderBottomControlBar: View {
             onOpenTTS: {},
             onOpenTOC: {},
             onOpenBookmarks: {},
+            onToggleDarkMode: {},
             onOpenSettings: {}
         )
     }

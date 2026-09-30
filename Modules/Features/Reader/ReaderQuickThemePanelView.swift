@@ -81,7 +81,11 @@ struct ReaderQuickThemePanelView: View {
                     brightnessSlider
                     readingBackgroundRow
                         .padding(.bottom, DSSpacing.lg)
-                    followSystemAppearanceToggle
+                    // Only under 綁定閱讀主題: without it the reader follows the device by
+                    // itself and there is nothing to switch (the user's call, 2026-09-30).
+                    if settings.appearanceBindReaderTheme {
+                        followSystemAppearanceToggle
+                    }
                     quickActionRow
                 }
                 .padding(.horizontal, DSSpacing.xl)
@@ -119,7 +123,7 @@ struct ReaderQuickThemePanelView: View {
                         // A new one is made to be worn; an edit leaves what is worn alone,
                         // and the reader repaints if it was this one.
                         if route == .new {
-                            readerTheme = settings.wearReaderCustomBackground(saved, over: readerTheme)
+                            wear(saved)
                         }
                         backgroundEditor = nil
                     },
@@ -292,7 +296,7 @@ struct ReaderQuickThemePanelView: View {
     /// One scrolling row, not the 3×2 paged grid this replaced: the four built-in
     /// backgrounds, then every saved one, each by name, then 自定義 to make another.
     private var readingBackgroundRow: some View {
-        let resolution = settings.readerBackgroundResolution(appearance: colorScheme, wornTheme: readerTheme)
+        let resolution = settings.readerBackgroundResolution(mode: settings.readerMode, wornTheme: readerTheme)
         return VStack(alignment: .leading, spacing: DSSpacing.sm) {
             Text(localized("閱讀背景"))
                 .font(DSFont.footnote)
@@ -317,10 +321,9 @@ struct ReaderQuickThemePanelView: View {
         }
     }
 
-    /// The appearance choice that used to hide behind the second icon-only menu.
-    /// A `Toggle` says what it does and what state it is in without being opened;
-    /// picking a background below turns it back off, which is what tapping a
-    /// specific background always meant.
+    /// Whether the reader's dark mode keeps to the device's appearance, where the two
+    /// picks of 綁定閱讀主題 are worn. Off to start with; switching the reader against
+    /// the device by hand turns it back off, since the two cannot both hold.
     private var followSystemAppearanceToggle: some View {
         Toggle(
             localized("跟隨裝置深淺色"),
@@ -337,18 +340,17 @@ struct ReaderQuickThemePanelView: View {
         _ background: ReaderTheme,
         resolution: ReaderBackgroundResolution
     ) -> some View {
-        // While 綁定閱讀主題 maps this appearance to 跟隨外觀主題 or a saved background, the
-        // page is painted by that, so no built-in one is the one in effect.
+        // While the page is painted by 跟隨外觀主題 or by a saved background — a dark one
+        // sits on 黑色 — no built-in one is the one in effect.
         let selected = !resolution.paintsWithAppearanceTheme
             && resolution.customBackground == nil
             && resolution.theme == background
         return Button {
-            settings.readerFollowSystemTheme = false
             settings.appearanceBindReaderTheme = false
-            // 黑色 keeps a light saved background underneath, so turning 夜間 off brings it
-            // back, as with the one custom background before; a dark one would paint 黑色
-            // itself, so it goes.
-            if background != .night || settings.wornReaderCustomBackground?.isDark == true {
+            settings.setReaderDarkMode(background == .night, deviceIsDark: colorScheme == .dark)
+            // 黑色 is the reader's dark mode; the saved background stays the light mode's
+            // and comes back with it. A light built-in one takes its place there.
+            if background != .night {
                 settings.readerCustomBackgroundID = nil
             }
             readerTheme = background
@@ -372,7 +374,7 @@ struct ReaderQuickThemePanelView: View {
     ) -> some View {
         let selected = resolution.customBackground?.id == background.id
         return Button {
-            readerTheme = settings.wearReaderCustomBackground(background, over: readerTheme)
+            wear(background)
         } label: {
             backgroundTile(
                 fill: Color(uiColor: AppearanceThemePreset.hex(background.colorHex)),
@@ -522,15 +524,19 @@ struct ReaderQuickThemePanelView: View {
         fontSize = GlobalSettings.clampedReaderFontSize((fontSize + delta).rounded())
     }
 
-    /// Turning it on hands the theme to the system; turning it off keeps whatever
-    /// is on screen rather than snapping to some remembered other theme, which is
-    /// what the old menu's Light/Dark cases did and why it could change the page
-    /// out from under you.
+    /// Turning it on hands the reader's mode to the device; turning it off keeps whatever
+    /// is on screen. The reader puts the background of the mode in place.
     private func applyFollowSystemAppearance(_ isOn: Bool) {
-        settings.appearanceBindReaderTheme = false
-        settings.readerFollowSystemTheme = isOn
-        guard isOn else { return }
-        readerTheme = ReaderTheme.forSystem(dark: colorScheme == .dark)
+        settings.setReaderFollowsDevice(isOn, deviceIsDark: colorScheme == .dark)
+    }
+
+    /// A saved background, worn as the reader's own pick: the light mode's background.
+    private func wear(_ background: ReaderCustomBackground) {
+        readerTheme = settings.wearReaderCustomBackground(
+            background,
+            over: readerTheme,
+            deviceIsDark: colorScheme == .dark
+        )
     }
 
     private func pageTurnTitleKey(for option: ReaderQuickPageTurnOption) -> String {

@@ -128,17 +128,24 @@ extension GlobalSettings {
     }
 
     /// The reader's own pick, as tapping one of the reader's backgrounds has always been:
-    /// it takes over from 跟隨裝置深淺色 and 綁定閱讀主題. Returns the built-in background
-    /// to sit on — 黑色 under a dark one, the light one in use under a light one.
+    /// it takes over from 綁定閱讀主題 and becomes the light mode's background, whatever
+    /// its tone, with the reader put in light mode to show it. Returns the built-in
+    /// background to sit on — 黑色 under a dark one, the light one in use under a light one.
+    ///
+    /// A dark one used to put the reader in dark mode and stay out of light mode
+    /// (reported 2026-09-30): a background made in the reader is the light mode's, and
+    /// dark mode gets one of its own only through 深色閱讀主題.
     func wearReaderCustomBackground(
         _ background: ReaderCustomBackground,
-        over current: ReaderTheme
+        over current: ReaderTheme,
+        deviceIsDark: Bool
     ) -> ReaderTheme {
-        readerFollowSystemTheme = false
         appearanceBindReaderTheme = false
+        // The mode first: wearing the background is noted for the other devices with
+        // what the reader then follows.
+        setReaderDarkMode(false, deviceIsDark: deviceIsDark)
         readerCustomBackgroundID = background.id
-        if background.isDark { return .night }
-        return current == .night ? ReaderTheme.lastLightTheme : current
+        return readerBackgroundResolution(mode: .light, wornTheme: current).theme
     }
 
     /// Removes it from the list, from the reader and from both bound picks, and deletes

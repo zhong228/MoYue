@@ -103,10 +103,7 @@ extension ReaderView {
     // MARK: - Bottom Bar
     var bottomBar: some View {
         ReaderBottomControlBar(
-            readerTheme: Binding(
-                get: { readerTheme },
-                set: { readerTheme = $0 }
-            ),
+            readerTheme: readerTheme,
             overlayContentMaxWidth: overlayContentMaxWidth,
             showRefreshButton: !(book?.onlineChapters?.isEmpty ?? true),
             showChangeSourceButton: book?.isOnline == true && book?.bookSourceId != nil,
@@ -127,6 +124,7 @@ extension ReaderView {
             onOpenTTS: { openPlaybackPanel() },
             onOpenTOC: { showTOC = true },
             onOpenBookmarks: { showBookmarkList = true },
+            onToggleDarkMode: { toggleReaderDarkMode() },
             onOpenSettings: { showQuickThemePanel = true }
         )
     }
@@ -281,10 +279,7 @@ extension ReaderView {
 
     var modernBottomBar: some View {
         ReaderModernBottomControlBar(
-            readerTheme: Binding(
-                get: { readerTheme },
-                set: { readerTheme = $0 }
-            ),
+            readerTheme: readerTheme,
             overlayContentMaxWidth: overlayContentMaxWidth,
             canGoPrevChapter: canGoPrevChapter,
             canGoNextChapter: canGoNextChapter,
@@ -297,6 +292,7 @@ extension ReaderView {
             onNextChapter: { jumpToChapter(currentChapterIndex + 1) },
             onOpenTOC: { showTOC = true },
             onOpenBookmarks: { showBookmarkList = true },
+            onToggleDarkMode: { toggleReaderDarkMode() },
             onOpenSettings: { showQuickThemePanel = true }
         )
     }
