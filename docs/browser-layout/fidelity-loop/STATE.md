@@ -52,7 +52,12 @@ Loop 每一輪更新這一頁。「佇列」和「雜訊」由 `fidelity-triage`
 - 代表章節：ai-glossary:1、ai-glossary:3、ai-glossary:8
 - 假設的根因：`BrowserLayoutCapabilityScanner.cssContainsMediaQuery` 看到任何 `@media` 就拒絕。這本書的樣式表只有一個 `@media (prefers-color-scheme: dark)`，裡面只改顏色；`CSSParser` 已經把這種區塊分流成 `isDarkMedia` 規則，不影響版面。
 - 完成的樣子：ai-glossary 不再有 media-queries 回退。走新引擎後分數下降，或掃描器接著報出別的原因（這本書還用了 `max-width: 42em`、`min-height: 100vh`、`linear-gradient`），就把看到的寫在這一項底下再拆，不要順手一起改
-- 嘗試：0
+- 嘗試：1（2026-10-01，驗證者 REJECT）
+- 第一次結果：候選修正讓 CSSParser 與能力掃描器共用 at-rule 邊界，只放行獨立 `@media (prefers-color-scheme: dark)` 的配色宣告，其他查詢、巢狀條件及版面宣告維持拒絕。Gate 通過（3 檔）；兩個新合成測試通過。
+- 實作方量測（未合入）：ai-glossary 的 10 個 dev 章節 72.0（`baseline-2026-09-30`）→ 97.3（`S001-after`），新引擎 0→10 章，media-queries 回退消失；部分比較 PASS。代表章節 3／8 的平均 77.1（`S001-before`）→ 96.4（`S001-after`）。未量 holdout，不能替換記分板。
+- 驗證者理由：`BrowserLayoutCapabilityScannerTests` 31 tests、2 failures：`rejectsRubyOutsideSupportedSubset` 未回報 `.ruby`；`rejectsEffectiveUnsupportedTextIndent` 的 `-1px` 未回報 `.textIndent`。依第一項失敗即停止，未進入獨立完整量測與並排圖關卡。
+- 基底核對：撤回本輪三檔後，原始類別 29 tests、同樣 2 failures（`/tmp/S001-base-scanner.log`），確認阻擋也存在於基底。沒有削弱斷言或順手修其他規則。
+- 收尾：未 commit；兩個工作副本乾淨，仍在原 `loop/fidelity` commit。候選 diff 保存在 `~/Desktop/Yuedu-fidelity-loop/S001-attempt-1-rejected.patch`；[本輪證據](reports/S001-attempt-1.md)。本輪停下，S001 保留佇列首位，未做 S002。
 
 ### S002 — 行內盒的左右 margin 沒有佔位
 - 依據：inline-start 5.8、line-count 5.3、inline-size 4.9、line-break 4.5（每本書的分數點數）；mahabharata 16 章全走新引擎，78.5 分
@@ -130,6 +135,12 @@ Loop 每一輪更新這一頁。「佇列」和「雜訊」由 `fidelity-triage`
 - 為什麼不在佇列裡：這是舊引擎的問題，loop 不准改舊引擎。ai-glossary 的章節走新引擎之後（S001）就不會經過這條路
 - 選項：（a）另開一個工作先重現、再修主路徑（建議：它讓圖整張不見，而且回退的章節還有 72 章）；（b）不修，等這些章節都改走新引擎
 - 狀態：2026-10-01 已在 Claude Code 裡建好一個可以一鍵開始的獨立工作（「Fix legacy scroll chunks that paint a lone image as nothing」），按下去就是選（a）
+
+### D2 — S001 被基底的能力掃描回歸失敗阻擋
+- 已確認：還原本輪修改後，原始 `BrowserLayoutCapabilityScannerTests` 仍有 ruby 與 `text-indent: -1px` 兩項失敗；不是新增深色配色測試才出現。
+- 需要處理：釐清既有測試所宣告的支援邊界與實作的差異；這涉及 S001 以外的兩條規則，未在本輪順手修改。
+- 選項：（a）先另案釐清並修正這兩項回歸，再重試 S001（建議：候選 dev 量測已改善，但必跑回歸必須通過）；（b）暫停 fidelity loop，等主線自行處理。
+- 狀態：S001 第一次 REJECT，沒有合入；記分板與最後接受的 run 維持 `baseline-2026-09-30`。
 
 ## 已合入
 
