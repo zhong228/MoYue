@@ -1134,6 +1134,11 @@ ALLOWED = {
     "package": ["Sources/YueduCoreText/", "Tests/", "CHANGELOG.md"],
 }
 RECORDED = ["/Fixtures/", "docs/browser-layout/line-break-baseline/", ".tsv"]
+# The one recorded baseline a slice may re-record: the Red Chamber line-break
+# fingerprints, when the slice's rule is meant to move line breaks. The person
+# decided this on 2026-10-01; the slice report lists every changed chapter and
+# the verifier checks them (LOOP.md, "斷行基線").
+RERECORDABLE = {"docs/browser-layout/line-break-baseline/redchamber.tsv"}
 MAX_FILES = 12
 WAITS = re.compile(r"Task\.sleep|asyncAfter|Thread\.sleep|\busleep\(|\bsleep\(")
 WEAKENED = re.compile(r"\.disabled\(|XCTSkip|withKnownIssue|\.enabled\(if: false")
@@ -1144,6 +1149,20 @@ def git(tree, *arguments):
     if done.returncode != 0:
         raise SystemExit(f"git {' '.join(arguments)} failed in {tree}: {done.stderr.strip()}")
     return done.stdout
+
+
+def classify_change(label, name):
+    """What the gate makes of one changed path: ("stop", reason), ("note", reason) or None."""
+    if label == "reader" and name in FROZEN:
+        return "stop", f"{label}: {name} is a frozen oracle file"
+    if label == "reader" and name in RERECORDABLE:
+        return "note", (f"{label}: {name} was re-recorded; every changed row must be in the slice report "
+                        f"with its reason (LOOP.md, 斷行基線)")
+    if not any(name.startswith(prefix) for prefix in ALLOWED[label]):
+        return "stop", f"{label}: {name} is outside what the loop may change on its own"
+    if any(marker in name for marker in RECORDED):
+        return "stop", f"{label}: {name} is a recorded baseline; updating it needs a person (PHASES.md D-09)"
+    return None
 
 
 def command_gate(args):
@@ -1161,12 +1180,9 @@ def command_gate(args):
         changed.discard("")
         total += len(changed)
         for name in sorted(changed):
-            if label == "reader" and name in FROZEN:
-                stops.append(f"{label}: {name} is a frozen oracle file")
-            elif not any(name.startswith(prefix) for prefix in ALLOWED[label]):
-                stops.append(f"{label}: {name} is outside what the loop may change on its own")
-            elif any(marker in name for marker in RECORDED):
-                stops.append(f"{label}: {name} is a recorded baseline; updating it needs a person (PHASES.md D-09)")
+            verdict = classify_change(label, name)
+            if verdict:
+                (stops if verdict[0] == "stop" else notes).append(verdict[1])
         added = [line[1:] for line in git(tree, "diff", "-U0", base, "--", "*.swift").split("\n")
                  if line.startswith("+") and not line.startswith("+++")]
         removed = [line[1:] for line in git(tree, "diff", "-U0", base, "--", "*.swift").split("\n")

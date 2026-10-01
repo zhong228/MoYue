@@ -1,10 +1,10 @@
 {
  "schema": 1,
  "files": {
-  "scripts/fidelity/fidelity.py": "cb24a0fb3f9ece5531b17852d88b10bb6b384b9017941c2e02226222c0ed1604",
+  "scripts/fidelity/fidelity.py": "93288dd4e0b3f8703de05ff4d6b220d2109e779737e37c715c8fdba50b47bd9e",
   "scripts/fidelity/measure.sh": "f5cf41b4b3e2fc14114ea3b579e0944fdf481c78c9fa634a68eca08f0a6bff9f",
   "scripts/fidelity/corpus.json": "8d92ca52ce18bd968cf438a56b812bce5e03c3b9b322a6573c9bf606a224e03c",
-  "scripts/fidelity/test_fidelity.py": "662b8ea6ed2651e299139801a72f5d7944858d1c799795ea30c96102d83bbe45",
+  "scripts/fidelity/test_fidelity.py": "95e660647f514cebd0b1ba84004077dd9fd9312782da9ec8b1b7524cacecacc4",
   "Tests/iOS/yuedu appTests/RenderFidelityOracleTests.swift": "5e2cfd434832534ec44ae2e3f0e36a183109330bdde5deb0d45742e6dac8cfb1",
   "docs/browser-layout/fidelity-loop/ORACLE.md": "0f10c6c90fb32ffae8b3fbadfa43691a454cf2c5d50cac69fba8f104a3efc584",
   "docs/browser-layout/fidelity-loop/GOAL.md": "fd9e4beaf474a28163be9982f57c857701265c0c9ecc11587dcd0d4c081e7ff3"

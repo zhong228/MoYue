@@ -162,6 +162,8 @@ Loop 每一輪更新這一頁。「佇列」和「雜訊」由 `fidelity-triage`
   - 已在 main 上固定繁中重錄。測試現在只要程序語言不是繁中就直接失敗，訊息會說要加的參數。
   - 舊基線留在 `redchamber-2026-09-23.tsv`。完整紀錄在 `docs/browser-layout/line-break-baseline/rerecord-2026-10-01.md`。
   - 這個測試在基底上已經是綠的，不會再因為環境的差異擋住斷行、行內排版的切片。跑它要加 `-testLanguage zh-Hant -testRegion TW`，手冊已經寫了。
+  - 2026-10-01 在 loop 的工作副本、loop 的模擬器上跑開工檢查：必跑組加斷行基線 85 tests in 16 suites 全過。
+- **2026-10-01 使用者決定：斷行基線每個切片都跑。** 不是要改斷行的切片讓它變了，就是回歸；本來就要改斷行的切片，在同一個 commit 重錄，報告列出全部變了的章，並抽 3 章說明規則用在哪裡；驗證者核對清單並自己再抽 2 章。閘門（`fidelity.py gate`）現在只放行 `redchamber.tsv` 這一個基線檔，其他錄製檔照舊要人看。細節在 [LOOP.md](LOOP.md)「斷行基線」。
 
 ## 已合入
 

@@ -21,12 +21,13 @@ Implements exactly one slice, in the loop's worktrees, and hands it to the verif
 - No fallback, retry, delay or `try?` that hides a failure. An unsupported sub-case is reported by the capability scanner so the chapter falls back whole; it is never laid out approximately.
 - Admit a capability in `BrowserLayoutCapabilityScanner` only in the change that implements and tests its layout.
 - Smallest diff that is correct. No drive-by cleanup, renaming or reformatting.
-- Stay inside what the gate allows (`fidelity.py gate`): the package sources and tests, the reader's `BrowserLayout/` adapters, reader tests. Anything else, including the legacy renderer, recorded baselines and the oracle, is not yours to change in a slice.
+- Stay inside what the gate allows (`fidelity.py gate`): the package sources and tests, the reader's `BrowserLayout/` adapters, reader tests. Anything else, including the legacy renderer, recorded baselines and the oracle, is not yours to change in a slice. The one exception is the Red Chamber line-break baseline, which a slice re-records only when its rule is meant to move line breaks (`LOOP.md`, "斷行基線").
 
 ## Before handing over
 
 - The new test fails without the change and passes with it.
 - The regression classes for the area, and the always-run set, pass (`LOOP.md`, "回歸測試"). Report each class with its test count.
+- The line-break baseline passes, run with `-testLanguage zh-Hant -testRegion TW` (`LOOP.md`, "斷行基線"). If it fails and the slice is not meant to move line breaks, that is a regression to fix. If the slice is meant to, re-record it and put in the report the number of changed chapters, every changed spine, and three chapters with the CSS or HTML in them that the rule applies to.
 - Re-measure the affected books. The targeted loss went down; nothing else got worse.
 - `python3 $MAIN/scripts/fidelity/fidelity.py gate …` prints `GATE: PASS`.
 

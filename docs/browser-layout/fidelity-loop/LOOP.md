@@ -48,7 +48,7 @@ tags: [yuedu, browser-layout, fidelity-loop]
 - 兩個工作副本都沒有上一輪留下的未提交改動。
 - 磁碟剩餘空間 ≥ 10GB（`df -g ~`）。
 - 沒有別的 `xcodebuild` 在跑（`pgrep -x xcodebuild`）；有就等它結束，不要同時編譯。
-- 「每次都跑」那組回歸測試在**還沒動手的基底**上全部通過，而且測試數和下面寫的一樣。基底就失敗時不要開始切片：把失敗的測試和訊息寫進「等你決定」再停下。切片做完才發現基底失敗，整輪就白做了（2026-10-01 的 S001 第一次就是這樣）。
+- 「每次都跑」那組回歸測試和斷行基線，在**還沒動手的基底**上全部通過，而且測試數和下面寫的一樣（兩者可以放在同一次執行，加上語言參數，共 85 tests in 16 suites）。基底就失敗時不要開始切片：把失敗的測試和訊息寫進「等你決定」再停下。切片做完才發現基底失敗，整輪就白做了（2026-10-01 的 S001 第一次就是這樣）。
 
 ### 1. 選一項
 
@@ -108,6 +108,7 @@ tags: [yuedu, browser-layout, fidelity-loop]
 | 沒有退步（holdout） | 沒有任何一本書下降超過 1.0 |
 | 新引擎的覆蓋不倒退 | 報告裡走新引擎的章節數（Browser / Legacy）不比上一次合入的量測少。不准用「讓更多章節回退 Legacy」換分數；唯一的例外是修正「放行但排錯」，那種切片一律 `ESCALATE_HUMAN` |
 | 回歸測試 | 相關類別與「每次都跑」全部通過，沒有被停用或跳過的測試 |
+| 斷行基線 | 每個切片都跑。沒變，或只在這個切片本來就要改斷行時變了，並照下面「回歸測試」裡的規則重錄、列出每一章 |
 | 規則是通用的 | diff 裡沒有針對特定書的條件；新行為有合成測試，而且期望值有出處 |
 
 ## 回歸測試
@@ -151,16 +152,26 @@ YUEDU_WORKSPACE=$LOOP/Loop.xcworkspace bash scripts/xctest.sh -- \
 | 捲動與 viewport | `BrowserScrollDocumentTests`、`BrowserViewportSessionTests`、`BrowserViewportRegressionTests` |
 | 連結、選字 | `BrowserLayoutLinkInteractionTests`、`BrowserLayoutSelectionContractTests`、`BrowserTextInteractionTests` |
 
-`BrowserLayoutSnapshotTests` 與斷行基線 `BrowserLayoutLineBreakBaselineTests` 比的是已錄製的結果。它們因為一個正確的修正而失敗時，不要重錄：把失敗的列與原因寫進「等你決定」。
+`BrowserLayoutSnapshotTests` 比的是已錄製的結果。它因為一個正確的修正而失敗時，不要重錄：把失敗的列與原因寫進「等你決定」。
 
-斷行基線是用繁體中文錄的，而程序語言會改變斷行（英文下 458 章裡有 196 章不同）。所以跑它一定要加 `-testLanguage zh-Hant -testRegion TW`；沒加會立刻失敗，訊息會說要加什麼。整本書跑一次約 3 分鐘：
+`BrowserLayoutRedChamberRegressionTests` 不比錄製的結果，是對整本《紅樓夢》做的結構檢查（章節定位、樣式表、封面頁幾何、背景圖），失敗就照一般回歸處理。2026-10-01 在 main 上是 12 tests 全過。
+
+### 斷行基線（每個切片都跑）
+
+`BrowserLayoutLineBreakBaselineTests` 比對整本《紅樓夢》458 章的斷行指紋（`docs/browser-layout/line-break-baseline/redchamber.tsv`）。基線是用繁體中文錄的，而程序語言會改變斷行（英文下有 196 章不同）。所以跑它一定要加 `-testLanguage zh-Hant -testRegion TW`；沒加會立刻失敗，訊息會說要加什麼。整本書跑一次約 3 分鐘：
 
 ```bash
 YUEDU_WORKSPACE=$LOOP/Loop.xcworkspace bash scripts/xctest.sh -t 1500 -- \
   -only-testing:'yuedu appTests/BrowserLayoutLineBreakBaselineTests' -testLanguage zh-Hant -testRegion TW
 ```
 
-`BrowserLayoutRedChamberRegressionTests` 不比錄製的結果，是對整本《紅樓夢》做的結構檢查（章節定位、樣式表、封面頁幾何、背景圖），失敗就照一般回歸處理。2026-10-01 在 main 上是 12 tests 全過。
+它失敗時（2026-10-01 使用者決定的規則；依據 PHASES.md D-09：先有原因，只更新受影響的列）：
+
+- **這個切片不是要改斷行**（規則碰不到行內排版、字型、字級、行高、縮排、內容寬度）：這是回歸。實作者修掉；修不掉就是 `REJECT`。
+- **這個切片本來就是要改斷行**：實作者在同一個切片裡重錄，指令是上面那行前面加 `TEST_RUNNER_YUEDU_LINEBREAK_REGEN=1`。重錄後再跑一次比對，要通過。切片報告寫：
+  1. 變了幾章，以及全部的 spine 編號（`git diff` 這個檔案就看得到）。
+  2. 抽 3 章：章裡哪一段 CSS／HTML 用到了這個切片改的規則（解壓 EPUB 後的檔名＋那段樣式或標籤）。
+- 驗證者自己比對 `git diff <base> -- docs/browser-layout/line-break-baseline/redchamber.tsv` 的 spine 和報告的清單，要完全一致；檔頭仍然寫著 `zh-Hant`；抽另外 2 章自己看，規則確實用得到。有一章說不出原因就是 `REJECT`。閘門只放行這一個基線檔，並印一行 `note:` 提醒逐列核對。
 
 ## 量測指令
 

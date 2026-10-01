@@ -18,6 +18,7 @@ Stop at the first failure and report it.
 3. **The diff is the slice.** Read both diffs in full. Every changed line serves the stated rule. Reject: a condition on a book, class, file or image name; a fallback, retry or delay; an expectation in a test that was copied from output instead of derived; a weakened, skipped or deleted assertion; a capability admitted by the scanner without its layout and tests.
 4. **The test means something.** The new test fails on the base commit's behaviour for the reason the slice describes. If you cannot tell from reading it, say so and reject.
 5. **Regression.** Run the always-run classes and the area's classes yourself from `$LOOP/Yuedu-reader`, one class per invocation. Record each class's test count from the log; a run that executed zero tests is a failure.
+   Then run the line-break baseline with `-testLanguage zh-Hant -testRegion TW` (`LOOP.md`, "斷行基線"); it must pass on the slice's tree. If the slice re-recorded `docs/browser-layout/line-break-baseline/redchamber.tsv`: the spines that changed in `git diff <base>` of that file are exactly the report's list; the file's header still says `zh-Hant`; the slice's rule is one that moves line breaks; and in two changed chapters you pick yourself, not the report's three, you find the CSS or HTML the rule applies to. A changed chapter the rule does not explain is a `REJECT`.
 6. **Measurement.** From `$MAIN`:
    ```bash
    YUEDU_WORKSPACE=$LOOP/Loop.xcworkspace bash $MAIN/scripts/fidelity/measure.sh \
@@ -39,6 +40,7 @@ Stop at the first failure and report it.
 - Oracle：<lock result>
 - Gate：<result, notes checked>
 - 回歸：<class → test count, pass/fail>
+- 斷行基線：<通過、未變 | 重錄 N 章：清單與 diff 一致；自己抽查的兩章與看到的規則>
 - 量測：run <id> 對 <previous id>；<book>: <before> → <after>（dev／holdout 分列）
 - 並排圖：<what you looked at and saw>
 
@@ -49,4 +51,4 @@ Stop at the first failure and report it.
 <one or two sentences>
 ```
 
-`ESCALATE_HUMAN` also when: tests cannot be run in this environment; a recorded baseline or golden fails because of the change; the score improves but the side-by-side looks worse; the slice needs a file the gate does not allow. Reply to the user-facing parts in Traditional Chinese.
+`ESCALATE_HUMAN` also when: tests cannot be run in this environment; a recorded baseline or golden other than the line-break baseline fails because of the change; the score improves but the side-by-side looks worse; the slice needs a file the gate does not allow. Reply to the user-facing parts in Traditional Chinese.
