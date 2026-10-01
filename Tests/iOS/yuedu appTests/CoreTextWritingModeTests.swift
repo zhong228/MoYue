@@ -716,6 +716,59 @@ struct CoreTextWritingModeTests {
         #expect(containsMagentaPixel(in: annotationRect, image: rendered))
     }
 
+    /// A long note is split into several placeholders, which makes the string longer
+    /// than it was when preparation started. Setting text upright, the font cascade and
+    /// the paragraph defaults are whole-string steps: they must still reach the last
+    /// character, or the end of the chapter is drawn sideways in a fallback font.
+    @Test("vertical preparation reaches the text after a split inline note")
+    func verticalPreparationReachesTextAfterSplitInlineNote() async throws {
+        let builder = HTMLAttributedStringBuilder()
+        let config = HTMLAttributedStringBuilder.Config(
+            fontSize: 18,
+            lineHeightMultiple: 1.0,
+            lineSpacing: 0,
+            paragraphSpacing: 0,
+            firstLineIndent: 0,
+            textColor: .black,
+            backgroundColor: .white,
+            fontFamilyName: nil,
+            renderWidth: 240,
+            writingMode: .verticalRTL
+        )
+        let note = String(repeating: "批語", count: 30)
+        let result = await builder.build(
+            html: """
+            <html>
+            <head><style>.small { font-size: 0.75em; }</style></head>
+            <body><p>甲<span class="small">\(note)</span>乙</p><p>所謂求仁而得仁又何怨悲夫</p></body>
+            </html>
+            """,
+            config: config
+        )
+        let prepared = CoreTextPaginator.preparedAttributedString(
+            result.attributedString,
+            writingMode: .verticalRTL,
+            fontSize: 18,
+            maxInlineAnnotationAdvance: 204
+        )
+        // The note (60 characters at more than 13.5pt each) cannot fit one 204pt run.
+        #expect(prepared.length > result.attributedString.length)
+
+        let text = prepared.string as NSString
+        let tail = text.range(of: "所謂求仁而得仁又何怨悲夫")
+        #expect(tail.location != NSNotFound)
+        let verticalForms = NSAttributedString.Key(kCTVerticalFormsAttributeName as String)
+        for index in tail.location..<NSMaxRange(tail) {
+            #expect(prepared.attribute(verticalForms, at: index, effectiveRange: nil) as? Bool == true,
+                    "character \(index) of \(prepared.length) is not set upright")
+            let font = try #require(prepared.attribute(.font, at: index, effectiveRange: nil))
+            #expect(CTFontCopyAttribute(font as! CTFont, kCTFontCascadeListAttribute) != nil,
+                    "character \(index) of \(prepared.length) has no CJK cascade")
+            let style = try #require(prepared.attribute(.paragraphStyle, at: index, effectiveRange: nil) as? NSParagraphStyle)
+            #expect(style.lineSpacing > 0, "character \(index) of \(prepared.length) kept the unprepared paragraph style")
+        }
+    }
+
     @Test("vertical EPUB ruby tags become CoreText ruby annotations")
     func verticalEPUBRubyTagsBecomeCoreTextRubyAnnotations() async throws {
         let builder = HTMLAttributedStringBuilder()

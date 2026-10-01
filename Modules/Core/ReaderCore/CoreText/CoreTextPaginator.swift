@@ -1678,7 +1678,6 @@ final class CoreTextPaginator {
     ) -> NSAttributedString {
         guard writingMode.isVertical, attrStr.length > 0 else { return attrStr }
         let mutable = NSMutableAttributedString(attributedString: attrStr)
-        let fullRange = NSRange(location: 0, length: mutable.length)
         debugVerticalLog("prepare.begin len=\(mutable.length) rawPrefix=\"\(debugTextPreview(mutable.string, limit: 80))\"", verbose: true)
         debugAttributedPrefix(mutable, label: "prepare.before", limit: 18)
 
@@ -1710,6 +1709,12 @@ final class CoreTextPaginator {
             debugVerticalLog("prepare.splitOversizedInlineAnnotations count=\(splitCount) maxAdvance=\(maxInlineAnnotationAdvance)", verbose: splitCount == 0)
             debugAttributedPrefix(mutable, label: "prepare.afterAnnotationSplit", limit: 24)
         }
+
+        // The whole string as it is now. Splitting a long note replaces one placeholder
+        // with several, so the string is longer than it was at the top; a range taken
+        // there leaves the chapter's last characters out of every step below, and they
+        // are drawn sideways in a fallback font.
+        let fullRange = NSRange(location: 0, length: mutable.length)
 
         // Step 3: Font cascade list for rare / supplemented CJK characters.
         //         PingFang → Songti → Kaiti → Heiti fallback chain.
