@@ -302,7 +302,9 @@ struct InlineLayoutTests {
         )
         #expect(lines.count >= 2)
         for line in lines {
-            #expect(line.height == 24)
+            // Since YueduCoreText 0.5.0 the line box is the strut and inline boxes
+            // with half-leading, which lands within an ULP of 24 rather than on it.
+            #expect(abs(line.height - 24) < 1e-9, "line height \(line.height)")
             #expect(line.baseline >= line.top)
             #expect(line.baseline <= line.top + line.height)
         }
@@ -408,7 +410,7 @@ struct BrowserLayoutDocumentTests {
         #expect(frontend.callCount == 1)
     }
 
-    @Test func legacyFrontendPreservesExistingStylesheetOrdering() throws {
+    @Test func laterStylesheetWinsAtEqualSpecificity() throws {
         let doc = BrowserLayoutDocument(
             html: "<html><body style=\"margin: 0\"><div class=\"f\">Floated</div></body></html>",
             cssTexts: [
@@ -420,10 +422,12 @@ struct BrowserLayoutDocumentTests {
 
         let layout = try doc.makeLayout(containerSize: CGSize(width: 300, height: 400))
 
-        // Phase 4A wraps the existing frontend; it must not silently repair or
-        // otherwise alter the historical zero-based per-stylesheet ordering.
-        #expect(layout.rootBox.children[0].isFloated)
-        #expect(layout.rootBox.children[0].frame.width == 100)
+        // CSS Cascade: at equal origin and specificity the declaration that appears
+        // last wins, and a later stylesheet appears after an earlier one. Before
+        // YueduCoreText 0.5.0 every stylesheet restarted its order at zero, so the
+        // second rule of the first sheet beat the first rule of the second.
+        #expect(!layout.rootBox.children[0].isFloated)
+        #expect(layout.rootBox.children[0].frame.width == 300)
     }
 }
 

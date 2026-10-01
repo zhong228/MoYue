@@ -46,7 +46,6 @@ struct BrowserLayoutRubySubsetTests {
         let rejected = [
             "<p><ruby>漢</ruby></p>",
             "<p><ruby>漢<rt>a</rt><rt>b</rt></ruby></p>",
-            "<p><ruby><rb>漢</rb><rt>a</rt></ruby></p>",
             "<p><ruby>漢<rtc><rt>a</rt></rtc></ruby></p>",
             "<p><ruby>外<ruby>內<rt>n</rt></ruby><rt>w</rt></ruby></p>",
             "<p><ruby><span style='display:block'>漢</span><rt>a</rt></ruby></p>",
@@ -54,13 +53,16 @@ struct BrowserLayoutRubySubsetTests {
         ]
         for body in rejected {
             let root = try tree(body)
-            #expect(!HorizontalRubySupport.validate(root).isSupported)
+            #expect(!HorizontalRubySupport.validate(root).isSupported, "\(body)")
         }
+        // Since YueduCoreText 0.4.0 one structural admission serves both writing
+        // modes, and `rb` is an optional wrapper around a base (HorizontalRubySupport).
+        #expect(HorizontalRubySupport.validate(try tree("<p><ruby><rb>漢</rb><rt>a</rt></ruby></p>")).isSupported)
         let verticalRoot = try tree(
             "<p><ruby>漢<rt>a</rt></ruby></p>",
             writingMode: .verticalRTL
         )
-        #expect(!HorizontalRubySupport.validate(
+        #expect(HorizontalRubySupport.validate(
             verticalRoot,
             writingMode: .verticalRTL
         ).isSupported)

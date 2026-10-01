@@ -84,6 +84,9 @@ struct BrowserLayoutCapabilityScannerTests {
         let accepted: [(String, [String])] = [
             ("<ruby>漢<rt>かん</rt></ruby>", []),
             ("<ruby><span>漢字</span><rt>かんじ</rt></ruby>", []),
+            // YueduCoreText 0.4.0 shares one ruby admission for both writing modes, in
+            // which `rb` is an optional wrapper around the base (HorizontalRubySupport).
+            ("<ruby><rb>漢</rb><rt>かん</rt></ruby>", []),
             ("<ruby>漢<rt><span>かん</span></rt></ruby>", []),
             ("<ruby>漢<rp>(</rp><rt>かん</rt><rp>)</rp></ruby>", []),
             ("<ruby>漢<rt>かん</rt></ruby>", ["ruby { ruby-align:center; ruby-position:over }"]),
@@ -99,7 +102,6 @@ struct BrowserLayoutCapabilityScannerTests {
         let rejected: [(String, [String])] = [
             ("<ruby>漢</ruby>", []),
             ("<ruby>漢<rt>a</rt><rt>b</rt></ruby>", []),
-            ("<ruby><rb>漢</rb><rt>a</rt></ruby>", []),
             ("<ruby>漢<rtc><rt>a</rt></rtc></ruby>", []),
             ("<ruby>漢<rt>a</rt></ruby>", ["ruby { ruby-position:under }"]),
             ("<ruby>漢<rt>a</rt></ruby>", ["ruby { ruby-position:inter-character }"]),
@@ -110,7 +112,7 @@ struct BrowserLayoutCapabilityScannerTests {
         ]
         for (ruby, css) in rejected {
             let result = scan("<html><body><p>\(ruby)</p></body></html>", css)
-            #expect(result.unsupportedFeatures.contains(.ruby))
+            #expect(result.unsupportedFeatures.contains(.ruby), "ruby=\(ruby) css=\(css)")
         }
     }
 
@@ -233,7 +235,9 @@ extension BrowserLayoutCapabilityScannerTests {
 
 extension BrowserLayoutCapabilityScannerTests {
     @Test func acceptsSupportedTextIndentSubset() {
-        for value in ["0", "20px", "1em", "2rem", "10%"] {
+        // Signed lengths and pt are part of the subset since YueduCoreText 0.5.0
+        // (`CSSTextIndent.parse`); a negative indent outdents the first line.
+        for value in ["0", "20px", "1em", "2rem", "10%", "12pt", "-1px", "-1em"] {
             let result = scan(
                 "<html><body><p>x</p></body></html>",
                 ["p { text-indent:\(value) }"]
@@ -243,7 +247,7 @@ extension BrowserLayoutCapabilityScannerTests {
     }
 
     @Test func rejectsEffectiveUnsupportedTextIndent() {
-        for value in ["hanging", "each-line", "-1px", "calc(2em + 1px)", "2em hanging"] {
+        for value in ["hanging", "each-line", "calc(2em + 1px)", "2em hanging", "1ex"] {
             let result = scan(
                 "<html><body><p>x</p></body></html>",
                 ["p { text-indent:\(value) }"]

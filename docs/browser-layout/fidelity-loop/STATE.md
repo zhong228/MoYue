@@ -141,6 +141,22 @@ Loop 每一輪更新這一頁。「佇列」和「雜訊」由 `fidelity-triage`
 - 需要處理：釐清既有測試所宣告的支援邊界與實作的差異；這涉及 S001 以外的兩條規則，未在本輪順手修改。
 - 選項：（a）先另案釐清並修正這兩項回歸，再重試 S001（建議：候選 dev 量測已改善，但必跑回歸必須通過）；（b）暫停 fidelity loop，等主線自行處理。
 - 狀態：S001 第一次 REJECT，沒有合入；記分板與最後接受的 run 維持 `baseline-2026-09-30`。
+- **2026-10-01 已處理（Claude，選 a）。** 把「每次都跑」整組在基底上跑過一次，共 5 個測試失敗，全部是測試的期望值停在舊版引擎；引擎是照 CSS 刻意改的，套件自己的測試都有涵蓋：
+  - `rejectsRubyOutsideSupportedSubset`：`<rb>` 包住的注音從 YueduCoreText 0.4.0 起是支援的（橫直排共用一套判斷）。
+  - `rejectsEffectiveUnsupportedTextIndent`：負值 `text-indent` 從 0.5.0 起支援，第一行往外凸（套件測試 `mixedInlineIndentAndNegativeAvailableWidth`）。
+  - `producesWrappedLineBoxes`：0.5.0 的行框算法算出 23.999999999999996，和 24 差一個浮點誤差。
+  - `legacyFrontendPreservesExistingStylesheetOrdering`：0.5.0 修正了樣式表的先後順序，後面的樣式表在同等特異性下勝出（CSS Cascade）；測試改名為 `laterStylesheetWinsAtEqualSpecificity`，改驗正確順序。
+  - `EPUBAutoRoutingTests` 的捲動測試：9/23 起內容視圖包在一個允許字形超出的裁切容器裡，改成量它在 cell 裡的位置（仍是 12）。
+  - 順手查了各區域的測試：注音 `rejectsRubyOutsidePhase4DSubset`、float 的 `floatOnNextPageExclusionCoordinates`、`actualLineBandHeightDrivesFloatExclusion`、`percentageInlineImageInsideExplicitWidthFloatUsesFloatContentWidth` 也是同樣原因（0.4.0 注音、0.5.0 行框），一起改成照 CSS 推出來的期望值。
+  - 手冊的必跑清單原本寫了一個不存在的型別名稱（`BrowserLayoutEngineTests` 是檔名，裡面有 10 個測試型別），會空跑；已改成 15 個真的型別，main 上是 84 tests 全過。手冊也加了一條：基底的必跑測試不全過就不准開始切片。
+  - loop 分支已同步到 main。S001 可以重試：候選 patch 還在 `~/Desktop/Yuedu-fidelity-loop/S001-attempt-1-rejected.patch`，它也改了 `BrowserLayoutCapabilityScannerTests.swift`，套用時那個檔案可能要手動合。
+
+### D3 — 整本《紅樓夢》的斷行基線在現在的環境都過不了
+- 看到的事：`BrowserLayoutLineBreakBaselineTests`（9/23 在 `14c7a441` 錄的 `docs/browser-layout/line-break-baseline/redchamber.tsv`）目前失敗。在系統語言是繁體中文（台灣）的模擬器上有 61 章不同；用 `-testLanguage` 指定任何語言（繁中、簡中、英文），或在英文介面的模擬器上，都是 196 章不同。不同的章節頁數、行數、第一行、最後一行都一樣，差在中間的行。
+- 還不知道的事：那 61 章是環境（模擬器的系統版本、語言）造成的，還是 9/23 之後的程式改動（0.6.0 整合、0.6.1 按需字型等）造成的。
+- 為什麼要你決定：這是錄好的基線，手冊規定不准自己重錄。
+- 影響：S001 不受影響。會擋住做斷行、行內排版的切片（S002 開始），因為驗證者會跑這個測試。
+- 選項：（a）先把 `14c7a441` 在現在的環境重跑一次：結果也是 61 章就是環境造成的，照它重錄並寫清楚；如果是 0 章，就逐個 commit 找出是哪個改動改了斷行（建議：一兩個小時，能說清楚每一章為什麼變）；（b）直接在固定語言的環境下重錄，不追原因；（c）先把它從 loop 的回歸清單拿掉，靠相似度量測看《紅樓夢》。
 
 ## 已合入
 

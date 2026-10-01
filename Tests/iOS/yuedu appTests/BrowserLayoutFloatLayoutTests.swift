@@ -316,11 +316,13 @@ struct BrowserLayoutFloatLayoutTests {
 
         let paragraphLines = pageOneText.filter { $0.nodeID == paragraphNodeID }
         #expect(paragraphLines.count == 3)
+        // `line-height: 20px` makes every line box 20px tall (CSS 2.1 §10.8.1); since
+        // YueduCoreText 0.5.0 taller glyphs overflow it instead of growing it.
         #expect(paragraphLines[0].rect.minY == 0)
         #expect(paragraphLines[0].rect.minX >= 100)
-        #expect(abs(paragraphLines[1].rect.minY - 22.4) < 0.001)
+        #expect(abs(paragraphLines[1].rect.minY - 20) < 0.001)
         #expect(paragraphLines[1].rect.minX >= 100)
-        #expect(abs(paragraphLines[2].rect.minY - 44.8) < 0.001)
+        #expect(abs(paragraphLines[2].rect.minY - 40) < 0.001)
         #expect(paragraphLines[2].rect.minX >= 100,
                 "A 20pt line band at y=40 still overlaps the 50pt float")
     }
@@ -385,8 +387,13 @@ struct BrowserLayoutFloatLayoutTests {
     }
 
     @Test func actualLineBandHeightDrivesFloatExclusion() {
+        // The block's line-height (the 20pt strut) would end the line band above a
+        // float that starts at y 21, but the run's own 30pt line-height makes the
+        // line box 30pt tall: its inline box contains the strut, both being the same
+        // font around the same baseline (CSS 2.1 §10.8.1). Exclusion has to use it.
         var style = ComputedStyle(fontSize: 16, fontFamilies: ["PingFangSC-Regular"])
         style.color = .black
+        style.lineHeight = 30
         let text = "A line whose measured CoreText box crosses a float that starts at y 21."
         let run = InlineRun(
             text: text,
@@ -415,7 +422,7 @@ struct BrowserLayoutFloatLayoutTests {
             )
         )
 
-        #expect(lines[0].height > 21)
+        #expect(abs(lines[0].height - 30) < 1e-9, "line height \(lines[0].height)")
         #expect(lines[0].contentX == 100,
                 "The actual line band intersects the float even though a 20pt estimate would miss it")
     }
@@ -472,8 +479,15 @@ struct BrowserLayoutFloatLayoutTests {
                 "85% must resolve against the 196pt float content box, not the 400pt viewport")
         #expect(abs((floatBox.lines.first?.contentX ?? -1) - 14.7) < 0.001,
                 "text-align:center must use the float's 196pt content width")
-        #expect(floatBox.frame.height == 166.6,
-                "The resolved image height must define the float exclusion bottom")
+        // The image sits on the baseline (vertical-align: baseline), so the resolved
+        // 166.6pt is the line box above the baseline, and the strut's descent hangs
+        // below it (CSS 2.1 §10.8; YueduCoreText 0.5.0). The float ends with that line.
+        let line = try #require(floatBox.lines.first)
+        #expect(abs((line.baseline - line.top) - 166.6) < 0.001,
+                "The resolved image height must be what the line box holds above the baseline")
+        #expect(line.height > 166.6)
+        #expect(abs(floatBox.frame.height - (line.top + line.height)) < 0.001,
+                "The float exclusion bottom is the bottom of the line box holding the image")
     }
 
     @Test func oversizedReplacedFloatUsesPagedFitPolicy() async throws {

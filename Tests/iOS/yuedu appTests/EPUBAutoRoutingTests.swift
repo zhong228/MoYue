@@ -63,7 +63,9 @@ struct EPUBAutoRoutingTests {
         collection.layoutIfNeeded()
         let cell = try #require(collection.cellForItem(at: IndexPath(item: 0, section: 0)) as? BrowserScrollTileCell)
         #expect(cell.currentTile?.chapter === tile.chapter)
-        #expect(cell.interactiveView.frame.minX == 12)
+        // The view may sit in a clip container that lets glyph ink bleed past the
+        // tile; what must hold is where it is in the cell.
+        #expect(cell.interactiveView.convert(cell.interactiveView.bounds, to: cell.contentView).minX == 12)
         #expect(collection.gestureRecognizers?.compactMap { $0 as? UILongPressGestureRecognizer }
             .contains { $0.minimumPressDuration == 0.4 && $0.delegate === controller } == true)
         let settings = ReaderRenderSettings(theme: "test", textColor: .red, backgroundColor: .white,

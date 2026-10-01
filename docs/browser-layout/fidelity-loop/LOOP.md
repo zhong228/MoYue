@@ -48,6 +48,7 @@ tags: [yuedu, browser-layout, fidelity-loop]
 - 兩個工作副本都沒有上一輪留下的未提交改動。
 - 磁碟剩餘空間 ≥ 10GB（`df -g ~`）。
 - 沒有別的 `xcodebuild` 在跑（`pgrep -x xcodebuild`）；有就等它結束，不要同時編譯。
+- 「每次都跑」那組回歸測試在**還沒動手的基底**上全部通過，而且測試數和下面寫的一樣。基底就失敗時不要開始切片：把失敗的測試和訊息寫進「等你決定」再停下。切片做完才發現基底失敗，整輪就白做了（2026-10-01 的 S001 第一次就是這樣）。
 
 ### 1. 選一項
 
@@ -111,24 +112,41 @@ tags: [yuedu, browser-layout, fidelity-loop]
 
 ## 回歸測試
 
-都在 loop 的閱讀器工作副本裡跑，一次一個類別：
+都在 loop 的閱讀器工作副本裡跑：
 
 ```bash
 cd $LOOP/Yuedu-reader
-YUEDU_WORKSPACE=$LOOP/Loop.xcworkspace bash scripts/xctest.sh -- -only-testing:'yuedu appTests/<類別>'
+YUEDU_WORKSPACE=$LOOP/Loop.xcworkspace bash scripts/xctest.sh -- -only-testing:'yuedu appTests/<型別>' [-only-testing:… 可以一次給好幾個]
 ```
 
-`-only-testing` 寫 struct／class 名稱；跑完核對 log 裡的測試數不是 0（空跑不算通過）。
+`-only-testing` 寫的是 struct／class 的名字，不是檔名：一個檔案裡常有好幾個測試型別（例如 `BrowserLayoutEngineTests.swift` 裡有 10 個，沒有一個叫 `BrowserLayoutEngineTests`），寫檔名會空跑。跑完核對 log 裡 `Test run with N tests in M suites` 的數字；0 個或比下表少都不算通過。
+
+「每次都跑」那組，一次跑完（2026-10-01 在 main 上是 **84 tests in 15 suites**，全過）：
+
+```bash
+YUEDU_WORKSPACE=$LOOP/Loop.xcworkspace bash scripts/xctest.sh -- \
+  -only-testing:'yuedu appTests/BrowserLayoutFeatureTests' -only-testing:'yuedu appTests/CSSLengthResolverTests' \
+  -only-testing:'yuedu appTests/ComputedStyleTests' -only-testing:'yuedu appTests/ComputedStyleTreeTests' \
+  -only-testing:'yuedu appTests/BlockLayoutTests' -only-testing:'yuedu appTests/CoreTextLineBreakerTests' \
+  -only-testing:'yuedu appTests/InlineLayoutTests' -only-testing:'yuedu appTests/PageFragmentationTests' \
+  -only-testing:'yuedu appTests/BrowserLayoutDocumentTests' -only-testing:'yuedu appTests/DisplayListTests' \
+  -only-testing:'yuedu appTests/BrowserLayoutPageEngineTests' -only-testing:'yuedu appTests/EPUBAutoRoutingTests' \
+  -only-testing:'yuedu appTests/BrowserLayoutCapabilityScannerTests' \
+  -only-testing:'yuedu appTests/BrowserAutoSupportedSubsetCorrectnessGateTests' \
+  -only-testing:'yuedu appTests/BrowserLayoutDeterminismTests'
+```
+
+新增測試會讓數字變大；變小或有失敗就要查。
 
 | 什麼時候 | 類別 |
 |---|---|
-| 每次都跑 | `BrowserLayoutEngineTests`、`BrowserLayoutPageEngineTests`、`EPUBAutoRoutingTests`、`BrowserLayoutCapabilityScannerTests`、`BrowserAutoSupportedSubsetCorrectnessGateTests`、`BrowserLayoutDeterminismTests` |
+| 每次都跑 | 上面那組 15 個 |
 | 斷行、行內排版 | `BrowserLayoutLineBreakerClusterTests`、`BrowserLayoutJustificationTests`、`BrowserLayoutInlineRunGeometryTests`、`BrowserLayoutInlineFormattingContextParityTests`、`BrowserLayoutWhiteSpaceTests` |
 | 字型、字級、行高 | `BrowserLayoutFontFallbackTests`、`BrowserReaderTypographyTests`、`BrowserFontDemandTests`、`BrowserLayoutUsedValueResolutionTests` |
 | 邊距、縮排、float | `BrowserLayoutTextIndentTests`、`BrowserLayoutFloatLayoutTests`、`BrowserLayoutFloatStyleTests`、`BrowserLayoutLogicalGeometryTests` |
 | 圖片 | `BrowserLayoutImageTests`、`BrowserLayoutProductionCorrectnessTests` |
 | 背景、邊框、裝飾 | `BrowserLayoutInlineDecorationTests`、`BrowserLayoutFragmentedDecorationTests`、`BrowserScrollPageBackgroundTests` |
-| 注音 | `BrowserLayoutRubyLayoutTests` |
+| 注音 | `BrowserLayoutRubySubsetTests`、`BrowserLayoutRubyUnitTests`、`BrowserLayoutRubyMeasurementTests`、`BrowserLayoutRubyFragmentTests`、`BrowserLayoutRubyInteractionTests`、`BrowserLayoutRubyCorpusTests` |
 | 直排 | `CoreTextWritingModeTests`、`BrowserVerticalReaderRouteTests` |
 | 捲動與 viewport | `BrowserScrollDocumentTests`、`BrowserViewportSessionTests`、`BrowserViewportRegressionTests` |
 | 連結、選字 | `BrowserLayoutLinkInteractionTests`、`BrowserLayoutSelectionContractTests`、`BrowserTextInteractionTests` |
