@@ -151,7 +151,16 @@ YUEDU_WORKSPACE=$LOOP/Loop.xcworkspace bash scripts/xctest.sh -- \
 | 捲動與 viewport | `BrowserScrollDocumentTests`、`BrowserViewportSessionTests`、`BrowserViewportRegressionTests` |
 | 連結、選字 | `BrowserLayoutLinkInteractionTests`、`BrowserLayoutSelectionContractTests`、`BrowserTextInteractionTests` |
 
-`BrowserLayoutSnapshotTests` 與斷行基線（`BrowserLayoutLineBreakBaselineTests`、`BrowserLayoutRedChamberRegressionTests`）比的是已錄製的結果。它們因為一個正確的修正而失敗時，不要重錄：把失敗的列與原因寫進「等你決定」。
+`BrowserLayoutSnapshotTests` 與斷行基線 `BrowserLayoutLineBreakBaselineTests` 比的是已錄製的結果。它們因為一個正確的修正而失敗時，不要重錄：把失敗的列與原因寫進「等你決定」。
+
+斷行基線是用繁體中文錄的，而程序語言會改變斷行（英文下 458 章裡有 196 章不同）。所以跑它一定要加 `-testLanguage zh-Hant -testRegion TW`；沒加會立刻失敗，訊息會說要加什麼。整本書跑一次約 3 分鐘：
+
+```bash
+YUEDU_WORKSPACE=$LOOP/Loop.xcworkspace bash scripts/xctest.sh -t 1500 -- \
+  -only-testing:'yuedu appTests/BrowserLayoutLineBreakBaselineTests' -testLanguage zh-Hant -testRegion TW
+```
+
+`BrowserLayoutRedChamberRegressionTests` 不比錄製的結果，是對整本《紅樓夢》做的結構檢查（章節定位、樣式表、封面頁幾何、背景圖），失敗就照一般回歸處理。2026-10-01 在 main 上是 12 tests 全過。
 
 ## 量測指令
 

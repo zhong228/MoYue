@@ -200,6 +200,13 @@ struct BrowserLayoutLineBreakBaselineTests {
 
     @Test("line breaking is byte-identical across the whole book", .enabled(if: epubPath != nil))
     func lineBreakingMatchesGolden() async throws {
+        // Line breaking follows the process language (CJK font fallback, punctuation
+        // widths): under English, 196 of the 458 chapters break differently from this
+        // Traditional Chinese golden (measured 2026-10-01). Pinned to zh-Hant, a
+        // simulator set to English and one set to Chinese give byte-identical results.
+        let language = Locale.preferredLanguages.first ?? ""
+        try #require(language.hasPrefix("zh-Hant"),
+                     "run with -testLanguage zh-Hant -testRegion TW; this process runs in '\(language)'")
         let path = try #require(Self.epubPath)
         let session = try await PublicationSession.open(sourceURL: URL(fileURLWithPath: path))
 
@@ -226,6 +233,7 @@ struct BrowserLayoutLineBreakBaselineTests {
             )
             let body = ([
                 "# line-break baseline — geometry + text DIGESTS only, no book text",
+                "# recorded with -testLanguage zh-Hant -testRegion TW (\(language))",
                 "# spine\tpages\tlines\tfirstLine\tlastLine\tsha",
             ] + prints.map(\.row)).joined(separator: "\n") + "\n"
             try body.write(to: url, atomically: true, encoding: .utf8)
