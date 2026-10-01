@@ -6,7 +6,7 @@
   "scripts/fidelity/corpus.json": "8d92ca52ce18bd968cf438a56b812bce5e03c3b9b322a6573c9bf606a224e03c",
   "scripts/fidelity/test_fidelity.py": "95e660647f514cebd0b1ba84004077dd9fd9312782da9ec8b1b7524cacecacc4",
   "Tests/iOS/yuedu appTests/RenderFidelityOracleTests.swift": "5e2cfd434832534ec44ae2e3f0e36a183109330bdde5deb0d45742e6dac8cfb1",
-  "docs/browser-layout/fidelity-loop/ORACLE.md": "0f10c6c90fb32ffae8b3fbadfa43691a454cf2c5d50cac69fba8f104a3efc584",
+  "docs/browser-layout/fidelity-loop/ORACLE.md": "87f702ca172c934421cd3c375b40d14bdad9d176e51c76fcff36fa31074e7a66",
   "docs/browser-layout/fidelity-loop/GOAL.md": "fd9e4beaf474a28163be9982f57c857701265c0c9ecc11587dcd0d4c081e7ff3"
  }
 }

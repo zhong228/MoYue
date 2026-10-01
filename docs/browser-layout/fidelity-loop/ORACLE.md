@@ -172,3 +172,5 @@ Loop 平常對著 dev 找問題、改引擎；holdout 只在驗證時量，用�
 2. `python3 scripts/fidelity/test_fidelity.py` 全過。
 3. `python3 scripts/fidelity/fidelity.py lock --write` 重錄雜湊。
 4. 重跑基線，把新舊分數差異寫進 `reports/`，因為之後的分數和之前的不能直接比。
+
+只改閘門（`fidelity.py gate`）不會改變分數的意義：`SCORER_VERSION` 不加、基線不重跑，只做第 2、3 步。
