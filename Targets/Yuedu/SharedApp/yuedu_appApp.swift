@@ -6,8 +6,12 @@ import GoogleSignIn
 struct yuedu_appApp: App {
     @UIApplicationDelegateAdaptor(RSSAppNotificationDelegate.self) private var rssNotificationDelegate
     // The app's own store is the only one that takes over the reading modes older builds
-    // kept in UserDefaults.
-    @StateObject private var bookStore = BookStore(legacyReaderSettingsDefaults: .standard)
+    // kept in UserDefaults, and the only one whose removed books leave their names in
+    // 搜索's 最近閱讀.
+    @StateObject private var bookStore = BookStore(
+        legacyReaderSettingsDefaults: .standard,
+        offShelfReadRecordsDefaults: .standard
+    )
     @StateObject private var subscriptionStore = SubscriptionStore.shared
     @StateObject private var bookSourceDeepLinkHandler = BookSourceDeepLinkHandler()
     @Environment(\.scenePhase) private var scenePhase

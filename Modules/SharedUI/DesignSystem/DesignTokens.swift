@@ -109,6 +109,10 @@ enum DSColor {
     /// Decorative only — it carries no state, so it may go unnoticed against a
     /// dark backdrop without costing the user anything.
     static let coverHeroShadow = Color.black.opacity(0.3)
+    /// Shadow under a cover in the 搜索 page's lists: the short, soft shadow Apple Books'
+    /// search draws under each cover, measured off its screenshots. Decorative, like
+    /// `coverHeroShadow`.
+    static let searchListCoverShadow = Color.black.opacity(0.35)
     /// Selected highlight
     static let highlight = Color.accentColor.opacity(0.15)
 
@@ -170,6 +174,12 @@ enum DSFont {
     static var title: Font { GlobalAppTypography.font(.title) }
     /// Large title (34pt)
     static var largeTitle: Font { GlobalAppTypography.font(.largeTitle) }
+    /// A section title the way Apple Books heads its sections: Title 2 in bold, set in
+    /// the system serif (New York). A chosen interface font draws it like any other style.
+    static var serifSectionTitle: Font {
+        GlobalAppTypography.font(.title2, weight: .bold, systemDesign: .serif)
+    }
+
 
     /// Existing fixed-size UI typography. Monospaced content intentionally
     /// remains system monospaced even when a global interface font is active.
@@ -247,8 +257,27 @@ enum DSLayout {
     static let searchResultCoverWidth: CGFloat = 72
     /// Search-result cover height shared by native list renderers.
     static let searchResultCoverHeight: CGFloat = 96
-    /// Diameter of the audiobook badge over a search-result cover.
-    static let searchResultAudiobookBadgeSize: CGFloat = 20
+    /// The 搜索 page's lists — results, 最近搜索, 最近閱讀 — as Apple Books lays out its
+    /// search, measured off its iOS 26 screenshots on a 402pt-wide iPhone (2026-10-02):
+    /// the inset from both edges, the 2:3 cover, and the gap from cover to text, which is
+    /// also where a row's separator starts.
+    static let searchListHorizontalInset: CGFloat = 29
+    static let searchListCoverWidth: CGFloat = 48
+    static let searchListCoverHeight: CGFloat = 72
+    static let searchListCoverTextSpacing: CGFloat = 14
+    /// The shadow under a search-list cover: short and soft, falling below it.
+    static let searchListCoverShadowRadius: CGFloat = 5
+    static let searchListCoverShadowY: CGFloat = 4
+    /// The grey tag after a title (有聲書), drawn as Apple Books draws its language tag:
+    /// the padding beside its text, and above and below the text's cap height.
+    static let titleTagHorizontalPadding: CGFloat = 3
+    static let titleTagVerticalPadding: CGFloat = 2.5
+    /// The 搜索 page's progress ring, drawn as the App Store draws a download: its
+    /// diameter, the width of its track and arc, and the pause or play glyph inside.
+    /// Fixed like the bar it sits in; its tap area is `minimumTapTarget`.
+    static let searchProgressRingSize: CGFloat = 28
+    static let searchProgressRingLineWidth: CGFloat = 2.5
+    static let searchProgressRingGlyphSize: CGFloat = 10
     /// Width of the cover hero at the top of 書籍資訊. 2:3 like the shelf grid,
     /// so the same artwork is not re-cropped between the two screens.
     static let bookCoverHeroWidth: CGFloat = 176
@@ -464,6 +493,10 @@ enum DSRadius {
     static let xl: CGFloat = 16
     /// Extra-extra-large radius (large preview tiles, prominent panel buttons)
     static let xxl: CGFloat = 20
+    /// A cover in the 搜索 page's lists: nearly square, as Apple Books' search draws them.
+    static let searchListCover: CGFloat = 2
+    /// The grey tag after a title (有聲書).
+    static let titleTag: CGFloat = 3
 }
 
 // MARK: - Design System: Animation Tokens

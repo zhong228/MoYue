@@ -73,6 +73,7 @@ struct BookSearchView: View {
     @ObservedObject private var sourceStore = BookSourceStore.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var query = ""
     @State private var errorMsg: String? = nil
@@ -80,6 +81,11 @@ struct BookSearchView: View {
     @State private var selectedIOS17ResultRoute: BookSearchResultRoute?
     @State private var showsSourceScopeSheet = false
     @State private var needsSearchResubmission = false
+    /// A book opened from 最近閱讀: pushed onto this stack, as a detail page pushes its
+    /// reader. Audiobooks keep their own modal player.
+    @State private var readerRoute: DetailReaderRoute?
+    @State private var audiobookReaderRoute: DetailReaderRoute?
+    @AppStorage(RecentSearchQueries.storageKey) private var recentQueries = RecentSearchQueries()
 
     var enabledSources: [BookSource] { sourceStore.enabledSources }
 
@@ -94,20 +100,18 @@ struct BookSearchView: View {
     var body: some View {
         AdaptiveContentContainer(maxWidth: DSLayout.readableExpandedWidth) {
             VStack(spacing: 0) {
+                // No rule under the scope row: as in Apple Books' search, the content
+                // starts below the controls, and on iOS 26 the list's soft scroll edge
+                // marks where it slides out of view.
                 if !enabledSources.isEmpty {
                     sourceScopeBar
-                    Divider()
                 }
 
                 ZStack {
                     if !aggregator.results.isEmpty {
                         resultList
-                            .overlay(alignment: .top) {
-                                if aggregator.isSearching {
-                                    progressBar
-                                }
-                            }
                     } else if aggregator.isSearching {
+                        // Progress and the pause control sit in the scope row above.
                         VStack(spacing: 12) {
                             Spacer()
                             ProgressView(localized("搜索中…"))
@@ -118,13 +122,16 @@ struct BookSearchView: View {
                     } else if shouldShowEmptyResult {
                         emptyResultView
                     } else {
-                        hintView
+                        SearchIdleContent(
+                            isQueryEmpty: trimmedQuery.isEmpty,
+                            onSearch: searchAgain,
+                            onOpenBook: openRecentBook
+                        ) {
+                            hintView
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay(alignment: .bottomTrailing) {
-                    searchControlButton
-                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(PageBackgroundView(scope: .search))
@@ -142,6 +149,19 @@ struct BookSearchView: View {
                 destination: SearchResultDestination.init(route:)
             )
         )
+        .navigationDestination(item: $readerRoute) { route in
+            BookReaderView(bookId: route.id)
+                .environmentObject(bookStore)
+                .environment(\.readerNavigator, nil)
+                .environment(\.readerUsesParentNavigationStack, true)
+                .navigationBarBackButtonHidden(true)
+                .reservingNavigationBackSwipe()
+        }
+        .fullScreenCover(item: $audiobookReaderRoute) { route in
+            BookReaderView(bookId: route.id)
+                .environmentObject(bookStore)
+                .environment(\.readerNavigator, nil)
+        }
         .searchable(text: $query, prompt: localized("輸入書名或作者"))
         .sheet(isPresented: $showsSourceScopeSheet) {
             SearchSourceScopeSheet(
@@ -192,76 +212,8 @@ struct BookSearchView: View {
         }
     }
 
-    // MARK: Progress Bar
-    private var progressBar: some View {
-        VStack(spacing: 0) {
-            ProgressView(value: aggregator.progress.fraction)
-                .progressViewStyle(.linear)
-                .tint(DSColor.accent)
-                .frame(height: 2)
-
-            if aggregator.progress.total > 0 {
-                HStack {
-                    Spacer()
-                    Text("\(aggregator.progress.completed)/\(aggregator.progress.total)")
-                        .font(DSFont.fixed(size: 10))
-                        .foregroundStyle(DSColor.textSecondary)
-                    if aggregator.progress.timedOut > 0 {
-                        Text(String(format: localized("超時 %d"), aggregator.progress.timedOut))
-                            .font(DSFont.fixed(size: 10))
-                            .foregroundColor(.orange)
-                    }
-                    if aggregator.progress.failed > 0 {
-                        Text(String(format: localized("失敗 %d"), aggregator.progress.failed))
-                            .font(DSFont.fixed(size: 10))
-                            .foregroundColor(.red)
-                    }
-                    if aggregator.progress.skipped > 0 {
-                        Text(String(format: localized("暫跳 %d"), aggregator.progress.skipped))
-                            .font(DSFont.fixed(size: 10))
-                            .foregroundStyle(DSColor.textSecondary)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 2)
-            }
-        }
-    }
-
-    // MARK: Floating Pause / Resume Control
-    //
-    // Manual companion to the network-settings auto-pause: tap to pause the
-    // in-flight search (save battery/traffic) and tap again to resume the
-    // sources that have not run yet. Auto-pause lands in the same paused state,
-    // so this same button resumes an automatically paused search too.
-    @ViewBuilder
-    private var searchControlButton: some View {
-        if aggregator.isSearching || aggregator.isPaused {
-            let paused = aggregator.isPaused
-            Button {
-                if paused {
-                    aggregator.resume()
-                } else {
-                    aggregator.pause()
-                }
-            } label: {
-                Image(systemName: paused ? "play.fill" : "pause.fill")
-                    .font(DSFont.fixed(size: 20, weight: .bold))
-                    .foregroundColor(DSColor.textOnAccent)
-                    .frame(width: 52, height: 52)
-                    .background(Circle().fill(paused ? DSColor.success : DSColor.accent))
-                    .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 3)
-            }
-            .buttonStyle(.plain)
-            .padding(.trailing, DSSpacing.lg)
-            .padding(.bottom, DSSpacing.xl)
-            .accessibilityLabel(paused ? localized("繼續搜索") : localized("暫停搜索"))
-            .transition(.scale.combined(with: .opacity))
-            .animation(.spring(response: 0.32, dampingFraction: 0.78), value: paused)
-        }
-    }
-
-    // Shown when a search was paused before any result came back.
+    // Shown when a search was paused before any result came back. The ring in the
+    // scope row above carries the search on.
     private var pausedPlaceholder: some View {
         VStack(spacing: 16) {
             Spacer()
@@ -275,6 +227,12 @@ struct BookSearchView: View {
     }
 
     // MARK: Source Scope
+
+    /// The scope capsule, and at the other end, while a search runs or is paused, its
+    /// progress ring — the one pause / resume control on the page. Manual companion to
+    /// the network-settings auto-pause: tap to pause the in-flight search (battery,
+    /// traffic) and again to resume the sources not yet asked. Auto-pause lands in the
+    /// same paused state, so the same ring resumes an automatically paused search.
     private var sourceScopeBar: some View {
         HStack {
             SearchSourceScopeCapsule(
@@ -282,10 +240,24 @@ struct BookSearchView: View {
                 isCustom: scopeStore.scope.mode == .custom,
                 action: { showsSourceScopeSheet = true }
             )
-            Spacer(minLength: 0)
+            Spacer(minLength: DSSpacing.sm)
+            if isSearchInProgress {
+                SearchProgressControl(
+                    progress: aggregator.progress,
+                    isPaused: aggregator.isPaused,
+                    onPause: { aggregator.pause() },
+                    onResume: { aggregator.resume() }
+                )
+                .transition(.opacity)
+            }
         }
         .padding(.horizontal, DSSpacing.lg)
         .padding(.vertical, DSSpacing.xs)
+        .animation(reduceMotion ? nil : DSAnimation.standard, value: isSearchInProgress)
+    }
+
+    private var isSearchInProgress: Bool {
+        aggregator.isSearching || aggregator.isPaused
     }
 
     private var sourceScopeSummary: String {
@@ -315,9 +287,18 @@ struct BookSearchView: View {
         List {
             ForEach(aggregator.results) { book in
                 resultLink(for: book)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                .listRowInsets(EdgeInsets(
+                    top: 0,
+                    leading: DSLayout.searchListHorizontalInset,
+                    bottom: 0,
+                    trailing: DSLayout.searchListHorizontalInset
+                ))
                 .listRowBackground(Color.clear)
+                // No rule over the first result: the scope row above has none either.
+                .listRowSeparator(
+                    book.id == aggregator.results.first?.id ? .hidden : .automatic,
+                    edges: .top
+                )
             }
 
             // 載入更多: fetch the next result page from every source that
@@ -331,6 +312,8 @@ struct BookSearchView: View {
         .softScrollEdges()
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        // Apple Books' result rows carry no disclosure chevron; the whole row opens the book.
+        .navigationLinkIndicatorVisibility(.hidden)
     }
 
     private var iOS17ResultList: some View {
@@ -444,82 +427,45 @@ struct BookSearchView: View {
 
         needsSearchResubmission = false
         submittedQuery = q
+        recentQueries = recentQueries.recording(q)
         aggregator.search(query: q, sources: sources)
+    }
+
+    /// 最近搜索: the same search again, as if typed and submitted.
+    private func searchAgain(_ recent: String) {
+        query = recent
+        doSearch()
+    }
+
+    /// 最近閱讀: back into the book where it was left, moved to the front of 最近閱讀
+    /// as opening it from the shelf does.
+    private func openRecentBook(_ book: ReadingBook) {
+        bookStore.updateLastOpened(bookId: book.id)
+        if book.resolvedPipelineKind == .audio {
+            audiobookReaderRoute = DetailReaderRoute(id: book.id)
+        } else {
+            readerRoute = DetailReaderRoute(id: book.id)
+        }
     }
 }
 
 // MARK: - Aggregated Result Row
 
+/// One search result as Apple Books lists one in its search (`SearchBookListRow`): the
+/// cover, the title with the grey 有聲書 tag on audiobooks, the author, and the kind and
+/// source count in grey — 「小說 · 3 源」. Mirrors `IOS17SearchResultTableCell`, which draws
+/// the same row in UIKit on iOS 17.
 struct AggregatedResultRow: View {
     let book: SearchBook
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            // ── Cover ──
+        SearchBookListRow(content: SearchBookListRowContent(result: book)) {
             BookCoverImage(
                 coverURL: book.coverUrl,
                 title: book.displayName,
                 author: book.author
             )
-            .frame(
-                width: DSLayout.searchResultCoverWidth,
-                height: DSLayout.searchResultCoverHeight
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .shadow(color: .black.opacity(0.12), radius: 3, x: 0, y: 1)
-            .overlay(alignment: .bottomTrailing) {
-                if BookSourceStore.shared.isAudiobookForBadge(book) {
-                    AudiobookCoverBadge(glyphSize: 9)
-                }
-            }
-
-            // ── Info ──
-            VStack(alignment: .leading, spacing: 3) {
-                Text(book.displayName)
-                    .font(DSFont.fixed(size: 16, weight: .semibold))
-                    .foregroundStyle(DSColor.textPrimary)
-                    .lineLimit(1)
-
-                if !book.author.isEmpty {
-                    Text(book.author)
-                        .font(DSFont.fixed(size: 12))
-                        .foregroundStyle(DSColor.textSecondary)
-                }
-
-                let introForList = book.displayIntro
-                if !introForList.isEmpty {
-                    Text(introForList)
-                        .font(DSFont.fixed(size: 12))
-                        .foregroundStyle(DSColor.textSecondary.opacity(0.8))
-                        .lineLimit(2)
-                        .padding(.top, 2)
-                }
-
-                Spacer(minLength: 4)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            // ── Source Count Badge ──
-            VStack(alignment: .trailing) {
-                HStack(spacing: 3) {
-                    Image(systemName: "globe").font(DSFont.fixed(size: 9))
-                    Text(String(format: localized("%d 源"), book.origins.count))
-                        .font(DSFont.fixed(size: 10, weight: .medium))
-                        .lineLimit(1)
-                }
-                .foregroundColor(book.origins.count > 1 ? .white : .secondary)
-                .padding(.horizontal, 7).padding(.vertical, 3)
-                .background(
-                    book.origins.count > 1
-                        ? AnyShapeStyle(DSColor.accent.opacity(0.85))
-                        : AnyShapeStyle(Color(UIColor.systemGray5))
-                )
-                .clipShape(Capsule())
-                Spacer()
-            }
         }
-        .padding(.vertical, 10)
-        .frame(minHeight: 96)
     }
 }
 

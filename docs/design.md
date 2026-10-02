@@ -348,7 +348,7 @@ Text("\(localized("當前速度"))：\(speechRateText)")
 | **書架 Library** | 最近閱讀、封面、進度、分組、搜尋 | `List`/grid、進度條、`contextMenu`、`searchable` |
 | **閱讀器 Reader** | 文字可讀性、翻頁/捲動、章節、進度、亮度/字體/行距/背景 | `fullScreenCover`、底部控制列、設定 sheet |
 | **發現 Discover** | 尊重書源作者的分類與內容，**不擅自重組成平台推薦流** | 原生 `List`、分類 section |
-| **搜尋 Search** | 書名/作者/URL/書源搜尋，狀態清楚（搜尋中/無結果/錯誤） | `searchable`、結果列、三態 |
+| **搜尋 Search** | 書名/作者/URL/書源搜尋，狀態清楚（搜尋中/無結果/錯誤）。列表照 Apple Books 搜尋（iOS 26 截圖量測）：左右 29pt、2:3 小封面（近直角＋短陰影）、旁邊置中三行——書名（粗，最多兩行）、作者、灰字「類型 · 幾源」，沒有簡介、沒有右側按鈕與箭頭，分隔線從文字起到右邊界；有聲書在書名後接灰色標籤（取代封面耳機徽章），第三行只寫「幾源」不再重複類型；英文的源數走 `en.lproj/Localizable.stringsdict` 分單複數（1 source／2 sources）。搜尋欄啟用且空白時列「最近搜索」「最近閱讀」：粗襯線標題＋同基線的「清除」，下方一條通欄分隔線；最近搜索是放大鏡＋關鍵字（最多 5 筆，點了重搜），最近閱讀是最近讀過的 3 本（同一種書籍列）：書架上的書第三行是閱讀進度、點了接著讀；不在書架上的讀過的書（沒加書架就讀／聽過的線上書，或讀過後從書架刪掉的書）照 legado 閱讀記錄的做法，書照舊刪、只留書名作者封面（`OffShelfReadRecords`，最多 10 筆，只有 App 自己的書庫會寫），第三行是多久前讀的、點了用書名重新搜尋，之後加進書架就只以書架那本出現；它的「清除」只清搜尋頁這份清單，不動書架的閱讀紀錄；「全部書源」那一列下面沒有分隔線（iOS 26 靠列表的柔和捲動邊緣）；這兩區是一般列不分 `Section`（iOS 26 的 Section 會在上方多空一段、多畫一條線）。搜尋進度與暫停照 App Store 下載鈕：在「全部書源」那一列右端放圓圈（圈＝已回應比例，中間 ‖ 點了暫停、變 ▶ 再點繼續），左邊「18/27 · 失敗 4」，搜完一起消失；全頁只有這一個暫停控制，不另開灰色帶、不用膠囊按鈕 | `searchable`、`SearchBookListRow`（UIKit 版 `IOS17SearchResultTableCell` 同樣式）、`SearchIdleContent`、`SearchProgressControl`、三態 |
 | **設定 Settings** | iOS Settings 風格、分組清楚 | `Form`/`List` insetGrouped、`Toggle`/`Picker`/`NavigationLink` |
 | **書源 Book Source** | 區分來源管理、測試、啟用狀態、錯誤狀態 | `List` + 狀態徽章 + `swipeActions` + 測試入口 |
 | **詳情 Detail** | 書籍資訊、章節目錄、開始閱讀 | 大標 + 後設資料 + 主 CTA |

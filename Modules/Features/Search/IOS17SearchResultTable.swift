@@ -7,12 +7,8 @@ extension IOS17SearchResultTableRow {
     init(searchBook book: SearchBook) {
         self.init(
             id: book.id,
-            title: book.displayName,
-            author: book.author,
-            intro: book.displayIntro,
-            coverURL: book.coverUrl,
-            sourceCount: book.origins.count,
-            showsAudiobookBadge: book.inferredContentKind() == .audio
+            content: SearchBookListRowContent(result: book),
+            coverURL: book.coverUrl
         )
     }
 }
@@ -81,14 +77,16 @@ final class IOS17SearchResultTableViewController: UITableViewController {
 
         tableView.backgroundColor = .clear
         tableView.separatorColor = UIColor(DSColor.separator)
+        // Separators run from the text to the trailing margin, as the SwiftUI row's do.
         tableView.separatorInset = UIEdgeInsets(
             top: 0,
-            left: DSSpacing.lg + DSLayout.searchResultCoverWidth + DSSpacing.md,
+            left: DSLayout.searchListHorizontalInset + DSLayout.searchListCoverWidth
+                + DSLayout.searchListCoverTextSpacing,
             bottom: 0,
-            right: DSSpacing.lg
+            right: DSLayout.searchListHorizontalInset
         )
         tableView.estimatedRowHeight =
-            DSLayout.searchResultCoverHeight + DSSpacing.sm * 2
+            DSLayout.searchListCoverHeight + DSSpacing.sm * 2
         tableView.rowHeight = UITableView.automaticDimension
         tableView.register(
             IOS17SearchResultTableCell.self,
@@ -193,17 +191,16 @@ final class IOS17SearchResultTableViewController: UITableViewController {
 
 @MainActor
 private final class IOS17SearchResultTableCell: UITableViewCell {
+    /// Carries the cover's shadow; the image inside it is clipped to the corners.
     private let coverContainer = UIView()
     private let coverImageView = UIImageView()
-    private let audiobookBadge = UIImageView()
     private let titleLabel = UILabel()
     private let authorLabel = UILabel()
-    private let introLabel = UILabel()
-    private let sourceBadge = UIStackView()
-    private let sourceIcon = UIImageView()
-    private let sourceLabel = UILabel()
+    private let detailLabel = UILabel()
 
-    private var representedID: UUID?
+    private var representedRow: IOS17SearchResultTableRow?
+    private var titleFont = UIFont.preferredFont(forTextStyle: .footnote)
+    private var tagFont = UIFont.preferredFont(forTextStyle: .caption2)
     private var coverTask: Task<Void, Never>?
     /// Title and author of the row on screen, so the generated cover can be
     /// redrawn when the appearance flips under a cell that is already showing it.
@@ -234,7 +231,7 @@ private final class IOS17SearchResultTableCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        representedID = nil
+        representedRow = nil
         coverTask?.cancel()
         coverTask = nil
         coverImageView.image = nil
@@ -244,42 +241,59 @@ private final class IOS17SearchResultTableCell: UITableViewCell {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        coverContainer.layer.cornerRadius = DSRadius.sm
-        sourceBadge.layer.cornerRadius = sourceBadge.bounds.height / 2
-        audiobookBadge.layer.cornerRadius =
-            DSLayout.searchResultAudiobookBadgeSize / 2
+        coverImageView.layer.cornerRadius = DSRadius.searchListCover
+        coverContainer.layer.shadowPath = UIBezierPath(
+            roundedRect: coverContainer.bounds,
+            cornerRadius: DSRadius.searchListCover
+        ).cgPath
     }
 
     @inline(never)
     func configure(with row: IOS17SearchResultTableRow) {
-        representedID = row.id
-        titleLabel.text = row.title
-        authorLabel.text = row.author
-        authorLabel.isHidden = row.author.isEmpty
-        introLabel.text = row.intro
-        introLabel.isHidden = row.intro.isEmpty
-        sourceLabel.text = String(format: localized("%d 源"), row.sourceCount)
-        audiobookBadge.isHidden = !row.showsAudiobookBadge
-        sourceBadge.backgroundColor = UIColor(
-            row.sourceCount > 1 ? DSColor.accent : DSColor.surfaceTertiary
-        )
-        sourceIcon.tintColor = UIColor(
-            row.sourceCount > 1 ? DSColor.textOnAccent : DSColor.textSecondary
-        )
-        sourceLabel.textColor = UIColor(
-            row.sourceCount > 1 ? DSColor.textOnAccent : DSColor.textSecondary
-        )
-
-        accessibilityLabel = [
-            row.title,
-            row.author,
-            row.intro,
-            String(format: localized("%d 源"), row.sourceCount),
-        ]
-        .filter { !$0.isEmpty }
-        .joined(separator: "，")
-
+        representedRow = row
+        applyTitle()
+        authorLabel.text = row.content.author
+        authorLabel.isHidden = row.content.author.isEmpty
+        detailLabel.text = row.content.detail
+        accessibilityLabel = row.content.accessibilityLabel
         loadCover(for: row)
+    }
+
+    /// The title with the grey tag flowing after it, as `SearchBookListRow` draws it.
+    private func applyTitle() {
+        guard let content = representedRow?.content else {
+            titleLabel.attributedText = nil
+            return
+        }
+        let title = NSMutableAttributedString(
+            string: content.title,
+            attributes: [.font: titleFont, .foregroundColor: UIColor(DSColor.textPrimary)]
+        )
+        if let tag = content.titleTag {
+            let mark = SearchTitleTag.mark(
+                for: tag,
+                titleFont: titleFont,
+                tagFont: tagFont,
+                scale: traitCollection.displayScale
+            )
+            let attachment = NSTextAttachment(image: mark.image)
+            attachment.bounds = CGRect(
+                x: 0,
+                y: mark.baselineOffset,
+                width: mark.image.size.width,
+                height: mark.image.size.height
+            )
+            title.append(NSAttributedString(string: " ", attributes: [.font: titleFont]))
+            // A template attachment is tinted with the text colour of its run.
+            let tagRun = NSMutableAttributedString(attachment: attachment)
+            tagRun.addAttribute(
+                .foregroundColor,
+                value: UIColor(DSColor.textSecondary),
+                range: NSRange(location: 0, length: tagRun.length)
+            )
+            title.append(tagRun)
+        }
+        titleLabel.attributedText = title
     }
 
     private func buildViewHierarchy() {
@@ -293,76 +307,44 @@ private final class IOS17SearchResultTableCell: UITableViewCell {
         selectedBackgroundView = selectedView
 
         coverContainer.translatesAutoresizingMaskIntoConstraints = false
-        coverContainer.clipsToBounds = true
+        coverContainer.layer.shadowOpacity = 1
+        coverContainer.layer.shadowRadius = DSLayout.searchListCoverShadowRadius
+        coverContainer.layer.shadowOffset = CGSize(width: 0, height: DSLayout.searchListCoverShadowY)
         coverImageView.translatesAutoresizingMaskIntoConstraints = false
         coverImageView.contentMode = .scaleAspectFill
         coverImageView.clipsToBounds = true
+        coverImageView.layer.cornerCurve = .continuous
         coverImageView.isAccessibilityElement = false
-
-        audiobookBadge.translatesAutoresizingMaskIntoConstraints = false
-        audiobookBadge.image = UIImage(systemName: "headphones")
-        audiobookBadge.contentMode = .center
-        audiobookBadge.tintColor = UIColor(DSColor.textOnAccent)
-        audiobookBadge.backgroundColor = UIColor(DSColor.accent)
-        audiobookBadge.clipsToBounds = true
-        audiobookBadge.isAccessibilityElement = false
-
         coverContainer.addSubview(coverImageView)
-        coverContainer.addSubview(audiobookBadge)
 
-        titleLabel.numberOfLines = 1
-        authorLabel.numberOfLines = 1
-        introLabel.numberOfLines = 2
-        for label in [titleLabel, authorLabel, introLabel] {
-            label.adjustsFontForContentSizeCategory = true
+        for label in [titleLabel, authorLabel, detailLabel] {
             label.isAccessibilityElement = false
         }
 
         let informationStack = UIStackView(
-            arrangedSubviews: [titleLabel, authorLabel, introLabel]
+            arrangedSubviews: [titleLabel, authorLabel, detailLabel]
         )
         informationStack.axis = .vertical
-        informationStack.alignment = .fill
-        informationStack.spacing = DSSpacing.xs
-
-        sourceIcon.image = UIImage(systemName: "globe")
-        sourceIcon.contentMode = .scaleAspectFit
-        sourceIcon.isAccessibilityElement = false
-        sourceLabel.numberOfLines = 1
-        sourceLabel.adjustsFontForContentSizeCategory = true
-        sourceLabel.isAccessibilityElement = false
-
-        sourceBadge.axis = .horizontal
-        sourceBadge.alignment = .center
-        sourceBadge.spacing = DSSpacing.xs
-        sourceBadge.isLayoutMarginsRelativeArrangement = true
-        sourceBadge.directionalLayoutMargins = NSDirectionalEdgeInsets(
-            top: DSSpacing.xs,
-            leading: DSSpacing.sm,
-            bottom: DSSpacing.xs,
-            trailing: DSSpacing.sm
-        )
-        sourceBadge.addArrangedSubview(sourceIcon)
-        sourceBadge.addArrangedSubview(sourceLabel)
-        sourceBadge.setContentCompressionResistancePriority(.required, for: .horizontal)
+        informationStack.alignment = .leading
+        informationStack.spacing = 0
 
         let rowStack = UIStackView(
-            arrangedSubviews: [coverContainer, informationStack, sourceBadge]
+            arrangedSubviews: [coverContainer, informationStack]
         )
         rowStack.translatesAutoresizingMaskIntoConstraints = false
         rowStack.axis = .horizontal
-        rowStack.alignment = .top
-        rowStack.spacing = DSSpacing.md
+        rowStack.alignment = .center
+        rowStack.spacing = DSLayout.searchListCoverTextSpacing
         contentView.addSubview(rowStack)
 
         NSLayoutConstraint.activate([
             rowStack.leadingAnchor.constraint(
                 equalTo: contentView.leadingAnchor,
-                constant: DSSpacing.lg
+                constant: DSLayout.searchListHorizontalInset
             ),
             rowStack.trailingAnchor.constraint(
                 equalTo: contentView.trailingAnchor,
-                constant: -DSSpacing.lg
+                constant: -DSLayout.searchListHorizontalInset
             ),
             rowStack.topAnchor.constraint(
                 equalTo: contentView.topAnchor,
@@ -373,78 +355,61 @@ private final class IOS17SearchResultTableCell: UITableViewCell {
                 constant: -DSSpacing.sm
             ),
             coverContainer.widthAnchor.constraint(
-                equalToConstant: DSLayout.searchResultCoverWidth
+                equalToConstant: DSLayout.searchListCoverWidth
             ),
             coverContainer.heightAnchor.constraint(
-                equalToConstant: DSLayout.searchResultCoverHeight
+                equalToConstant: DSLayout.searchListCoverHeight
             ),
             coverImageView.leadingAnchor.constraint(equalTo: coverContainer.leadingAnchor),
             coverImageView.trailingAnchor.constraint(equalTo: coverContainer.trailingAnchor),
             coverImageView.topAnchor.constraint(equalTo: coverContainer.topAnchor),
             coverImageView.bottomAnchor.constraint(equalTo: coverContainer.bottomAnchor),
-            audiobookBadge.widthAnchor.constraint(
-                equalToConstant: DSLayout.searchResultAudiobookBadgeSize
-            ),
-            audiobookBadge.heightAnchor.constraint(
-                equalToConstant: DSLayout.searchResultAudiobookBadgeSize
-            ),
-            audiobookBadge.trailingAnchor.constraint(
-                equalTo: coverContainer.trailingAnchor,
-                constant: -DSSpacing.xs
-            ),
-            audiobookBadge.bottomAnchor.constraint(
-                equalTo: coverContainer.bottomAnchor,
-                constant: -DSSpacing.xs
-            ),
         ])
     }
 
     private func applyTypography() {
         let postScriptName = GlobalAppTypography.activePostScriptName
-        titleLabel.font = GlobalAppTypography.uiFont(
-            .headline,
+        titleFont = GlobalAppTypography.uiFont(
+            .footnote,
             postScriptName: postScriptName,
+            weight: .semibold,
             compatibleWith: traitCollection
         )
-        authorLabel.font = GlobalAppTypography.uiFont(
-            .caption,
-            postScriptName: postScriptName,
-            compatibleWith: traitCollection
-        )
-        introLabel.font = GlobalAppTypography.uiFont(
-            .caption,
-            postScriptName: postScriptName,
-            compatibleWith: traitCollection
-        )
-        sourceLabel.font = GlobalAppTypography.uiFont(
+        tagFont = GlobalAppTypography.uiFont(
             .caption2,
             postScriptName: postScriptName,
-            weight: .medium,
+            weight: .semibold,
             compatibleWith: traitCollection
         )
-        sourceIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            font: sourceLabel.font
+        let footnote = GlobalAppTypography.uiFont(
+            .footnote,
+            postScriptName: postScriptName,
+            compatibleWith: traitCollection
         )
-        audiobookBadge.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            font: sourceLabel.font
-        )
+        authorLabel.font = footnote
+        detailLabel.font = footnote
+        // Accessibility sizes wrap instead of cutting a title to two lines.
+        let isAccessibilitySize = traitCollection.preferredContentSizeCategory.isAccessibilityCategory
+        titleLabel.numberOfLines = isAccessibilitySize ? 4 : 2
+        authorLabel.numberOfLines = isAccessibilitySize ? 2 : 1
+        detailLabel.numberOfLines = isAccessibilitySize ? 2 : 1
+        applyTitle()
     }
 
     private func applyColors() {
-        titleLabel.textColor = UIColor(DSColor.textPrimary)
-        authorLabel.textColor = UIColor(DSColor.textSecondary)
-        introLabel.textColor = UIColor(DSColor.textSecondary)
-        coverContainer.backgroundColor = UIColor(DSColor.surfaceTertiary)
+        authorLabel.textColor = UIColor(DSColor.textPrimary)
+        detailLabel.textColor = UIColor(DSColor.textSecondary)
+        coverImageView.backgroundColor = UIColor(DSColor.surfaceTertiary)
+        coverContainer.layer.shadowColor = UIColor(DSColor.searchListCoverShadow).cgColor
         // Light/dark flipped under a cell that is still on the generated cover.
         if !showsRemoteCover { applyGeneratedCover() }
-        audiobookBadge.tintColor = UIColor(DSColor.textOnAccent)
-        audiobookBadge.backgroundColor = UIColor(DSColor.accent)
+        applyTitle()
     }
 
     private func loadCover(for row: IOS17SearchResultTableRow) {
         coverTask?.cancel()
         coverTask = nil
-        generatedCoverSeed = (row.title, row.author)
+        generatedCoverSeed = (row.content.title, row.content.author)
 
         if let cached = BookCoverLoader.cachedImage(for: row.coverURL) {
             showCover(cached, representedID: row.id)
@@ -470,7 +435,7 @@ private final class IOS17SearchResultTableCell: UITableViewCell {
     }
 
     private func showCover(_ image: UIImage, representedID: UUID) {
-        guard self.representedID == representedID else { return }
+        guard representedRow?.id == representedID else { return }
         coverImageView.image = image
         showsRemoteCover = true
     }
@@ -487,8 +452,8 @@ private final class IOS17SearchResultTableCell: UITableViewCell {
             title: seed.title,
             author: seed.author,
             size: CGSize(
-                width: DSLayout.searchResultCoverWidth,
-                height: DSLayout.searchResultCoverHeight
+                width: DSLayout.searchListCoverWidth,
+                height: DSLayout.searchListCoverHeight
             ),
             colorScheme: traitCollection.userInterfaceStyle == .dark ? .dark : .light,
             drawsName: settings.defaultCoverDrawsBookName,

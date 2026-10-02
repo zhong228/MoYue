@@ -3448,3 +3448,8 @@
 "%d 秒" = "%d s";
 "片頭 %d 秒，片尾 %d 秒" = "Intro %d s, outro %d s";
 "只套用在這本書；片頭只在章節從頭播放時跳過。" = "Applies to this book only. The intro is skipped only when a chapter plays from its beginning.";
+
+/* 搜索頁：最近搜索與最近閱讀 */
+"最近搜索" = "Recently Searched";
+"清除最近搜索" = "Clear Recently Searched";
+"清除最近閱讀" = "Clear Recently Read";

@@ -18,12 +18,9 @@ enum SearchResultNavigationMode: Equatable {
 
 struct IOS17SearchResultTableRow: Identifiable, Equatable {
     let id: UUID
-    let title: String
-    let author: String
-    let intro: String
+    /// What the row says — the same value the SwiftUI row draws from.
+    let content: SearchBookListRowContent
     let coverURL: String
-    let sourceCount: Int
-    let showsAudiobookBadge: Bool
 }
 
 struct IOS17SearchResultTableContent: Equatable {

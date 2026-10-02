@@ -191,11 +191,13 @@ struct IOS17SearchResultTableTests {
         let row = IOS17SearchResultTableRow(searchBook: book)
 
         #expect(row.id == book.id)
-        #expect(row.title == "測試書")
-        #expect(row.intro == "已截斷簡介")
+        #expect(row.content.title == "測試書")
+        #expect(row.content.titleTag == localized("有聲書"))
+        // The tag names the kind, so the detail is the source count alone.
+        #expect(row.content.detail == String(format: localized("%d 源"), 1))
+        // The row lists no description, so the source's raw HTML never reaches it.
+        #expect(!row.content.accessibilityLabel.contains("<html>"))
         #expect(row.coverURL == "https://example.com/cover.jpg")
-        #expect(row.sourceCount == 1)
-        #expect(row.showsAudiobookBadge)
         #expect(book.detailIntro == "已清洗且有界的詳情簡介")
         #expect(book.detailIntro(for: origin) == "已清洗且有界的詳情簡介")
     }
@@ -203,12 +205,13 @@ struct IOS17SearchResultTableTests {
     private func makeRow(title: String = "第一本書") -> IOS17SearchResultTableRow {
         IOS17SearchResultTableRow(
             id: UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!,
-            title: title,
-            author: "作者",
-            intro: "簡介",
-            coverURL: "https://example.com/cover.jpg",
-            sourceCount: 2,
-            showsAudiobookBadge: false
+            content: SearchBookListRowContent(
+                title: title,
+                titleTag: nil,
+                author: "作者",
+                detail: "小說 · 2 源"
+            ),
+            coverURL: "https://example.com/cover.jpg"
         )
     }
 }

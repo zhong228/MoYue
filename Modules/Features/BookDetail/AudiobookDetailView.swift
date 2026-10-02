@@ -735,6 +735,9 @@ struct AudiobookDetailView: View {
             preparePlayerCoverFallback(bookId: transient.id, source: source)
             AudiobookPlayer.shared.startTransient(book: transient, store: bookStore)
             activePlayerBookId = transient.id
+            // Listened to without being shelved, by a player that never enters the library:
+            // only its name stays, for 搜索's 最近閱讀.
+            OffShelfReadRecords.record(title: transient.title, author: transient.author, coverUrl: displayCoverUrl)
         }
         openingPlayer = false
         showPlayer = true

@@ -157,18 +157,28 @@ enum GlobalAppTypography {
         return steps.first { weight.rawValue <= $0.from.rawValue }?.to ?? .black
     }
 
-    static func font(_ style: Style, weight: Font.Weight? = nil) -> Font {
-        font(style, postScriptName: activePostScriptName, weight: weight)
+    /// - Parameter systemDesign: the design of the system font (serif for New York). It
+    ///   applies only while no interface font is chosen; a chosen font draws as itself.
+    static func font(
+        _ style: Style,
+        weight: Font.Weight? = nil,
+        systemDesign: Font.Design = .default
+    ) -> Font {
+        font(style, postScriptName: activePostScriptName, weight: weight, systemDesign: systemDesign)
     }
 
     static func font(
         _ style: Style,
         postScriptName: String?,
-        weight: Font.Weight? = nil
+        weight: Font.Weight? = nil,
+        systemDesign: Font.Design = .default
     ) -> Font {
         guard let postScriptName,
               UIFont(name: postScriptName, size: style.basePointSize) != nil else {
-            return weight.map { style.systemFont.weight($0) } ?? style.systemFont
+            let system = systemDesign == .default
+                ? style.systemFont
+                : .system(style.swiftUIStyle, design: systemDesign)
+            return weight.map { system.weight($0) } ?? system
         }
 
         let custom = Font.custom(

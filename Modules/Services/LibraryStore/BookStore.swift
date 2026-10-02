@@ -145,14 +145,23 @@ class BookStore: ObservableObject, BookProvider {
     /// rewrites the app's own.
     let readerSettings: BookReaderSettingsStore
 
+    /// Where a book read and then taken off the shelf leaves its name for 搜索's 最近閱讀
+    /// (`OffShelfReadRecords`). Nil for a store on any shelf but the app's own, which then
+    /// leaves no names behind.
+    private let offShelfReadRecordsDefaults: UserDefaults?
+
     /// - Parameter legacyReaderSettingsDefaults: where builds before
     ///   `BookReaderSettingsStore` kept the fixed-page reading mode. Only the app's own
     ///   store passes one; a store opened on any other shelf must not claim those keys.
+    /// - Parameter offShelfReadRecordsDefaults: where removed books leave their names.
+    ///   Only the app's own store passes one, so a test's shelf never writes the app's list.
     init(
         metadataFileURL: URL = BookStore.booksMetaFileURL,
-        legacyReaderSettingsDefaults: UserDefaults? = nil
+        legacyReaderSettingsDefaults: UserDefaults? = nil,
+        offShelfReadRecordsDefaults: UserDefaults? = nil
     ) {
         self.metadataFileURL = metadataFileURL
+        self.offShelfReadRecordsDefaults = offShelfReadRecordsDefaults
         readerSettings = BookReaderSettingsStore(
             fileURL: metadataFileURL.deletingPathExtension().appendingPathExtension("reader-settings.json")
         )
@@ -1223,6 +1232,18 @@ class BookStore: ObservableObject, BookProvider {
         }
         if let idx = records.firstIndex(where: { $0.id == bookId }) {
             let book = records[idx]
+            // Read and now off the shelf — removed, or read from its detail page without
+            // being added: its name stays for 搜索's 最近閱讀, as legado's 閱讀記錄
+            // outlives the book.
+            if let offShelfReadRecordsDefaults, let lastRead = book.lastOpenedDate {
+                OffShelfReadRecords.record(
+                    title: book.title,
+                    author: book.author,
+                    coverUrl: book.coverUrl ?? "",
+                    at: lastRead,
+                    defaults: offShelfReadRecordsDefaults
+                )
+            }
             if book.remoteSource != nil {
                 // Removing a remote shelf reference keeps the same reading record
                 // and explicit offline copy available from its library detail.
