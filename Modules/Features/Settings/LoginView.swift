@@ -2,6 +2,7 @@ import SwiftUI
 import AuthenticationServices
 
 struct LoginView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var email = ""
     @State private var password = ""
     @State private var emailMode: EmailAuthMode = .signIn
@@ -146,7 +147,7 @@ struct LoginView: View {
                 Spacer()
 
                 Button {
-                    withAnimation { emailMode.toggle() }
+                    withAnimation(reduceMotion ? nil : DSAnimation.standard) { emailMode.toggle() }
                     errorMessage = nil
                 } label: {
                     Text(localized(emailMode.togglePrompt))

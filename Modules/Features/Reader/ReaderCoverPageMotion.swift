@@ -40,6 +40,36 @@ struct ReaderCoverPageMotion: Equatable {
         }
     }
 
+    /// Share of the page width a slow release must have covered to turn the page.
+    static let commitProgressRatio: CGFloat = 0.34
+    /// Horizontal speed (points/second) that decides a release on its own: a
+    /// flick the way the page is turning commits it, a flick back cancels it.
+    static let commitVelocityThreshold: CGFloat = 560
+
+    /// `value` measured along the way this turn travels: positive is further into
+    /// the turn, negative is back towards where the drag started.
+    private func alongTurn(_ value: CGFloat) -> CGFloat {
+        let turnsLeftwards = (direction == .forward) != isRTL
+        return turnsLeftwards ? -value : value
+    }
+
+    /// How far into the turn the finger has dragged the page, 0...1. Dragging back
+    /// past where the gesture started is 0, not progress: until 2026-09-30 this
+    /// was the bare distance from the start, so a page dragged back through its
+    /// starting point began turning again in the same direction.
+    func dragProgress(translationX: CGFloat, width: CGFloat) -> CGFloat {
+        min(max(alongTurn(translationX) / max(width, 1), 0), 1)
+    }
+
+    /// Whether letting go turns the page. Velocity used to count in either
+    /// direction, so a page flicked back the way it came turned anyway.
+    func shouldCommit(translationX: CGFloat, velocityX: CGFloat, width: CGFloat) -> Bool {
+        let velocity = alongTurn(velocityX)
+        if velocity > Self.commitVelocityThreshold { return true }
+        if velocity < -Self.commitVelocityThreshold { return false }
+        return dragProgress(translationX: translationX, width: width) > Self.commitProgressRatio
+    }
+
     func settledX(width: CGFloat, shouldCommit: Bool) -> CGFloat {
         switch direction {
         case .forward:
@@ -47,6 +77,36 @@ struct ReaderCoverPageMotion: Equatable {
         case .backward:
             return shouldCommit ? 0 : offscreenX(width: width)
         }
+    }
+
+    /// How long the page takes to come to rest after the finger lets go. UIKit's
+    /// spring for a given duration is stiffer than an ease-out of the same length:
+    /// the 0.22s ease-out this replaced covered two thirds of the way in its
+    /// first 0.1s, a 0.22s spring nine tenths. At 0.27s it covers about four
+    /// fifths — still a little brisker than the ease-out from a standstill.
+    static let settleDuration: TimeInterval = 0.27
+
+    /// Ceiling on `settleSpringVelocity`. UIKit's critically damped spring for
+    /// `settleDuration` overshoots its target once the initial velocity passes the
+    /// spring's own natural frequency — the page would slide past its resting edge
+    /// and show what is behind it. `coverSettleSpringNeverOvershoots` measures that
+    /// frequency and holds this below it (measured 2026-09-30 on iOS 27: 39.3 for
+    /// 0.22s, 31.7 for 0.27s, 16.2 for 0.30s).
+    static let maxSettleSpringVelocity: CGFloat = 16
+
+    /// The released page's speed, in the unit UIKit's spring API takes: remaining
+    /// distances per second. Handing the spring the finger's velocity is what lets
+    /// the page carry on at the speed it was let go at instead of jumping to the
+    /// curve's own. A finger moving away from where the page will rest contributes
+    /// nothing — the page turns round from a standstill.
+    static func settleSpringVelocity(
+        currentX: CGFloat,
+        destinationX: CGFloat,
+        velocityX: CGFloat
+    ) -> CGFloat {
+        let remaining = destinationX - currentX
+        guard abs(remaining) >= 1 else { return 0 }
+        return min(max(velocityX / remaining, 0), maxSettleSpringVelocity)
     }
 
     var movingEdgeCorners: CACornerMask {

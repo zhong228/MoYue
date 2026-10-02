@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ReaderTopBar: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let theme: ReaderTheme
     let chapterTitle: String
     let titleVisible: Bool
@@ -94,11 +95,11 @@ struct ReaderTopBar: View {
                         Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
                             .font(DSFont.fixed(size: 17, weight: .medium))
                             .foregroundColor(isBookmarked ? .orange : palette.topIcon)
-                            .scaleEffect(isBookmarked ? 1.15 : 1.0)
+                            .scaleEffect(isBookmarked && !reduceMotion ? 1.15 : 1.0)
                             .frame(width: 36, height: 36)
                             .accessibilityHidden(true)
                     }
-                    .animation(.easeInOut(duration: 0.15), value: isBookmarked)
+                    .animation(DSAnimation.fast, value: isBookmarked)
                     .accessibilityLabel(localized("書籤"))
                     .accessibilityValue(localized(isBookmarked ? "已加入" : "未加入"))
 

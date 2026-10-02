@@ -135,7 +135,11 @@ EditSourceView()
 `sm=6（標籤/小按鈕） / md=8（按鈕/輸入框） / lg=12（卡片/對話框） / xl=16（圖片容器）`。
 
 ### 動畫 `DSAnimation`
-`fast=0.15（即時回饋） / standard=0.28（轉場） / slow=0.4（展開）`。不要硬寫 duration。`DSAnimation` 只是時序 token，不會自行讀取 Reduce Motion；每個含位移、縮放或連續運動的 view 都必須依環境值切換動畫策略。
+`fast=0.15（即時回饋） / standard=0.28（轉場） / slow=0.4（展開）`。不要硬寫 duration。
+
+專用 token：`readerChrome`（閱讀選單顯示／隱藏，以及跟著它動的元件；`showBars` 一律經 `setReaderChromeVisible(_:)` 寫入）、`press`（按壓回彈）、`dragSettle`（拖曳放手後回到界內）、`splashFade`（啟動圖淡出）。開書卡片轉場的時長 `readerBookTransitionDuration`（0.62s）是定案，不要因為「超過 300ms」去改短。
+
+`DSAnimation` 只是時序 token，不會自行讀取 Reduce Motion；每個含位移、縮放或連續運動的 view 都必須依環境值切換動畫策略。
 
 ```swift
 @Environment(\.accessibilityReduceMotion) private var reduceMotion

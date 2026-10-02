@@ -553,15 +553,11 @@ final class ReaderCardTransitionAnimator: NSObject, UIViewControllerAnimatedTran
     }
 
     private func easedTransitionFraction(_ fraction: CGFloat) -> CGFloat {
-        let t = ReaderCardTransitionMath.clampProgress(fraction)
         switch operation {
         case .push:
-            // Smoothstep: deliberate lift/open with zero endpoint velocity.
-            return t * t * (3 - 2 * t)
+            return ReaderCardTransitionMath.openingProgress(timeFraction: fraction)
         case .pop:
-            // Ease-out cubic: responsive close that settles gently on shelf.
-            let inverse = 1 - t
-            return 1 - inverse * inverse * inverse
+            return ReaderCardTransitionMath.closingProgress(timeFraction: fraction)
         }
     }
 

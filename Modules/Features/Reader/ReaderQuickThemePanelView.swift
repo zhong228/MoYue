@@ -549,6 +549,7 @@ struct ReaderQuickThemePanelView: View {
 /// Full-width quick-panel action button: darkens and gently compresses while
 /// pressed, then springs back on release.
 private struct QuickPanelActionButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Filled with the accent while auto-read is running, so the panel says what
     /// state the reader is in without a second row of text.
     var isProminent = false
@@ -565,7 +566,7 @@ private struct QuickPanelActionButtonStyle: ButtonStyle {
                 in: Capsule()
             )
             .shadow(color: DSColor.shadow, radius: 6, y: 1)
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
             .animation(DSAnimation.fast, value: configuration.isPressed)
     }
 }
@@ -574,6 +575,7 @@ private struct QuickPanelActionButtonStyle: ButtonStyle {
 /// pressed, an inset darker capsule appears behind the content; on release it
 /// shrinks and fades back out, echoing the Apple Books quick panel.
 private struct QuickPanelSegmentButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(
@@ -581,7 +583,7 @@ private struct QuickPanelSegmentButtonStyle: ButtonStyle {
                     .fill(DSColor.neutralControlPressedFill)
                     .padding(DSSpacing.xs)
                     .opacity(configuration.isPressed ? 1 : 0)
-                    .scaleEffect(configuration.isPressed ? 1 : 0.85)
+                    .scaleEffect(configuration.isPressed || reduceMotion ? 1 : 0.85)
             )
             .animation(
                 configuration.isPressed ? DSAnimation.fast : DSAnimation.standard,

@@ -16,7 +16,6 @@ struct LaunchImageSplashOverlay: View {
 
     private let holdDuration: UInt64 = 1_300_000_000  // 1.3s before fading
     private let minimalHoldDuration: UInt64 = 400_000_000  // 0.4s for non-Pro orphaned image
-    private let fadeDuration = 0.45
 
     /// Max time we wait at cold launch for StoreKit / Firestore entitlements to
     /// resolve before giving up on the splash. Defends against the race where
@@ -35,7 +34,7 @@ struct LaunchImageSplashOverlay: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeOut(duration: fadeDuration), value: visible)
+        .animation(DSAnimation.splashFade, value: visible)
         .task {
             guard !Self.hasPlayed else {
                 visible = false

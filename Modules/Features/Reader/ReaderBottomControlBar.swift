@@ -106,11 +106,11 @@ struct ReaderBottomControlBar: View {
                     )
                     .clipShape(Capsule())
                     .allowsHitTesting(false)
-                    .transition(.opacity.animation(.easeOut(duration: 0.15)))
+                    .transition(.opacity.animation(DSAnimation.fast))
                     .offset(y: -72)
                 }
             }
-            .animation(.easeOut(duration: 0.15), value: chapterSliderDraft == nil)
+            .animation(DSAnimation.fast, value: chapterSliderDraft == nil)
         }
     }
 

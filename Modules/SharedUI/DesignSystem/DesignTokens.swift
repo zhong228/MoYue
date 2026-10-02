@@ -242,6 +242,8 @@ enum DSLayout {
     /// Visible height of that edge tab — the mini-player's cover height, so the tab reads
     /// as the same object tucked away.
     static let miniPlayerEdgeHandleHeight: CGFloat = 56
+    /// The most a dragged mini-player gives past the edge of where it may rest.
+    static let miniPlayerDragMaximumGive: CGFloat = 48
     /// How far the reading assistant keeps the reader's own turn from the leading edge.
     /// The answer uses the full width as plain prose; the question stays a narrower
     /// bubble on the trailing side, so the two never read as the same kind of text.
@@ -552,19 +554,31 @@ enum DSRadius {
 // MARK: - Design System: Animation Tokens
 
 enum DSAnimation {
+    /// A strong ease-out: most of the distance is covered at the start, so the
+    /// response to a tap is visible at once, and the rest is a long settle. The
+    /// built-in `.easeOut` starts at under half this speed and reads as slower at
+    /// the same duration.
+    private static func easeOut(duration: TimeInterval) -> Animation {
+        .timingCurve(0.23, 1, 0.32, 1, duration: duration)
+    }
+
     /// Fast interactive feedback
-    static let fast = Animation.easeOut(duration: 0.15)
+    static let fast = easeOut(duration: 0.15)
     /// Standard transition
-    static let standard = Animation.easeOut(duration: 0.28)
+    static let standard = easeOut(duration: 0.28)
     /// Slow expansion
     static let slow = Animation.easeInOut(duration: 0.4)
     /// The reading menu coming up or going away, and whatever moves with it. One
     /// timing for every way the menu is shown or hidden.
-    static let readerChrome = Animation.easeOut(duration: 0.2)
-    /// Press feedback for pill buttons: Legado's `button_scale_animator` lands on
-    /// scale 0.92 in 120ms with an overshoot interpolator — this spring is the
-    /// SwiftUI equivalent. Callers must skip it under Reduce Motion.
-    static let press = Animation.spring(response: 0.18, dampingFraction: 0.5)
+    static let readerChrome = easeOut(duration: 0.2)
+    /// Press feedback for pill buttons: a quick spring with a slight overshoot.
+    /// Callers must skip it under Reduce Motion.
+    static let press = Animation.spring(response: 0.18, dampingFraction: 0.8)
+    /// Something let go of mid-drag coming to rest inside its bounds. Callers must
+    /// skip it under Reduce Motion.
+    static let dragSettle = Animation.spring(response: 0.35, dampingFraction: 0.85)
+    /// The launch image fading away once the app is ready behind it.
+    static let splashFade = Animation.easeOut(duration: 0.45)
     /// Deliberate physical open/close duration for the reader book-card transition.
     static let readerBookTransitionDuration: TimeInterval = 0.62
     /// Minimum visible settle time when a short interactive close reverses.

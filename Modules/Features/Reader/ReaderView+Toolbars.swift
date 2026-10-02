@@ -89,9 +89,7 @@ extension ReaderView {
             onBack: { closeReader() },
             onOpenSearch: { showReaderSearch = true },
             onToggleBookmark: {
-                _ = withAnimation(.easeInOut(duration: uiFeedbackDuration)) {
-                    toggleCurrentPageBookmark()
-                }
+                toggleCurrentPageBookmark()
             },
             menuActions: readerSecondaryActions.filter { !ReaderChromeActionItem($0.id).isClassicCircle },
             onOpenBookDetail: onlineBookDetail == nil ? nil : {

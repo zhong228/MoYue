@@ -18,6 +18,7 @@ private enum BookSourceFileImportRoute: Hashable {
 struct BookSourceListView: View {
     var embedsNavigationStack = true
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var bookStore: BookStore
     /// Not observed: everything the screen draws from the library comes from `model`, which
     /// rebuilds once per library change instead of once per render.
@@ -470,20 +471,30 @@ struct BookSourceListView: View {
                 Text(importError ?? importSuccess ?? checkToast ?? "")
             }
             .overlay(alignment: .top) {
-                if healthChecker.isRunning {
-                    HStack(spacing: DSSpacing.sm) {
-                        ProgressView().scaleEffect(0.8)
-                        Text(localized("驗證中…"))
-                            .font(DSFont.caption)
-                            .foregroundColor(.white)
+                // The animation sits on a container around the `if`, scoped to the
+                // capsule: declared on the list it would animate every row too, and
+                // declared on the capsule it could not animate its own arrival.
+                ZStack {
+                    if healthChecker.isRunning {
+                        HStack(spacing: DSSpacing.sm) {
+                            ProgressView().scaleEffect(0.8)
+                            Text(localized("驗證中…"))
+                                .font(DSFont.caption)
+                                .foregroundColor(.white)
+                        }
+                        .padding(.horizontal, DSSpacing.lg)
+                        .padding(.vertical, DSSpacing.sm)
+                        .background(DSColor.accent.opacity(0.9))
+                        .clipShape(Capsule())
+                        .padding(.top, DSSpacing.sm)
+                        .transition(
+                            reduceMotion
+                                ? .opacity
+                                : .move(edge: .top).combined(with: .opacity)
+                        )
                     }
-                    .padding(.horizontal, DSSpacing.lg)
-                    .padding(.vertical, DSSpacing.sm)
-                    .background(DSColor.accent.opacity(0.9))
-                    .clipShape(Capsule())
-                    .padding(.top, DSSpacing.sm)
-                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
+                .animation(DSAnimation.standard, value: healthChecker.isRunning)
             }
             .fullScreenCover(isPresented: $showDisclaimer) {
                 SourceDisclaimerView {

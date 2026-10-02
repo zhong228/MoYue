@@ -347,9 +347,9 @@ struct ReaderTOCView: View {
                 guard !isSearching else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     if chapters.first(where: { $0.index == currentIndex }) != nil {
-                        withAnimation {
-                            proxy.scrollTo(currentIndex, anchor: .center)
-                        }
+                        // No animation: the list opens on the current chapter, it
+                        // does not travel there each time the sheet comes up.
+                        proxy.scrollTo(currentIndex, anchor: .center)
                     }
                 }
             }

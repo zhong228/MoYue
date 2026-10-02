@@ -315,7 +315,7 @@ struct HomeView: View {
                     if store.books.isEmpty {
                         EmptyLibraryView(showAdd: $showAddSheet)
                             .rootTabTitleScrollAnchor()
-                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                            .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
                     } else {
                         VStack(spacing: 0) {
                             if !store.allGroups.isEmpty {
@@ -327,7 +327,7 @@ struct HomeView: View {
                                 bookList
                             }
                         }
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
                     }
                 }
             }
@@ -355,7 +355,7 @@ struct HomeView: View {
                     }
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button {
-                            withAnimation {
+                            withAnimation(reduceMotion ? nil : DSAnimation.standard) {
                                 editMode = .inactive
                                 selectedBookIds = []
                             }
@@ -534,7 +534,7 @@ struct HomeView: View {
             .alert(localized("確認刪除"), isPresented: $showBulkDeleteAlert) {
                 Button(localized("刪除"), role: .destructive) {
                     let ids = selectedBookIds
-                    withAnimation(.easeOut(duration: 0.25)) {
+                    withAnimation(reduceMotion ? nil : DSAnimation.standard) {
                         ids.forEach { store.delete(bookId: $0) }
                         selectedBookIds = []
                     }
@@ -550,7 +550,7 @@ struct HomeView: View {
                             store.setGroup(group, for: id)
                         }
                         selectedBookIds = []
-                        withAnimation { editMode = .inactive }
+                        withAnimation(reduceMotion ? nil : DSAnimation.standard) { editMode = .inactive }
                     }
                     .environmentObject(store)
                 }
@@ -670,7 +670,7 @@ struct HomeView: View {
     private var bookshelfOptionsMenu: some View {
         Menu {
             Button {
-                withAnimation { editMode = .active }
+                withAnimation(reduceMotion ? nil : DSAnimation.standard) { editMode = .active }
             } label: {
                 Label(localized("選取"), systemImage: "checkmark.circle")
             }
@@ -708,11 +708,11 @@ struct HomeView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DSSpacing.sm) {
                 DSChip(title: localized("全部"), isSelected: selectedGroup.isEmpty) {
-                    withAnimation { selectedGroup = "" }
+                    withAnimation(reduceMotion ? nil : DSAnimation.fast) { selectedGroup = "" }
                 }
                 ForEach(store.allGroups, id: \.self) { group in
                     DSChip(title: group, isSelected: selectedGroup == group) {
-                        withAnimation { selectedGroup = group }
+                        withAnimation(reduceMotion ? nil : DSAnimation.fast) { selectedGroup = group }
                     }
                 }
             }
@@ -780,7 +780,7 @@ struct HomeView: View {
         .softScrollEdges()
         .listStyle(.plain)
         .environment(\.editMode, $editMode)
-        .animation(.easeOut(duration: 0.25), value: sortedFilteredBooks.map(\.id))
+        .animation(reduceMotion ? nil : DSAnimation.standard, value: sortedFilteredBooks.map(\.id))
         .accessibilityIdentifier("home_book_list")
         .refreshable {
             await ChapterUpdater.refreshAll(bookStore: store)
@@ -853,8 +853,8 @@ struct HomeView: View {
         }
         .accessibilityIdentifier("home_book_grid")
         .softScrollEdges()
-        .animation(.easeOut(duration: 0.25), value: sortedFilteredBooks.map(\.id))
-        .animation(DSAnimation.standard, value: gs.bookshelfGridColumnCount)
+        .animation(reduceMotion ? nil : DSAnimation.standard, value: sortedFilteredBooks.map(\.id))
+        .animation(reduceMotion ? nil : DSAnimation.standard, value: gs.bookshelfGridColumnCount)
         .refreshable {
             await ChapterUpdater.refreshAll(bookStore: store)
         }
@@ -1358,7 +1358,7 @@ struct EmptyLibraryView: View {
         .padding()
         .opacity(appeared ? 1 : 0)
         .onAppear {
-            withAnimation(.easeOut(duration: 0.3)) { appeared = true }
+            withAnimation(DSAnimation.standard) { appeared = true }
         }
     }
 }

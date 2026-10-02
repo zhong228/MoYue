@@ -522,12 +522,12 @@ struct NowPlayingMiniPlayer: View {
                         .frame(width: contentWidth)
                         .position(position(in: proxy.size))
                         .simultaneousGesture(dragGesture(in: proxy.size))
-                        .transition(.scale(scale: 0.92).combined(with: .opacity))
+                        .transition(reduceMotion ? .opacity : .scale(scale: 0.92).combined(with: .opacity))
                 }
             }
         }
         .ignoresSafeArea(.keyboard)
-        .animation(.spring(response: 0.28, dampingFraction: 0.86), value: isVisible)
+        .animation(DSAnimation.standard, value: isVisible)
         .onChange(of: isVisible) { _, visible in
             if !visible { dockedSide = nil }
         }
@@ -758,6 +758,19 @@ struct NowPlayingMiniPlayer: View {
         )
     }
 
+    /// Where a drag puts the player: inside its bounds it follows the finger, past
+    /// them it follows less and less, so the edge gives instead of stopping dead.
+    /// Letting go brings it back inside (`dragGesture`). Under Reduce Motion the
+    /// edge is a plain stop, since nothing would animate it back.
+    private func resistedOffset(_ proposed: CGSize, in size: CGSize) -> CGSize {
+        let clamped = clampedOffset(proposed, in: size)
+        guard !reduceMotion else { return clamped }
+        return CGSize(
+            width: clamped.width + MiniPlayerDragResistance.give(for: proposed.width - clamped.width),
+            height: clamped.height + MiniPlayerDragResistance.give(for: proposed.height - clamped.height)
+        )
+    }
+
     private func dragGesture(in size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
@@ -768,7 +781,7 @@ struct NowPlayingMiniPlayer: View {
                     liftedFromOffsetHeight = nil
                 }
                 let start = dragStartOffset ?? .zero
-                offset = clampedOffset(
+                offset = resistedOffset(
                     CGSize(
                         width: start.width + value.translation.width,
                         height: start.height + value.translation.height
@@ -777,7 +790,9 @@ struct NowPlayingMiniPlayer: View {
                 )
             }
             .onEnded { _ in
-                offset = clampedOffset(offset, in: size)
+                withAnimation(reduceMotion ? nil : DSAnimation.dragSettle) {
+                    offset = clampedOffset(offset, in: size)
+                }
                 dragStartOffset = nil
                 lastDragEndedAt = Date()
             }
@@ -786,6 +801,22 @@ struct NowPlayingMiniPlayer: View {
     private func performTapAction(_ action: () -> Void) {
         guard Date().timeIntervalSince(lastDragEndedAt) > 0.18 else { return }
         action()
+    }
+}
+
+/// How far the mini player gives when dragged past the edge of where it may rest.
+enum MiniPlayerDragResistance {
+    /// The most it can be pulled past the edge, however far the finger goes.
+    static let maximumGive: CGFloat = DSLayout.miniPlayerDragMaximumGive
+
+    /// Distance past the edge for a finger `overshoot` points beyond it: starts out
+    /// following the finger at about half speed and levels off at `maximumGive`.
+    /// The same curve a scroll view uses past its ends.
+    static func give(for overshoot: CGFloat) -> CGFloat {
+        guard overshoot != 0 else { return 0 }
+        let distance = abs(overshoot)
+        let given = (1 - 1 / (distance * 0.55 / maximumGive + 1)) * maximumGive
+        return overshoot < 0 ? -given : given
     }
 }
 

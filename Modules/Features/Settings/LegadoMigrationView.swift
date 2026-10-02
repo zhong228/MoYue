@@ -2,6 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct LegadoMigrationView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @StateObject private var manager = LegadoMigrationManager.shared
     @ObservedObject private var gs = GlobalSettings.shared
@@ -173,7 +174,7 @@ struct LegadoMigrationView: View {
                 .onChange(of: manager.statusLog.count) { _, count in
                     let lastIndex = min(count, 20) - 1
                     if lastIndex >= 0 {
-                        withAnimation { proxy.scrollTo(lastIndex, anchor: .bottom) }
+                        withAnimation(reduceMotion ? nil : DSAnimation.fast) { proxy.scrollTo(lastIndex, anchor: .bottom) }
                     }
                 }
             }

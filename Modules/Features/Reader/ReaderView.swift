@@ -4,8 +4,6 @@ import SwiftUI
 import UIKit
 import YueduCoreText
 
-let uiFeedbackDuration: Double = 0.25
-
 private enum ReaderSettingsDeferredPresentationRoute {
     case fontImporter
     /// 匯入閱讀設定 / 匯入正則高亮 — same first-level-presenter handoff as the font
@@ -1661,7 +1659,7 @@ struct ReaderView: View {
         let readerLayers = AnyView(
             ZStack(alignment: .top) {
             readerSurfaceBackground
-                .animation(.easeInOut(duration: uiFeedbackDuration), value: readerTheme)
+                .animation(DSAnimation.standard, value: readerTheme)
 
             if showsLoadingChrome {
                 VStack {
@@ -1671,7 +1669,7 @@ struct ReaderView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .readerLoadingChromeTap { toggleReaderChrome() }
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .transition(accessibilityReduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.96)))
             } else if usesFixedLayoutRenderer, let flEngine = epubRenderer.engine {
                 CoreTextPageEngineView(
                     engine: flEngine,
@@ -1705,7 +1703,7 @@ struct ReaderView: View {
                 )
                 .id(readerPageViewIdentity)
                 .ignoresSafeArea()
-                .transition(.opacity.animation(.easeOut(duration: 0.25)))
+                .transition(.opacity.animation(DSAnimation.standard))
             } else if effectiveScrollMode {
                 // scrollBody must stay mounted so the collection host drives the
                 // engine's start()/isReady. Overlay (not replace) the loading state,
@@ -1719,8 +1717,8 @@ struct ReaderView: View {
                             .transition(.opacity)
                     }
                 }
-                .transition(.opacity.animation(.easeOut(duration: 0.25)))
-                .animation(.easeOut(duration: 0.2), value: epubRenderer.scrollEngineReady)
+                .transition(.opacity.animation(DSAnimation.standard))
+                .animation(DSAnimation.standard, value: epubRenderer.scrollEngineReady)
             } else if let ctEngine = epubRenderer.engine, epubRenderer.isCoreTextReady {
                 let _ = { print("[ReaderView] Using CoreText engine") }()
                 CoreTextPageEngineView(
@@ -1760,7 +1758,7 @@ struct ReaderView: View {
                 )
                 .id(readerPageViewIdentity)
                 .ignoresSafeArea()
-                .transition(.opacity.animation(.easeOut(duration: 0.25)))
+                .transition(.opacity.animation(DSAnimation.standard))
             } else if usesCoreTextEPUB {
                 VStack {
                     Spacer()
@@ -1769,7 +1767,7 @@ struct ReaderView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .readerLoadingChromeTap { toggleReaderChrome() }
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .transition(accessibilityReduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.96)))
             }
 
             if usesSessionLocalScrollProgress, let session = readerSessionCoordinator?.navigator.sessionStore {
@@ -1989,7 +1987,7 @@ struct ReaderView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             applyRotatedViewportIfNeeded()
         }
-        .animation(.easeInOut(duration: 0.25), value: chapters.isEmpty)
+        .animation(DSAnimation.standard, value: chapters.isEmpty)
         .statusBarHidden(
             ReaderOverlayPresentationPolicy.hidesStatusBar(
                 showsReaderChrome: showBars,

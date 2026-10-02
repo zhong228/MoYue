@@ -8,6 +8,7 @@ import SwiftUI
 /// 本檔負責 sheet 外框：分頁、工具列（checklist↔checkmark 編輯切換、關閉）、
 /// 以及原生底部 toolbar 的「已選取 N 個」與刪除按鈕。
 struct ReaderBookmarkListView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     enum Segment: Hashable {
         case bookmark
         case highlight
@@ -105,7 +106,7 @@ struct ReaderBookmarkListView: View {
 
     private var editToggleButton: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(reduceMotion ? nil : DSAnimation.standard) {
                 if editMode.isEditing {
                     editMode = .inactive
                 } else {

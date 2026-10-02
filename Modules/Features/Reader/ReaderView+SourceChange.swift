@@ -453,7 +453,7 @@ extension ReaderView {
         else { return }
 
         isAligningReaderToTTSAnchor = true
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(DSAnimation.fast) {
             showTTSJumpPrompt = false
             ttsJumpPromptChapterIndex = nil
         }
@@ -966,7 +966,7 @@ extension ReaderView {
         }
 
         ttsJumpPromptChapterIndex = currentTTSReaderPosition()?.spineIndex ?? currentChapterIndex
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(DSAnimation.fast) {
             showTTSJumpPrompt = true
         }
     }
@@ -974,7 +974,7 @@ extension ReaderView {
     func jumpBackToTTSChapter() {
         guard let anchor = ttsPlaybackAnchor,
               chapters.indices.contains(anchor.spineIndex) else { return }
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(DSAnimation.fast) {
             showTTSJumpPrompt = false
             ttsJumpPromptChapterIndex = nil
         }

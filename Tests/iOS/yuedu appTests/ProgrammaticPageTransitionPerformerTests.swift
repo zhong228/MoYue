@@ -117,6 +117,60 @@ struct ProgrammaticPageTransitionPerformerTests {
         dim.layer.removeAllAnimations()
     }
 
+    @Test("a released cover page carries the finger's speed into its settle")
+    func coverSettleSpringVelocityFollowsTheFinger() {
+        // 300pt still to travel leftwards, finger moving left at 900pt/s: three
+        // remaining-distances a second.
+        #expect(ReaderCoverPageMotion.settleSpringVelocity(currentX: -100, destinationX: -400, velocityX: -900) == 3)
+        // Same release mirrored for RTL.
+        #expect(ReaderCoverPageMotion.settleSpringVelocity(currentX: 100, destinationX: 400, velocityX: 900) == 3)
+        // A finger moving away from the resting place adds nothing.
+        #expect(ReaderCoverPageMotion.settleSpringVelocity(currentX: -100, destinationX: -400, velocityX: 500) == 0)
+        // Already there: no distance to express a velocity in.
+        #expect(ReaderCoverPageMotion.settleSpringVelocity(currentX: -400, destinationX: -400, velocityX: -900) == 0)
+        // A hard flick just short of the edge is capped, not multiplied.
+        #expect(
+            ReaderCoverPageMotion.settleSpringVelocity(currentX: -390, destinationX: -400, velocityX: -3000)
+                == ReaderCoverPageMotion.maxSettleSpringVelocity
+        )
+    }
+
+    @Test("the cover settle spring runs at 120Hz and cannot overshoot the page's resting edge")
+    func coverSettleSpringNeverOvershoots() throws {
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        let root = UIViewController()
+        window.rootViewController = root
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        let page = UIImageView(frame: window.bounds)
+        root.view.addSubview(page)
+
+        UIView.animate(
+            withDuration: ReaderCoverPageMotion.settleDuration,
+            delay: 0,
+            usingSpringWithDamping: 1,
+            initialSpringVelocity: ReaderCoverPageMotion.maxSettleSpringVelocity,
+            options: []
+        ) {
+            page.frame.origin.x = -page.bounds.width
+        }
+        let springs = (page.layer.animationKeys() ?? [])
+            .compactMap { page.layer.animation(forKey: $0) as? CASpringAnimation }
+        let spring = try #require(springs.first)
+        #expect(spring.preferredFrameRateRange.maximum == 120)
+        #expect(spring.preferredFrameRateRange.preferred == 120)
+        // Critically damped or over: no oscillation of its own.
+        let naturalFrequency = (spring.stiffness / spring.mass).squareRoot()
+        #expect(spring.damping >= 2 * (spring.stiffness * spring.mass).squareRoot() * 0.999)
+        // A critically damped spring passes its target only when it starts faster
+        // than its natural frequency (in remaining-distances per second).
+        #expect(ReaderCoverPageMotion.maxSettleSpringVelocity <= naturalFrequency)
+        print("coverSettleSpring stiffness=\(spring.stiffness) damping=\(spring.damping) mass=\(spring.mass) v0=\(spring.initialVelocity) naturalFrequency=\(naturalFrequency)")
+        page.layer.removeAllAnimations()
+    }
+
     @Test("animated curl transition keeps the provided mirrored back page")
     func animatedCurlTransitionKeepsProvidedBackPage() {
         let performer = ProgrammaticPageTransitionPerformer(pageTurnStyle: .curl)

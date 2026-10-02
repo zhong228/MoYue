@@ -66,6 +66,33 @@ struct ReaderPresentationContractTests {
         #expect(rtlBackward.settledX(width: width, shouldCommit: true) == 0)
     }
 
+    @Test("a cover page flicked back the way it came does not turn")
+    func coverReleaseFollowsTheDirectionOfTheFlick() {
+        let width: CGFloat = 400
+        let fast = ReaderCoverPageMotion.commitVelocityThreshold + 100
+        // LTR forward travels leftwards (negative x); RTL forward rightwards.
+        let cases: [(ReaderCoverPageMotion, CGFloat)] = [
+            (ReaderCoverPageMotion(direction: .forward, isRTL: false), -1),
+            (ReaderCoverPageMotion(direction: .backward, isRTL: false), 1),
+            (ReaderCoverPageMotion(direction: .forward, isRTL: true), 1),
+            (ReaderCoverPageMotion(direction: .backward, isRTL: true), -1)
+        ]
+        for (motion, way) in cases {
+            // Dragged well past the distance threshold, then flicked back: cancel.
+            #expect(!motion.shouldCommit(translationX: way * 240, velocityX: -way * fast, width: width))
+            // A short drag flicked onwards: turn.
+            #expect(motion.shouldCommit(translationX: way * 30, velocityX: way * fast, width: width))
+            // Let go slowly: distance decides.
+            #expect(motion.shouldCommit(translationX: way * 240, velocityX: 0, width: width))
+            #expect(!motion.shouldCommit(translationX: way * 60, velocityX: 0, width: width))
+            // Dragged back through the starting point and out the other side: no
+            // progress, however far.
+            #expect(motion.dragProgress(translationX: -way * 300, width: width) == 0)
+            #expect(!motion.shouldCommit(translationX: -way * 300, velocityX: 0, width: width))
+            #expect(motion.dragProgress(translationX: way * 100, width: width) == 0.25)
+        }
+    }
+
     @Test("fixed layout spread pairing honors page-spread sides and center pages")
     func fixedLayoutSpreadPairingHonorsPageSpreadSidesAndCenterPages() {
         let chapters = [

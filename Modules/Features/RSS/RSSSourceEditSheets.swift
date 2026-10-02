@@ -187,6 +187,7 @@ struct EditRSSSourceSheet: View {
 /// Drag-to-reorder for RSS folders and sources, plus tap-to-edit each source.
 /// Uses a native `List` with `EditButton` + `.onMove`.
 struct RSSOrganizeSheet: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var store: RSSStore
     @Environment(\.dismiss) private var dismiss
     @State private var editMode: EditMode = .inactive
@@ -247,7 +248,7 @@ struct RSSOrganizeSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        withAnimation {
+                        withAnimation(reduceMotion ? nil : DSAnimation.standard) {
                             editMode = (editMode == .active) ? .inactive : .active
                         }
                     } label: {

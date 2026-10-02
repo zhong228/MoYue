@@ -226,7 +226,7 @@ struct ReaderPageBarsLayer: View {
     /// The fade the whole bar container used to carry at the call site. It moved in
     /// here with the container: the layer is mounted in every mode now, so a
     /// transition on it would never run — only the bars inside it come and go.
-    private static let barTransition: AnyTransition = .opacity.animation(.easeOut(duration: 0.2))
+    private static let barTransition: AnyTransition = .opacity.animation(DSAnimation.fast)
 
     var body: some View {
         VStack(spacing: 0) {

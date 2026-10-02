@@ -4,6 +4,7 @@ import SwiftUI
 /// used to unfold inside 閱讀設定 itself, the one decoration edited in place, which put
 /// four controls between 正則高亮 and the rest of the page whenever it was on.
 struct ReaderTextUnderlineSettingsView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var settings = GlobalSettings.shared
 
     var body: some View {
@@ -58,7 +59,7 @@ struct ReaderTextUnderlineSettingsView: View {
         .themedAppSurface(for: .settings)
         .navigationTitle(localized("文字底線"))
         .toolbarTitleDisplayMode(.inline)
-        .animation(DSAnimation.standard, value: settings.readerTextUnderlineDecorationEnabled)
+        .animation(reduceMotion ? nil : DSAnimation.standard, value: settings.readerTextUnderlineDecorationEnabled)
     }
 
     private var colorBinding: Binding<Color> {

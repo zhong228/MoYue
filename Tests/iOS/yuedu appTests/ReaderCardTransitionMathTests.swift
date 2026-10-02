@@ -103,6 +103,40 @@ struct ReaderCardTransitionMathTests {
         #expect(end == 1)
     }
 
+    // MARK: Timeline easing
+
+    @Test("opening a book is unhurried: half the run covers half the way")
+    func openingIsNotFrontLoaded() {
+        // A front-loaded curve (80% of the way by half-time) was rejected on
+        // 2026-09-30 as far too fast.
+        #expect(ReaderCardTransitionMath.openingProgress(timeFraction: 0.5) == 0.5)
+        #expect(ReaderCardTransitionMath.openingProgress(timeFraction: 0.25) < 0.25)
+        #expect(DSAnimation.readerBookTransitionDuration >= 0.6)
+    }
+
+    @Test("opening and closing timelines start at 0, end at 1 and never run backwards")
+    func timelinesAreMonotonicBetweenEndpoints() {
+        let timelines: [(CGFloat) -> CGFloat] = [
+            ReaderCardTransitionMath.openingProgress(timeFraction:),
+            ReaderCardTransitionMath.closingProgress(timeFraction:)
+        ]
+        for timeline in timelines {
+            #expect(timeline(0) == 0)
+            #expect(timeline(1) == 1)
+            // Outside the run the endpoints hold, so an overshooting animator
+            // fraction cannot push the card past the shelf or the screen.
+            #expect(timeline(-0.2) == 0)
+            #expect(timeline(1.3) == 1)
+            var previous: CGFloat = 0
+            for step in 1...100 {
+                let value = timeline(CGFloat(step) / 100)
+                #expect(value >= previous)
+                #expect(value <= 1)
+                previous = value
+            }
+        }
+    }
+
     // MARK: Edge start region
 
     @Test("first touches inside the edge strip are accepted")

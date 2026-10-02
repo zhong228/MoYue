@@ -150,6 +150,24 @@ enum ReaderCardTransitionMath {
         )
     }
 
+    // MARK: Timeline easing
+
+    /// Open-state progress covered after `timeFraction` of a tapped-open
+    /// transition. Smoothstep: a deliberate lift and open with zero endpoint
+    /// velocity. A front-loaded ease-out at 0.5s was tried on 2026-09-30 and
+    /// rejected as far too fast — the unfold is meant to be watched.
+    static func openingProgress(timeFraction: CGFloat) -> CGFloat {
+        let t = clampProgress(timeFraction)
+        return t * t * (3 - 2 * t)
+    }
+
+    /// Fraction of the way closed after `timeFraction` of a tapped-closed
+    /// transition: ease-out cubic, a responsive close that settles gently on the shelf.
+    static func closingProgress(timeFraction: CGFloat) -> CGFloat {
+        let inverse = 1 - clampProgress(timeFraction)
+        return 1 - inverse * inverse * inverse
+    }
+
     // MARK: Finish / cancel decision
 
     /// Decide whether releasing the edge swipe should close the reader.

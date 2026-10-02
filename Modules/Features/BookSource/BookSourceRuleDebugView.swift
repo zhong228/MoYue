@@ -149,6 +149,7 @@ struct BookSourceRuleDebugView: View {
 // MARK: - Log Row
 
 private struct DebugLogRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let entry: DebugLogEntry
     @State private var isExpanded = false
@@ -181,7 +182,7 @@ private struct DebugLogRow: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 guard entry.detail != nil else { return }
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(reduceMotion ? nil : DSAnimation.fast) {
                     isExpanded.toggle()
                 }
             }

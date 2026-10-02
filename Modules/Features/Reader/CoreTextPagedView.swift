@@ -425,13 +425,15 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
         /// makes each command fire exactly once.
         fileprivate var lastExecutedTurnVersion: UInt = 0
         /// Rapid-tap speed-up: the faster consecutive page turns arrive, the faster
-        /// the flip animation plays (Legado-style). Tracks tap cadence; chained
-        /// catch-up transitions inherit the last value since they don't re-register
-        /// a user tap. Resets toward 1× after a pause.
-        private var lastTurnStartTime: CFAbsoluteTime = 0
-        private(set) var activeTurnSpeed: Float = 1.0
-        private static let normalFlipDuration: CFAbsoluteTime = 0.28
-        private static let maxBurstSpeed: Float = 3.0
+        /// the flip animation plays (Legado-style). `ReaderTurnBurstPacer` turns the
+        /// tap rhythm into a speed; chained catch-up transitions inherit the last
+        /// value since they don't re-register a user tap.
+        private var turnPacer = ReaderTurnBurstPacer()
+        var activeTurnSpeed: Float { turnPacer.speed }
+        /// The tapped turn now animating: the layer whose clock its animations run
+        /// on, and the speed already built into those animations' durations. Nil
+        /// for a finger-driven turn, which is never retimed.
+        private var turnInFlight: (layer: CALayer, builtInSpeed: Float)?
         private static let slideTransitionKey = "readerSlideTurn"
         /// Where the reader is, and the only thing allowed to say so.
         ///
@@ -536,22 +538,38 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
         }
 
         /// Register a fresh user-initiated page turn and return the flip speed to
-        /// use. Speed tracks tap cadence: tapping at the natural flip rate stays 1×,
-        /// tapping twice as fast plays ~2×, capped at maxBurstSpeed. A turn after a
-        /// pause (large gap) resolves back to 1×. Called once per user command;
-        /// chained catch-up transitions read `activeTurnSpeed` without re-registering.
+        /// use. Called once per user command; chained catch-up transitions read
+        /// `activeTurnSpeed` without re-registering. A turn still on screen picks
+        /// the new speed up at once, so a burst does not wait out a slow turn
+        /// before the fast ones start.
         @discardableResult
         fileprivate func registerTurnSpeed() -> Float {
-            let now = CACurrentMediaTime()
-            let dt = now - lastTurnStartTime
-            lastTurnStartTime = now
-            guard dt > 0.0001 else {
-                activeTurnSpeed = Self.maxBurstSpeed
-                return activeTurnSpeed
-            }
-            let ratio = Float(Self.normalFlipDuration / dt)
-            activeTurnSpeed = min(max(ratio, 1.0), Self.maxBurstSpeed)
-            return activeTurnSpeed
+            let speed = turnPacer.registerTap(at: CACurrentMediaTime())
+            speedUpTurnInFlight()
+            return speed
+        }
+
+        /// Marks the tapped turn whose animations were just added under `layer`,
+        /// their durations already divided by `builtInSpeed`.
+        private func beginRetimableTurn(on layer: CALayer, builtInSpeed: Float) {
+            endRetimableTurn()
+            turnInFlight = (layer, max(builtInSpeed, 1))
+        }
+
+        /// Only ever faster: a turn that started quickly finishes quickly even if
+        /// the tapping has eased off since.
+        private func speedUpTurnInFlight() {
+            guard let turn = turnInFlight else { return }
+            let clockSpeed = activeTurnSpeed / turn.builtInSpeed
+            guard clockSpeed > turn.layer.speed else { return }
+            ReaderTurnLayerClock.setSpeed(clockSpeed, on: turn.layer)
+        }
+
+        /// The turn has landed and nothing under its layer is animating any more.
+        private func endRetimableTurn() {
+            guard let turn = turnInFlight else { return }
+            ReaderTurnLayerClock.reset(turn.layer)
+            turnInFlight = nil
         }
 
         /// True while UIKit or one of our animations owns the page stack.
@@ -1262,9 +1280,12 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             // container layer's timing. Set before the animation is added; reset to
             // 1× on settle so it never leaks into interactive swipes or later lone
             // taps. Chained catch-up turns re-apply activeTurnSpeed on their own call.
-            // Slide can't use this — see `runsTimedSlide` below.
+            // UIKit's own slide can't use this — see `runsTimedSlide` below; the push
+            // that replaces it carries its speed in its duration, and only a speed-up
+            // arriving mid-turn goes through the layer clock (`speedUpTurnInFlight`).
             let scalesNativeTransition = animated && pageTurnStyle == .curl
             if scalesNativeTransition {
+                beginRetimableTurn(on: pageViewController.view.layer, builtInSpeed: 1)
                 pageViewController.view.layer.speed = activeTurnSpeed
             }
             let runsTimedSlide = ReaderSlideTurnAnimation.runsTimedPush(
@@ -1272,9 +1293,7 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 animated: animated
             )
             let finishTransition: (UIViewController) -> Void = { shownViewController in
-                if scalesNativeTransition {
-                    pageViewController.view.layer.speed = 1.0
-                }
+                self.endRetimableTurn()
                 if let resolvedPage = self.syncStablePosition(afterShowing: shownViewController, notifyFallback: true) {
                     self.continueQueuedTransitionIfNeeded(on: pageViewController, showing: resolvedPage)
                 } else {
@@ -1332,6 +1351,7 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             CATransaction.setCompletionBlock {
                 finishTransition(settled ?? targetViewController)
             }
+            beginRetimableTurn(on: pageViewController.view.layer, builtInSpeed: activeTurnSpeed)
             pageViewController.view.layer.add(
                 ReaderSlideTurnAnimation.pushTransition(direction: direction, speed: activeTurnSpeed),
                 forKey: Self.slideTransitionKey
@@ -1791,9 +1811,6 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             static let initialTranslationThreshold: CGFloat = 18.0
             static let instantPanDistanceThreshold: CGFloat = 44.0
             static let instantPanVelocityThreshold: CGFloat = 420.0
-            static let commitProgressRatio: CGFloat = 0.34
-            static let commitVelocityThreshold: CGFloat = 560.0
-            static let settleAnimationDuration: TimeInterval = 0.22
             static let maxDimmingAlpha: CGFloat = 0.35
         }
 
@@ -1917,7 +1934,7 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 }
                 guard coverTargetPage != nil, let coverDirection else { return }
                 let motion = ReaderCoverPageMotion(direction: coverDirection, isRTL: isRTL)
-                let rawProgress = min(max(abs(translationX) / width, 0), 0.999)
+                let rawProgress = min(motion.dragProgress(translationX: translationX, width: width), 0.999)
                 let newX = motion.interactiveX(progress: rawProgress, width: width)
                 coverIncomingImageView.frame.origin.x = newX
                 coverShadowView.frame.origin.x = newX
@@ -1935,12 +1952,25 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                     return
                 }
                 let motion = ReaderCoverPageMotion(direction: coverDirection, isRTL: isRTL)
-                let progress = min(max(abs(translationX) / width, 0), 1)
-                let shouldCommit = progress > GestureConstants.commitProgressRatio || abs(velocityX) > GestureConstants.commitVelocityThreshold
+                let shouldCommit = motion.shouldCommit(
+                    translationX: translationX,
+                    velocityX: velocityX,
+                    width: width
+                )
                 beginAnimatedTransition()
 
-                UIView.animate(withDuration: GestureConstants.settleAnimationDuration, delay: 0, options: [.curveEaseOut]) {
-                    let destX = motion.settledX(width: width, shouldCommit: shouldCommit)
+                let destX = motion.settledX(width: width, shouldCommit: shouldCommit)
+                UIView.animate(
+                    withDuration: ReaderCoverPageMotion.settleDuration,
+                    delay: 0,
+                    usingSpringWithDamping: 1,
+                    initialSpringVelocity: ReaderCoverPageMotion.settleSpringVelocity(
+                        currentX: coverIncomingImageView.frame.origin.x,
+                        destinationX: destX,
+                        velocityX: velocityX
+                    ),
+                    options: []
+                ) {
                     self.coverIncomingImageView.frame.origin.x = destX
                     self.coverShadowView.frame.origin.x = destX
                     if coverDirection == .backward {
@@ -2024,12 +2054,14 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             if turnDirection == .forward {
                 setupForwardOutgoing(currentPageSnapshot: oldPage, newPage: targetPage, motion: motion, in: view)
                 coverDimView.alpha = 0.35
+                beginRetimableTurn(on: coverOverlayView.layer, builtInSpeed: activeTurnSpeed)
                 UIView.animate(withDuration: 0.25 / Double(activeTurnSpeed), delay: 0, options: [.curveEaseOut]) {
                     let destX = motion.settledX(width: width, shouldCommit: true)
                     self.coverIncomingImageView.frame.origin.x = destX
                     self.coverShadowView.frame.origin.x = destX
                     self.coverDimView.alpha = 0
                 } completion: { _ in
+                    self.endRetimableTurn()
                     // Capture the latest binding value.
                     let latestPage = self.currentPage
                     let realVC = self.displayViewController(at: latestPage)
@@ -2070,12 +2102,14 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 }
                 coverCurrentImageView.image = renderSnapshotForDisplayPage(oldPage)
                 setupIncomingView(for: targetPage, snapshot: targetSnapshot, motion: motion, in: view)
+                beginRetimableTurn(on: coverOverlayView.layer, builtInSpeed: activeTurnSpeed)
                 UIView.animate(withDuration: 0.25 / Double(activeTurnSpeed), delay: 0, options: [.curveEaseOut]) {
                     let destX = motion.settledX(width: width, shouldCommit: true)
                     self.coverIncomingImageView.frame.origin.x = destX
                     self.coverShadowView.frame.origin.x = destX
                     self.coverDimView.alpha = 0.3
                 } completion: { _ in
+                    self.endRetimableTurn()
                     let latestPage = self.currentPage
                     let realVC = self.displayViewController(at: latestPage)
                     AppLogger.render("[FlipTrace] coverProgrammatic backward latestPage=\(latestPage) realType=\(type(of: realVC))")

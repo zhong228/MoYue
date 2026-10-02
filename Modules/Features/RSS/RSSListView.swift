@@ -836,6 +836,7 @@ private struct RSSHomeCard<Content: View>: View {
 }
 
 private struct RSSHomeSection<Content: View>: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let title: String
     let unreadCount: Int
     @Binding var isExpanded: Bool
@@ -856,7 +857,7 @@ private struct RSSHomeSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(reduceMotion ? nil : DSAnimation.fast) {
                     isExpanded.toggle()
                 }
             } label: {
@@ -1175,6 +1176,7 @@ private enum RSSMainFeedIcon {
 }
 
 private struct RSSMainFeedSectionHeader: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let title: String
     let unreadCount: Int
     @Binding var isExpanded: Bool
@@ -1199,7 +1201,7 @@ private struct RSSMainFeedSectionHeader: View {
         .foregroundStyle(DSColor.textSecondary)
         .contentShape(Rectangle())
         .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(reduceMotion ? nil : DSAnimation.fast) {
                 isExpanded.toggle()
             }
         }

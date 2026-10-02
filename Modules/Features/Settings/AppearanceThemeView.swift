@@ -222,7 +222,7 @@ struct AppearanceThemeView: View {
             }
         }
         .interfaceSectionSurface()
-        .animation(DSAnimation.standard, value: settings.appearanceBindReaderTheme)
+        .animation(reduceMotion ? nil : DSAnimation.standard, value: settings.appearanceBindReaderTheme)
     }
 
     /// What surrounds the content: the reader's chrome, the tab bar, the bookshelf grid
@@ -369,7 +369,7 @@ struct AppearanceThemeView: View {
                 }
             }
         }
-        .animation(DSAnimation.standard, value: settings.appearanceUsesSeparateDarkTheme)
+        .animation(reduceMotion ? nil : DSAnimation.standard, value: settings.appearanceUsesSeparateDarkTheme)
         // The long press lands with a firm tap of the Taptic Engine as the tile lifts —
         // the medium one was too faint to notice (2026-09-29).
         .sensoryFeedback(.impact(weight: .heavy, intensity: 1), trigger: liftedThemeID) { _, lifted in

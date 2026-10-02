@@ -74,7 +74,7 @@ struct ReaderModernBottomControlBar: View {
             .padding(.horizontal, DSSpacing.md)
             .padding(.bottom, DSSpacing.md)
             .tint(palette.bottomAccent)
-            .animation(.easeOut(duration: 0.15), value: chapterSliderDraft == nil)
+            .animation(DSAnimation.fast, value: chapterSliderDraft == nil)
         }
     }
 
@@ -227,7 +227,7 @@ struct ReaderModernBottomControlBar: View {
         .padding(.vertical, DSSpacing.md)
         .floatingSurface(in: Capsule(), fill: palette.bottomFill)
         .allowsHitTesting(false)
-        .transition(.opacity.animation(.easeOut(duration: 0.15)))
+        .transition(.opacity.animation(DSAnimation.fast))
         .offset(y: -72)
     }
 }
