@@ -198,6 +198,18 @@ final class SearchBook: Identifiable {
         return originPresentations[index].detailIntro
     }
 
+    /// The content kind snapshotted for one origin when it arrived; `nil` for an
+    /// origin that is not part of this result.
+    func contentKind(for origin: BookOrigin) -> OnlineBookContentKind? {
+        guard
+            let index = origins.firstIndex(where: { $0.id == origin.id }),
+            index < originPresentations.count
+        else {
+            return nil
+        }
+        return originPresentations[index].contentKind
+    }
+
     var displayName: String {
         rowPresentation.displayName
     }

@@ -407,6 +407,19 @@ class BrowserState: NSObject, ObservableObject, WKNavigationDelegate {
         webView.navigationDelegate = self
         webView.allowsBackForwardNavigationGestures = true
         webView.customUserAgent = SourceWebIdentity.phoneUserAgent
+        observeWebView()
+    }
+
+    /// WebKit's own answers, current for every navigation — including the ones a page
+    /// makes within itself (`history.pushState`, a hash change), which never reach
+    /// `didFinish`. Read only there, ‹ stayed disabled on such pages.
+    private func observeWebView() {
+        webView.publisher(for: \.canGoBack).assign(to: &$canGoBack)
+        webView.publisher(for: \.canGoForward).assign(to: &$canGoForward)
+        webView.publisher(for: \.isLoading).assign(to: &$isLoading)
+        webView.publisher(for: \.title).map { $0 ?? "" }.assign(to: &$pageTitle)
+        webView.publisher(for: \.url).map { $0?.absoluteString ?? "" }.assign(to: &$currentURL)
+        webView.publisher(for: \.url).map { $0 != nil }.assign(to: &$hasPage)
     }
 
     func load(_ raw: String) {
@@ -424,7 +437,6 @@ class BrowserState: NSObject, ObservableObject, WKNavigationDelegate {
         webView.load(URLRequest(url: url))
     }
 
-    func loadEngine(_ engine: SearchEngine) { load(engine.startURL) }
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
@@ -613,23 +625,15 @@ class BrowserState: NSObject, ObservableObject, WKNavigationDelegate {
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation _: WKNavigation!) {
-        isLoading = true
         hasEnoughContent = false
         hasTOC = false
     }
 
-    func webView(_ webView: WKWebView, didFail _: WKNavigation!, withError _: Error) {
-        isLoading = false
-    }
-
     func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
-        isLoading = false
-        canGoBack = webView.canGoBack
-        canGoForward = webView.canGoForward
-        pageTitle = webView.title ?? ""
-        currentURL = webView.url?.absoluteString ?? ""
-        hasPage = webView.url != nil
-        BrowseHistoryStore.shared.record(title: pageTitle, url: currentURL)
+        BrowseHistoryStore.shared.record(
+            title: webView.title ?? "",
+            url: webView.url?.absoluteString ?? ""
+        )
         webView.evaluateJavaScript(detectPageJS) { [weak self] result, _ in
             let n = (result as? Int) ?? 0
             DispatchQueue.main.async {
@@ -690,10 +694,41 @@ struct WebViewRepresentable: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
 
-// MARK: - Browser Main View
+// MARK: - Explore tab
+
+/// The 探索 tab. It owns the in-app browser's state, so the page a reader left is still
+/// there when they come back to it from 探索's list.
 struct BrowserView: View {
     @EnvironmentObject var store: BookStore
     @StateObject private var browser = BrowserState()
+
+    var body: some View {
+        ExploreHomeView(browser: browser)
+            .environmentObject(store)
+    }
+}
+
+/// Why 探索 opened the browser.
+enum BrowserEntry: Hashable {
+    /// The browser as it was left.
+    case resume
+    /// Opens the address.
+    case open(String)
+    /// Opens the address and goes straight on to 轉碼閱讀 — a bookmark's 「直接轉碼閱讀」.
+    case transcode(String)
+}
+
+// MARK: - Browser page
+
+/// The in-app browser, full screen over 探索 as the reader is, laid out as Safari is: no
+/// title above the page — only ✕ back to 探索 — and the address field and toolbar along
+/// the bottom. With no page open it shows Safari's start page: the bookmarks and the
+/// sites visited lately.
+struct BrowserPage: View {
+    @EnvironmentObject var store: BookStore
+    @ObservedObject var browser: BrowserState
+    let entry: BrowserEntry
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject private var gs = GlobalSettings.shared
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @FocusState private var addressFocused: Bool
@@ -715,43 +750,68 @@ struct BrowserView: View {
     @State private var pendingChapterStart: (chapters: [WebChapterItem], title: String, startIndex: Int)?
 
     @State private var errorMsg: String?
-    @State private var showHome = true
+    /// `entry` is acted on once, when the page first appears.
+    @State private var appliedEntry = false
+    @State private var showBookmarks = false
+    /// A bookmark's 「直接轉碼閱讀」 waiting for its page to finish loading.
+    @State private var transcodeArmed = false
+    @ObservedObject private var bookmarks = BrowserBookmarkStore.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var browserContentMaxWidth: CGFloat {
         (horizontalSizeClass == .regular || UIDevice.current.userInterfaceIdiom == .pad) ? 980 : .infinity
     }
 
+    /// ‹ on a page's first screen went back to the bookmarks, as Safari's back goes from a
+    /// tab's first page to its start page. The page stays loaded; › returns to it.
+    @State private var showsSites = false
+
+    /// A page is on screen, or the first one is on its way.
+    private var showsPage: Bool { (browser.hasPage || browser.isLoading) && !showsSites }
+
     var body: some View {
-        ZStack(alignment: .top) {
-            if showHome {
-                ExploreHomeView(onNavigate: navigateFromExplore)
-                    .environmentObject(store)
-                    .transition(.opacity)
-            } else {
-                // BrowserState owns the WKWebView and preserves the page. Only
-                // the foreground surface belongs in the hit/accessibility tree;
-                // a covered WKWebView can claim the reader's bottom controls.
-                VStack(spacing: 0) {
-                    addressBar
-                    if browser.isLoading {
-                        ProgressView().progressViewStyle(.linear).frame(height: 2)
-                    }
-                    if addressFocused {
-                        engineShortcuts
-                    }
-                    Divider()
-                    ZStack(alignment: .bottomTrailing) {
-                        WebViewRepresentable(webView: browser.webView)
-                        if browser.hasPage && browser.hasEnoughContent && !browser.isLoading {
-                            extractFAB
-                        }
-                    }
+        ZStack {
+            // BrowserState owns the WKWebView and keeps its page while 探索 is in front.
+            // Only the surface on top belongs in the hit/accessibility tree; a covered
+            // WKWebView can claim the controls drawn over it.
+            WebViewRepresentable(webView: browser.webView)
+                .opacity(showsPage ? 1 : 0)
+                .allowsHitTesting(showsPage)
+                .accessibilityHidden(!showsPage)
+            if !showsPage {
+                BrowserStartPage(
+                    onOpen: { open($0) },
+                    onTranscode: { open($0, transcodes: true) }
+                )
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) { bottomChrome }
+        // Safari shows no title over the page; its host is in the address field.
+        .toolbarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button { dismiss() } label: {
+                    Label(localized("關閉"), systemImage: "xmark")
+                        .labelStyle(.iconOnly)
                 }
             }
         }
-        .ignoresSafeArea(edges: .bottom)
+        .onAppear(perform: applyEntry)
         .onReceive(browser.$currentURL) { url in
             if !addressFocused { addressText = url }
+        }
+        .onChange(of: addressFocused) { _, focused in
+            // Safari shows the host at rest and the full address while editing.
+            if focused { addressText = browser.currentURL }
+        }
+        .onReceive(browser.$isLoading) { _ in transcodeIfArmed() }
+        .onReceive(browser.$hasEnoughContent) { _ in transcodeIfArmed() }
+        .onReceive(browser.$hasTOC) { _ in transcodeIfArmed() }
+        .sheet(isPresented: $showBookmarks) {
+            BrowserBookmarksSheet(
+                onOpen: { open($0) },
+                onTranscode: { open($0, transcodes: true) }
+            )
         }
         .fullScreenCover(item: $readerPresentation) { presentation in
             BookReaderView(bookId: presentation.id)
@@ -792,12 +852,54 @@ struct BrowserView: View {
         }
     }
 
-    // MARK: - Navigate from Explore home
-    private func navigateFromExplore(_ urlString: String) {
+    // MARK: - Opening pages
+
+    /// Opens `urlString`; with `transcodes`, goes straight on to 轉碼閱讀 once the page
+    /// has loaded enough to read — a bookmark's 「直接轉碼閱讀」.
+    private func open(_ urlString: String, transcodes: Bool = false) {
+        transcodeArmed = transcodes
+        showsSites = false
         browser.load(urlString)
         addressText = urlString
         addressFocused = false
-        withAnimation(DSAnimation.standard) { showHome = false }
+    }
+
+    private func goBack() {
+        if browser.canGoBack {
+            browser.goBack()
+        } else {
+            showsSites = true
+        }
+    }
+
+    private func goForward() {
+        if showsSites {
+            showsSites = false
+        } else {
+            browser.goForward()
+        }
+    }
+
+    /// What 探索 pushed this page for, done once.
+    private func applyEntry() {
+        guard !appliedEntry else { return }
+        appliedEntry = true
+        switch entry {
+        case .resume:
+            break
+        case .open(let address):
+            open(address)
+        case .transcode(let address):
+            open(address, transcodes: true)
+        }
+    }
+
+    /// Runs the armed 轉碼閱讀 when the page it was armed for is ready to read. Driven
+    /// by the page's own published state, not a delay.
+    private func transcodeIfArmed() {
+        guard transcodeArmed, canTranscode else { return }
+        transcodeArmed = false
+        runTranscode()
     }
 
     // MARK: - Create Online Book with Lazy Chapter Loading
@@ -843,174 +945,247 @@ struct BrowserView: View {
         }
     }
 
-    // MARK: Extract FAB
-    private var extractFAB: some View {
-        Button {
-            guard !isExtracting else { return }
-            isExtracting = true
+    // MARK: 轉碼閱讀
 
-            if browser.hasTOC {
-                browser.extractChapterLinks { items in
-                    isExtracting = false
-                    if items.isEmpty {
-                        errorMsg = localized("無法識別章節連結，請直接進入章節頁面再轉碼")
-                    } else {
-                        tocBookTitle = ReaderHTMLUtilities.displayText(fromHTMLFragment: browser.pageTitle)
-                        extractedChapters = items
-                        showTOCSheet = true
-                    }
-                }
-            } else {
-                browser.extractContentPayload { title, content, html in
-                    guard content.count >= 200 else {
-                        isExtracting = false
-                        errorMsg = localized("抓取到的內容太少，請嘗試進入具體章節頁面")
-                        return
-                    }
-                    let displayTitle = title.isEmpty
-                        ? "網頁書籍"
-                        : ReaderHTMLUtilities.displayText(fromHTMLFragment: title)
-                    do {
-                        let book = try store.importWeb(
-                            content: html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? content : html,
-                            title: displayTitle,
-                            author: "網路",
-                            sourceURL: browser.currentURL,
-                            format: .plainText
-                        )
-                        isExtracting = false
-                        readerPresentation = ReaderPresentation(id: book.id)
-                    } catch {
-                        isExtracting = false
-                        errorMsg = localized("儲存失敗：") + error.localizedDescription
-                    }
+    /// Reads the page into the reader: the chapter list when the page is a table of
+    /// contents, otherwise the page's own text.
+    private func runTranscode() {
+        guard !isExtracting else { return }
+        isExtracting = true
+
+        if browser.hasTOC {
+            browser.extractChapterLinks { items in
+                isExtracting = false
+                if items.isEmpty {
+                    errorMsg = localized("無法識別章節連結，請直接進入章節頁面再轉碼")
+                } else {
+                    tocBookTitle = ReaderHTMLUtilities.displayText(fromHTMLFragment: browser.pageTitle)
+                    extractedChapters = items
+                    showTOCSheet = true
                 }
             }
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: browser.hasTOC
-                                ? [Color(red: 0.1, green: 0.65, blue: 0.2), Color(red: 0.05, green: 0.45, blue: 0.1)]
-                                : [Color(red: 0.25, green: 0.5, blue: 1.0), Color(red: 0.05, green: 0.28, blue: 0.8)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing)
+        } else {
+            browser.extractContentPayload { title, content, html in
+                guard content.count >= 200 else {
+                    isExtracting = false
+                    errorMsg = localized("抓取到的內容太少，請嘗試進入具體章節頁面")
+                    return
+                }
+                let displayTitle = title.isEmpty
+                    ? "網頁書籍"
+                    : ReaderHTMLUtilities.displayText(fromHTMLFragment: title)
+                do {
+                    let book = try store.importWeb(
+                        content: html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? content : html,
+                        title: displayTitle,
+                        author: "網路",
+                        sourceURL: browser.currentURL,
+                        format: .plainText
                     )
-                    .frame(width: 60, height: 60)
-                    .shadow(color: .black.opacity(0.28), radius: 8, x: 0, y: 4)
-
-                if isExtracting {
-                    ProgressView().scaleEffect(0.9).tint(.white)
-                } else {
-                    VStack(spacing: 2) {
-                        Image(systemName: browser.hasTOC ? "list.bullet" : "book.fill")
-                            .font(DSFont.fixed(size: 20, weight: .medium))
-                        Text(localized(browser.hasTOC ? "目錄" : "閱讀"))
-                            .font(DSFont.fixed(size: 10, weight: .semibold))
-                    }
-                    .foregroundColor(.white)
+                    isExtracting = false
+                    readerPresentation = ReaderPresentation(id: book.id)
+                } catch {
+                    isExtracting = false
+                    errorMsg = localized("儲存失敗：") + error.localizedDescription
                 }
             }
         }
-        .disabled(isExtracting)
-        .padding(.trailing, 16)
-        .padding(.bottom, 128)
     }
 
-    // MARK: Address Bar
-    private var addressBar: some View {
-        HStack(spacing: 8) {
-            Button { withAnimation(DSAnimation.standard) { showHome = true } } label: {
-                Image(systemName: "house")
-                    .font(DSFont.fixed(size: 16, weight: .medium))
-                    .foregroundStyle(DSColor.textPrimary)
+    /// The condition the old floating 轉碼 button appeared under.
+    private var canTranscode: Bool {
+        showsPage && browser.hasPage && browser.hasEnoughContent && !browser.isLoading
+    }
+
+    // MARK: Bottom chrome (Safari)
+
+    /// The address field and toolbar along the bottom, over a bar material, as
+    /// Safari lays them out — reachable with one hand, the page full height above.
+    private var bottomChrome: some View {
+        VStack(spacing: DSSpacing.sm) {
+            if addressFocused {
+                engineShortcuts
             }
-
-            Button { browser.goBack() } label: {
-                Image(systemName: "chevron.left")
-                    .font(DSFont.fixed(size: 17, weight: .medium))
-                    .foregroundColor(browser.canGoBack ? DSColor.textPrimary : DSColor.textSecondary.opacity(0.35))
-            }.disabled(!browser.canGoBack)
-
-            Button { browser.goForward() } label: {
-                Image(systemName: "chevron.right")
-                    .font(DSFont.fixed(size: 17, weight: .medium))
-                    .foregroundColor(browser.canGoForward ? DSColor.textPrimary : DSColor.textSecondary.opacity(0.35))
-            }.disabled(!browser.canGoForward)
-
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").font(DSFont.caption).foregroundStyle(DSColor.textSecondary)
-                TextField(localized("輸入網址或搜尋"), text: $addressText)
-                    .font(DSFont.fixed(size: 14))
-                    .disableAutocorrection(true)
-                    .focused($addressFocused)
-                    .onSubmit {
-                        browser.load(addressText)
-                        addressFocused = false
-                    }
-                if !addressText.isEmpty {
-                    Button { addressText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(DSColor.textSecondary.opacity(0.6))
-                    }
-                }
+            addressField
+            if !addressFocused {
+                toolbarRow
             }
-            .padding(.horizontal, 10).padding(.vertical, 8)
-            .background(Color.secondary.opacity(0.15))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-
-            Button { browser.reload() } label: {
-                Image(systemName: browser.isLoading ? "xmark" : "arrow.clockwise")
-                    .font(DSFont.fixed(size: 15)).foregroundStyle(DSColor.textSecondary)
-            }
-
-            Button {
-                browser.setDesktopSite(!browser.usesDesktopSite)
-            } label: {
-                Image(systemName: browser.usesDesktopSite ? "desktopcomputer" : "iphone")
-                    .font(DSFont.fixed(size: 15))
-                    .foregroundColor(browser.usesDesktopSite ? DSColor.accent : .secondary)
-            }
-            .accessibilityLabel(localized("電腦版網頁"))
-            .accessibilityValue(
-                browser.usesDesktopSite ? localized("開啟") : localized("關閉")
-            )
-            .accessibilityHint(localized("網站只給手機版下載頁時改用電腦版"))
         }
         .frame(maxWidth: browserContentMaxWidth)
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(PageBackgroundView(scope: .explore))
+        .padding(.horizontal, DSSpacing.lg)
+        .padding(.top, DSSpacing.sm)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
     }
 
-    // MARK: Search Engine Shortcuts
-    private var engineShortcuts: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(SearchEngine.allCases) { engine in
-                    Button {
-                        browser.loadEngine(engine)
-                        addressFocused = false
-                        addressText = engine.startURL
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(engine.icon)
-                                .font(DSFont.fixed(size: 12, weight: .bold)).foregroundColor(.white)
-                                .frame(width: 22, height: 22)
-                                .background(engine.color).clipShape(Circle())
-                            Text(engine.rawValue).font(DSFont.subheadline).foregroundStyle(DSColor.textPrimary)
+    /// The host Safari shows at rest — of the page once it reports its URL, of the
+    /// address that was asked for until then.
+    private var hostText: String {
+        guard !showsSites else { return "" }
+        let address = browser.currentURL.isEmpty ? addressText : browser.currentURL
+        return URL(string: address)?.host ?? address
+    }
+
+    private var addressBinding: Binding<String> {
+        Binding(
+            get: { addressFocused ? addressText : hostText },
+            set: { addressText = $0 }
+        )
+    }
+
+    private var addressField: some View {
+        HStack(spacing: DSSpacing.xs) {
+            if showsPage && !addressFocused {
+                // Safari's Reader button: shown in the field while the page can be read.
+                Button {
+                    guard !isExtracting else { return }
+                    runTranscode()
+                } label: {
+                    Group {
+                        if isExtracting {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: browser.hasTOC ? "list.bullet" : "book")
                         }
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(Color.secondary.opacity(0.15)).clipShape(Capsule())
-                    }.buttonStyle(.plain)
+                    }
+                    .font(DSFont.body.weight(.semibold))
+                    .foregroundStyle(canTranscode ? DSColor.accent : DSColor.textTertiary)
+                    .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
                 }
-                Divider().frame(height: 20)
-                Text(localized("進入小說章節頁，點「轉碼閱讀」直接開書"))
-                    .font(DSFont.caption).foregroundStyle(DSColor.textSecondary).lineLimit(1)
+                .disabled(!canTranscode || isExtracting)
+                .accessibilityLabel(browser.hasTOC ? localized("目錄") : localized("轉碼閱讀"))
+            } else {
+                // Safari's search field, before there is a page to read.
+                Image(systemName: "magnifyingglass")
+                    .font(DSFont.body)
+                    .foregroundStyle(DSColor.textSecondary)
+                    .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
+                    .accessibilityHidden(true)
             }
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            .frame(maxWidth: browserContentMaxWidth, alignment: .leading)
+
+            TextField(localized("輸入網址或搜尋"), text: addressBinding)
+                .font(DSFont.body)
+                .multilineTextAlignment(addressFocused ? .leading : .center)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.webSearch)
+                .submitLabel(.go)
+                .focused($addressFocused)
+                .onSubmit { open(addressText) }
+
+            if addressFocused {
+                Button { addressText = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(DSColor.textTertiary)
+                        .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
+                }
+                .accessibilityLabel(localized("清除"))
+            } else {
+                Button {
+                    if browser.isLoading { browser.webView.stopLoading() } else { browser.reload() }
+                } label: {
+                    Image(systemName: browser.isLoading ? "xmark" : "arrow.clockwise")
+                        .font(DSFont.body)
+                        .foregroundStyle(DSColor.textPrimary)
+                        .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
+                }
+                .accessibilityLabel(browser.isLoading ? localized("停止") : localized("重新整理"))
+                // Over the start page there is no page to reload; the slot stays so the
+                // address keeps its place in the middle.
+                .opacity(showsPage ? 1 : 0)
+                .disabled(!showsPage)
+                .accessibilityHidden(!showsPage)
+            }
         }
-        .background(Color(UIColor.systemBackground))
+        .background(
+            DSColor.surface,
+            in: RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous)
+        )
+        .shadow(color: DSColor.appIconShadow, radius: DSLayout.browserLiftShadowRadius, y: DSLayout.browserLiftShadowY)
+        .overlay(alignment: .bottom) {
+            if showsPage, browser.isLoading {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .tint(DSColor.accent)
+                    .padding(.horizontal, DSSpacing.lg)
+            }
+        }
+    }
+
+    private var toolbarRow: some View {
+        HStack {
+            toolbarButton("chevron.left", label: localized("上一頁"), enabled: showsPage, action: goBack)
+            Spacer()
+            toolbarButton(
+                "chevron.right",
+                label: localized("下一頁"),
+                enabled: showsSites ? browser.hasPage : browser.canGoForward,
+                action: goForward
+            )
+            Spacer()
+            let bookmarked = bookmarks.isBookmarked(browser.currentURL)
+            toolbarButton(
+                bookmarked ? "bookmark.fill" : "bookmark",
+                label: bookmarked ? localized("移除書籤") : localized("加入書籤"),
+                enabled: showsPage && browser.hasPage
+            ) {
+                bookmarks.toggle(title: browser.pageTitle, url: browser.currentURL)
+            }
+            Spacer()
+            toolbarButton("book", label: localized("書籤"), enabled: true) {
+                showBookmarks = true
+            }
+            Spacer()
+            Menu {
+                Toggle(isOn: Binding(
+                    get: { browser.usesDesktopSite },
+                    set: { browser.setDesktopSite($0) }
+                )) {
+                    Label(localized("電腦版網頁"), systemImage: "desktopcomputer")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(DSFont.title3)
+                    .foregroundStyle(.tint)
+                    .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
+            }
+            .accessibilityLabel(localized("更多"))
+        }
+    }
+
+    private func toolbarButton(
+        _ systemImage: String,
+        label: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            // Safari's toolbar: the tint where a button can act, grey where it cannot.
+            Image(systemName: systemImage)
+                .font(DSFont.title3)
+                .foregroundStyle(enabled ? AnyShapeStyle(.tint) : AnyShapeStyle(DSColor.textTertiary))
+                .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
+        }
+        .disabled(!enabled)
+        .accessibilityLabel(label)
+    }
+
+    // MARK: Search engine shortcuts
+
+    /// While the address is being edited, the search engines sit above the field.
+    private var engineShortcuts: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: DSSpacing.sm) {
+                ForEach(SearchEngine.allCases) { engine in
+                    Button { open(engine.startURL) } label: {
+                        DSCapsuleLabel(title: engine.rawValue)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
     }
 }
 

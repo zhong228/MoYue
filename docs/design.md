@@ -35,7 +35,7 @@
 
 | # | 規則 | 正確 | 錯誤 |
 |---|------|------|------|
-| H1 | title mode：僅主界面根目錄（Tab 根頁）使用 `.inlineLarge`（經 `toolbarTitleDisplayModeInlineLargeOrInline()`），其餘一律 `.inline` | 見 §2 矩陣 | 在 pushed / sheet 用 `.inlineLarge`，或使用 `.automatic` / `.large` / 裸 `.inlineLarge` |
+| H1 | title mode：僅主界面根目錄（Tab 根頁）用大標題，一律經 `rootTabTitle(_:onScroll:)`；其餘一律 `.inline` | 見 §2 矩陣 | 在 pushed / sheet 用 `rootTabTitle(_:onScroll:)`，或使用 `.automatic` / `.large` / `.inlineLarge` |
 | H2 | 所有對使用者顯示的文字走 `localized("…")`，且三個 lproj 同步 | `Text(localized("書架"))` | `Text("Bookshelf")` |
 | H3 | 顏色、字級、間距、圓角、動畫一律用 `DS*` token | `DSColor.textSecondary` | `Color.gray` / 寫死 hex |
 | H4 | 圖示優先 SF Symbols，且與文字字重/字級一致 | `Image(systemName: "trash")` | 自製 PNG icon |
@@ -58,14 +58,14 @@
 
 | 情境 | title mode | 原因 / 注意事項 |
 |------|------------|-----------------|
-| **主界面根目錄**（Tab 根頁） | `.inlineLarge` | 唯一允許 `.inlineLarge` 的層級。統一經 `toolbarTitleDisplayModeInlineLargeOrInline()`（iOS 18+ 顯示 `.inlineLarge`，iOS 17 退回 `.inline`）。 |
+| **主界面根目錄**（Tab 根頁） | `rootTabTitle(_:onScroll:)` | 唯一用大標題的層級：導覽列左側的粗體大標題，和右側按鈕同一行，iOS 17 起每個版本都一樣。 |
 | Pushed detail（導航堆疊內的詳情、設定子頁） | `.inline` | 維持清楚的返回層級，為導覽與動作保留空間。 |
 | Sheet / modal task | `.inline` | 標題精簡，leading / trailing 分別容納取消與完成。 |
-| Reader / immersive surface | `.inline` | 依沉浸狀態與 chrome 顯示需求決定呈現；不使用 `.inlineLarge`。 |
+| Reader / immersive surface | `.inline` | 依沉浸狀態與 chrome 顯示需求決定呈現；不使用大標題。 |
 
-**主界面根目錄白名單**：書架 `HomeView`、探索 `ExploreHomeView`、RSS `RSSListView`、設定 `SettingsView`（搜尋 tab 根頁目前為 `.inline`，不在此列）。名單以外的頁面一律 `.inline`。
+**主界面根目錄白名單**：書架 `HomeView`、探索 `ExploreHomeView`、RSS `RSSListView`、設定 `SettingsView`、搜索 tab 根頁（`SearchView(isTabRoot: true)`；同一頁被推入時仍是 `.inline`）。名單以外的頁面一律 `.inline`。
 
-`.inlineLarge` 是主界面根目錄的固定樣式（App Store / Apple Maps 式的大型標題、同時保留完整 toolbar），**不是全域預設**：根目錄以外任何層級都禁用。注意 iOS 17 沒有 `.inlineLarge`，因此必須透過 `toolbarTitleDisplayModeInlineLargeOrInline()`；**禁止裸用 `.toolbarTitleDisplayMode(.inlineLarge)`**（舊系統無退化行為）。`inlineLarge` 會讓 leading / center items 移入 overflow，根頁若有此類 item 仍需驗證可用寬度與本地化。
+大標題是主界面根目錄的固定樣式（Apple Music / App Store 式的大型標題、同時保留完整 toolbar），**不是全域預設**：根目錄以外任何層級都禁用。不用系統的 `.inlineLarge`：它在 iOS 17 的 iPhone 上只畫成置中的 `.inline` 小標題（iOS 17.5 模擬器實測），iOS 18 起才是大標題。`rootTabTitle(_:onScroll:)` 改用自己的 `.topBarLeading` toolbar item 畫標題（iOS 26 起關掉它的玻璃底），系統標題藏起來但仍設定，推入頁的返回鍵照樣顯示「‹ 探索」；字級固定在預設大小（系統的列內大標題也不隨字級放大，iOS 27 實測），長按顯示大型內容檢視器，VoiceOver 讀成標題。根頁的 leading item 會排在大標題右邊，加之前要驗證可用寬度與本地化。捲動行為分兩種，都是原生導覽列、原生 toolbar、原生 `.searchable`。書架用 `rootTabTitle(_:onScroll: .fadesTitle)`：頁面在捲動內容裡放 `rootTabTitleScrollAnchor()`（內容堆疊、格狀、列表第一列，沒得捲的空狀態也放），往下捲 10pt 起標題淡出、再 30pt 完全消失，右側按鈕常駐，不管怎麼回到頂端標題都會回來。探索、RSS、設定、搜索用 `.minimizesBar`，即 iOS 27 的導覽列縮起（`toolbarMinimizationBehavior(.onScrollDown, for: .navigationBar)`，WWDC26〈Modernize your UIKit app〉）：往下捲，整條導覽列──標題和按鈕一起──滑走，`.navigationBarDrawer(displayMode: .always)` 的搜尋框升到狀態列下方；往上捲再回來（Apple Music 的分頁，iOS 27 模擬器實測）。探索、搜索的捲動視圖用 `rootTabSearchScrollEdges()` 取代 `softScrollEdges()`：iOS 27 用系統自己的邊緣，導覽列在時是柔和的，搜尋框升上去後它正下方的內容清楚（Apple Music 也是）；強制 `.soft` 會把那段內容糊掉。RSS、設定沒有搜尋框，系統邊緣會變成硬邊，所以維持 `softScrollEdges()`（以上都是 iOS 27 模擬器實測；Apple 也請導覽列會縮起的 app 重新評估 `.soft` 覆寫）。內容不到一屏多時系統不縮起導覽列。iOS 17–26 沒有導覽列縮起：`.minimizesBar` 退回標題淡出，按鈕和搜尋框留在原位，所以這幾頁也放 scroll anchor。不要把標題列或搜尋框畫進頁面：自製的搜尋框和按鈕不是原生的（使用者否決）。系統標題模式也做不到：`.inlineLarge` 捲動後縮成置中小標題、搜尋框留在原位；`.large` 配常駐搜尋框一開始就是小標題（iOS 27 實測）。不用 UIKit `hidesBarsOnSwipe`：捲回頂端時導覽列不會自己回來（使用者回報），搜尋框也跟著藏起來。
 
 ### 2.2 Toolbar 動作位置與語意
 
@@ -347,11 +347,11 @@ Text("\(localized("當前速度"))：\(speechRateText)")
 |------|-------------|----------|
 | **書架 Library** | 最近閱讀、封面、進度、分組、搜尋 | `List`/grid、進度條、`contextMenu`、`searchable` |
 | **閱讀器 Reader** | 文字可讀性、翻頁/捲動、章節、進度、亮度/字體/行距/背景 | `fullScreenCover`、底部控制列、設定 sheet |
-| **發現 Discover** | 尊重書源作者的分類與內容，**不擅自重組成平台推薦流** | 原生 `List`、分類 section |
+| **發現 Discover** | 尊重書源作者的分類與內容，**不擅自重組成平台推薦流**。探索根頁照 Apple Music 搜尋頁的瀏覽分類排成格狀（預設每列兩塊 16:9；右上齒輪開「探索設定」sheet，可關掉「格狀」改成一張張分開的長卡片，或選每列 2–4 欄，三欄以上方塊改正方；字級放大時自動少一欄，輔助字級一律長卡片），上排瀏覽器與我的發現，下面「書源」各一塊（書源名開頭的 emoji 當圖案，沒有就用名稱第一個字），卡片走 `interfaceCardSurface`：白底，開「分組卡片」時是玻璃；按下即縮、減少動態時改淡出，長按是 legado 書源選單；書源頁的篩選、網頁連結和各處的分組／分類標籤都用共用膠囊 `DSCapsuleLabel`（未選中接界面效果的玻璃、選中主題色；subheadline 中等字重，跟著動態字級），篩選寫成「線路：目前值」；搜尋欄只篩書源（名稱或分組含關鍵字，同 legado `flowExplore(key)`），結果照目前的格狀／長卡片排，搜書在「搜索」分頁；書源頁直接是該源全部分類，右上角設定開書源登入頁；書源頁佈局在探索設定選「雜誌」（下述書店式）或「列表」（legado 式：上方分類標籤、下方所選分類的書卡片列表，沿用查看全部的分頁載入）；探索設定（只跟雜誌有關的關鍵詞、展示數、預加載只在選雜誌時出現）另有首屏配置（探索第一次出現時直接推入我的發現或某個書源，等書源清單到了才推）、豎排榜單關鍵詞（標題含任一詞走豎排序號，可新增、左滑刪除、恢復預設）、豎排／橫滑展示數（預設 4／全部）、預加載數量（預設 0，仍一次一個排隊）、封面並發數（全 App 的遠端封面下載上限，預設不限制）；瀏覽器全螢幕開、照 Safari：上方只有 ✕ 回探索、沒有標題，網址欄在下方（白底圓角加陰影，起始頁左邊是放大鏡、網頁時是轉碼鍵），工具列能按的鍵用主題色；空白時是 Safari 式起始頁（書籤、最近瀏覽的 64pt 圖示格帶陰影，沒有圖示的網站灰底白字，白色「編輯」膠囊），第一頁按 ‹ 回起始頁；書源頁版面照 Apple Books 書店：區段標題本身就是「查看全部」連結（標題＋`chevron.right`），推薦分類是橫向書架，榜單是可橫滑的排行欄（純數字名次，不上色） | `LazyVGrid` / `LazyVStack` 卡片（`ExploreEntryLabel`）、`fullScreenCover`、分類 section、`scrollTargetBehavior(.viewAligned)` |
 | **搜尋 Search** | 書名/作者/URL/書源搜尋，狀態清楚（搜尋中/無結果/錯誤）。列表照 Apple Books 搜尋（iOS 26 截圖量測）：左右 29pt、2:3 小封面（近直角＋短陰影）、旁邊置中三行——書名（粗，最多兩行）、作者、灰字「類型 · 幾源」，沒有簡介、沒有右側按鈕與箭頭，分隔線從文字起到右邊界；有聲書在書名後接灰色標籤（取代封面耳機徽章），第三行只寫「幾源」不再重複類型；英文的源數走 `en.lproj/Localizable.stringsdict` 分單複數（1 source／2 sources）。搜尋欄啟用且空白時列「最近搜索」「最近閱讀」：粗襯線標題＋同基線的「清除」，下方一條通欄分隔線；最近搜索是放大鏡＋關鍵字（最多 5 筆，點了重搜），最近閱讀是最近讀過的 3 本（同一種書籍列）：書架上的書第三行是閱讀進度、點了接著讀；不在書架上的讀過的書（沒加書架就讀／聽過的線上書，或讀過後從書架刪掉的書）照 legado 閱讀記錄的做法，書照舊刪、只留書名作者封面（`OffShelfReadRecords`，最多 10 筆，只有 App 自己的書庫會寫），第三行是多久前讀的、點了用書名重新搜尋，之後加進書架就只以書架那本出現；它的「清除」只清搜尋頁這份清單，不動書架的閱讀紀錄；「全部書源」那一列下面沒有分隔線（iOS 26 靠列表的柔和捲動邊緣）；這兩區是一般列不分 `Section`（iOS 26 的 Section 會在上方多空一段、多畫一條線）。搜尋進度與暫停照 App Store 下載鈕：在「全部書源」那一列右端放圓圈（圈＝已回應比例，中間 ‖ 點了暫停、變 ▶ 再點繼續），左邊「18/27 · 失敗 4」，搜完一起消失；全頁只有這一個暫停控制，不另開灰色帶、不用膠囊按鈕 | `searchable`、`SearchBookListRow`（UIKit 版 `IOS17SearchResultTableCell` 同樣式）、`SearchIdleContent`、`SearchProgressControl`、三態 |
 | **設定 Settings** | iOS Settings 風格、分組清楚 | `Form`/`List` insetGrouped、`Toggle`/`Picker`/`NavigationLink` |
 | **書源 Book Source** | 區分來源管理、測試、啟用狀態、錯誤狀態 | `List` + 狀態徽章 + `swipeActions` + 測試入口 |
-| **詳情 Detail** | 書籍資訊、章節目錄、開始閱讀 | 大標 + 後設資料 + 主 CTA |
+| **詳情 Detail** | 書籍資訊、章節目錄、開始閱讀；小說照 Apple Books 書籍頁、有聲書照 Podcasts 節目頁：封面置中＋書名作者，主按鈕（主色實心）與「加入書架」（中性灰）緊接封面，捲走後書名與主按鈕縮進導覽列；接資訊列、簡介（「更多」）、章節預覽＋「查看全部」 | `BookDetailComponents.swift`（兩種詳情頁共用，不另畫一份） |
 | **匯入 Import** | 清楚處理本地檔案 / URL / Legado 書源 / 剪貼簿 | `fileImporter`、分流選單、進度與結果 |
 | **TTS / 聽書** | 朗讀控制、語音源/離線語音、章節、睡眠定時 | 控制列、`Slider`、語音選單 |
 | **AI 助手 Assistant** | 針對這本書的問答：答案好讀、依據可查、模型與範圍隨手切換 | `Modules/Features/AI/AIChatComponents.swift` 的對話元件（見 §10.1） |
@@ -421,7 +421,7 @@ Text("\(localized("當前速度"))：\(speechRateText)")
 - ❌ 忽略 iOS 導航 / 返回 / Sheet / Tab Bar 慣例。
 - ❌ 寫死顏色/字體/間距（繞過 `DS*` token）。
 - ❌ 寫死字串（繞過 `localized()`）。
-- ❌ 在非主界面根目錄層級使用 `.inlineLarge`；裸用 `.toolbarTitleDisplayMode(.inlineLarge)`（iOS 17 不支援，無退化行為）；使用 `.automatic` / `.large` title mode。
+- ❌ 在非主界面根目錄層級使用 `rootTabTitle(_:onScroll:)`；使用 `.inlineLarge`（iOS 17 的 iPhone 只畫成 `.inline`）、`.automatic`、`.large` title mode。
 - ❌ 用 `ScrollView`+`VStack`/`HStack` 自刻 list / Form row、自刻 toolbar 或按鈕列、自刻 Toggle / Picker / 彈窗（見 §4）。
 - ❌ 互斥選項做成多個獨立 `Toggle`（該用單一選取值的 `Picker` / 單選）；`Toggle` 用內建 label，不要 `.labelsHidden()` + 手刻 HStack。
 - ❌ 過度裝飾卡片：22pt+ 圓角、裝飾性漸層/邊框、自訂 Divider；卡片分層用語意表面色與 `DSRadius`（見 §4.1）。

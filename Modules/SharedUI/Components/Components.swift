@@ -221,22 +221,61 @@ struct DSCard<Content: View>: View {
     }
 }
 
+/// The capsule every chip, filter and quick action in a bar is drawn as. Unselected it
+/// sits on the app's floating surface — glass with 外觀主題 › 界面效果 › 毛玻璃 on, its
+/// fill without — so it matches the controls floating over the page; selected it is the
+/// accent with white text. The label is subheadline at medium weight: a semantic text
+/// style, so it scales with Dynamic Type and keeps the system's tracking, with the
+/// weight rather than the size setting it apart from body text.
+struct DSCapsuleLabel: View {
+    let title: String
+    /// A symbol before the title.
+    var systemImage: String? = nil
+    /// A symbol after it — `chevron.down` on a menu, `arrow.up.right` on a link out.
+    var trailingSystemImage: String? = nil
+    var isSelected = false
+
+    var body: some View {
+        HStack(spacing: DSSpacing.xs) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .accessibilityHidden(true)
+            }
+            Text(title)
+                .lineLimit(1)
+            if let trailingSystemImage {
+                Image(systemName: trailingSystemImage)
+                    .font(DSFont.caption.weight(.semibold))
+                    .accessibilityHidden(true)
+            }
+        }
+        .font(DSFont.subheadline.weight(.medium))
+        .foregroundStyle(isSelected ? DSColor.textOnAccent : DSColor.textPrimary)
+        .padding(.horizontal, DSSpacing.md)
+        .frame(minHeight: DSLayout.capsuleControlHeight)
+        .background {
+            if isSelected {
+                Capsule().fill(DSColor.accent)
+            } else {
+                Color.clear.floatingSurfaceBackground(in: Capsule())
+            }
+        }
+        .contentShape(Capsule())
+    }
+}
+
 /// Selectable chip button for filter and sort bars.
 struct DSChip: View {
     let title: String
     let isSelected: Bool
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(DSFont.caption )
-                .padding(.horizontal, DSSpacing.md)
-                .padding(.vertical, DSSpacing.sm - 2)
-                .background(isSelected ? DSColor.accent : Color(.systemGray5))
-                .foregroundColor(isSelected ? .white : DSColor.textPrimary)
-                .clipShape(Capsule())
+            DSCapsuleLabel(title: title, isSelected: isSelected)
         }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

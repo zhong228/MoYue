@@ -115,7 +115,7 @@ final class DetailReaderStackTests: XCTestCase {
             await fulfillment(of: [appeared], timeout: 5)
         }
         await awaitScreen("explore") { window.makeKeyAndVisible() }
-        await awaitScreen("bookDetail") { state.path.append(ExploreNavigationRoute.search("fixture")) }
+        await awaitScreen("bookDetail") { state.path.append(ExploreNavigationRoute.myDiscover) }
         let bookID = UUID()
         await awaitScreen("reader") { state.reader = DetailReaderRoute(id: bookID) }
         let originalIdentity = try XCTUnwrap(identities.first)
@@ -176,7 +176,7 @@ final class DetailReaderStackTests: XCTestCase {
             await fulfillment(of: [appeared], timeout: 5)
         }
         await awaitScreen("explore") { window.makeKeyAndVisible() }
-        await awaitScreen("bookDetail") { state.path.append(ExploreNavigationRoute.search("fixture")) }
+        await awaitScreen("bookDetail") { state.path.append(ExploreNavigationRoute.myDiscover) }
         await awaitScreen("reader") { state.reader = DetailReaderRoute(id: UUID()) }
         let stacks = navigationControllers(in: host)
         XCTAssertEqual(stacks.count, 1, "A manga reader pushed from a book detail must not create a second NavigationStack")

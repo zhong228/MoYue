@@ -8,7 +8,7 @@ struct ExploreNavigationAndMetadataTests {
     @Test("explore and search result routes can share one navigation path")
     func exploreAndSearchRoutesShareNavigationPath() {
         var navigation = ExploreNavigationPath()
-        navigation.push(.search("三體"))
+        navigation.push(.searchInSource(sourceURL: "https://fixture.example"))
         navigation.path.append(
             SearchResultRoute(
                 id: UUID(),
@@ -51,30 +51,6 @@ struct ExploreNavigationAndMetadataTests {
         )
 
         #expect(wordCount == "374萬字")
-    }
-
-    @Test("discover source picker targets the current source")
-    func sourcePickerTargetsCurrentSource() {
-        let sourceIds = [UUID(), UUID(), UUID()]
-
-        let target = DiscoverSourcePickerPositioning.target(
-            selectedSourceId: sourceIds[1],
-            visibleSourceIds: sourceIds
-        )
-
-        #expect(target == sourceIds[1])
-    }
-
-    @Test("discover source picker has no target when selection is filtered out")
-    func sourcePickerIgnoresFilteredSelection() {
-        let selectedSourceId = UUID()
-
-        let target = DiscoverSourcePickerPositioning.target(
-            selectedSourceId: selectedSourceId,
-            visibleSourceIds: [UUID(), UUID()]
-        )
-
-        #expect(target == nil)
     }
 
     private func makeBook() -> OnlineBook {

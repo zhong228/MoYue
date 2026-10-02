@@ -93,9 +93,7 @@ struct AggregateSearchSmokeTests {
         )
         defer { runtimeStore.setSourceVariableJSON(nil, for: source.bookSourceUrl) }
 
-        let model = DiscoverViewModel()
-        model.exploreSources = [source]
-        model.selectedSourceId = source.id
+        let model = DiscoverViewModel(source: source)
         model.filters = [
             DiscoverFilter(
                 title: "类型", paramKey: "发现页类型",

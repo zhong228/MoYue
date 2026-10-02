@@ -1,7 +1,11 @@
 import SwiftUI
 
+/// 換源 for a book opened outside search: searches the enabled sources for the title
+/// and lists every match, grouped by book, with the current source checked.
 struct SourceSearchSheet: View {
     let query: String
+    let currentSourceId: UUID
+    let currentBookURL: String
     let onSelectOrigin: (BookOrigin) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -10,88 +14,23 @@ struct SourceSearchSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                if aggregator.isSearching && aggregator.results.isEmpty {
-                    VStack(spacing: DSSpacing.md) {
-                        ProgressView()
-                        Text(localized("搜尋書源中…"))
-                            .font(DSFont.subheadline)
-                            .foregroundStyle(DSColor.textSecondary)
+            content
+                .background(PageBackgroundView(scope: .global).ignoresSafeArea())
+                .pageBackgroundToolbar(for: .global)
+                .navigationTitle(localized("選擇來源"))
+                .toolbarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        SourceSheetCloseButton { dismiss() }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if aggregator.results.isEmpty {
-                    VStack(spacing: DSSpacing.md) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.largeTitle)
-                            .foregroundStyle(DSColor.textTertiary)
-                        Text(localized("未找到其他書源"))
-                            .font(DSFont.subheadline)
-                            .foregroundStyle(DSColor.textSecondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    List {
-                        ForEach(aggregator.results) { searchBook in
-                            Section {
-                                ForEach(searchBook.origins) { origin in
-                                    Button {
-                                        dismiss()
-                                        onSelectOrigin(origin)
-                                    } label: {
-                                        HStack {
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(origin.sourceName)
-                                                    .font(DSFont.fixed(size: 15, weight: .medium))
-                                                    .foregroundStyle(DSColor.textPrimary)
-                                                if !origin.lastChapter.isEmpty {
-                                                    Text(origin.lastChapter)
-                                                        .font(DSFont.fixed(size: 12))
-                                                        .foregroundStyle(DSColor.textSecondary)
-                                                        .lineLimit(1)
-                                                }
-                                            }
-                                            Spacer()
-                                            Image(systemName: "chevron.right")
-                                                .font(DSFont.fixed(size: 13))
-                                                .foregroundStyle(DSColor.textSecondary.opacity(0.5))
-                                        }
-                                        .padding(.vertical, 4)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            } header: {
-                                HStack(spacing: DSSpacing.sm) {
-                                    Text(searchBook.displayName)
-                                        .font(DSFont.headline)
-                                        .foregroundStyle(DSColor.textPrimary)
-                                    if !searchBook.author.isEmpty {
-                                        Text(searchBook.author)
-                                            .font(DSFont.caption)
-                                            .foregroundStyle(DSColor.textSecondary)
-                                    }
-                                }
-                            }
-                            .interfaceSectionSurface()
+                    // Results arrive source by source; keep saying so while they do.
+                    if aggregator.isSearching && !aggregator.results.isEmpty {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            ProgressView()
+                                .accessibilityLabel(localized("搜尋書源中…"))
                         }
                     }
-                    .softScrollEdges()
-                    .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
                 }
-            }
-            .background(PageBackgroundView(scope: .bookshelf).ignoresSafeArea())
-            .navigationTitle(localized("選擇來源"))
-            .toolbarTitleDisplayMode(.inline)
-            .pageBackgroundToolbar(for: .bookshelf)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                }
-            }
         }
         .onAppear {
             aggregator.setResultPresentationActive(scenePhase == .active)
@@ -103,5 +42,48 @@ struct SourceSearchSheet: View {
         .onChange(of: scenePhase) { _, phase in
             aggregator.setResultPresentationActive(phase == .active)
         }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if aggregator.isSearching && aggregator.results.isEmpty {
+            ProgressView(localized("搜尋書源中…"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if aggregator.results.isEmpty {
+            ContentUnavailableView {
+                UnavailableLabel(localized("未找到其他書源"), systemImage: "magnifyingglass")
+            }
+        } else {
+            List {
+                ForEach(aggregator.results) { searchBook in
+                    Section {
+                        ForEach(searchBook.origins) { origin in
+                            SourceOriginRow(
+                                origin: origin,
+                                kind: searchBook.contentKind(for: origin) ?? .text,
+                                isCurrent: isCurrent(origin),
+                                action: {
+                                    onSelectOrigin(origin)
+                                    dismiss()
+                                }
+                            )
+                            .listRowBackground(Color.clear)
+                        }
+                    } header: {
+                        Text(searchBook.author.isEmpty
+                            ? searchBook.displayName
+                            : "\(searchBook.displayName) · \(searchBook.author)")
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .softScrollEdges()
+        }
+    }
+
+    private func isCurrent(_ origin: BookOrigin) -> Bool {
+        origin.sourceId == currentSourceId
+            && ChangeSourceCache.urlKey(origin.bookUrl) == ChangeSourceCache.urlKey(currentBookURL)
     }
 }

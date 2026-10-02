@@ -10,14 +10,33 @@ import SwiftUI
 /// `docs/design.md` §10 — Discover archetype).
 struct DiscoverShowcaseView: View {
     @ObservedObject var discover: DiscoverViewModel
+    /// Opens a category that is a web page rather than a book list.
+    var onOpenPage: ((String) -> Void)?
+
+    /// Which categories are charts follows these words; read so a change redraws.
+    @AppStorage(ExploreSettings.rankedKeywordsKey)
+    private var rankedKeywords = ExploreSettings.encodeKeywords(ExploreSettings.defaultRankedKeywords)
+
+    /// Categories that open a page (a source's `java.startBrowser` link).
+    private var pageItems: [DiscoverCardItem] {
+        discover.pageItems
+    }
 
     var body: some View {
+        let _ = rankedKeywords
         ScrollView {
             LazyVStack(alignment: .leading, spacing: DSSpacing.xl) {
+                if !discover.filters.isEmpty || (onOpenPage != nil && !pageItems.isEmpty) {
+                    DiscoverControlsRow(
+                        discover: discover,
+                        pageItems: onOpenPage == nil ? [] : pageItems,
+                        onOpenPage: { onOpenPage?($0) }
+                    )
+                }
                 if discover.isLoadingItems && discover.sections.isEmpty {
                     loadingState
                 } else if discover.sections.isEmpty {
-                    emptyState
+                    DiscoverEmptyState(discover: discover)
                 } else {
                     ForEach(discover.sections) { section in
                         if section.style == .ranked {
@@ -57,7 +76,20 @@ struct DiscoverShowcaseView: View {
         .padding(.vertical, DSSpacing.xxl)
     }
 
-    private var emptyState: some View {
+    private var rankedSections: [DiscoverShowcaseSection] {
+        discover.sections.filter { $0.style == .ranked }
+    }
+
+    private var firstRankedSectionId: UUID? {
+        rankedSections.first?.id
+    }
+}
+
+/// A source page with no categories to show, in either layout.
+private struct DiscoverEmptyState: View {
+    @ObservedObject var discover: DiscoverViewModel
+
+    var body: some View {
         // When the source replied with a plain message instead of categories
         // (e.g. 「请先于【源变量】处填写共享Token」), show ITS words — the generic
         // copy would hide the one instruction the user needs.
@@ -81,102 +113,79 @@ struct DiscoverShowcaseView: View {
         }
         .frame(maxWidth: .infinity, minHeight: 320)
     }
-
-    private var rankedSections: [DiscoverShowcaseSection] {
-        discover.sections.filter { $0.style == .ranked }
-    }
-
-    private var firstRankedSectionId: UUID? {
-        rankedSections.first?.id
-    }
 }
 
-// MARK: - Filter bar
+// MARK: - Filters and page links
 
-/// Horizontal row of the source's own dropdown filters (线路 / 类型 / 频道 / 平台).
-/// Each is a native `Menu` (design.md: 就地選擇 → Menu). Options come from the
-/// source's `select` items, so the 平台 list reflects the per-mode cloud config.
-private struct DiscoverFilterBar: View {
+/// The source's own controls above its categories, in one scrolling row: each filter
+/// it emits (线路、类型、频道、平台) as a menu of its options, then the categories that
+/// open a web page. legado-E draws the same `select` kinds inline on its explore page.
+private struct DiscoverControlsRow: View {
     @ObservedObject var discover: DiscoverViewModel
+    let pageItems: [DiscoverCardItem]
+    let onOpenPage: (String) -> Void
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: DSSpacing.sm) {
                 ForEach(discover.filters) { filter in
-                    Menu {
-                        Picker(filter.title, selection: selectionBinding(for: filter)) {
-                            ForEach(filter.options, id: \.self) { option in
-                                Text(displayName(option)).tag(option)
-                            }
-                        }
+                    filterMenu(filter)
+                }
+                ForEach(pageItems) { item in
+                    Button {
+                        if let url = item.actionURL { onOpenPage(url) }
                     } label: {
-                        chip(for: filter)
+                        DSCapsuleLabel(title: item.title, trailingSystemImage: "arrow.up.right")
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(localized("在瀏覽器中開啟"))
                 }
             }
             .padding(.horizontal, DSSpacing.lg)
-            .padding(.vertical, DSSpacing.sm)
+            .padding(.vertical, DSSpacing.xs)
         }
-        .background(DSColor.groupedBackground.opacity(0.001))
-        .overlay(alignment: .bottom) {
-            Divider()
-        }
+        .scrollIndicators(.hidden)
     }
 
-    private func selectionBinding(for filter: DiscoverFilter) -> Binding<String> {
-        Binding(
-            get: { filter.selected },
-            set: { discover.selectFilter(filter, value: $0) }
-        )
-    }
-
-    /// A compact, single-line filter pill with Apple's continuous (squircle)
-    /// corners. When the filter sits on its default (first) option the pill stays
-    /// neutral and shows the category name; once the reader picks another option it
-    /// tints to the accent and shows that value, so the active filters read at a
-    /// glance across the bar.
-    private func chip(for filter: DiscoverFilter) -> some View {
+    /// Each filter reads 「線路：<chosen line>」, its name and its value together; one
+    /// changed from its first option takes the accent, so the active filters stand out.
+    private func filterMenu(_ filter: DiscoverFilter) -> some View {
         let isActive = filter.selected != filter.options.first
-        let label = isActive ? displayName(filter.selected) : filterLabel(filter.title)
-        let shape = RoundedRectangle(cornerRadius: DSRadius.md, style: .continuous)
-        return HStack(spacing: DSSpacing.xs) {
-            Text(label)
-                .font(DSFont.caption.weight(isActive ? .semibold : .regular))
-                .lineLimit(1)
-            Image(systemName: "chevron.down")
-                .font(DSFont.fixed(size: 9, weight: .semibold))
-        }
-        .foregroundColor(isActive ? DSColor.accent : DSColor.textPrimary)
-        .padding(.horizontal, DSSpacing.sm + 2)
-        .padding(.vertical, DSSpacing.xs + 2)
-        .background(isActive ? DSColor.accent.opacity(0.15) : DSColor.surface)
-        .clipShape(shape)
-        .overlay(
-            shape.strokeBorder(
-                isActive ? DSColor.accent.opacity(0.35) : DSColor.separator,
-                lineWidth: 0.5
+        let title = Self.filterTitle(filter.title)
+        let value = Self.displayName(filter.selected)
+        return Menu {
+            Picker(title, selection: Binding(
+                get: { filter.selected },
+                set: { discover.selectFilter(filter, value: $0) }
+            )) {
+                ForEach(filter.options, id: \.self) { option in
+                    Text(Self.displayName(option)).tag(option)
+                }
+            }
+        } label: {
+            DSCapsuleLabel(
+                title: value.isEmpty ? title : String(format: localized("%@：%@"), title, value),
+                trailingSystemImage: "chevron.down",
+                isSelected: isActive
             )
-        )
-        .contentShape(shape)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityValue(value)
     }
 
-    private func filterLabel(_ title: String) -> String {
+    static func filterTitle(_ title: String) -> String {
         switch title {
-        case "线路", "線路":
-            return localized("線路")
-        case "类型", "類型":
-            return localized("類型")
-        case "频道", "頻道":
-            return localized("頻道")
-        case "平台":
-            return localized("平台")
-        default:
-            return title
+        case "线路", "線路": localized("線路")
+        case "类型", "類型": localized("類型")
+        case "频道", "頻道": localized("頻道")
+        case "平台": localized("平台")
+        default: title
         }
     }
 
-    /// 线路 values are server URLs — drop the scheme so the chip stays tidy.
-    private func displayName(_ value: String) -> String {
+    static func displayName(_ value: String) -> String {
         guard value.hasPrefix("http") else { return value }
         return value
             .replacingOccurrences(of: "https://", with: "")
@@ -184,309 +193,288 @@ private struct DiscoverFilterBar: View {
     }
 }
 
-// MARK: - Section
+// MARK: - Section header
 
-/// One showcase section. Loads its books lazily the first time it scrolls on.
-private struct DiscoverSectionView: View {
+/// A section title in Apple Books' store style: the title itself is the link to the
+/// category's full list, marked by a trailing chevron. A section with nothing to
+/// list (still loading, empty, or no source) shows the bare title.
+struct DiscoverSectionHeader: View {
     let section: DiscoverShowcaseSection
     let source: BookSource?
-    let onAppearLoad: () -> Void
+    /// Where the title leads; the section's own category list by default.
+    var route: ExploreNavigationRoute?
+    /// A second line under the title — the source a 我的發現 shelf comes from.
+    var subtitle: String?
+
+    @ObservedObject private var pins = ExplorePinStore.shared
+
+    private var pinReference: ExploreCategoryReference? {
+        source.flatMap { ExploreCategoryReference(source: $0, item: section.item) }
+    }
+
+    private var destination: ExploreNavigationRoute? {
+        route ?? pinReference.map(ExploreNavigationRoute.sourceCategory)
+    }
+
+    var body: some View {
+        Group {
+            if let destination, !section.books.isEmpty {
+                NavigationLink(value: destination) {
+                    title(showsChevron: true)
+                        .frame(minHeight: DSLayout.minimumTapTarget)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(localized("查看全部"))
+            } else {
+                title(showsChevron: false)
+                    .frame(minHeight: DSLayout.minimumTapTarget)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contextMenu {
+            if let pinReference {
+                Button {
+                    pins.toggle(pinReference)
+                } label: {
+                    if pins.isPinned(pinReference) {
+                        Label(localized("從我的發現移除"), systemImage: "star.slash")
+                    } else {
+                        Label(localized("加入我的發現"), systemImage: "star")
+                    }
+                }
+            }
+        }
+    }
+
+    /// The chevron follows the title's first line, not the subtitle under it.
+    private func title(showsChevron: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: DSSpacing.xs) {
+                Text(section.title)
+                    .font(DSFont.title3.weight(.bold))
+                    .foregroundStyle(DSColor.textPrimary)
+                    .lineLimit(1)
+                if showsChevron {
+                    Image(systemName: "chevron.right")
+                        .font(DSFont.subheadline.weight(.semibold))
+                        .foregroundStyle(DSColor.textSecondary)
+                        .accessibilityHidden(true)
+                }
+            }
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(DSFont.footnote)
+                    .foregroundStyle(DSColor.textSecondary)
+                    .lineLimit(1)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+// MARK: - Section phase states
+
+/// Loading, empty and failed placeholders shared by shelves and chart columns.
+struct DiscoverSectionPlaceholder: View {
+    let section: DiscoverShowcaseSection
     let onRetry: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.md) {
-            header
-            sectionBody
+        switch section.phase {
+        case .failed:
+            Button(action: onRetry) {
+                VStack(spacing: DSSpacing.xs) {
+                    Label(localized("載入失敗，點按重試"), systemImage: "arrow.clockwise")
+                        .font(DSFont.subheadline)
+                        .foregroundStyle(DSColor.accent)
+                    if let reason = section.errorReason, !reason.isEmpty {
+                        Text(reason)
+                            .font(DSFont.caption)
+                            .foregroundStyle(DSColor.textSecondary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        case .loaded:
+            Text(localized("暫無發現內容"))
+                .font(DSFont.footnote)
+                .foregroundStyle(DSColor.textSecondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .idle, .loading:
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+// MARK: - Featured shelf
+
+/// A 推薦／精選 category as one of Apple Books' store shelves: a horizontal row of
+/// covers with title and author, snapping to the cover edges. Loads its books lazily
+/// the first time it scrolls on.
+struct DiscoverSectionView: View {
+    let section: DiscoverShowcaseSection
+    let source: BookSource?
+    var route: ExploreNavigationRoute?
+    var subtitle: String?
+    let onAppearLoad: () -> Void
+    let onRetry: () -> Void
+
+    /// 探索設定's 橫滑展示數; 0 shows the whole first page.
+    @AppStorage(ExploreSettings.shelfBookCountKey)
+    private var shelfBookCount = ExploreSettings.defaultShelfBookCount
+
+    private var shelfBooks: [DiscoverBookDisplay] {
+        shelfBookCount > 0 ? Array(section.books.prefix(shelfBookCount)) : section.books
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DSSpacing.sm) {
+            DiscoverSectionHeader(section: section, source: source, route: route, subtitle: subtitle)
+                .padding(.horizontal, DSSpacing.lg)
+            if section.books.isEmpty {
+                DiscoverSectionPlaceholder(section: section, onRetry: onRetry)
+                    .frame(height: DSLayout.discoverShelfCoverHeight)
+                    .padding(.horizontal, DSSpacing.lg)
+            } else {
+                shelf
+            }
         }
         .task { onAppearLoad() }
     }
 
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(section.title)
-                .font(DSFont.headline)
-                .foregroundColor(DSColor.textPrimary)
-                .lineLimit(1)
-            Spacer(minLength: DSSpacing.sm)
-            if source != nil {
-                NavigationLink(value: ExploreNavigationRoute.category(section.id)) {
-                    HStack(spacing: DSSpacing.xs) {
-                        Text(localized("查看全部"))
-                        Image(systemName: "chevron.right")
-                            .font(DSFont.caption2.weight(.semibold))
-                    }
-                    .font(DSFont.subheadline)
-                    .foregroundColor(DSColor.textSecondary)
-                }
-                .disabled(section.books.isEmpty)
-                .opacity(section.books.isEmpty ? 0 : 1)
-            }
-        }
-        .padding(.horizontal, DSSpacing.lg)
-    }
-
-    @ViewBuilder
-    private var sectionBody: some View {
-        if !section.books.isEmpty {
-            content
-        } else {
-            switch section.phase {
-            case .failed:
-                sectionFailed
-            case .loaded:
-                sectionEmpty
-            case .idle, .loading:
-                sectionLoading
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        switch section.style {
-        case .featured:
-            ScrollView(.horizontal, showsIndicators: false) {
-                // Lazy is load-bearing: a featured category returns 20–50 books,
-                // and building every card the moment the section scrolls on-screen
-                // is a one-frame spike at each section boundary — the page kept
-                // dropping frames on vertical scroll even after all sections had
-                // loaded. Cards are fixed-height (see DiscoverFeaturedCard), so
-                // lazily materializing them can't change the carousel's height.
-                LazyHStack(alignment: .top, spacing: DSSpacing.md) {
-                    ForEach(section.books) { display in
-                        NavigationLink(value: ExploreNavigationRoute.book(display.book)) {
-                            DiscoverFeaturedCard(display: display, section: section)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, DSSpacing.lg)
-            }
-            .scrollClipDisabled()
-        case .ranked:
-            VStack(spacing: 0) {
-                let ranked = Array(section.books.prefix(6).enumerated())
-                ForEach(ranked, id: \.element.id) { index, display in
+    private var shelf: some View {
+        ScrollView(.horizontal) {
+            // Lazy is load-bearing: a featured category returns 20–50 books, and
+            // building every card the moment the section scrolls on-screen is a
+            // one-frame spike at each section boundary. Cards are fixed-height (see
+            // DiscoverFeaturedCard), so lazily materializing them can't change the
+            // shelf's height.
+            LazyHStack(alignment: .top, spacing: DSSpacing.md) {
+                ForEach(shelfBooks) { display in
                     NavigationLink(value: ExploreNavigationRoute.book(display.book)) {
-                        DiscoverRankedRow(rank: index + 1, display: display, section: section)
+                        DiscoverFeaturedCard(display: display, section: section)
                     }
                     .buttonStyle(.plain)
-                    if index < ranked.count - 1 {
-                        Divider().padding(.leading, 88)
-                    }
                 }
             }
-            .padding(.horizontal, DSSpacing.lg)
+            .scrollTargetLayout()
         }
-    }
-
-    private var sectionLoading: some View {
-        HStack {
-            Spacer()
-            ProgressView()
-            Spacer()
-        }
-        .frame(height: section.style == .featured ? 170 : 120)
-    }
-
-    private var sectionEmpty: some View {
-        Text(localized("暫無發現內容"))
-            .font(DSFont.caption)
-            .foregroundColor(DSColor.textSecondary)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.vertical, DSSpacing.lg)
-            .padding(.horizontal, DSSpacing.lg)
-    }
-
-    private var sectionFailed: some View {
-        Button(action: onRetry) {
-            VStack(spacing: DSSpacing.xs) {
-                HStack(spacing: DSSpacing.sm) {
-                    Image(systemName: "arrow.clockwise")
-                    Text(localized("載入失敗，點按重試"))
-                }
-                .font(DSFont.subheadline)
-                .foregroundColor(DSColor.accent)
-                if let reason = section.errorReason, !reason.isEmpty {
-                    Text(reason)
-                        .font(DSFont.caption2)
-                        .foregroundColor(DSColor.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(3)
-                        .padding(.horizontal, DSSpacing.lg)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.vertical, DSSpacing.lg)
-        }
-        .buttonStyle(.plain)
+        .scrollIndicators(.hidden)
+        .contentMargins(.horizontal, DSSpacing.lg, for: .scrollContent)
+        .scrollTargetBehavior(.viewAligned)
+        .scrollClipDisabled()
     }
 }
 
-// MARK: - Ranked sections carousel
+// MARK: - Charts
 
+/// Every 榜單／排行 category as one row of chart columns, paged sideways like Apple
+/// Books' Top Charts: each column is one ranking with its title and top entries,
+/// and the next column peeks in from the edge.
 private struct DiscoverRankedSectionsCarousel: View {
     let sections: [DiscoverShowcaseSection]
     let source: BookSource?
     let onAppearLoad: (UUID) -> Void
     let onRetry: (UUID) -> Void
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(alignment: .top, spacing: DSSpacing.md) {
+        ScrollView(.horizontal) {
+            LazyHStack(alignment: .top, spacing: DSSpacing.lg) {
                 ForEach(sections) { section in
-                    DiscoverRankedSummaryCard(
+                    DiscoverChartColumn(
                         section: section,
                         source: source,
                         onAppearLoad: { onAppearLoad(section.id) },
                         onRetry: { onRetry(section.id) }
                     )
+                    .containerRelativeFrame(
+                        .horizontal,
+                        count: horizontalSizeClass == .regular ? 2 : 1,
+                        spacing: DSSpacing.lg
+                    )
                 }
             }
-            .padding(.horizontal, DSSpacing.lg)
+            .scrollTargetLayout()
         }
+        .scrollIndicators(.hidden)
+        .contentMargins(.leading, DSSpacing.lg, for: .scrollContent)
+        .contentMargins(.trailing, DSSpacing.lg + DSLayout.discoverChartPeek, for: .scrollContent)
+        .scrollTargetBehavior(.viewAligned)
         .scrollClipDisabled()
     }
 }
 
-private struct DiscoverRankedSummaryCard: View {
+private struct DiscoverChartColumn: View {
     let section: DiscoverShowcaseSection
     let source: BookSource?
     let onAppearLoad: () -> Void
     let onRetry: () -> Void
 
-    /// Ranked rows every card reserves, filled or not.
+    /// Entries every column reserves, filled or not.
     ///
-    /// The carousel is a `LazyHStack` with `scrollClipDisabled`, so its height
-    /// tracks only the cards built so far AND anything taller draws outside it:
-    /// a card holding 6 books next to an empty 「暫無發現內容」 one rendered straight
-    /// over the section below (書山聚合's 出版榜单 landing on top of 西方奇幻).
-    /// Every card must therefore be the same height — the invariant
-    /// `DiscoverFeaturedCard` documents for the featured carousel.
-    ///
-    /// Six matches the vertical ranked section's count. It costs height — the
-    /// carousel row is ~690pt, and a category with fewer books pads the rest out
-    /// as blank space — which is the accepted trade for showing a full top-six
-    /// without opening 查看全部. Lowering it shortens the row; the invariant only
-    /// requires that `prefix` and the reserved height stay driven by this one value.
-    private static let reservedRows = 6
+    /// The columns sit in a `LazyHStack` with `scrollClipDisabled`, so the row's
+    /// height tracks only the columns built so far AND anything taller draws outside
+    /// it: a full column next to an empty 「暫無發現內容」 one once rendered straight
+    /// over the section below. Every column must therefore be the same height —
+    /// `prefix` and the reserved height stay driven by this one value — 探索設定's
+    /// 豎排展示數, the same for every column.
+    @AppStorage(ExploreSettings.chartBookCountKey)
+    private var reservedRows = ExploreSettings.defaultChartBookCount
 
-    /// One ranked row at default text size: 70pt cover / ~78pt text stack plus
-    /// `DSSpacing.md` top and bottom, with a few points of slack. `@ScaledMetric`
-    /// keeps it in step with Dynamic Type instead of clipping at larger sizes.
-    @ScaledMetric(relativeTo: .subheadline) private var rowHeight: CGFloat = 106
-
-    private var reservedContentHeight: CGFloat { CGFloat(Self.reservedRows) * rowHeight }
+    /// One chart row at default text size: the cover plus `DSSpacing.sm` above and
+    /// below. `@ScaledMetric` keeps it in step with Dynamic Type instead of clipping.
+    @ScaledMetric(relativeTo: .subheadline) private var rowHeight: CGFloat =
+        DSLayout.discoverRowCoverHeight + DSSpacing.sm * 2
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.md) {
-            header
-            content
-                .frame(height: reservedContentHeight, alignment: .top)
-                .clipped()
-        }
-        .padding(DSSpacing.md)
-        .frame(width: 320, alignment: .topLeading)
-        .interfaceCardSurface()
-        .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous)
-                .strokeBorder(DSColor.separator, lineWidth: 0.5)
+        VStack(alignment: .leading, spacing: DSSpacing.xs) {
+            DiscoverSectionHeader(section: section, source: source)
+            Group {
+                if section.books.isEmpty {
+                    DiscoverSectionPlaceholder(section: section, onRetry: onRetry)
+                } else {
+                    entries
+                }
+            }
+            .frame(height: CGFloat(reservedRows) * rowHeight, alignment: .top)
+            .clipped()
         }
         .task { onAppearLoad() }
     }
 
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(section.title)
-                .font(DSFont.headline)
-                .foregroundColor(DSColor.textPrimary)
-                .lineLimit(1)
-            Spacer(minLength: DSSpacing.sm)
-            if source != nil {
-                NavigationLink(value: ExploreNavigationRoute.category(section.id)) {
-                    HStack(spacing: DSSpacing.xs) {
-                        Text(localized("查看全部"))
-                        Image(systemName: "chevron.right")
-                            .font(DSFont.caption2.weight(.semibold))
-                    }
-                    .font(DSFont.caption)
-                    .foregroundColor(DSColor.textSecondary)
+    private var entries: some View {
+        let ranked = Array(section.books.prefix(reservedRows).enumerated())
+        return VStack(spacing: 0) {
+            ForEach(ranked, id: \.element.id) { index, display in
+                if index > 0 {
+                    Divider()
+                        .padding(.leading, DSLayout.discoverRowCoverWidth + DSSpacing.md)
                 }
-                .disabled(section.books.isEmpty)
-                .opacity(section.books.isEmpty ? 0 : 1)
+                NavigationLink(value: ExploreNavigationRoute.book(display.book)) {
+                    DiscoverBookRow(
+                        rank: index + 1,
+                        display: display,
+                        section: section,
+                        showsIntro: false
+                    )
+                    .frame(height: rowHeight)
+                }
+                .buttonStyle(.plain)
             }
         }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if !section.books.isEmpty {
-            let ranked = Array(section.books.prefix(Self.reservedRows).enumerated())
-            VStack(spacing: 0) {
-                ForEach(ranked, id: \.element.id) { index, display in
-                    NavigationLink(value: ExploreNavigationRoute.book(display.book)) {
-                        DiscoverRankedRow(rank: index + 1, display: display, section: section)
-                    }
-                    .buttonStyle(.plain)
-                    if index < ranked.count - 1 {
-                        Divider().padding(.leading, 88)
-                    }
-                }
-                Spacer(minLength: 0)  // short rankings pad out; cards stay equal height
-            }
-        } else {
-            switch section.phase {
-            case .failed:
-                failed
-            case .loaded:
-                empty
-            case .idle, .loading:
-                loading
-            }
-        }
-    }
-
-    private var loading: some View {
-        HStack {
-            Spacer()
-            ProgressView()
-            Spacer()
-        }
-        .frame(maxHeight: .infinity)
-    }
-
-    private var empty: some View {
-        Text(localized("暫無發現內容"))
-            .font(DSFont.caption)
-            .foregroundColor(DSColor.textSecondary)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-    }
-
-    private var failed: some View {
-        Button(action: onRetry) {
-            VStack(spacing: DSSpacing.xs) {
-                HStack(spacing: DSSpacing.sm) {
-                    Image(systemName: "arrow.clockwise")
-                    Text(localized("載入失敗，點按重試"))
-                }
-                .font(DSFont.subheadline)
-                .foregroundColor(DSColor.accent)
-                if let reason = section.errorReason, !reason.isEmpty {
-                    Text(reason)
-                        .font(DSFont.caption2)
-                        .foregroundColor(DSColor.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(3)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        }
-        .buttonStyle(.plain)
     }
 }
 
-// MARK: - Featured card (horizontal carousel item)
+// MARK: - Featured card (shelf item)
 
 /// Rows read only precomputed `DiscoverBookDisplay` fields — no HTML stripping,
 /// audiobook inference, or source lookups in `body` (each visible row re-renders
@@ -504,113 +492,123 @@ enum DiscoverDefaultCoverSeed {
     }
 }
 
+/// A cover with its title and author under it. Both text lines reserve their space
+/// so every card is the same height — the shelf is a `LazyHStack` whose height
+/// tracks only the cards built so far, and it must not grow as more scroll in.
 private struct DiscoverFeaturedCard: View {
     let display: DiscoverBookDisplay
     let section: DiscoverShowcaseSection
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.sm) {
-            BookCoverImage(
-                coverURL: display.book.coverUrl,
-                title: display.book.name,
-                author: display.book.author,
-                sourceBaseURL: section.coverBaseURL,
-                sourceHeaders: section.coverHeaders,
-                defaultCoverSeed: DiscoverDefaultCoverSeed.seed(for: display)
+        VStack(alignment: .leading, spacing: DSSpacing.xs) {
+            DiscoverCover(
+                display: display,
+                section: section,
+                size: CGSize(
+                    width: DSLayout.discoverShelfCoverWidth,
+                    height: DSLayout.discoverShelfCoverHeight
+                )
             )
-            .frame(width: 104, height: 138)
-            .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg))
-            .overlay(alignment: .bottomTrailing) {
-                if display.isAudiobook {
-                    AudiobookCoverBadge(glyphSize: 11)
-                }
-            }
+            .padding(.bottom, DSSpacing.xs)
             Text(display.book.name)
-                .font(DSFont.caption.weight(.medium))
-                .foregroundColor(DSColor.textPrimary)
-                .lineLimit(1)
-            // Always present with two lines reserved so every card is the same
-            // height — the carousel is a LazyHStack whose height tracks only the
-            // cards built so far, and it must not grow as more scroll in.
-            Text(display.intro)
-                .font(DSFont.caption2)
-                .foregroundColor(DSColor.textSecondary)
+                .font(DSFont.footnote.weight(.medium))
+                .foregroundStyle(DSColor.textPrimary)
                 .lineLimit(2, reservesSpace: true)
                 .multilineTextAlignment(.leading)
+            Text(display.book.author)
+                .font(DSFont.caption)
+                .foregroundStyle(DSColor.textSecondary)
+                .lineLimit(1, reservesSpace: true)
         }
-        .frame(width: 104, alignment: .leading)
+        .frame(width: DSLayout.discoverShelfCoverWidth, alignment: .leading)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(display.isAudiobook ? localized("有聲書") : "")
     }
 }
 
-// MARK: - Ranked row
+// MARK: - Cover
 
-private struct DiscoverRankedRow: View {
-    let rank: Int
+/// A 探索 cover with the audiobook badge. Hidden from VoiceOver: the row or card it
+/// sits in already reads the title, and the badge is spoken as the row's value.
+private struct DiscoverCover: View {
     let display: DiscoverBookDisplay
     let section: DiscoverShowcaseSection
+    let size: CGSize
 
     var body: some View {
-        HStack(alignment: .top, spacing: DSSpacing.md) {
-            rankBadge
-            BookCoverImage(
-                coverURL: display.book.coverUrl,
-                title: display.book.name,
-                author: display.book.author,
-                sourceBaseURL: section.coverBaseURL,
-                sourceHeaders: section.coverHeaders,
-                defaultCoverSeed: DiscoverDefaultCoverSeed.seed(for: display)
-            )
-            .frame(width: 52, height: 70)
-            .clipShape(RoundedRectangle(cornerRadius: DSRadius.sm))
-            .overlay(alignment: .bottomTrailing) {
-                if display.isAudiobook {
-                    AudiobookCoverBadge(glyphSize: 7)
-                }
+        let shape = RoundedRectangle(cornerRadius: DSRadius.sm, style: .continuous)
+        BookCoverImage(
+            coverURL: display.book.coverUrl,
+            title: display.book.name,
+            author: display.book.author,
+            sourceBaseURL: section.coverBaseURL,
+            sourceHeaders: section.coverHeaders,
+            defaultCoverSeed: DiscoverDefaultCoverSeed.seed(for: display)
+        )
+        .frame(width: size.width, height: size.height)
+        .clipShape(shape)
+        .overlay(shape.stroke(DSColor.separator, lineWidth: 0.5))
+        .overlay(alignment: .bottomTrailing) {
+            if display.isAudiobook {
+                AudiobookCoverBadge()
             }
+        }
+        .accessibilityHidden(true)
+    }
+}
 
+// MARK: - Book row
+
+/// A chart or 查看全部 row: cover, the rank in plain bold numerals when the category
+/// is a ranking (Apple Books' charts colour none of them), title and author, and the
+/// description where there is room for it.
+private struct DiscoverBookRow: View {
+    let rank: Int?
+    let display: DiscoverBookDisplay
+    let section: DiscoverShowcaseSection
+    let showsIntro: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: DSSpacing.md) {
+            DiscoverCover(
+                display: display,
+                section: section,
+                size: CGSize(
+                    width: DSLayout.discoverRowCoverWidth,
+                    height: DSLayout.discoverRowCoverHeight
+                )
+            )
+            if let rank {
+                Text(rank.formatted())
+                    .font(DSFont.headline)
+                    .foregroundStyle(DSColor.textPrimary)
+                    .monospacedDigit()
+            }
             VStack(alignment: .leading, spacing: DSSpacing.xs) {
                 Text(display.book.name)
                     .font(DSFont.subheadline.weight(.semibold))
-                    .foregroundColor(DSColor.textPrimary)
+                    .foregroundStyle(DSColor.textPrimary)
                     .lineLimit(1)
                 if !display.book.author.isEmpty {
                     Text(display.book.author)
-                        .font(DSFont.caption)
-                        .foregroundColor(DSColor.textSecondary)
+                        .font(DSFont.footnote)
+                        .foregroundStyle(DSColor.textSecondary)
                         .lineLimit(1)
                 }
-                if !display.intro.isEmpty {
+                if showsIntro, !display.intro.isEmpty {
                     Text(display.intro)
-                        .font(DSFont.caption)
-                        .foregroundColor(DSColor.textSecondary.opacity(0.85))
+                        .font(DSFont.footnote)
+                        .foregroundStyle(DSColor.textSecondary)
                         .lineLimit(2)
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, DSSpacing.md)
+        .padding(.vertical, DSSpacing.sm)
         .contentShape(Rectangle())
-    }
-
-    private var rankBadge: some View {
-        Text("\(rank)")
-            .font(DSFont.caption.weight(.bold))
-            .foregroundColor(rank <= 3 ? DSColor.textOnAccent : DSColor.textSecondary)
-            .frame(width: 22, height: 22)
-            .background(
-                RoundedRectangle(cornerRadius: DSRadius.sm)
-                    .fill(rankColor)
-            )
-            .padding(.top, DSSpacing.xs)
-    }
-
-    private var rankColor: Color {
-        switch rank {
-        case 1: return DSColor.destructive
-        case 2: return DSColor.warning
-        case 3: return DSColor.warning.opacity(0.7)
-        default: return DSColor.surface
-        }
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(display.isAudiobook ? localized("有聲書") : "")
     }
 }
 
@@ -621,6 +619,43 @@ struct DiscoverCategoryView: View {
     let section: DiscoverShowcaseSection
     let source: BookSource
 
+    @ObservedObject private var pins = ExplorePinStore.shared
+
+    var body: some View {
+        DiscoverCategoryBookList(section: section, source: source)
+            .background(PageBackgroundView(scope: .explore).ignoresSafeArea())
+            .pageBackgroundToolbar(for: .explore)
+            .navigationTitle(section.title)
+            .toolbarTitleDisplayMode(.inline)
+            .toolbar {
+                if let reference = ExploreCategoryReference(source: source, item: section.item) {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        let pinned = pins.isPinned(reference)
+                        Button {
+                            pins.toggle(reference)
+                        } label: {
+                            Label(
+                                pinned ? localized("從我的發現移除") : localized("加入我的發現"),
+                                systemImage: pinned ? "star.fill" : "star"
+                            )
+                            .labelStyle(.iconOnly)
+                        }
+                    }
+                }
+            }
+    }
+}
+
+// MARK: - Category book list
+
+/// One category's books as a list of cards, a page more each time the reader nears the
+/// end — the body of 查看全部, and of a source's page in the list layout.
+struct DiscoverCategoryBookList: View {
+    let section: DiscoverShowcaseSection
+    let source: BookSource
+    /// Pull to refresh, where the page around the list offers it.
+    var onRefresh: (() -> Void)?
+
     @State private var books: [DiscoverBookDisplay]
     @State private var nextPage: Int
     @State private var hasMorePages = true
@@ -629,31 +664,37 @@ struct DiscoverCategoryView: View {
 
     init(
         section: DiscoverShowcaseSection,
-        source: BookSource
+        source: BookSource,
+        onRefresh: (() -> Void)? = nil
     ) {
         self.section = section
         self.source = source
+        self.onRefresh = onRefresh
         _books = State(initialValue: section.books)
         _nextPage = State(initialValue: section.books.isEmpty ? 1 : 2)
     }
 
     var body: some View {
-        ScrollView {
+        let list = ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(Array(books.enumerated()), id: \.element.id) { index, display in
+                    if index > 0 {
+                        Divider()
+                            .padding(.leading, DSLayout.discoverRowCoverWidth + DSSpacing.md)
+                    }
                     NavigationLink(value: ExploreNavigationRoute.book(display.book)) {
-                        DiscoverRankedRow(rank: index + 1, display: display, section: section)
+                        DiscoverBookRow(
+                            rank: section.style == .ranked ? index + 1 : nil,
+                            display: display,
+                            section: section,
+                            showsIntro: true
+                        )
                     }
                     .buttonStyle(.plain)
                     .onAppear {
                         if index >= books.count - 5 {
                             loadMoreIfNeeded()
                         }
-                    }
-
-                    if index < books.count - 1 {
-                        Divider()
-                            .padding(.leading, 88)
                     }
                 }
 
@@ -662,37 +703,42 @@ struct DiscoverCategoryView: View {
             .padding(.horizontal, DSSpacing.lg)
             .padding(.vertical, DSSpacing.sm)
         }
+        .overlay {
+            if books.isEmpty, !hasMorePages, !isLoadingMore, loadMoreErrorReason == nil {
+                ContentUnavailableView {
+                    UnavailableLabel(localized("暫無發現內容"), systemImage: "books.vertical")
+                }
+            }
+        }
         .softScrollEdges()
         .scrollDismissesKeyboard(.immediately)
-        .navigationTitle(section.title)
-        .toolbarTitleDisplayMode(.inline)
+
+        if let onRefresh {
+            list.refreshable { onRefresh() }
+        } else {
+            list
+        }
     }
 
     @ViewBuilder
     private var loadMoreFooter: some View {
         if isLoadingMore {
-            HStack {
-                Spacer()
-                ProgressView()
-                Spacer()
-            }
-            .padding(.vertical, DSSpacing.md)
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, DSSpacing.md)
         } else if loadMoreErrorReason != nil {
             Button {
                 loadMoreIfNeeded()
             } label: {
                 VStack(spacing: DSSpacing.xs) {
-                    HStack(spacing: DSSpacing.xs) {
-                        Image(systemName: "arrow.clockwise")
-                        Text(localized("載入失敗，點按重試"))
-                    }
-                    .font(DSFont.subheadline)
-                    .foregroundColor(DSColor.accent)
+                    Label(localized("載入失敗，點按重試"), systemImage: "arrow.clockwise")
+                        .font(DSFont.subheadline)
+                        .foregroundStyle(DSColor.accent)
 
                     if let reason = loadMoreErrorReason, !reason.isEmpty {
                         Text(reason)
-                            .font(DSFont.caption2)
-                            .foregroundColor(DSColor.textSecondary)
+                            .font(DSFont.caption)
+                            .foregroundStyle(DSColor.textSecondary)
                             .lineLimit(2)
                             .multilineTextAlignment(.center)
                     }
@@ -750,13 +796,85 @@ struct DiscoverCategoryView: View {
     }
 }
 
+// MARK: - List layout
+
+/// A source's page as Legado lays it out (探索設定 › 書源頁佈局 › 列表): its filters and
+/// page links, its categories as chips along the top, and the chosen category's books as
+/// a list of cards below.
+struct DiscoverListLayoutView: View {
+    @ObservedObject var discover: DiscoverViewModel
+    /// Opens a category that is a web page rather than a book list.
+    var onOpenPage: ((String) -> Void)?
+
+    /// The chosen category, by the key that survives a reload; the first until one is chosen.
+    @State private var selectedKey: String?
+
+    private var selectedSection: DiscoverShowcaseSection? {
+        discover.sections.first { $0.item.stableKey == selectedKey } ?? discover.sections.first
+    }
+
+    private var pageItems: [DiscoverCardItem] {
+        onOpenPage == nil ? [] : discover.pageItems
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !discover.filters.isEmpty || !pageItems.isEmpty {
+                DiscoverControlsRow(
+                    discover: discover,
+                    pageItems: pageItems,
+                    onOpenPage: { onOpenPage?($0) }
+                )
+                .padding(.top, DSSpacing.sm)
+            }
+            if !discover.sections.isEmpty {
+                categoryChips
+            }
+            if discover.isLoadingItems && discover.sections.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let section = selectedSection, let source = discover.selectedSource {
+                DiscoverCategoryBookList(
+                    section: section,
+                    source: source,
+                    onRefresh: { discover.reload(forceRefresh: true) }
+                )
+                // A reload rebuilds the sections; their books start again from page one.
+                .id(section.id)
+            } else {
+                ScrollView {
+                    DiscoverEmptyState(discover: discover)
+                }
+                .refreshable { discover.reload(forceRefresh: true) }
+            }
+        }
+    }
+
+    private var categoryChips: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: DSSpacing.sm) {
+                ForEach(discover.sections) { section in
+                    DSChip(title: section.title, isSelected: section.id == selectedSection?.id) {
+                        selectedKey = section.item.stableKey
+                    }
+                }
+            }
+            .padding(.horizontal, DSSpacing.lg)
+            .padding(.vertical, DSSpacing.sm)
+        }
+        .scrollIndicators(.hidden)
+    }
+}
+
 // MARK: - Preview
 
 #Preview {
-    let vm = DiscoverViewModel()
+    var source = BookSource()
+    source.bookSourceName = "範例書源"
+    source.bookSourceUrl = "https://example.com"
     return NavigationStack {
-        DiscoverShowcaseView(discover: vm)
-            .navigationTitle("探索")
+        DiscoverShowcaseView(discover: DiscoverViewModel(source: source))
+            .navigationTitle(source.bookSourceName)
             .toolbarTitleDisplayMode(.inline)
     }
 }

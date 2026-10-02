@@ -64,6 +64,8 @@ struct SettingsView: View {
                             AccountRowContent()
                         }
                         .accessibilityIdentifier("settings_account_row")
+                        // The first row measures the form's scroll for the title's fade.
+                        .rootTabTitleScrollAnchor()
                     }
                     .interfaceSectionSurface()
                     // ── App Language ──
@@ -228,8 +230,7 @@ struct SettingsView: View {
                 }
             .softScrollEdges()
             .themedAppSurface(for: .settings)
-            .navigationTitle(localized("設定"))
-            .toolbarTitleDisplayModeInlineLargeOrInline()
+            .rootTabTitle(localized("設定"), onScroll: .minimizesBar)
             .navigationDestination(isPresented: pushedSourceListBinding) {
                 BookSourceListView(embedsNavigationStack: false)
                     .environmentObject(store)

@@ -119,6 +119,11 @@ enum DSColor {
     /// Shadow under an app icon shown in the app.
     static let appIconShadow = Color.black.opacity(0.12)
 
+    /// A site with no icon on the browser's start page: its first letter, white on grey,
+    /// as Safari draws one. The tile is decorative — the site's name sits under it.
+    static let browserMonogramFill = Color(uiColor: .systemGray2)
+    static let browserMonogramForeground = Color.white
+
     /// Ring and check of the selection mark on a shelf cover — white, as Apple Books
     /// draws it, whatever the cover and appearance.
     static let coverSelectionMarkForeground = Color.white
@@ -179,7 +184,6 @@ enum DSFont {
     static var serifSectionTitle: Font {
         GlobalAppTypography.font(.title2, weight: .bold, systemDesign: .serif)
     }
-
 
     /// Existing fixed-size UI typography. Monospaced content intentionally
     /// remains system monospaced even when a global interface font is active.
@@ -283,6 +287,49 @@ enum DSLayout {
     static let bookCoverHeroWidth: CGFloat = 176
     /// Height of the cover hero at the top of 書籍資訊.
     static let bookCoverHeroHeight: CGFloat = 264
+    /// Cover in a 探索 shelf (a featured category's horizontal row), 2:3 like Apple
+    /// Books' store shelves.
+    static let discoverShelfCoverWidth: CGFloat = 112
+    static let discoverShelfCoverHeight: CGFloat = 168
+    /// Cover in a 探索 chart row or 查看全部 list row.
+    static let discoverRowCoverWidth: CGFloat = 52
+    static let discoverRowCoverHeight: CGFloat = 78
+    /// How far the next chart column peeks in from the trailing edge, so the row
+    /// reads as something to swipe — Apple Books' Top Charts.
+    static let discoverChartPeek: CGFloat = 32
+    /// Site icon in a bookmark or history row.
+    static let browserRowIconSide: CGFloat = 28
+    /// A site on the browser's start page — Safari's Favorites: the icon, and the
+    /// narrowest a tile gets before the grid drops a column (four on a phone).
+    static let browserStartTileIconSide: CGFloat = 64
+    static let browserStartTileMinWidth: CGFloat = 80
+    /// The soft shadow under the start page's site icons, its 編輯 button and the
+    /// address field, lifting them off the page as Safari does.
+    static let browserLiftShadowRadius: CGFloat = 4
+    static let browserLiftShadowY: CGFloat = 1
+    /// A chip, filter or quick action drawn as a capsule (`DSCapsuleLabel`).
+    static let capsuleControlHeight: CGFloat = 36
+    /// A tab root's title starts to fade once its page has scrolled this far, and is gone
+    /// this much further on (書架, as Apple Music's and Books' home titles go).
+    static let rootTabTitleFadeStart: CGFloat = 10
+    static let rootTabTitleFadeDistance: CGFloat = 30
+    /// An 探索 tile two to a row: Apple Music's browse-category card, 16:9.
+    static let exploreTileAspectRatio: CGFloat = 16.0 / 9.0
+    /// The glyph on an 探索 tile at the default text size — two, three and four tiles
+    /// to a row. It follows Dynamic Type.
+    static let exploreTileArtworkSize: CGFloat = 40
+    static let exploreTileCompactArtworkSize: CGFloat = 28
+    static let exploreTileSmallArtworkSize: CGFloat = 22
+    /// The glyph on an 探索 list card, and the square it is centred in.
+    static let exploreRowArtworkSize: CGFloat = 24
+    static let exploreRowArtworkSide: CGFloat = 32
+    /// Side of the square artwork at the top of an audiobook detail page — Podcasts'
+    /// show artwork, a little narrower than a book jacket is tall.
+    static let bookDetailSquareArtworkSide: CGFloat = 220
+    /// How far a detail page's cover wash runs above the hero, under the status and
+    /// navigation bars — taller than both together at the largest text size, so even a
+    /// pull-down overscroll does not uncover the page background behind the bars.
+    static let bookDetailBackdropTopExtension: CGFloat = 320
     /// Blur radius of the cover repeated behind the hero as a colour wash.
     static let bookCoverHeroBackdropBlur: CGFloat = 44
     /// Opacity of the blurred hero backdrop over the page background.
@@ -536,19 +583,6 @@ enum DSAnimation {
 // MARK: - View Extensions
 
 extension View {
-    /// Applies `.inlineLarge` toolbar title display mode on iOS 18+,
-    /// falling back to `.inline` on iOS 17 where `.inlineLarge` is unavailable.
-    /// Per the title-mode rule (docs/design.md §2.1), this is allowed only on
-    /// the main root screens; everything else uses `.inline` directly.
-    @ViewBuilder
-    func toolbarTitleDisplayModeInlineLargeOrInline() -> some View {
-        if #available(iOS 18, *) {
-            self.toolbarTitleDisplayMode(.inlineLarge)
-        } else {
-            self.toolbarTitleDisplayMode(.inline)
-        }
-    }
-
     /// Standardized section footer styling per Apple HIG (13pt Footnote + secondary color).
     /// Used for all section-level explanatory texts to ensure proper typography,
     /// dynamic type scaling, and consistent appearance across all themes.

@@ -936,6 +936,22 @@ struct BookSourceFormLoginView: View {
         }
     }
 
+    /// Takes down the toast alert, if one is up, before `completion` runs — so a sheet a
+    /// script asks for right after toasting has a presenter that is not already busy.
+    @MainActor
+    static func dismissToastAlert(then completion: @escaping @MainActor () -> Void) {
+        guard let currentToastAlert, currentToastAlert.presentingViewController != nil else {
+            completion()
+            return
+        }
+        currentToastAlert.dismiss(animated: true) {
+            Task { @MainActor in
+                self.currentToastAlert = nil
+                completion()
+            }
+        }
+    }
+
     @MainActor
     private static func showToastAlert(message: String, from presenter: UIViewController) {
         let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)

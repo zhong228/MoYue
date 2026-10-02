@@ -981,6 +981,24 @@ class ModernParserBridge {
         set { jsEngine.browserPagePresentHandler = newValue }
     }
 
+    /// `java.toast` / `java.longToast`. A background parse only logs them; a host running a
+    /// script the reader started (a 簡介 button) shows them for that evaluation.
+    var toastHandler: ((String) -> Void)? {
+        get { jsEngine.toastHandler }
+        set { jsEngine.toastHandler = newValue }
+    }
+
+    /// `java.refreshBookInfo()` / `java.refreshBookToc()`, which only a book detail page answers.
+    var refreshBookInfoHandler: (() -> Void)? {
+        get { jsEngine.refreshBookInfoHandler }
+        set { jsEngine.refreshBookInfoHandler = newValue }
+    }
+
+    var refreshBookTocHandler: (() -> Void)? {
+        get { jsEngine.refreshBookTocHandler }
+        set { jsEngine.refreshBookTocHandler = newValue }
+    }
+
     /// Legado-fork `hasMoreRule`: a JS expression run against the fetched page
     /// body (`result`) that answers whether a next result page exists.
     /// Returns nil when evaluation fails so callers fall back to heuristics.

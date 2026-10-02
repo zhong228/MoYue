@@ -165,6 +165,35 @@ struct AudiobookDetectionTests {
         #expect(book.preferredOrigin(for: .audio)?.bookUrl == audioURL)
     }
 
+    @Test("detail source switch reads each origin's own kind, not the row's")
+    func detailSourceKindFollowsSelectedOrigin() throws {
+        // Legado gives a changed source's type to the book; the detail page must
+        // see the text origin as text even though the row routes as audio.
+        let textURL = try dataURL(["book_id": "b1", "sources": "番茄", "tab": "小说", "url": ""])
+        let audioURL = try dataURL(["book_id": "b1", "sources": "番茄", "tab": "听书", "url": ""])
+        let sourceId = UUID()
+        func origin(_ url: String) -> BookOrigin {
+            BookOrigin(
+                sourceId: sourceId, sourceName: "聚合", bookUrl: url, tocUrl: "",
+                coverUrl: "", intro: "", lastChapter: "", wordCount: "", kind: "",
+                runtimeVariables: nil
+            )
+        }
+        let audioOrigin = origin(audioURL)
+        let textOrigin = origin(textURL)
+        let book = SearchBook(name: "測試書", author: "作者", origins: [audioOrigin, textOrigin])
+
+        #expect(book.inferredContentKind() == .audio)
+        #expect(DetailSourceKind.kind(of: audioOrigin, in: book) == .audio)
+        #expect(DetailSourceKind.kind(of: textOrigin, in: book) == .text)
+
+        let audioDetail = OnlineBook(detailOrigin: audioOrigin, in: book)
+        let textDetail = OnlineBook(detailOrigin: textOrigin, in: book)
+        #expect(DetailSourceKind.kind(of: audioDetail, in: book) == .audio)
+        #expect(DetailSourceKind.kind(of: textDetail, in: book) == .text)
+        #expect(book.contentKind(for: origin(textURL)) == nil)
+    }
+
     @Test("search row reads its prepared presentation instead of reprocessing raw metadata")
     func searchBookUsesPreparedPresentation() {
         let sourceId = UUID()

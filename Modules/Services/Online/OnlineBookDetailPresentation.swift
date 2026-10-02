@@ -14,11 +14,14 @@ enum OnlineBookDetailPresentationPolicy {
         let rawPrefix = rawIntro.prefix(maximumRawIntroCharacters + 1)
         let rawWasTruncated = rawPrefix.count > maximumRawIntroCharacters
         let boundedRaw = String(rawPrefix.prefix(maximumRawIntroCharacters))
-        let cleaned = ReaderHTMLUtilities.displayText(
-            fromHTMLFragment: boundedRaw,
-            preservingLineBreaks: true
+        // Legado's prefix modes keep their markup for the detail page to render;
+        // the raw bound above still applies to them.
+        if BookIntroContent.usesPrefixMode(boundedRaw) {
+            return boundedRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let cleaned = LegadoHTMLFormatter.indentingEveryParagraph(
+            LegadoHTMLFormatter.format(boundedRaw)
         )
-        .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else { return "" }
 
         let displayPrefix = cleaned.prefix(maximumIntroCharacters + 1)

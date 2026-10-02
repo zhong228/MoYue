@@ -137,15 +137,10 @@ struct BookSourceEditView: View {
                 AdaptiveSheetContainer(maxWidth: DSLayout.readablePanelWidth) {
                     RuntimeVariableEditorView(
                         title: localized("設置源變量"),
-                        comment: source.variableComment,
-                        initialValue: BookSourceRuntimeStateStore.shared
-                            .sourceVariableJSON(for: source.bookSourceUrl) ?? ""
+                        comment: SourceVariableEditing.comment(source: source),
+                        initialValue: SourceVariableEditing.currentValue(for: source)
                     ) { newValue in
-                        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                        BookSourceRuntimeStateStore.shared.setUserSourceVariableJSON(
-                            trimmed.isEmpty ? nil : trimmed,
-                            for: source.bookSourceUrl
-                        )
+                        SourceVariableEditing.save(newValue, for: source)
                         return nil
                     }
                 }

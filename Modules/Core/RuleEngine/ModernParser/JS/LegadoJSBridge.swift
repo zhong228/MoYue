@@ -399,6 +399,12 @@ struct LegadoHTTPResult {
     /// the source's login data (read back via `source.getLoginInfoMap()`).
     var upLoginDataHandler: ((JSValue) -> Void)?
 
+    /// Called when JS invokes `java.refreshBookInfo()` / `java.refreshBookToc()` — Legado's
+    /// `SourceLoginJsExtensions` posts `REFRESH_BOOK_INFO` / `REFRESH_BOOK_TOC`, and the
+    /// open book detail page reloads. Set only while a detail page runs one of its scripts.
+    var refreshBookInfoHandler: (() -> Void)?
+    var refreshBookTocHandler: (() -> Void)?
+
     /// Delegate for rule evaluation (connected later).
     var getStringHandler: ((String) -> String?)?
     var getStringListHandler: ((String) -> [String]?)?
@@ -1127,11 +1133,17 @@ struct LegadoHTTPResult {
     }
 
     /// Show a short toast. Delegates to `toastHandler` on MainThread.
+    ///
+    /// The handler is the one installed when the script called `toast`, not whichever is
+    /// installed by the time the main queue runs: a host that installs its own for one
+    /// evaluation (a detail page's 簡介 button) restores the previous one as soon as the
+    /// script returns, usually before this delivery.
     func toast(_ msg: String) {
         #if DEBUG
         print("[JSBridge toast] \(msg)")
         #endif
-        DispatchQueue.main.async { [weak self] in self?.toastHandler?(msg) }
+        let handler = toastHandler
+        DispatchQueue.main.async { handler?(msg) }
     }
 
     func longToast(_ msg: String) { toast(msg) }
@@ -1767,12 +1779,14 @@ struct LegadoHTTPResult {
         #if DEBUG
         print("[JSBridge] refreshBookInfo() called")
         #endif
+        refreshBookInfoHandler?()
     }
 
     func refreshBookToc() {
         #if DEBUG
         print("[JSBridge] refreshBookToc() called")
         #endif
+        refreshBookTocHandler?()
     }
 
     func refreshContent() {

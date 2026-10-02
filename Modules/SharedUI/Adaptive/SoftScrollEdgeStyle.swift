@@ -6,10 +6,16 @@ import SwiftUI
 /// The `#if compiler` guard mirrors `RootTabBarMinimizeStyle`: the iOS 26 API only
 /// exists in the Xcode 26 SDK, and the project still has to compile on older toolchains.
 struct SoftScrollEdgeStyle: ViewModifier {
+    /// Drops the top edge effect, for a page whose artwork is meant to show under the
+    /// navigation bar (a book detail's cover wash, as Apple Books shows it).
+    var hidesTopEdge = false
+
     func body(content: Content) -> some View {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
-            content.scrollEdgeEffectStyle(.soft, for: .all)
+            content
+                .scrollEdgeEffectStyle(.soft, for: .all)
+                .scrollEdgeEffectHidden(hidesTopEdge, for: .top)
         } else {
             content
         }
@@ -21,7 +27,7 @@ struct SoftScrollEdgeStyle: ViewModifier {
 
 extension View {
     /// Gives vertical scroll views an explicit soft top/bottom edge on iOS 26+.
-    func softScrollEdges() -> some View {
-        modifier(SoftScrollEdgeStyle())
+    func softScrollEdges(hidingTop hidesTopEdge: Bool = false) -> some View {
+        modifier(SoftScrollEdgeStyle(hidesTopEdge: hidesTopEdge))
     }
 }

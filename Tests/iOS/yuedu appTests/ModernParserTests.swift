@@ -4056,62 +4056,10 @@ struct DiscoverFilterTests {
     }
 
     @MainActor
-    @Test("discover settings groups preserve source labels and skip select controls")
-    func discoverSettingsGroupsPreserveSourceLabels() throws {
-        let raw: [ModernParserBridge.DiscoverItem] = [
-            .init(
-                title: "平台",
-                type: "select",
-                action: "show(infoMap['平台'],'发现页来源')",
-                chars: ["番茄", "七猫"],
-                default: "番茄"
-            ),
-            .init(title: "---发现---"),
-            .init(title: "排行榜", url: "https://example.com/rank"),
-            .init(title: "---热门标签---"),
-            .init(title: "玄幻", url: "https://example.com/tag/xuanhuan"),
-            .init(title: "登录", url: "{{java.startBrowser('https://example.com/login','登录')}}")
-        ]
-
-        let groups = DiscoverViewModel.discoverSettingsGroups(from: raw)
-
-        #expect(groups.map(\.title) == ["发现", "热门标签"])
-        #expect(groups.map { $0.items.map(\.title) } == [["排行榜"], ["玄幻", "登录"]])
-        #expect(groups.flatMap(\.items).last?.isAction == true)
-    }
-
-    @MainActor
-    @Test("custom discover category selection limits showcase sections")
-    func customDiscoverCategorySelectionLimitsShowcaseSections() throws {
-        let raw: [ModernParserBridge.DiscoverItem] = [
-            .init(title: "排行榜", url: "https://example.com/rank"),
-            .init(title: "热门标签", url: "https://example.com/hot"),
-            .init(title: "主题", url: "https://example.com/theme")
-        ]
-        let cards = raw.compactMap(DiscoverViewModel.mapItem)
-        let theme = try #require(cards.first { $0.title == "主题" })
-
-        let automatic = DiscoverViewModel.showcaseItems(
-            from: cards,
-            customKeys: nil,
-            defaultLimit: 2
-        )
-        let custom = DiscoverViewModel.showcaseItems(
-            from: cards,
-            customKeys: Set([theme.stableKey]),
-            defaultLimit: 2
-        )
-
-        #expect(automatic.map(\.title) == ["排行榜", "热门标签"])
-        #expect(custom.map(\.title) == ["主题"])
-    }
-
-    @MainActor
     @Test("duplicate source categories collapse into one showcase section")
     func duplicateDiscoverCategoriesCollapseIntoOneSection() throws {
         // 番茄-style sources repeat the same tag (identical title + url, hence
-        // identical stableKey) in several explore groups. A custom selection
-        // matches every occurrence, which used to duplicate the section.
+        // identical stableKey) in several explore groups.
         let raw: [ModernParserBridge.DiscoverItem] = [
             .init(title: "重生", url: "https://example.com/tag/1"),
             .init(title: "系统", url: "https://example.com/tag/2"),
@@ -4119,24 +4067,8 @@ struct DiscoverFilterTests {
             .init(title: "都市", url: "https://example.com/tag/3")
         ]
         let cards = raw.compactMap(DiscoverViewModel.mapItem)
-        let rebirth = try #require(cards.first { $0.title == "重生" })
-        let system = try #require(cards.first { $0.title == "系统" })
 
-        let custom = DiscoverViewModel.showcaseItems(
-            from: cards,
-            customKeys: Set([rebirth.stableKey, system.stableKey]),
-            defaultLimit: 12
-        )
-        let automatic = DiscoverViewModel.showcaseItems(
-            from: cards,
-            customKeys: nil,
-            defaultLimit: 3
-        )
-
-        #expect(custom.map(\.title) == ["重生", "系统"])
-        // Dedup happens before the default prefix, so the duplicate no longer
-        // burns one of the visible slots.
-        #expect(automatic.map(\.title) == ["重生", "系统", "都市"])
+        #expect(DiscoverViewModel.showcaseItems(from: cards).map(\.title) == ["重生", "系统", "都市"])
     }
 
     @Test("discover pagination drops duplicate page results")
@@ -4188,9 +4120,7 @@ struct DiscoverFilterTests {
         )
         defer { runtimeStore.setSourceVariableJSON(nil, for: source.bookSourceUrl) }
 
-        let model = DiscoverViewModel()
-        model.exploreSources = [source]
-        model.selectedSourceId = source.id
+        let model = DiscoverViewModel(source: source)
         model.filters = [
             DiscoverFilter(
                 title: "平台",
@@ -4230,9 +4160,7 @@ struct DiscoverFilterTests {
         )
         defer { runtimeStore.setSourceVariableJSON(nil, for: source.bookSourceUrl) }
 
-        let model = DiscoverViewModel()
-        model.exploreSources = [source]
-        model.selectedSourceId = source.id
+        let model = DiscoverViewModel(source: source)
         model.filters = [
             DiscoverFilter(
                 title: "类型",
@@ -4275,9 +4203,7 @@ struct DiscoverFilterTests {
         )
         defer { runtimeStore.setSourceVariableJSON(nil, for: source.bookSourceUrl) }
 
-        let model = DiscoverViewModel()
-        model.exploreSources = [source]
-        model.selectedSourceId = source.id
+        let model = DiscoverViewModel(source: source)
         model.filters = [
             DiscoverFilter(
                 title: "类型",

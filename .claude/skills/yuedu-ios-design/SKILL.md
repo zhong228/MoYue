@@ -21,7 +21,7 @@ Resolve conflicts in this order: **Apple platform behavior and accessibility > e
 
 ## Hard Rules
 
-1. Title mode: only the main root screens get `.inlineLarge`, always via `toolbarTitleDisplayModeInlineLargeOrInline()` (iOS 18+ shows `.inlineLarge`, iOS 17 falls back to `.inline`). Main roots = Tab roots currently using it: `HomeView` (書架), `ExploreHomeView` (探索), `RSSListView` (RSS), `SettingsView` (設定). Everything else — pushed details, sheets, overlays, reader surfaces — uses `.inline`. Never use `.automatic`, `.large`, or a bare `.toolbarTitleDisplayMode(.inlineLarge)`.
+1. Title mode: only the main root screens get a large title, always via `rootTabTitle(_:onScroll:)` — 探索, RSS, 設定 and 搜索 pass `.minimizesBar`, so on iOS 27 the native bar — title and buttons together — slides away and the native search field rises into its place — (a leading toolbar-item title that looks the same from iOS 17 on; the system `.inlineLarge` is only a small centred title on an iOS 17 iPhone). Main roots = the tab roots: `HomeView` (書架), `ExploreHomeView` (探索), `RSSListView` (RSS), `SettingsView` (設定), and the 搜索 tab's `SearchView(isTabRoot: true)`. Everything else — pushed details, sheets, overlays, reader surfaces — uses `.inline`. Never use `.automatic`, `.large`, or `.inlineLarge`.
 2. Route every user-visible string through `localized("...")` and keep zh-Hant, zh-Hans, and en synchronized.
 3. Use `DS*` tokens for colors, semantic fonts, spacing, layout, radius, and animation. Add a missing token before use; avoid magic values. Only system-backed color and semantic font tokens adapt automatically. Validate fixed-size font and animation tokens with the Dynamic Type and Reduce Motion patterns in `docs/design.md`.
 4. Use native components; do not re-implement them. Use `NavigationStack`, `TabView`, `NavigationSplitView`, `List`/`Form` with `Section`, `Toggle`, `Picker`, `Stepper`, `NavigationLink`, `.sheet`, `Menu`, `ToolbarItem`, `contextMenu`, `swipeActions`, `searchable`, `confirmationDialog`, and `alert`. Never hand-roll List/Form rows with `ScrollView` + `VStack`/`HStack`, custom toolbars or button bars, custom switches, pickers, or dialogs. Exclusive choices use one selected value (`Picker`), not several independent toggles; a `Toggle` keeps its built-in label instead of `.labelsHidden()` on a hand-rolled `HStack`.
@@ -50,7 +50,7 @@ Resolve conflicts in this order: **Apple platform behavior and accessibility > e
 
 - Dashboard, landing-page, Tailwind-like, dense web-form, or novelty-first UI.
 - Hard-coded styling, text, fixed font sizes, animation durations, or magic layout values.
-- Using `.inlineLarge` outside the main root screens, or a bare `.toolbarTitleDisplayMode(.inlineLarge)` (no iOS 17 fallback).
+- Using `rootTabTitle(_:onScroll:)` outside the main root screens, or any `.inlineLarge` (an iOS 17 iPhone draws it as `.inline`).
 - Hand-rolled rows, toolbars, or controls (`ScrollView` + `VStack` lists, custom switches/pickers/dialogs) where a native component exists.
 - Over-decorated cards (22pt+ corner radii, decorative gradients/borders, custom dividers), full-screen blocking spinners, or `minimumScaleFactor` text-shrinking to save layout.
 - Visual effects or controls that harm reader legibility.
@@ -62,10 +62,10 @@ Run:
 ```bash
 ruby scripts/check_localizations.rb
 git diff --check
-grep -rn -E "toolbarTitleDisplayMode\(\.(automatic|large|inlineLarge)\)|toolbarTitleDisplayModeInlineLarge\(\)|toolbarTitleDisplayModeInlineLargeOrInline\(\)" Modules Targets --include="*.swift"
+grep -rn -E "toolbarTitleDisplayMode\(\.(automatic|large|inlineLarge)\)|navigationBarTitleDisplayMode\(\.(automatic|large)\)|rootTabTitle\(" Modules Targets --include="*.swift"
 ```
 
-The grep flags every `.automatic` / `.large` / bare `.inlineLarge` / old-helper use, and every root-helper use; only the whitelisted main roots (`HomeView`, `ExploreHomeView`, `RSSListView`, `SettingsView`) may use `toolbarTitleDisplayModeInlineLargeOrInline()`.
+The grep flags every `.automatic` / `.large` / `.inlineLarge` use, and every `rootTabTitle(` use; only the whitelisted main roots (`HomeView`, `ExploreHomeView`, `RSSListView`, `SettingsView`, and `BookSearchView`'s tab-root branch) and its own definition in `RootTabTitle.swift` may use `rootTabTitle(_:onScroll:)`.
 
 For code changes, run the directly relevant regression required by AGENTS.md. Reuse results for unchanged code and environment; the static checks above do not replace that regression.
 

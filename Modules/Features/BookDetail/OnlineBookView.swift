@@ -13,6 +13,10 @@ struct OnlineBookView: View {
     private let onRemoveFromShelf: (() -> Void)?
     /// Reader-owned details return to their retained reader instead of opening another.
     private let onContinueReading: ((Int?) -> Void)?
+    /// Hands a confirmed switch to an audio source to `OnlineBookDetailDestination`,
+    /// which replaces this page with the audiobook detail page. `nil` for the
+    /// reader-owned detail, which commits every switch to its open reader's book.
+    private let onSourceKindChange: ((BookOrigin) -> Void)?
 
     @State private var currentBook: OnlineBook
     @EnvironmentObject var bookStore: BookStore
@@ -40,9 +44,16 @@ struct OnlineBookView: View {
     @State private var pendingShelfSourceSwitch = false
     @State private var introExpanded = false
     @State private var showSourcePicker = false
+    /// Chosen in the source sheet; applied once the sheet has dismissed.
+    @State private var pendingOrigin: BookOrigin?
+    /// A source of another content kind, waiting for the user's confirmation.
+    @State private var kindMismatchOrigin: BookOrigin?
     @State private var showChapterList = false
-
-    private static let chapterPreviewLimit = 12
+    @State private var confirmsRemoval = false
+    @State private var showsSourceVariableEditor = false
+    @State private var showsBookVariableEditor = false
+    @State private var showsMoreChooser = false
+    @State private var introActionRequest: BookIntroActionRequest?
 
     // MARK: Init
 
@@ -51,30 +62,36 @@ struct OnlineBookView: View {
         book: OnlineBook,
         sourceSwitchBookId: UUID? = nil,
         onRemoveFromShelf: (() -> Void)? = nil,
-        onContinueReading: ((Int?) -> Void)? = nil
+        onContinueReading: ((Int?) -> Void)? = nil,
+        onSourceKindChange: ((BookOrigin) -> Void)? = nil
     ) {
         self.searchBook = nil
         self.sourceSwitchBookId = sourceSwitchBookId
         self.onRemoveFromShelf = onRemoveFromShelf
         self.onContinueReading = onContinueReading
+        self.onSourceKindChange = onSourceKindChange
         _currentBook = State(
             initialValue: OnlineBookDetailPresentationPolicy.sanitized(book)
         )
     }
 
-    /// Search entry — defaults to the first origin, keeps the rest for 換源.
+    /// Search entry — opens `initialOrigin` when given, otherwise the first origin;
+    /// keeps the rest for 換源.
     init(
         searchBook: SearchBook,
+        initialOrigin: BookOrigin? = nil,
         sourceSwitchBookId: UUID? = nil,
         onRemoveFromShelf: (() -> Void)? = nil,
-        onContinueReading: ((Int?) -> Void)? = nil
+        onContinueReading: ((Int?) -> Void)? = nil,
+        onSourceKindChange: ((BookOrigin) -> Void)? = nil
     ) {
         self.searchBook = searchBook
         self.sourceSwitchBookId = sourceSwitchBookId
         self.onRemoveFromShelf = onRemoveFromShelf
         self.onContinueReading = onContinueReading
-        if let origin = searchBook.origins.first {
-            _currentBook = State(initialValue: Self.makeOnlineBook(from: searchBook, origin: origin))
+        self.onSourceKindChange = onSourceKindChange
+        if let origin = initialOrigin ?? searchBook.origins.first {
+            _currentBook = State(initialValue: OnlineBook(detailOrigin: origin, in: searchBook))
         } else {
             _currentBook = State(initialValue: OnlineBook(
                 id: SearchResultDetailIdentity.onlineBookID(
@@ -88,47 +105,6 @@ struct OnlineBookView: View {
                 sourceId: searchBook.id, sourceName: ""
             ))
         }
-    }
-
-    private static func makeOnlineBook(from book: SearchBook, origin: BookOrigin) -> OnlineBook {
-        let selectedIntro = book.detailIntro(for: origin)
-        return OnlineBook(
-            id: SearchResultDetailIdentity.onlineBookID(
-                searchBookID: book.id,
-                originID: origin.id
-            ),
-            name: book.name,
-            author: book.author,
-            intro: selectedIntro.isEmpty ? book.detailIntro : selectedIntro,
-            coverUrl: origin.coverUrl.isEmpty ? book.coverUrl : origin.coverUrl,
-            bookUrl: origin.bookUrl,
-            tocUrl: origin.tocUrl,
-            wordCount: origin.wordCount,
-            lastChapter: origin.lastChapter,
-            kind: origin.kind,
-            sourceId: origin.sourceId,
-            sourceName: origin.sourceName,
-            runtimeVariables: origin.runtimeVariables
-        )
-    }
-
-    private static func makeOnlineBook(from origin: BookOrigin, name: String, author: String) -> OnlineBook {
-        OnlineBook(
-            name: name,
-            author: author,
-            intro: OnlineBookDetailPresentationPolicy.sanitizeIntro(
-                origin.intro
-            ),
-            coverUrl: origin.coverUrl,
-            bookUrl: origin.bookUrl,
-            tocUrl: origin.tocUrl,
-            wordCount: origin.wordCount,
-            lastChapter: origin.lastChapter,
-            kind: origin.kind,
-            sourceId: origin.sourceId,
-            sourceName: origin.sourceName,
-            runtimeVariables: origin.runtimeVariables
-        )
     }
 
     private var canSwitchSource: Bool {
@@ -223,46 +199,93 @@ struct OnlineBookView: View {
     // MARK: Body
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: DSSpacing.xl) {
-                header
-                if !tags.isEmpty { tagStrip }
-                if !displayIntro.isEmpty { introSection }
-                sourceSection
-                tocSection
+        BookDetailScaffold(
+            title: displayName,
+            compactAction: readAction,
+            onRefresh: { await loadTOC(forceRefresh: true) }
+        ) {
+            BookDetailHero(
+                artworkShape: .book,
+                cover: coverArtwork,
+                title: displayName,
+                author: displayAuthor,
+                meta: tags.joined(separator: " · "),
+                primary: readAction,
+                secondary: shelfAction
+            )
+        } content: {
+            BookDetailInfoStrip(items: infoItems)
+            if !displayIntro.isEmpty {
+                BookDetailIntroSection(
+                    text: displayIntro,
+                    isExpanded: $introExpanded,
+                    baseURL: currentBook.bookUrl,
+                    onAction: requestIntroAction
+                )
             }
-            .padding(.top, DSSpacing.md)
-            .padding(.bottom, DSSpacing.md)
+            BookDetailChapterSection(
+                title: localized("目錄"),
+                chapters: chapters,
+                isLoading: loadingTOC,
+                errorMessage: tocError,
+                latestChapter: displayLatestChapter,
+                onRetry: { Task { await loadTOC() } },
+                onShowAll: { showChapterList = true }
+            ) { offset, chapter in
+                BookDetailChapterRow(
+                    title: BookDetailChapterTitle.display(chapter, offset: offset),
+                    isLocked: chapter.isVip || chapter.isPay,
+                    trailing: .disclosure,
+                    action: { openReader(chapterIndex: chapter.index) }
+                )
+            }
         }
-        .softScrollEdges()
-        .scrollIndicators(.hidden)
-        .background(PageBackgroundView(scope: .global).ignoresSafeArea())
-        .pageBackgroundToolbar(for: .global)
-        // Detail views (pushed or sheet-presented) use an inline title per docs/design.md.
-        // This view doesn't set its own navigationTitle — the presenter does (e.g. ReaderView's
-        // 書籍詳情 sheet) — but a `.large` here, being deeper in the hierarchy, overrode the
-        // presenter's `.toolbarTitleDisplayMode(.inline)`, making the title render large.
-        .toolbarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
         .environment(\.locale, Locale(identifier: gs.localeIdentifier))
-        .safeAreaInset(edge: .bottom) { bottomBar }
-        .sheet(isPresented: $showSourcePicker) {
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                BookDetailMoreMenu(
+                    hasSource: source != nil,
+                    onSetSourceVariable: { showsSourceVariableEditor = true },
+                    onSetBookVariable: { showsBookVariableEditor = true },
+                    onOpenChooser: { showsMoreChooser = true }
+                )
+            }
+        }
+        .bookDetailMoreChooser(
+            isPresented: $showsMoreChooser,
+            onSetSourceVariable: { showsSourceVariableEditor = true },
+            onSetBookVariable: { showsBookVariableEditor = true }
+        )
+        .bookIntroActions($introActionRequest) { await loadTOC(forceRefresh: true) }
+        .bookVariableEditors(
+            source: source,
+            showsSourceVariable: $showsSourceVariableEditor,
+            showsBookVariable: $showsBookVariableEditor,
+            bookVariable: { BookCustomVariable.value(in: effectiveRuntimeVariables) },
+            onSaveBookVariable: saveBookVariable
+        )
+        .sheet(isPresented: $showSourcePicker, onDismiss: resolvePendingOrigin) {
             if canSwitchSource, let searchBook {
                 AdaptiveSheetContainer(maxWidth: DSLayout.readableListWidth) {
                     SourcePickerSheet(
                         searchBook: searchBook,
-                        onSelectOrigin: { origin in switchToOrigin(origin) }
+                        currentOrigin: currentOrigin,
+                        onSelectOrigin: { origin in pendingOrigin = origin }
                     )
                 }
             } else {
                 AdaptiveSheetContainer(maxWidth: DSLayout.readableListWidth) {
                     SourceSearchSheet(
                         query: currentBook.name,
-                        onSelectOrigin: { origin in switchToOrigin(origin) }
+                        currentSourceId: currentBook.sourceId,
+                        currentBookURL: currentBook.bookUrl,
+                        onSelectOrigin: { origin in pendingOrigin = origin }
                     )
                 }
             }
         }
+        .sourceKindMismatchAlert(origin: $kindMismatchOrigin, onConfirm: applyOrigin)
+        .removeFromShelfConfirmation(isPresented: $confirmsRemoval, onConfirm: removeFromShelf)
         .navigationDestination(item: $readerRoute) { route in
             BookReaderView(bookId: route.id)
                 .environmentObject(bookStore)
@@ -292,18 +315,15 @@ struct OnlineBookView: View {
             openReader(chapterIndex: chapterIndex)
         }) {
             NavigationStack {
-                ChapterListSheet(
+                BookDetailChapterListSheet(
                     chapters: chapters,
-                    bookName: displayName,
-                    onSelect: {
-                        pendingChapterSelection = $0
+                    trailing: .disclosure,
+                    onSelect: { offset in
+                        pendingChapterSelection = chapters[offset].index
                         showChapterList = false
                     }
                 )
             }
-        }
-        .refreshable {
-            await loadTOC(forceRefresh: true)
         }
         .onAppear {
             checkAlreadyInShelf()
@@ -311,7 +331,7 @@ struct OnlineBookView: View {
         }
     }
 
-    // MARK: Header
+    // MARK: Hero
 
     private var coverArtwork: some View {
         BookCoverImage(
@@ -323,322 +343,134 @@ struct OnlineBookView: View {
         )
     }
 
-    private var header: some View {
-        HStack(alignment: .top, spacing: DSSpacing.lg) {
-            coverArtwork
-            .frame(width: 96, height: 132)
-            .clipShape(RoundedRectangle(cornerRadius: DSRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: DSRadius.md)
-                    .stroke(DSColor.separator, lineWidth: 0.5)
+    private var readAction: BookDetailAction {
+        BookDetailAction(
+            title: openingReader
+                ? localized("打開中…")
+                : (alreadyInShelf ? localized("繼續閱讀") : localized("立即閱讀")),
+            systemImage: "book.fill",
+            isBusy: openingReader,
+            isEnabled: !chapters.isEmpty && !addingToShelf,
+            action: { openReader() }
+        )
+    }
+
+    private var shelfAction: BookDetailAction {
+        BookDetailAction(
+            title: alreadyInShelf
+                ? localized("移除書架")
+                : (addingToShelf ? localized("加入中…") : localized("加入書架")),
+            systemImage: alreadyInShelf ? "minus" : "plus",
+            isBusy: addingToShelf,
+            isEnabled: !chapters.isEmpty,
+            action: {
+                if alreadyInShelf { confirmsRemoval = true } else { addToShelfOnly() }
+            }
+        )
+    }
+
+    private var infoItems: [BookDetailInfoItem] {
+        var items: [BookDetailInfoItem] = []
+        if !displayWordCount.isEmpty {
+            items.append(BookDetailInfoItem(
+                id: "wordCount", label: localized("字數"), value: displayWordCount
+            ))
+        }
+        if !chapters.isEmpty {
+            items.append(BookDetailInfoItem(
+                id: "chapters", label: localized("章節"), value: chapters.count.formatted()
+            ))
+        }
+        items.append(.source(name: sourceName) { showSourcePicker = true })
+        return items
+    }
+
+    /// The runtime variables the next fetch, shelf add or reader open will carry.
+    private var effectiveRuntimeVariables: [String: String]? {
+        if alreadyInShelf, let id = addedBookId,
+           let shelved = bookStore.books.first(where: { $0.id == id }) {
+            return shelved.runtimeVariables
+        }
+        return tocRuntimeVariables ?? detailInfo?.runtimeVariables ?? currentBook.runtimeVariables
+    }
+
+    /// A 簡介 button or image: its script runs against this page's book.
+    private func requestIntroAction(_ action: BookIntroAction) {
+        guard let source else { return }
+        let variables = effectiveRuntimeVariables ?? [:]
+        introActionRequest = BookIntroActionRequest(
+            action: action,
+            source: source,
+            book: .detailPage(
+                name: displayName,
+                author: displayAuthor,
+                coverURL: displayCoverUrl,
+                bookURL: currentBook.bookUrl,
+                tocURL: resolvedTOCURL ?? currentBook.bookUrl,
+                intro: displayIntro,
+                runtimeVariables: variables
+            ),
+            runtimeVariables: variables
+        )
+    }
+
+    /// Legado's 設置書籍變量: write `custom` into every runtime-variable map this page
+    /// carries forward, and into the shelf record when the book is on the shelf.
+    private func saveBookVariable(_ value: String) {
+        currentBook.runtimeVariables = BookCustomVariable.merged(value, into: currentBook.runtimeVariables)
+        if let toc = tocRuntimeVariables {
+            tocRuntimeVariables = BookCustomVariable.merged(value, into: toc)
+        }
+        if detailInfo != nil {
+            detailInfo?.runtimeVariables = BookCustomVariable.merged(value, into: detailInfo?.runtimeVariables)
+        }
+        if alreadyInShelf, let id = addedBookId,
+           let shelved = bookStore.books.first(where: { $0.id == id }) {
+            bookStore.updateBookRuntimeVariables(
+                bookId: id,
+                variables: BookCustomVariable.merged(value, into: shelved.runtimeVariables)
             )
-            .shadow(color: DSColor.shadow, radius: 6, y: 3)
-
-            VStack(alignment: .leading, spacing: DSSpacing.xs) {
-                Text(displayName)
-                    .font(DSFont.title2.weight(.bold))
-                    .foregroundStyle(DSColor.textPrimary)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text(displayAuthor)
-                    .font(DSFont.subheadline)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .lineLimit(1)
-
-                if !displayWordCount.isEmpty {
-                    Text(displayWordCount)
-                        .font(DSFont.caption)
-                        .foregroundStyle(DSColor.textSecondary)
-                        .padding(.top, 2)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, DSSpacing.lg)
-    }
-
-    // MARK: Tags
-
-    private var tagStrip: some View {
-        FlowLayout(spacing: DSSpacing.sm) {
-            ForEach(tags, id: \.self) { tag in
-                Text(tag)
-                    .font(DSFont.caption)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .padding(.horizontal, DSSpacing.md)
-                    .padding(.vertical, 6)
-                    .interfaceCardSurface(in: Capsule())
-            }
-        }
-        .padding(.horizontal, DSSpacing.lg)
-    }
-
-    // MARK: Intro
-
-    private var introSection: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.sm) {
-            Text(localized("簡介"))
-                .font(DSFont.headline)
-                .foregroundStyle(DSColor.textPrimary)
-
-            Text(displayIntro)
-                .font(DSFont.subheadline)
-                .foregroundStyle(DSColor.textSecondary)
-                .lineSpacing(3)
-                .lineLimit(introExpanded ? nil : 4)
-
-            if displayIntro.count > 80 {
-                Button {
-                    withAnimation(DSAnimation.standard) { introExpanded.toggle() }
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .font(DSFont.subheadline.weight(.semibold))
-                        .foregroundStyle(DSColor.accent)
-                        .rotationEffect(.degrees(introExpanded ? 180 : 0))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(introExpanded ? localized("收合") : localized("展開"))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, DSSpacing.lg)
-    }
-
-    // MARK: Source Section ("來源" header outside; box shows source name, tap to switch)
-
-    private var sourceSection: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.sm) {
-            Text(localized("來源"))
-                .font(DSFont.headline)
-                .foregroundStyle(DSColor.textPrimary)
-
-            Button {
-                showSourcePicker = true
-            } label: {
-                HStack(spacing: DSSpacing.md) {
-                    Image(systemName: "globe")
-                        .font(DSFont.subheadline)
-                        .foregroundStyle(DSColor.accent)
-
-                    Text(sourceName)
-                        .font(DSFont.subheadline.weight(.medium))
-                        .foregroundStyle(DSColor.textPrimary)
-                        .lineLimit(1)
-
-                    Spacer(minLength: DSSpacing.sm)
-
-                    Text(localized("換源"))
-                        .font(DSFont.caption)
-                        .foregroundStyle(DSColor.accent)
-                    Image(systemName: "chevron.right")
-                        .font(DSFont.caption)
-                        .foregroundStyle(DSColor.textTertiary)
-                }
-                .padding(.horizontal, DSSpacing.lg)
-                .padding(.vertical, DSSpacing.md)
-                .frame(maxWidth: .infinity)
-                .interfaceCardSurface()
-                .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            // 來源 is what the row *is*; 起点中文网 is its current value; switching is what
-            // activating it *does*. The old label read "來源 起点中文网" with 「換源」 as the
-            // hint, which named the action as if it were the row's identity and left the
-            // button's own on-screen word unreachable to Voice Control — hence the input
-            // label below.
-            .accessibilityLabel(localized("來源"))
-            .accessibilityValue(sourceName)
-            .accessibilityHint(localized("點兩下切換書源"))
-            .accessibilityInputLabels([localized("換源"), localized("來源")])
-        }
-        .padding(.horizontal, DSSpacing.lg)
-    }
-
-    // MARK: TOC
-
-    private var tocSection: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.md) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(localized("目錄"))
-                    .font(DSFont.headline)
-                    .foregroundStyle(DSColor.textPrimary)
-                Spacer()
-                if !chapters.isEmpty {
-                    Button { showChapterList = true } label: {
-                        Text(String(format: localized("%d 章"), chapters.count))
-                            .font(DSFont.subheadline)
-                            .foregroundStyle(DSColor.textSecondary)
-                            .overlay(alignment: .bottom) {
-                                Color.accentColor.frame(height: 1)
-                                    .offset(y: 4)
-                            }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            if !displayLatestChapter.isEmpty {
-                Label(displayLatestChapter, systemImage: "clock.arrow.circlepath")
-                    .font(DSFont.caption)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .lineLimit(1)
-            }
-
-            tocBody
-        }
-        .padding(.horizontal, DSSpacing.lg)
-    }
-
-    @ViewBuilder
-    private var tocBody: some View {
-        if loadingTOC && chapters.isEmpty {
-            HStack {
-                Spacer()
-                ProgressView(localized("載入目錄…"))
-                Spacer()
-            }
-            .padding(.vertical, DSSpacing.xl)
-        } else if let err = tocError, chapters.isEmpty {
-            VStack(spacing: DSSpacing.sm) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(DSFont.title3)
-                    .foregroundStyle(DSColor.warning)
-                Text(err)
-                    .font(DSFont.caption)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .multilineTextAlignment(.center)
-                Button(localized("重試")) { Task { await loadTOC() } }
-                    .font(DSFont.subheadline.weight(.medium))
-                    .foregroundStyle(DSColor.accent)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, DSSpacing.lg)
-        } else if chapters.isEmpty {
-            Text(localized("目錄為空"))
-                .font(DSFont.subheadline)
-                .foregroundStyle(DSColor.textSecondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, DSSpacing.lg)
-        } else {
-            chapterCard
         }
     }
 
-    private var chapterCard: some View {
-        let preview = Array(chapters.prefix(Self.chapterPreviewLimit))
-        return VStack(spacing: 0) {
-            ForEach(Array(preview.enumerated()), id: \.element.id) { index, chapter in
-                Button { openReader(chapterIndex: chapter.index) } label: {
-                    HStack(spacing: DSSpacing.md) {
-                        Text(chapter.title)
-                            .font(DSFont.subheadline)
-                            .foregroundStyle(DSColor.textPrimary)
-                            .lineLimit(1)
-                        Spacer(minLength: DSSpacing.sm)
-                        if chapter.isVip || chapter.isPay {
-                            Image(systemName: "lock.fill")
-                                .font(DSFont.caption2)
-                                .foregroundStyle(DSColor.warning)
-                        }
-                        Image(systemName: "chevron.right")
-                            .font(DSFont.caption)
-                            .foregroundStyle(DSColor.textTertiary)
-                    }
-                    .padding(.horizontal, DSSpacing.lg)
-                    .padding(.vertical, DSSpacing.md)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                if index < preview.count - 1 {
-                    Divider().padding(.leading, DSSpacing.lg)
-                }
-            }
-
-            if chapters.count > preview.count {
-                Divider().padding(.leading, DSSpacing.lg)
-                Button { showChapterList = true } label: {
-                    HStack {
-                        Text(String(format: localized("共 %d 章"), chapters.count))
-                        Spacer()
-                        Image(systemName: "chevron.right").font(DSFont.caption)
-                    }
-                    .font(DSFont.subheadline.weight(.medium))
-                    .foregroundStyle(DSColor.accent)
-                    .padding(.horizontal, DSSpacing.lg)
-                    .padding(.vertical, DSSpacing.md)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
+    /// The search-result origin this page shows, for the source sheet's checkmark.
+    private var currentOrigin: BookOrigin? {
+        searchBook?.origins.first {
+            $0.sourceId == currentBook.sourceId && $0.bookUrl == currentBook.bookUrl
         }
-        .interfaceCardSurface()
-        .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg))
-    }
-
-    // MARK: Bottom Action Bar
-
-    private var bottomBar: some View {
-        HStack(spacing: DSSpacing.md) {
-            Button { alreadyInShelf ? removeFromShelf() : addToShelfOnly() } label: {
-                HStack(spacing: DSSpacing.sm) {
-                    if addingToShelf {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: alreadyInShelf ? "minus" : "plus")
-                    }
-                    Text(alreadyInShelf
-                        ? localized("移除書架")
-                        : (addingToShelf ? localized("加入中…") : localized("加入書架")))
-                }
-                .font(DSFont.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 30)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .tint(alreadyInShelf ? DSColor.warning : DSColor.accent)
-            .disabled(chapters.isEmpty || addingToShelf)
-
-            Button { openReader() } label: {
-                HStack(spacing: DSSpacing.sm) {
-                    if openingReader {
-                        ProgressView().controlSize(.small).tint(.white)
-                    } else {
-                        Image(systemName: "book.fill")
-                    }
-                    Text(openingReader
-                        ? localized("打開中…")
-                        : (alreadyInShelf ? localized("繼續閱讀") : localized("立即閱讀")))
-                }
-                .font(DSFont.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 30)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .tint(DSColor.accent)
-            .disabled(chapters.isEmpty || openingReader || addingToShelf)
-        }
-        .padding(.horizontal, DSSpacing.lg)
-        .padding(.vertical, DSSpacing.sm)
-        .background(.bar)
     }
 
     // MARK: Logic
+
+    /// Runs after the source sheet has dismissed, so the confirmation alert is not
+    /// presented over a sheet that is still leaving.
+    private func resolvePendingOrigin() {
+        guard let origin = pendingOrigin else { return }
+        pendingOrigin = nil
+        if DetailSourceKind.kind(of: origin, in: searchBook)
+            != DetailSourceKind.kind(of: currentBook, in: searchBook) {
+            kindMismatchOrigin = origin
+        } else {
+            applyOrigin(origin)
+        }
+    }
+
+    private func applyOrigin(_ origin: BookOrigin) {
+        if DetailSourceKind.kind(of: origin, in: searchBook) == .audio,
+           let onSourceKindChange {
+            onSourceKindChange(origin)
+            return
+        }
+        switchToOrigin(origin)
+    }
 
     /// Switch to a different source (origin) and reload the detail + TOC from scratch.
     private func switchToOrigin(_ origin: BookOrigin) {
         let newBook: OnlineBook
         if let searchBook {
-            newBook = Self.makeOnlineBook(from: searchBook, origin: origin)
+            newBook = OnlineBook(detailOrigin: origin, in: searchBook)
         } else {
-            newBook = Self.makeOnlineBook(from: origin, name: currentBook.name, author: currentBook.author)
+            newBook = OnlineBook(detailOrigin: origin, name: currentBook.name, author: currentBook.author)
         }
         guard newBook.sourceId != currentBook.sourceId
             || newBook.bookUrl != currentBook.bookUrl else { return }
@@ -996,132 +828,6 @@ struct OnlineBookView: View {
             }
             readerRoute = DetailReaderRoute(id: targetBookId)
             openingReader = false
-        }
-    }
-}
-
-// MARK: - Flow Layout (wrapping tag chips)
-
-/// Left-to-right wrapping layout for a small set of chips. Lighter than a
-/// horizontal `ScrollView` and keeps every tag visible.
-private struct FlowLayout: Layout {
-    var spacing: CGFloat = DSSpacing.sm
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
-        var origin = CGPoint.zero
-        var rowHeight: CGFloat = 0
-        var totalWidth: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if origin.x + size.width > maxWidth, origin.x > 0 {
-                origin.x = 0
-                origin.y += rowHeight + spacing
-                rowHeight = 0
-            }
-            origin.x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-            totalWidth = max(totalWidth, origin.x - spacing)
-        }
-        let width = maxWidth.isFinite ? maxWidth : totalWidth
-        return CGSize(width: width, height: origin.y + rowHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var origin = CGPoint(x: bounds.minX, y: bounds.minY)
-        var rowHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if origin.x + size.width > bounds.maxX, origin.x > bounds.minX {
-                origin.x = bounds.minX
-                origin.y += rowHeight + spacing
-                rowHeight = 0
-            }
-            subview.place(at: origin, anchor: .topLeading, proposal: ProposedViewSize(size))
-            origin.x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
-    }
-}
-
-// MARK: - Chapter List Sheet
-
-private struct ChapterListSheet: View {
-    let chapters: [OnlineChapterRef]
-    let bookName: String
-    let onSelect: (Int) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var gs = GlobalSettings.shared
-
-    var body: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 4) {
-                if !bookName.isEmpty {
-                    Text(bookName)
-                        .font(DSFont.subheadline.weight(.medium))
-                        .lineLimit(1)
-                        .foregroundStyle(DSColor.textPrimary)
-                }
-                Text(String(format: localized("共 %d 章"), chapters.count))
-                    .font(DSFont.caption)
-                    .foregroundStyle(DSColor.textSecondary)
-            }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 16)
-            .frame(maxWidth: .infinity)
-            .background(Color(.systemGroupedBackground))
-
-            Divider()
-
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(chapters.enumerated()), id: \.element.id) { index, chapter in
-                        Button {
-                            dismiss()
-                            onSelect(chapter.index)
-                        } label: {
-                            HStack(spacing: DSSpacing.md) {
-                                Text(chapter.title)
-                                    .font(DSFont.body)
-                                    .foregroundStyle(DSColor.textPrimary)
-                                    .lineLimit(1)
-                                Spacer(minLength: DSSpacing.sm)
-                                if chapter.isVip || chapter.isPay {
-                                    Image(systemName: "lock.fill")
-                                        .font(DSFont.caption2)
-                                        .foregroundStyle(DSColor.warning)
-                                }
-                            }
-                            .padding(.horizontal, DSSpacing.lg)
-                            .padding(.vertical, DSSpacing.md)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-
-                        if index < chapters.count - 1 {
-                            Divider().padding(.leading, DSSpacing.lg)
-                        }
-                    }
-                }
-            }
-            .softScrollEdges()
-        }
-        .navigationTitle(localized("目錄"))
-        .toolbarTitleDisplayMode(.inline)
-        .themedAppSurface(for: .explore)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button {
-                    dismiss()
-                } label: {
-                    Label(localized("關閉"), systemImage: "xmark")
-                        .labelStyle(.iconOnly)
-                }
-                .accessibilityLabel(localized("關閉"))
-            }
         }
     }
 }

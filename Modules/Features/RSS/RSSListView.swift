@@ -89,12 +89,12 @@ struct RSSListView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
                     .padding(.bottom, 36)
+                    .rootTabTitleScrollAnchor()
                 }
                 .softScrollEdges()
                 .scrollIndicators(.visible)
             }
-            .navigationTitle(localized("RSS 訂閱"))
-            .toolbarTitleDisplayModeInlineLargeOrInline()
+            .rootTabTitle(localized("RSS 訂閱"), onScroll: .minimizesBar)
             .pageBackgroundToolbar(for: .rss)
             .toolbar {
                 // Two separate glass pills. A ToolbarSpacer (iOS 26+) breaks the

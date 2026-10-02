@@ -30,11 +30,27 @@ enum BookCoverLoader {
     /// footprint by ~5×.
     private static let maxCoverPixelSize = CoverPixelSize.standard.longEdge
 
+    /// 探索設定 › 封面並發數: at most this many covers downloading at once, anywhere in the
+    /// app; 0 — the default, and how it always was — sets no limit beyond URLSession's own.
+    static let downloadLimitKey = "coverDownloadLimit"
+    static var downloadLimit: Int { UserDefaults.standard.integer(forKey: downloadLimitKey) }
+
     /// Headers for a cover request: browser UA + Referer (the source's base URL),
     /// with the source's own header rule layered on top (it may override the UA).
+    ///
+    /// Fallback note: Legado sends no automatic Referer — only the source's header
+    /// rule. This one was added (e06ab753) as a guess against hotlink-protected
+    /// CDNs. It is only sent when the base URL really is an http(s) URL: aggregate
+    /// sources name themselves in `bookSourceUrl` (📚书山聚合 uses `书山聚合`), and
+    /// byteimg answers that bogus Referer with 403 while accepting none or any real
+    /// URL — the 書山聚合 detail covers that never loaded. Deleting the Referer
+    /// entirely aligns with Legado, but this helper also serves chapter images and
+    /// audio, so that needs its own regression pass.
     static func headers(sourceBaseURL: String?, sourceHeaders: [String: String]) -> [String: String] {
         var result: [String: String] = ["User-Agent": defaultUserAgent]
-        if let base = sourceBaseURL?.trimmingCharacters(in: .whitespacesAndNewlines), !base.isEmpty {
+        if let base = sourceBaseURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let scheme = URL(string: base)?.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" {
             result["Referer"] = base
         }
         for (key, value) in sourceHeaders { result[key] = value }
@@ -67,7 +83,11 @@ enum BookCoverLoader {
     /// Fetch a cover image, honoring the in-memory cache and the supplied headers.
     static func loadImage(urlString: String, headers: [String: String], session: URLSession? = nil) async -> UIImage? {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, URL(string: trimmed) != nil else { return nil }
+        guard !trimmed.isEmpty else { return nil }
+        guard URL(string: trimmed) != nil else {
+            AppLogger.network("⟐ cover URL is not a URL", context: ["url": String(trimmed.prefix(300))])
+            return nil
+        }
         let key = cacheKey(for: trimmed, session: session)
         if let cached = pipeline.cachedNetworkImage(forKey: key) { return cached }
         return await pipeline.coalescedNetworkLoad(key: key) {
@@ -82,18 +102,33 @@ enum BookCoverLoader {
 
         let data: Data
         let response: URLResponse
+        await CoverDownloadGate.shared.enter(limit: downloadLimit)
         do { (data, response) = try await (session ?? .shared).data(for: request) }
         catch {
-            AppLogger.error("Unable to load book cover: \(error)")
+            await CoverDownloadGate.shared.leave()
+            AppLogger.network("⟐ cover request failed", error: error, context: ["url": String(urlString.prefix(300))])
             return nil
         }
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { return nil }
+        await CoverDownloadGate.shared.leave()
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            AppLogger.network(
+                "⟐ cover request rejected",
+                context: ["url": String(urlString.prefix(300)), "status": http.statusCode]
+            )
+            return nil
+        }
         // Sources with `coverDecodeJs` serve encrypted cover bytes; decode falls
         // back to the raw data so a broken rule degrades, not disappears.
         let effectiveData = await SourceScriptThread.run {
             CoverDecodeService.shared.decodedIfRegistered(coverUrl: urlString, data: data)
         } ?? data
-        guard let image = decodedCover(from: effectiveData) else { return nil }
+        guard let image = decodedCover(from: effectiveData) else {
+            AppLogger.network(
+                "⟐ cover bytes are not an image",
+                context: ["url": String(urlString.prefix(300)), "bytes": effectiveData.count]
+            )
+            return nil
+        }
 
         pipeline.storeNetworkImage(image, forKey: cacheKey)
         return image

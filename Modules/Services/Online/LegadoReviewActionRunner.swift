@@ -189,3 +189,167 @@ private final class BrowserRequestSink: @unchecked Sendable {
         return value
     }
 }
+
+// MARK: - 簡介 buttons and images
+
+/// What a 簡介 button's or image's script did that the book detail page has to show.
+struct BookIntroActionOutcome: Sendable {
+    /// A page the script built itself with `java.showBrowser(url, html, js, config)`, shown
+    /// the way the reader shows a 段評 page.
+    var page: ReaderHTMLUtilities.ReviewTarget?
+    /// The script called `java.refreshBookInfo()` or `java.refreshBookToc()`.
+    var refreshesBook = false
+    /// The script threw. Legado toasts `<name> click error` with this message.
+    var errorMessage: String?
+}
+
+extension ReaderHTMLUtilities.LegadoSourceActionContext.BookSnapshot {
+    /// The book as a detail page knows it, for a 簡介 script's `book`. Reading progress and
+    /// type come from the book's runtime variables when its source recorded them.
+    static func detailPage(
+        name: String,
+        author: String,
+        coverURL: String,
+        bookURL: String,
+        tocURL: String,
+        intro: String,
+        runtimeVariables: [String: String]
+    ) -> Self {
+        Self(
+            durChapterIndex: Int(runtimeVariables["book.durChapterIndex"] ?? "") ?? 0,
+            durChapterTitle: runtimeVariables["book.durChapterTitle"] ?? "",
+            order: Int(runtimeVariables["book.order"] ?? "") ?? 0,
+            type: Int(runtimeVariables["book.type"] ?? "") ?? 0,
+            imageStyle: runtimeVariables["book.imageStyle"] ?? "",
+            name: name,
+            author: author,
+            coverURL: coverURL,
+            bookURL: bookURL,
+            tocURL: tocURL,
+            abstract: intro
+        )
+    }
+}
+
+extension LegadoReviewActionRunner {
+    /// Legado's `BookInfoViewModel.onButtonClick` (legado-E) and `runIntroJs` (MD3): runs a
+    /// 簡介 button's or image's script in the book's source with `book` bound and no
+    /// `result`, under the extensions Legado's login pages get (`SourceLoginJsExtensions`).
+    ///
+    /// Pages the script opens are shown as it asks: `startBrowser` and the two-argument
+    /// `showBrowser` through the shared presenter, a source-built page as the outcome's
+    /// `page`. Toasts go to `presentToast` as they happen — 光遇聚合's 书籍讨论 toasts
+    /// 「初始化…请稍等」 before a slow `java.ajax`, which must not wait for the script.
+    func runIntroAction(
+        _ action: BookIntroAction,
+        book: ReaderHTMLUtilities.LegadoSourceActionContext.BookSnapshot,
+        runtimeVariables: [String: String],
+        source: BookSource,
+        presentToast: @escaping @MainActor (String) -> Void
+    ) async -> BookIntroActionOutcome {
+        let context = ReaderHTMLUtilities.LegadoSourceActionContext(
+            version: ReaderHTMLUtilities.LegadoSourceActionContext.currentVersion,
+            sourceURL: source.bookSourceUrl,
+            script: action.script,
+            result: "",
+            // Legado's `BaseSource.evalJS` binds `baseUrl` to the source's key.
+            baseURL: source.bookSourceUrl,
+            runtimeVariables: runtimeVariables,
+            book: book,
+            chapter: .init(
+                index: book.durChapterIndex,
+                title: book.durChapterTitle,
+                order: book.order,
+                url: "",
+                isVip: false
+            )
+        )
+        let outcome = await SourceScriptThread.run { () -> BookIntroActionOutcome in
+            let bridge = BookSourceSession.session(for: source).bridgeForAsyncOperations
+            let sink = IntroActionSink()
+            let previousBrowser = bridge.browserPresentHandler
+            let previousPage = bridge.browserPagePresentHandler
+            let previousToast = bridge.toastHandler
+            let previousRefreshInfo = bridge.refreshBookInfoHandler
+            let previousRefreshToc = bridge.refreshBookTocHandler
+            // `startBrowser` reaches the shared presenter on its own; the two-argument
+            // `showBrowser` shows a page only where the host installs a presenter.
+            bridge.browserPresentHandler = LegadoJSBridge.sharedBrowserPresenter
+            bridge.browserPagePresentHandler = { request in
+                sink.record(page: ReaderHTMLUtilities.ReviewTarget(
+                    url: request.baseURL,
+                    title: action.displayName,
+                    sourceURL: source.bookSourceUrl,
+                    sourceBrowserPage: .init(
+                        baseURL: request.baseURL,
+                        html: request.html,
+                        injectedJavaScript: request.injectedJavaScript,
+                        configurationJSON: request.configurationJSON,
+                        sourceURL: source.bookSourceUrl,
+                        actionContext: context
+                    )
+                ))
+            }
+            // The bridge delivers toasts on the main queue.
+            bridge.toastHandler = { message in
+                MainActor.assumeIsolated { presentToast(message) }
+            }
+            bridge.refreshBookInfoHandler = { sink.markRefresh() }
+            bridge.refreshBookTocHandler = { sink.markRefresh() }
+            defer {
+                bridge.browserPresentHandler = previousBrowser
+                bridge.browserPagePresentHandler = previousPage
+                bridge.toastHandler = previousToast
+                bridge.refreshBookInfoHandler = previousRefreshInfo
+                bridge.refreshBookTocHandler = previousRefreshToc
+            }
+            _ = bridge.evaluateSourceAction(context)
+            return BookIntroActionOutcome(
+                page: sink.page,
+                refreshesBook: sink.refreshes,
+                errorMessage: bridge.lastSourceScriptError
+            )
+        }
+        AppLogger.parse("⟐ introAction", context: [
+            "source": source.bookSourceName,
+            "kind": action.kind == .button ? "button" : "image",
+            "actionHash": Self.actionHash(action.script),
+            "page": outcome.page == nil ? "no" : "yes",
+            "refresh": outcome.refreshesBook ? "yes" : "no",
+            "error": outcome.errorMessage ?? "none"
+        ])
+        return outcome
+    }
+}
+
+/// Collects what one 簡介 script asked of the detail page. The bridge calls in from the
+/// JS engine's queue, so access is locked.
+private final class IntroActionSink: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedPage: ReaderHTMLUtilities.ReviewTarget?
+    private var refreshRequested = false
+
+    func record(page: ReaderHTMLUtilities.ReviewTarget) {
+        lock.lock()
+        defer { lock.unlock() }
+        if recordedPage == nil { recordedPage = page }
+    }
+
+    func markRefresh() {
+        lock.lock()
+        defer { lock.unlock() }
+        refreshRequested = true
+    }
+
+    var page: ReaderHTMLUtilities.ReviewTarget? {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedPage
+    }
+
+    var refreshes: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return refreshRequested
+    }
+}

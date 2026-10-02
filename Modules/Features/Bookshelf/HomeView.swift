@@ -314,6 +314,7 @@ struct HomeView: View {
                 Group {
                     if store.books.isEmpty {
                         EmptyLibraryView(showAdd: $showAddSheet)
+                            .rootTabTitleScrollAnchor()
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     } else {
                         VStack(spacing: 0) {
@@ -332,8 +333,7 @@ struct HomeView: View {
             }
             .themedAppSurface(for: .bookshelf)
             .animation(DSAnimation.standard, value: store.books.isEmpty)
-            .navigationTitle(localized("書架"))
-            .toolbarTitleDisplayModeInlineLargeOrInline()
+            .rootTabTitle(localized("書架"), onScroll: .fadesTitle)
             .toolbar {
                 if editMode == .active {
                     // Select-all kept as its own pill via the prominent + clear-tint
@@ -486,18 +486,12 @@ struct HomeView: View {
                     .environmentObject(subscription)
             }
             .navigationDestination(item: $selectedOnlineBookDetail) { book in
-                if BookSourceStore.shared.isAudiobook(book) {
-                    AudiobookDetailView(book: book, onRemoveFromShelf: {
-                        selectedOnlineBookDetail = nil
-                    })
-                        .environmentObject(store)
-                } else {
-                    OnlineBookView(book: book, onRemoveFromShelf: {
-                        selectedOnlineBookDetail = nil
-                    })
-                        .environmentObject(store)
-                        .environment(\.readerNavigator, readerCoordinator)
-                }
+                OnlineBookDetailDestination(
+                    .book(book),
+                    onRemoveFromShelf: { selectedOnlineBookDetail = nil },
+                    textPageReaderNavigator: readerCoordinator
+                )
+                    .environmentObject(store)
             }
             // 書籍資訊 owns the cover pickers, so on iOS 17 it is pushed rather
             // than presented (`BookInfoEditPresentationPolicy`); iOS 18 keeps the
@@ -740,9 +734,10 @@ struct HomeView: View {
     }
 
     private var bookListContent: some View {
+        let books = sortedFilteredBooks
         // Native multi-select: binding the selection Set drives the system selection circles in edit mode.
-        List(selection: $selectedBookIds) {
-            ForEach(sortedFilteredBooks) { book in
+        return List(selection: $selectedBookIds) {
+            ForEach(books) { book in
                 BookRow(
                     book: book,
                     isEditing: editMode == .active,
@@ -762,6 +757,12 @@ struct HomeView: View {
                 .listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 0, leading: hInset, bottom: 0, trailing: hInset))
                 .listRowBackground(Color.clear)
+                .background {
+                    // The first row measures the list's scroll for the title's fade.
+                    if book.id == books.first?.id {
+                        Color.clear.rootTabTitleScrollAnchor()
+                    }
+                }
                 .transition(
                     reduceMotion
                         ? .opacity
@@ -847,6 +848,7 @@ struct HomeView: View {
             }
             .padding(.horizontal, gridHorizontalInset)
             .padding(.vertical, DSSpacing.md)
+            .rootTabTitleScrollAnchor()
             .id(Self.gridTopAnchorID)
         }
         .accessibilityIdentifier("home_book_grid")

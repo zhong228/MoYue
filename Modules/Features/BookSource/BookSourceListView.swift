@@ -348,16 +348,7 @@ struct BookSourceListView: View {
                 )
             }
             .sheet(item: $loginSource) { src in
-                if src.loginUi.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                   let webLogin = SourceWebLogin(bookSource: src) {
-                    SourceLoginWebView(login: webLogin) {
-                        loginSource = nil
-                    }
-                } else {
-                    BookSourceFormLoginView(source: src) {
-                        loginSource = nil
-                    }
-                }
+                BookSourceLoginSheet(source: src) { loginSource = nil }
             }
             .sheet(item: $groupPicking) { pick in
                 AdaptiveSheetContainer(maxWidth: DSLayout.readableCompactWidth) {
@@ -378,15 +369,10 @@ struct BookSourceListView: View {
                 AdaptiveSheetContainer(maxWidth: DSLayout.readablePanelWidth) {
                     RuntimeVariableEditorView(
                         title: localized("設置源變量"),
-                        comment: src.variableComment,
-                        initialValue: BookSourceRuntimeStateStore.shared
-                            .sourceVariableJSON(for: src.bookSourceUrl) ?? ""
+                        comment: SourceVariableEditing.comment(source: src),
+                        initialValue: SourceVariableEditing.currentValue(for: src)
                     ) { newValue in
-                        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                        BookSourceRuntimeStateStore.shared.setUserSourceVariableJSON(
-                            trimmed.isEmpty ? nil : trimmed,
-                            for: src.bookSourceUrl
-                        )
+                        SourceVariableEditing.save(newValue, for: src)
                         return nil
                     }
                 }

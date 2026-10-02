@@ -1,991 +1,354 @@
 import Combine
 import SwiftUI
 
-// MARK: - Explore Tabs
-
-enum ExploreTab: String, CaseIterable, Identifiable {
-    case discover
-    case web
-    var id: String { rawValue }
-}
-
 // MARK: - Explore Home
 
-/// The landing screen of the 探索 (Explore) tab. Hosts two segments — 書源發現
-/// (book-source discover) and 網頁瀏覽 (web browse) — switched by a native
-/// segmented `Picker`. Shown by `BrowserView` when no web page is in front.
+/// The landing screen of the 探索 (Explore) tab, a grid of tiles as Apple Music lays out
+/// its browse categories, or a list of cards: 瀏覽器 opens the in-app browser as it was
+/// left, 我的發現 gathers categories pinned from any source, and each explore source opens
+/// its whole discover page. A long press on a source offers the actions Legado's explore
+/// page does. The browser opens full screen, as the reader does. The search field narrows
+/// the sources as Legado's explore search does, in the page's own layout; books are
+/// searched from the 搜索 tab.
+///
+/// On iOS 27 the bar, title and buttons together, slides away as the page scrolls and
+/// the search field rises to the top in its place, as in Apple Music (`.minimizesBar`).
 struct ExploreHomeView: View {
     @EnvironmentObject private var store: BookStore
-    @StateObject private var discover = DiscoverViewModel()
-    @ObservedObject private var history = BrowseHistoryStore.shared
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var sourceStore = BookSourceStore.shared
-
-    /// Loads a URL or search keyword in the web browser and dismisses this home.
-    var onNavigate: (String) -> Void
-
-    @AppStorage("exploreSelectedTab") private var tabRaw = ExploreTab.discover.rawValue
+    @AppStorage(ExploreSettings.showsGridKey) private var showsGrid = true
+    @AppStorage(ExploreSettings.gridColumnCountKey) private var gridColumnCount = ExploreGridDensity.default.rawValue
+    @AppStorage(ExploreSettings.landingKey) private var landing = ExploreLanding.off.rawValue
+    /// The browser's page and history, kept by `BrowserView` across visits.
+    @ObservedObject var browser: BrowserState
 
     @State private var query = ""
+    @State private var exploreSources: [BookSource] = []
+    @State private var group: String?
     @State private var showSourceManager = false
-    @State private var showDiscoverSettings = false
-    @State private var showDiscoverSourcePicker = false
-    @State private var showHistory = false
-    @State private var showSourceSites = false
     @State private var navigation = ExploreNavigationPath()
+    @State private var sourceActionSheet: BookSourceActionSheet?
+    @State private var sourcePendingDeletion: BookSource?
+    @State private var browserPresentation: BrowserPresentation?
+    @State private var showsSettings = false
+    /// 首屏配置 opens its page once, the first time 探索 shows; going back stays here.
+    @State private var appliedLanding = false
 
-    private var tab: ExploreTab { ExploreTab(rawValue: tabRaw) ?? .discover }
-    private var tabBinding: Binding<ExploreTab> {
-        Binding(get: { tab }, set: { tabRaw = $0.rawValue })
+    private struct BrowserPresentation: Identifiable {
+        let id = UUID()
+        let entry: BrowserEntry
+    }
+
+    private var groups: [String] {
+        Array(Set(exploreSources.flatMap(Self.groupNames))).sorted()
+    }
+
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isFilteringSources: Bool { !trimmedQuery.isEmpty }
+
+    private var visibleSources: [BookSource] {
+        Self.sources(exploreSources, inGroup: group, matching: trimmedQuery)
+    }
+
+    /// The sources in `group` (all of them when `nil`) whose name or group holds
+    /// `query` — Legado's explore search (`BookSourceDao.flowExplore(key)`).
+    static func sources(_ sources: [BookSource], inGroup group: String?, matching query: String) -> [BookSource] {
+        sources.filter { source in
+            if let group, !groupNames(of: source).contains(group) { return false }
+            return query.isEmpty
+                || source.bookSourceName.localizedStandardContains(query)
+                || source.bookSourceGroup.localizedStandardContains(query)
+        }
+    }
+
+    private static func groupNames(of source: BookSource) -> [String] {
+        source.bookSourceGroup
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// The grid the reader chose, or the list. At accessibility text sizes a tile cannot
+    /// hold its name, so the page is the list whatever the setting.
+    private var entryLayout: ExploreEntryLabel.Layout {
+        guard showsGrid, !dynamicTypeSize.isAccessibilitySize else { return .list }
+        return .grid(.fitting(gridColumnCount, dynamicTypeSize: dynamicTypeSize))
     }
 
     var body: some View {
         NavigationStack(path: $navigation.path) {
-            VStack(spacing: 0) {
-                segmentedPicker
-                    .padding(.horizontal, DSSpacing.lg)
-                    .padding(.vertical, DSSpacing.sm)
-
-                switch tab {
-                case .discover: discoverContent
-                case .web: webForm
+            ScrollView {
+                VStack(alignment: .leading, spacing: DSSpacing.xl) {
+                    // A search looks through the sources alone.
+                    if !isFilteringSources {
+                        entries {
+                            browserEntry
+                            NavigationLink(value: ExploreNavigationRoute.myDiscover) {
+                                ExploreEntryLabel(
+                                    title: localized("我的發現"),
+                                    artwork: .symbol("star.fill"),
+                                    layout: entryLayout
+                                )
+                            }
+                            .buttonStyle(ExploreTileButtonStyle())
+                        }
+                    }
+                    sourcesBlock
+                }
+                .padding(.horizontal, DSSpacing.lg)
+                .padding(.vertical, DSSpacing.sm)
+                .animation(reduceMotion ? nil : DSAnimation.standard, value: entryLayout)
+                .rootTabTitleScrollAnchor()
+            }
+            .overlay {
+                if isFilteringSources && !exploreSources.isEmpty && visibleSources.isEmpty {
+                    ContentUnavailableView.search(text: trimmedQuery)
                 }
             }
+            .rootTabSearchScrollEdges()
+            .scrollDismissesKeyboard(.immediately)
             .background(PageBackgroundView(scope: .explore).ignoresSafeArea())
             .pageBackgroundToolbar(for: .explore)
-            .navigationTitle(localized("探索"))
-            .toolbarTitleDisplayModeInlineLargeOrInline()
+            .rootTabTitle(localized("探索"), onScroll: .minimizesBar)
             .toolbar {
-                if tab == .discover, discover.hasExploreSource {
-                    ToolbarItem(placement: .topBarTrailing) { sourceMenu }
+                if groups.count > 1 {
+                    ToolbarItem(placement: .topBarTrailing) { groupMenu }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showsSettings = true } label: {
+                        Image(systemName: "gearshape")
+                            .accessibilityHidden(true)
+                    }
+                    .accessibilityLabel(localized("探索設定"))
                 }
             }
             .searchable(
                 text: $query,
                 placement: .navigationBarDrawer(displayMode: .always),
-                prompt: localized("搜尋書名、作者、網址或關鍵字")
+                prompt: localized("搜索書源")
             )
-            .onSubmit(of: .search, submitSearch)
-            .onAppear { discover.refreshSources() }
-            .onChange(of: sourceStore.sources.count) { _, _ in discover.refreshSources() }
-            .onReceive(
-                NotificationCenter.default.publisher(for: .bookSourceLoginInfoDidChange)
-                    // Source JS posts from its worker; only UI delivery moves to main.
-                    .receive(on: DispatchQueue.main)
-            ) { notification in
-                guard let sourceURL = notification.userInfo?["sourceURL"] as? String,
-                      discover.selectedSource?.bookSourceUrl == sourceURL else { return }
-                // The source's exploreUrl and header rule may both depend on the
-                // newly stored credentials. Re-run the source instead of reusing
-                // the pre-login category cache.
-                discover.reload(forceRefresh: true)
+            .sheet(isPresented: $showsSettings) {
+                ExploreSettingsSheet(sources: exploreSources)
             }
-            .onReceive(
-                NotificationCenter.default.publisher(for: .bookSourceUserVariableDidChange)
-                    .receive(on: DispatchQueue.main)
-            ) { notification in
-                guard let sourceURL = notification.userInfo?["sourceURL"] as? String,
-                      discover.selectedSource?.bookSourceUrl == sourceURL else { return }
-                // A bare token is a valid Legado source variable. The previous
-                // discover snapshot may have been produced before it existed, so
-                // saving the editor must invalidate that live snapshot as well as
-                // the key-addressed category cache.
-                discover.reload(forceRefresh: true)
+            .onAppear(perform: applyLandingIfNeeded)
+            .onReceive(sourceStore.$sources) { _ in
+                exploreSources = DiscoverViewModel.exploreSources(in: sourceStore)
+                if let group, !groups.contains(group) { self.group = nil }
+                applyLandingIfNeeded()
             }
-            .navigationDestination(isPresented: pushedSourceManagerBinding) {
-                BookSourceListView(embedsNavigationStack: false)
-            }
-            .sheet(isPresented: sheetSourceManagerBinding) {
+            .sheet(isPresented: $showSourceManager) {
                 // BookSourceListView already provides its own NavigationStack; wrapping
                 // it in another NavigationStack stacks two nav bars (duplicate title on
                 // iOS 18). Present it directly, matching SettingsView.
                 BookSourceListView()
             }
-            .sheet(isPresented: $showDiscoverSettings) {
+            .bookSourceActionSheets(sheet: $sourceActionSheet, pendingDeletion: $sourcePendingDeletion)
+            .fullScreenCover(item: $browserPresentation) { presentation in
                 NavigationStack {
-                    DiscoverSettingsView(
-                        discover: discover,
-                        onNavigate: { url in
-                            showDiscoverSettings = false
-                            onNavigate(url)
-                        },
-                        onDismiss: { showDiscoverSettings = false }
-                    )
+                    BrowserPage(browser: browser, entry: presentation.entry)
                 }
-                .presentationDetents([.large])
+                .environmentObject(store)
             }
-            .sheet(isPresented: $showDiscoverSourcePicker) {
-                NavigationStack {
-                    DiscoverSourcePickerView(
-                        sources: discover.exploreSources,
-                        selectedSourceId: discover.selectedSourceId,
-                        onSelect: { source in
-                            discover.selectSource(source.id)
-                            showDiscoverSourcePicker = false
-                        },
-                        onDismiss: { showDiscoverSourcePicker = false }
-                    )
-                }
-            }
-            .sheet(isPresented: $showHistory) { historySheet }
-            .sheet(isPresented: $showSourceSites) { sourceSitesSheet }
-            .navigationDestination(for: ExploreNavigationRoute.self) { route in
-                switch route {
-                case .category(let sectionID):
-                    if let section = discover.sections.first(where: { $0.id == sectionID }),
-                       let source = discover.selectedSource {
-                        DiscoverCategoryView(section: section, source: source)
-                    } else {
-                        ContentUnavailableView {
-                            UnavailableLabel(localized("暫無發現內容"), systemImage: "books.vertical")
+            .navigationDestination(for: ExploreNavigationRoute.self, destination: destination)
+        }
+    }
+
+    // MARK: Entries
+
+    /// Entries laid out as the page is: tiles so many to a row, or cards one under another.
+    @ViewBuilder
+    private func entries<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        switch entryLayout {
+        case .grid(let density):
+            LazyVGrid(
+                columns: Array(
+                    repeating: GridItem(.flexible(), spacing: DSSpacing.md),
+                    count: density.rawValue
+                ),
+                spacing: DSSpacing.md,
+                content: content
+            )
+        case .list:
+            LazyVStack(spacing: DSSpacing.md, content: content)
+        }
+    }
+
+    /// The browser as it was left — its page, or its start page when no page is open.
+    private var browserEntry: some View {
+        Button { openBrowser(.resume) } label: {
+            ExploreEntryLabel(
+                title: localized("瀏覽器"),
+                artwork: .symbol("safari"),
+                layout: entryLayout
+            )
+        }
+        .buttonStyle(ExploreTileButtonStyle())
+    }
+
+    private func openBrowser(_ entry: BrowserEntry) {
+        browserPresentation = BrowserPresentation(entry: entry)
+    }
+
+    /// The sources, or how to add some. A search that finds none leaves this out for
+    /// the search's own empty state.
+    @ViewBuilder
+    private var sourcesBlock: some View {
+        if exploreSources.isEmpty || !visibleSources.isEmpty {
+            VStack(alignment: .leading, spacing: DSSpacing.md) {
+                Text(group ?? localized("書源"))
+                    .font(DSFont.title2.weight(.bold))
+                    .foregroundStyle(DSColor.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                if exploreSources.isEmpty {
+                    VStack(alignment: .leading, spacing: DSSpacing.md) {
+                        Text(localized("尚未啟用支援發現的書源"))
+                            .font(DSFont.subheadline)
+                            .foregroundStyle(DSColor.textSecondary)
+                        Button(localized("前往書源管理"), action: openSourceManager)
+                            .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    entries {
+                        ForEach(visibleSources) { source in
+                            NavigationLink(value: ExploreNavigationRoute.source(sourceURL: source.bookSourceUrl)) {
+                                ExploreEntryLabel(source: source, layout: entryLayout)
+                            }
+                            .buttonStyle(ExploreTileButtonStyle())
+                            .accessibilityLabel(source.bookSourceName)
+                            .accessibilityIdentifier("explore.source.\(source.bookSourceName)")
+                            .contextMenu { sourceActions(source) }
                         }
                     }
-                case .book(let book):
-                    if BookSourceStore.shared.isAudiobook(book) {
-                        AudiobookDetailView(book: book).environmentObject(store)
-                    } else {
-                        OnlineBookView(book: book).environmentObject(store)
-                    }
-                case .search(let query):
-                    SearchView(initialQuery: query)
-                        .environmentObject(store)
                 }
             }
         }
     }
 
-    private var pushedSourceManagerBinding: Binding<Bool> {
-        Binding(
-            get: {
-                showSourceManager
-                    && BookSourceManagementPresentationPolicy.prefersNavigationDestination
+    /// Legado's long-press actions on an explore source. 刷新 lives on the source's own
+    /// page, where pulling down reloads it.
+    private func sourceActions(_ source: BookSource) -> some View {
+        BookSourceActionMenuItems(
+            source: source,
+            onEdit: { sourceActionSheet = .edit(source) },
+            onPinToTop: {
+                BookSourceStore.shared.pinToTop(id: source.id)
+                UIAccessibility.post(notification: .announcement, argument: localized("已置頂"))
             },
-            set: { if !$0 { showSourceManager = false } }
+            onLogin: { sourceActionSheet = .login(source) },
+            onSearch: { navigation.push(.searchInSource(sourceURL: source.bookSourceUrl)) },
+            onRefresh: nil,
+            onSetVariable: { sourceActionSheet = .variable(source) },
+            onDelete: { sourcePendingDeletion = source }
         )
     }
 
-    private var sheetSourceManagerBinding: Binding<Bool> {
-        Binding(
-            get: {
-                showSourceManager
-                    && !BookSourceManagementPresentationPolicy.prefersNavigationDestination
-            },
-            set: { if !$0 { showSourceManager = false } }
-        )
-    }
-
-    private var segmentedPicker: some View {
-        Picker("", selection: tabBinding) {
-            Text(localized("書源發現")).tag(ExploreTab.discover)
-            Text(localized("網頁瀏覽")).tag(ExploreTab.web)
+    /// Legado's explore page narrows its list to one group from its menu.
+    private var groupMenu: some View {
+        Menu {
+            Picker(localized("分組"), selection: $group) {
+                Text(localized("全部")).tag(String?.none)
+                ForEach(groups, id: \.self) { name in
+                    Text(name).tag(Optional(name))
+                }
+            }
+        } label: {
+            Image(
+                systemName: group == nil
+                    ? "line.3.horizontal.decrease.circle"
+                    : "line.3.horizontal.decrease.circle.fill"
+            )
+            .accessibilityHidden(true)
         }
-        .pickerStyle(.segmented)
+        .accessibilityLabel(localized("分組"))
+        .accessibilityValue(group ?? localized("全部"))
     }
 
-    private func submitSearch() {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        switch tab {
-        case .discover:
-            navigation.push(.search(trimmed))
-            query = ""
-        case .web:
-            onNavigate(trimmed)
-            query = ""
+    /// 首屏配置: the page 探索 opens straight onto, pushed the first time 探索 shows. A
+    /// source's page waits for 探索's sources to load, so it never opens on one that only
+    /// looks deleted because the list was not there yet; a source that has since gone
+    /// opens nothing.
+    private func applyLandingIfNeeded() {
+        guard !appliedLanding, navigation.path.isEmpty else { return }
+        switch ExploreLanding(rawValue: landing) {
+        case .off:
+            appliedLanding = true
+        case .myDiscover:
+            appliedLanding = true
+            navigation.push(.myDiscover)
+        case .source(let url):
+            guard !exploreSources.isEmpty else { return }
+            appliedLanding = true
+            if exploreSources.contains(where: { $0.bookSourceUrl == url }) {
+                navigation.push(.source(sourceURL: url))
+            }
         }
     }
 
-    // MARK: - Discover Segment
+    // MARK: Destinations
 
     @ViewBuilder
-    private var discoverContent: some View {
-        if discover.hasExploreSource {
-            DiscoverShowcaseView(discover: discover)
-        } else {
-            emptySourceState
+    private func destination(_ route: ExploreNavigationRoute) -> some View {
+        switch route {
+        case .source(let sourceURL):
+            if let source = sourceStore.sources.first(where: { $0.bookSourceUrl == sourceURL }) {
+                ExploreSourcePage(source: source) { address in
+                    openBrowser(.open(address))
+                }
+            } else {
+                deletedSourceState
+            }
+        case .myDiscover:
+            MyDiscoverView()
+        case .myDiscoverEditor:
+            MyDiscoverPinsEditor()
+        case .book(let book):
+            OnlineBookDetailDestination(.book(book)).environmentObject(store)
+        case .sourceCategory(let reference):
+            if let source = reference.source, let item = reference.cardItem {
+                DiscoverCategoryView(
+                    section: DiscoverShowcaseSection(
+                        item: item,
+                        coverBaseURL: source.bookSourceUrl,
+                        coverHeaders: source.parsedHeaders
+                    ),
+                    source: source
+                )
+            } else {
+                deletedSourceState
+            }
+        case .searchInSource(let sourceURL):
+            SearchView(sessionScope: SearchSourceScope(
+                mode: .custom, selectedSourceURLs: [sourceURL]
+            ))
+            .environmentObject(store)
+        case .sourceManager:
+            BookSourceListView(embedsNavigationStack: false)
         }
     }
 
-    /// Trailing toolbar menu: configure discover, switch explore source, refresh.
-    private var sourceMenu: some View {
-        Menu {
-            Button { showDiscoverSettings = true } label: {
-                Label(localized("發現頁設定"), systemImage: "slider.horizontal.3")
-            }
-            Divider()
-            Button { showDiscoverSourcePicker = true } label: {
-                Label(localized("切換發現頁"), systemImage: "books.vertical")
-            }
-            .disabled(discover.exploreSources.count <= 1)
-            Button { discover.reload(forceRefresh: true) } label: {
-                Label(localized("換一批"), systemImage: "arrow.triangle.2.circlepath")
-            }
-        } label: {
-            Image(systemName: "ellipsis")
-        }
-        .accessibilityLabel(localized("發現頁設定"))
-    }
-
-    private var emptySourceState: some View {
+    private var deletedSourceState: some View {
         ContentUnavailableView {
-            UnavailableLabel(localized("尚未啟用支援發現的書源"), systemImage: "books.vertical")
-        } description: {
-            Text(localized("前往書源管理新增並啟用書源")).foregroundStyle(DSColor.textSecondary)
-        } actions: {
-            Button(localized("前往書源管理")) { showSourceManager = true }
-                .buttonStyle(.borderedProminent)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    // MARK: - Web Segment
-
-    private var webForm: some View {
-        Form {
-            searchEnginesSection
-            quickEntrySection
-            recentSection
-        }
-        .softScrollEdges()
-        .scrollDismissesKeyboard(.immediately)
-        // Without this the `Form` paints its own opaque grouped background over the
-        // `PageBackgroundView` this screen already installs, so 網頁瀏覽 was the one
-        // Explore segment where a page background never showed. The sections each carry
-        // `interfaceSectionSurface`, so the cards still follow 毛玻璃／分組卡片／透明度.
-        .scrollContentBackground(.hidden)
-    }
-
-    private var searchEnginesSection: some View {
-        Section(header: Text(localized("常用搜尋")).foregroundStyle(DSColor.textSecondary)) {
-            HStack(spacing: DSSpacing.xl) {
-                ForEach(SearchEngine.allCases) { engine in
-                    searchEngineButton(engine)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.vertical, DSSpacing.sm)
-        }
-        .interfaceSectionSurface()
-    }
-
-    private var quickEntrySection: some View {
-        Section(header: Text(localized("快捷入口")).foregroundStyle(DSColor.textSecondary)) {
-            DSSettingsRow(
-                icon: "person.crop.circle.badge.plus",
-                title: localized("番茄登入"),
-                action: { onNavigate("https://fanqienovel.com/") }
-            )
-            DSSettingsRow(
-                icon: "globe",
-                title: localized("書源網站"),
-                action: { showSourceSites = true }
-            )
-            DSSettingsRow(
-                icon: "clock.arrow.circlepath",
-                title: localized("最近瀏覽"),
-                action: { showHistory = true }
-            )
-            DSSettingsRow(
-                icon: "slider.horizontal.3",
-                title: localized("書源管理"),
-                action: { showSourceManager = true }
-            )
-        }
-        .interfaceSectionSurface()
-    }
-
-    private var recentSection: some View {
-        Section(header: recentSectionHeader) {
-            if history.entries.isEmpty {
-                Text(localized("尚無瀏覽記錄"))
-                    .font(DSFont.caption)
-                    .foregroundColor(DSColor.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, DSSpacing.lg)
-            } else {
-                let recent = Array(history.entries.prefix(5))
-                ForEach(recent) { entry in
-                    Button { onNavigate(entry.url) } label: {
-                        HistoryRow(entry: entry, faviconURL: history.faviconURL(for: entry))
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button(role: .destructive) { history.remove(entry) } label: {
-                            Label(localized("刪除"), systemImage: "trash")
-                        }
-                    }
-                }
-            }
-        }
-        .interfaceSectionSurface()
-    }
-
-    private var recentSectionHeader: some View {
-        HStack {
-            Text(localized("最近瀏覽"))
-                .foregroundStyle(DSColor.textSecondary)
-            Spacer()
-            if !history.entries.isEmpty {
-                Button { showHistory = true } label: {
-                    HStack(spacing: 2) {
-                        Text(localized("查看全部"))
-                        Image(systemName: "chevron.right")
-                    }
-                    .font(DSFont.caption)
-                }
-                .textCase(nil)
-            }
+            UnavailableLabel(localized("書源已被刪除"), systemImage: "books.vertical")
         }
     }
 
-    // MARK: - Sheets
-
-    private var historySheet: some View {
-        NavigationStack {
-            Group {
-                if history.entries.isEmpty {
-                    ContentUnavailableView {
-                        UnavailableLabel(localized("尚無瀏覽記錄"), systemImage: "clock")
-                    } description: {
-                        Text(localized("瀏覽過的網頁會出現在這裡")).foregroundStyle(DSColor.textSecondary)
-                    }
-                } else {
-                    List {
-                        ForEach(history.entries) { entry in
-                            Button {
-                                onNavigate(entry.url)
-                                showHistory = false
-                            } label: {
-                                HistoryRow(entry: entry, faviconURL: history.faviconURL(for: entry))
-                            }
-                            .buttonStyle(.plain)
-                            .interfaceSectionSurface()
-                        }
-                        .onDelete { offsets in
-                            offsets.map { history.entries[$0] }.forEach(history.remove)
-                        }
-                    }
-                    .softScrollEdges()
-                    .listStyle(.plain)
-                }
-            }
-            .navigationTitle(localized("最近瀏覽"))
-            .toolbarTitleDisplayMode(.inline)
-            .themedAppSurface(for: .explore)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        showHistory = false
-                    } label: {
-                        Label(localized("完成"), systemImage: "checkmark")
-                            .labelStyle(.iconOnly)
-                    }
-                    .accessibilityLabel(localized("完成"))
-                }
-                if !history.entries.isEmpty {
-                    ToolbarItem(placement: .destructiveAction) {
-                        Button(localized("清除")) { history.clear() }
-                            .foregroundColor(DSColor.destructive)
-                    }
-                }
-            }
+    /// 書源管理: pushed before iOS 18 so its importers have a first-level presenter,
+    /// a sheet afterwards (`BookSourceManagementPresentationPolicy`).
+    private func openSourceManager() {
+        if BookSourceManagementPresentationPolicy.prefersNavigationDestination {
+            navigation.push(.sourceManager)
+        } else {
+            showSourceManager = true
         }
-        .presentationDetents([.medium, .large])
-    }
-
-    private var sourceSitesSheet: some View {
-        NavigationStack {
-            List(sourceStore.enabledSources) { source in
-                Button {
-                    onNavigate(source.bookSourceUrl)
-                    showSourceSites = false
-                } label: {
-                    HStack(spacing: DSSpacing.md) {
-                        Image(systemName: "globe")
-                            .foregroundColor(DSColor.accent)
-                            .frame(width: 28)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(source.bookSourceName)
-                                .foregroundColor(DSColor.textPrimary)
-                                .lineLimit(1)
-                            Text(source.bookSourceUrl)
-                                .font(DSFont.caption)
-                                .foregroundColor(DSColor.textSecondary)
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        Image(systemName: "arrow.up.right")
-                            .font(DSFont.fixed(size: 12))
-                            .foregroundColor(DSColor.textSecondary)
-                    }
-                }
-                .buttonStyle(.plain)
-                .interfaceSectionSurface()
-            }
-            .softScrollEdges()
-            .navigationTitle(localized("書源網站"))
-            .toolbarTitleDisplayMode(.inline)
-            .themedAppSurface(for: .explore)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        showSourceSites = false
-                    } label: {
-                        Label(localized("完成"), systemImage: "checkmark")
-                            .labelStyle(.iconOnly)
-                    }
-                    .accessibilityLabel(localized("完成"))
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-    }
-
-    // MARK: - Reusable bits
-
-    private func searchEngineButton(_ engine: SearchEngine) -> some View {
-        Button {
-            onNavigate(engine.startURL)
-        } label: {
-            VStack(spacing: 6) {
-                ZStack {
-                    Circle()
-                        .fill(Color.clear)
-                        .frame(width: 52, height: 52)
-                        .interfaceCardSurface(in: Circle())
-                    AsyncImage(url: URL(string: engine.faviconURL)) { phase in
-                        if let image = phase.image {
-                            image.resizable().scaledToFit().frame(width: 28, height: 28)
-                        } else {
-                            Text(engine.icon)
-                                .font(DSFont.headline.weight(.bold))
-                                .foregroundColor(engine.color)
-                        }
-                    }
-                }
-                Text(engine.rawValue)
-                    .font(DSFont.caption)
-                    .foregroundStyle(DSColor.textPrimary)
-            }
-            .frame(minWidth: 60)
-        }
-        .buttonStyle(.plain)
-    }
-
-}
-
-// MARK: - Discover Settings
-
-private struct DiscoverSettingsView: View {
-    @ObservedObject var discover: DiscoverViewModel
-    let onNavigate: (String) -> Void
-    let onDismiss: () -> Void
-
-    @State private var searchText = ""
-
-    private var settingsGroups: [DiscoverSettingsGroup] {
-        DiscoverViewModel.discoverSettingsGroups(
-            from: discover.rawItems,
-            defaultTitle: localized("發現")
-        )
-    }
-
-    private var filteredGroups: [DiscoverSettingsGroup] {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return settingsGroups }
-        return settingsGroups.compactMap { group in
-            if group.title.localizedCaseInsensitiveContains(trimmed) {
-                return group
-            }
-            let items = group.items.filter {
-                $0.title.localizedCaseInsensitiveContains(trimmed)
-            }
-            guard !items.isEmpty else { return nil }
-            return DiscoverSettingsGroup(id: group.id, title: group.title, items: items)
-        }
-    }
-
-    var body: some View {
-        AdaptiveSheetContainer(maxWidth: DSLayout.readablePanelWidth) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: DSSpacing.lg) {
-                    sourceCard
-                    if !discover.filters.isEmpty {
-                        filtersCard
-                    }
-                    categoriesCard
-                }
-                .padding(.horizontal, DSSpacing.lg)
-                .padding(.vertical, DSSpacing.lg)
-            }
-            .softScrollEdges()
-            .background(DSColor.groupedBackground.opacity(0.001))
-        }
-        .navigationTitle(localized("發現頁設定"))
-        .toolbarTitleDisplayMode(.inline)
-        .themedAppSurface(for: .explore)
-        .searchable(
-            text: $searchText,
-            placement: .navigationBarDrawer(displayMode: .always),
-            prompt: localized("搜尋發現項目")
-        )
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button {
-                    onDismiss()
-                } label: {
-                    Label(localized("完成"), systemImage: "checkmark")
-                        .labelStyle(.iconOnly)
-                }
-                .accessibilityLabel(localized("完成"))
-            }
-        }
-    }
-
-    private var sourceCard: some View {
-        settingsCard {
-            VStack(alignment: .leading, spacing: DSSpacing.md) {
-                sectionTitle(localized("目前發現頁"))
-                Menu {
-                    ForEach(discover.exploreSources) { source in
-                        Button {
-                            discover.selectSource(source.id)
-                        } label: {
-                            if source.id == discover.selectedSourceId {
-                                Label(source.bookSourceName, systemImage: "checkmark")
-                            } else {
-                                Text(source.bookSourceName)
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: DSSpacing.md) {
-                        Image(systemName: "books.vertical")
-                            .foregroundColor(DSColor.accent)
-                            .frame(width: 28)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(discover.selectedSource?.bookSourceName ?? localized("尚未啟用支援發現的書源"))
-                                .font(DSFont.subheadline.weight(.semibold))
-                                .foregroundColor(DSColor.textPrimary)
-                                .lineLimit(1)
-                            if let url = discover.selectedSource?.bookSourceUrl {
-                                Text(url)
-                                    .font(DSFont.caption)
-                                    .foregroundColor(DSColor.textSecondary)
-                                    .lineLimit(1)
-                            }
-                        }
-                        Spacer(minLength: DSSpacing.sm)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(DSFont.caption)
-                            .foregroundColor(DSColor.textSecondary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .disabled(discover.exploreSources.count <= 1)
-            }
-        }
-    }
-
-    private var filtersCard: some View {
-        settingsCard {
-            VStack(alignment: .leading, spacing: DSSpacing.md) {
-                sectionTitle(localized("篩選條件"))
-                VStack(spacing: 0) {
-                    ForEach(Array(discover.filters.enumerated()), id: \.offset) { index, filter in
-                        filterRow(filter)
-                        if index < discover.filters.count - 1 {
-                            Divider().padding(.leading, 36)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var categoriesCard: some View {
-        settingsCard {
-            VStack(alignment: .leading, spacing: DSSpacing.md) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        sectionTitle(localized("顯示分區"))
-                        Text(categorySummary)
-                            .font(DSFont.caption)
-                            .foregroundColor(DSColor.textSecondary)
-                    }
-                    Spacer(minLength: DSSpacing.md)
-                    Menu {
-                        Button {
-                            discover.resetCategorySelection()
-                        } label: {
-                            Label(localized("恢復自動"), systemImage: "arrow.counterclockwise")
-                        }
-                        .disabled(!discover.usesCustomCategorySelection)
-                        Button {
-                            discover.selectAllCategories()
-                        } label: {
-                            Label(localized("全部顯示"), systemImage: "checklist.checked")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(DSFont.fixed(size: 20, weight: .medium))
-                    }
-                    .accessibilityLabel(localized("顯示分區"))
-                }
-
-                if discover.isLoadingItems && discover.rawItems.isEmpty {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                        Spacer()
-                    }
-                    .padding(.vertical, DSSpacing.xl)
-                } else if filteredGroups.isEmpty {
-                    Text(localized("沒有符合的發現項目"))
-                        .font(DSFont.caption)
-                        .foregroundColor(DSColor.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, DSSpacing.xl)
-                } else {
-                    VStack(alignment: .leading, spacing: DSSpacing.lg) {
-                        ForEach(filteredGroups) { group in
-                            categoryGroup(group)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var categorySummary: String {
-        if discover.usesCustomCategorySelection {
-            return String(format: localized("已自訂 %d 個分區"), discover.selectedCategoryCount)
-        }
-        return String(format: localized("自動顯示前 %d 個分區"), discover.maxShowcaseSections)
-    }
-
-    private func filterRow(_ filter: DiscoverFilter) -> some View {
-        Menu {
-            ForEach(filter.options, id: \.self) { option in
-                Button {
-                    discover.selectFilter(filter, value: option)
-                } label: {
-                    if option == filter.selected {
-                        Label(displayName(option), systemImage: "checkmark")
-                    } else {
-                        Text(displayName(option))
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: DSSpacing.md) {
-                Text(filterTitle(filter.title))
-                    .font(DSFont.subheadline)
-                    .foregroundColor(DSColor.textPrimary)
-                Spacer(minLength: DSSpacing.sm)
-                Text(displayName(filter.selected))
-                    .font(DSFont.subheadline)
-                    .foregroundColor(DSColor.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(DSFont.caption2)
-                    .foregroundColor(DSColor.textSecondary)
-            }
-            .padding(.vertical, DSSpacing.sm + 2)
-            .contentShape(Rectangle())
-        }
-    }
-
-    private func categoryGroup(_ group: DiscoverSettingsGroup) -> some View {
-        VStack(alignment: .leading, spacing: DSSpacing.sm) {
-            Text(group.title)
-                .font(DSFont.caption.weight(.semibold))
-                .foregroundColor(DSColor.textSecondary)
-                .textCase(.uppercase)
-            DiscoverSettingsFlowLayout(spacing: DSSpacing.sm) {
-                ForEach(Array(group.items.enumerated()), id: \.offset) { _, item in
-                    categoryChip(item)
-                }
-            }
-        }
-    }
-
-    private func categoryChip(_ item: DiscoverCardItem) -> some View {
-        let selected = item.isFetchable && discover.isCategorySelected(item)
-        let isAction = item.isAction
-        return Button {
-            if isAction, let url = item.actionURL {
-                onNavigate(url)
-            } else {
-                discover.toggleCategoryVisibility(item)
-            }
-        } label: {
-            HStack(spacing: DSSpacing.xs) {
-                Text(item.title)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: 220)
-                if isAction {
-                    Image(systemName: "arrow.up.right")
-                        .font(DSFont.fixed(size: 10, weight: .semibold))
-                } else if selected {
-                    Image(systemName: "checkmark")
-                        .font(DSFont.fixed(size: 10, weight: .bold))
-                }
-            }
-            .font(DSFont.caption.weight(selected ? .semibold : .regular))
-            .foregroundColor(selected ? DSColor.textOnAccent : DSColor.textPrimary)
-            .padding(.horizontal, DSSpacing.md)
-            .padding(.vertical, DSSpacing.sm)
-            .background(selected ? DSColor.accent : DSColor.surface)
-            .clipShape(Capsule())
-            .overlay {
-                Capsule()
-                    .strokeBorder(
-                        selected ? DSColor.accent.opacity(0.25) : DSColor.separator,
-                        lineWidth: 0.5
-                    )
-            }
-        }
-        .buttonStyle(.plain)
-        .disabled(isAction && item.actionURL == nil)
-    }
-
-    private func settingsCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: DSSpacing.md, content: content)
-            .padding(DSSpacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .interfaceCardSurface()
-            .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous))
-    }
-
-    private func sectionTitle(_ title: String) -> some View {
-        Text(title)
-            .font(DSFont.headline)
-            .foregroundColor(DSColor.textPrimary)
-    }
-
-    private func filterTitle(_ title: String) -> String {
-        switch title {
-        case "线路", "線路":
-            return localized("線路")
-        case "类型", "類型":
-            return localized("類型")
-        case "频道", "頻道":
-            return localized("頻道")
-        case "平台":
-            return localized("平台")
-        default:
-            return title
-        }
-    }
-
-    private func displayName(_ value: String) -> String {
-        guard value.hasPrefix("http") else { return value }
-        return value
-            .replacingOccurrences(of: "https://", with: "")
-            .replacingOccurrences(of: "http://", with: "")
-    }
-}
-
-/// Left-to-right wrapping layout for source-emitted discover chips.
-private struct DiscoverSettingsFlowLayout: Layout {
-    var spacing: CGFloat = DSSpacing.sm
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
-        var origin = CGPoint.zero
-        var rowHeight: CGFloat = 0
-        var totalWidth: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if origin.x + size.width > maxWidth, origin.x > 0 {
-                origin.x = 0
-                origin.y += rowHeight + spacing
-                rowHeight = 0
-            }
-            origin.x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-            totalWidth = max(totalWidth, origin.x - spacing)
-        }
-        let width = maxWidth.isFinite ? maxWidth : totalWidth
-        return CGSize(width: width, height: origin.y + rowHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var origin = CGPoint(x: bounds.minX, y: bounds.minY)
-        var rowHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if origin.x + size.width > bounds.maxX, origin.x > bounds.minX {
-                origin.x = bounds.minX
-                origin.y += rowHeight + spacing
-                rowHeight = 0
-            }
-            subview.place(at: origin, anchor: .topLeading, proposal: ProposedViewSize(size))
-            origin.x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
-    }
-}
-
-// MARK: - Discover Source Picker
-
-enum DiscoverSourcePickerPositioning {
-    static func target(
-        selectedSourceId: UUID?,
-        visibleSourceIds: [UUID]
-    ) -> UUID? {
-        guard let selectedSourceId,
-              visibleSourceIds.contains(selectedSourceId) else {
-            return nil
-        }
-        return selectedSourceId
-    }
-}
-
-private struct DiscoverSourcePickerView: View {
-    let sources: [BookSource]
-    let selectedSourceId: UUID?
-    let onSelect: (BookSource) -> Void
-    let onDismiss: () -> Void
-
-    @State private var searchText = ""
-
-    private var filteredSources: [BookSource] {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return sources }
-        return sources.filter {
-            $0.bookSourceName.localizedCaseInsensitiveContains(trimmed)
-                || $0.bookSourceUrl.localizedCaseInsensitiveContains(trimmed)
-        }
-    }
-
-    private var scrollTargetId: UUID? {
-        DiscoverSourcePickerPositioning.target(
-            selectedSourceId: selectedSourceId,
-            visibleSourceIds: filteredSources.map(\.id)
-        )
-    }
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            List {
-                ForEach(filteredSources) { source in
-                    Button {
-                        onSelect(source)
-                    } label: {
-                        HStack(spacing: DSSpacing.md) {
-                            Image(systemName: "books.vertical")
-                                .foregroundColor(DSColor.accent)
-                                .frame(width: 28)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(source.bookSourceName)
-                                    .foregroundColor(DSColor.textPrimary)
-                                    .lineLimit(1)
-                                Text(source.bookSourceUrl)
-                                    .font(DSFont.caption)
-                                    .foregroundColor(DSColor.textSecondary)
-                                    .lineLimit(1)
-                            }
-                            Spacer(minLength: DSSpacing.sm)
-                            if source.id == selectedSourceId {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(DSColor.accent)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .interfaceSectionSurface()
-                    .id(source.id)
-                }
-            }
-            .softScrollEdges()
-            .overlay {
-                if filteredSources.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
-                }
-            }
-            .navigationTitle(localized("切換發現頁"))
-            .toolbarTitleDisplayMode(.inline)
-            .themedAppSurface(for: .explore)
-            .searchable(
-                text: $searchText,
-                placement: .navigationBarDrawer(displayMode: .always),
-                prompt: localized("搜尋書源名稱或網址")
-            )
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        onDismiss()
-                    } label: {
-                        Label(localized("完成"), systemImage: "checkmark")
-                            .labelStyle(.iconOnly)
-                    }
-                    .accessibilityLabel(localized("完成"))
-                }
-            }
-            .task(id: scrollTargetId) {
-                guard let scrollTargetId else { return }
-                proxy.scrollTo(scrollTargetId, anchor: .center)
-            }
-        }
-    }
-}
-
-// MARK: - History Row
-
-private struct HistoryRow: View {
-    let entry: BrowseHistoryEntry
-    let faviconURL: URL?
-
-    var body: some View {
-        HStack(spacing: DSSpacing.md) {
-            AsyncImage(url: faviconURL) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFit()
-                } else {
-                    Image(systemName: "globe").foregroundColor(DSColor.textSecondary)
-                }
-            }
-            .frame(width: 28, height: 28)
-            .clipShape(RoundedRectangle(cornerRadius: DSRadius.sm))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.title)
-                    .font(DSFont.fixed(size: 15))
-                    .foregroundColor(DSColor.textPrimary)
-                    .lineLimit(1)
-                Text(entry.host)
-                    .font(DSFont.caption)
-                    .foregroundColor(DSColor.textSecondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 4)
-            Text(Self.relativeTime(entry.date))
-                .font(DSFont.fixed(size: 11))
-                .foregroundColor(DSColor.textSecondary)
-        }
-        .padding(.vertical, DSSpacing.sm)
-        .contentShape(Rectangle())
-    }
-
-    static func relativeTime(_ date: Date) -> String {
-        let seconds = Int(Date().timeIntervalSince(date))
-        if seconds < 60 { return localized("剛剛") }
-        if seconds < 3600 { return String(format: localized("%d 分鐘前"), seconds / 60) }
-        if seconds < 86400 { return String(format: localized("%d 小時前"), seconds / 3600) }
-        if seconds < 86400 * 7 { return String(format: localized("%d 天前"), seconds / 86400) }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy/MM/dd"
-        return formatter.string(from: date)
     }
 }
 
 #Preview {
-    ExploreHomeView(onNavigate: { _ in })
+    ExploreHomeView(browser: BrowserState())
         .environmentObject(BookStore())
 }

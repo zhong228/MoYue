@@ -16,7 +16,9 @@ struct AudiobookDetailView: View {
     /// Aggregated search book when opened from search; `nil` from a single-source context (Discover).
     private let searchBook: SearchBook?
     private let onRemoveFromShelf: (() -> Void)?
-    private static let chapterPreviewLimit = 12
+    /// Hands a confirmed switch to a non-audio source to `OnlineBookDetailDestination`,
+    /// which replaces this page with the text detail page.
+    private let onSourceKindChange: ((BookOrigin) -> Void)?
 
     @State private var currentBook: OnlineBook
     @EnvironmentObject var bookStore: BookStore
@@ -38,23 +40,48 @@ struct AudiobookDetailView: View {
     @State private var openingPlayer = false
     @State private var showPlayer = false
     @State private var showSourcePicker = false
+    @State private var showChapterList = false
+    @State private var pendingChapterSelection: Int?
+    @State private var confirmsRemoval = false
+    @State private var showsSourceVariableEditor = false
+    @State private var showsBookVariableEditor = false
+    @State private var showsMoreChooser = false
+    @State private var introActionRequest: BookIntroActionRequest?
+    /// Chosen in the source sheet; applied once the sheet has dismissed.
+    @State private var pendingOrigin: BookOrigin?
+    /// A source of another content kind, waiting for the user's confirmation.
+    @State private var kindMismatchOrigin: BookOrigin?
 
     // MARK: Init
 
     /// Single-source entry (Discover).
-    init(book: OnlineBook, onRemoveFromShelf: (() -> Void)? = nil) {
+    init(
+        book: OnlineBook,
+        onRemoveFromShelf: (() -> Void)? = nil,
+        onSourceKindChange: ((BookOrigin) -> Void)? = nil
+    ) {
         self.searchBook = nil
         self.onRemoveFromShelf = onRemoveFromShelf
+        self.onSourceKindChange = onSourceKindChange
         _currentBook = State(
             initialValue: OnlineBookDetailPresentationPolicy.sanitized(book)
         )
     }
 
-    /// Search entry — defaults to the first audio origin, then falls back to the first origin.
-    init(searchBook: SearchBook, onRemoveFromShelf: (() -> Void)? = nil) {
+    /// Search entry — opens `initialOrigin` when given, otherwise the first audio
+    /// origin, then falls back to the first origin.
+    init(
+        searchBook: SearchBook,
+        initialOrigin: BookOrigin? = nil,
+        onRemoveFromShelf: (() -> Void)? = nil,
+        onSourceKindChange: ((BookOrigin) -> Void)? = nil
+    ) {
         self.searchBook = searchBook
         self.onRemoveFromShelf = onRemoveFromShelf
-        if let origin = searchBook.preferredOrigin(for: .audio) ?? searchBook.origins.first {
+        self.onSourceKindChange = onSourceKindChange
+        if let origin = initialOrigin
+            ?? searchBook.preferredOrigin(for: .audio)
+            ?? searchBook.origins.first {
             let selectedIntro = searchBook.detailIntro(for: origin)
             _currentBook = State(initialValue: OnlineBook(
                 id: SearchResultDetailIdentity.onlineBookID(
@@ -92,47 +119,6 @@ struct AudiobookDetailView: View {
 
     private var canSwitchSource: Bool {
         (searchBook?.origins.count ?? 0) > 1
-    }
-
-    private static func makeOnlineBook(from book: SearchBook, origin: BookOrigin) -> OnlineBook {
-        let selectedIntro = book.detailIntro(for: origin)
-        return OnlineBook(
-            id: SearchResultDetailIdentity.onlineBookID(
-                searchBookID: book.id,
-                originID: origin.id
-            ),
-            name: book.name,
-            author: book.author,
-            intro: selectedIntro.isEmpty ? book.detailIntro : selectedIntro,
-            coverUrl: origin.coverUrl.isEmpty ? book.coverUrl : origin.coverUrl,
-            bookUrl: origin.bookUrl,
-            tocUrl: origin.tocUrl,
-            wordCount: origin.wordCount,
-            lastChapter: origin.lastChapter,
-            kind: origin.kind,
-            sourceId: origin.sourceId,
-            sourceName: origin.sourceName,
-            runtimeVariables: origin.runtimeVariables
-        )
-    }
-
-    private static func makeOnlineBook(from origin: BookOrigin, name: String, author: String) -> OnlineBook {
-        OnlineBook(
-            name: name,
-            author: author,
-            intro: OnlineBookDetailPresentationPolicy.sanitizeIntro(
-                origin.intro
-            ),
-            coverUrl: origin.coverUrl,
-            bookUrl: origin.bookUrl,
-            tocUrl: origin.tocUrl,
-            wordCount: origin.wordCount,
-            lastChapter: origin.lastChapter,
-            kind: origin.kind,
-            sourceId: origin.sourceId,
-            sourceName: origin.sourceName,
-            runtimeVariables: origin.runtimeVariables
-        )
     }
 
     // MARK: Display fallbacks (detail overrides search result, never with placeholders)
@@ -190,39 +176,104 @@ struct AudiobookDetailView: View {
     // MARK: Body
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: DSSpacing.xl) {
-                header
-                if !tags.isEmpty { tagStrip }
-                if !displayIntro.isEmpty { introSection }
-                sourceSection
-                chapterSection
+        BookDetailScaffold(title: displayName, compactAction: playAction) {
+            BookDetailHero(
+                artworkShape: .square,
+                cover: coverArtwork,
+                title: displayName,
+                author: displayAuthor,
+                meta: tags.joined(separator: " · "),
+                primary: playAction,
+                secondary: shelfAction
+            )
+        } content: {
+            BookDetailInfoStrip(items: infoItems)
+            if !displayIntro.isEmpty {
+                BookDetailIntroSection(
+                    text: displayIntro,
+                    isExpanded: $introExpanded,
+                    baseURL: currentBook.bookUrl,
+                    onAction: requestIntroAction
+                )
             }
-            .padding(.vertical, DSSpacing.md)
+            BookDetailChapterSection(
+                title: localized("章節"),
+                chapters: chapters,
+                isLoading: loading,
+                errorMessage: loadError,
+                latestChapter: displayLatestChapter,
+                onRetry: { load() },
+                onShowAll: { showChapterList = true }
+            ) { offset, chapter in
+                BookDetailChapterRow(
+                    title: BookDetailChapterTitle.display(chapter, offset: offset),
+                    caption: String(format: localized("第 %d 章"), offset + 1),
+                    isLocked: chapter.isVip || chapter.isPay,
+                    trailing: .play,
+                    action: { play(chapterIndex: offset) }
+                )
+            }
         }
-        .softScrollEdges()
-        .scrollIndicators(.hidden)
-        .background(PageBackgroundView(scope: .global).ignoresSafeArea())
-        .pageBackgroundToolbar(for: .global)
-        .toolbarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
         .environment(\.locale, Locale(identifier: gs.localeIdentifier))
-        .safeAreaInset(edge: .bottom) { bottomBar }
-        .sheet(isPresented: $showSourcePicker) {
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                BookDetailMoreMenu(
+                    hasSource: source != nil,
+                    onSetSourceVariable: { showsSourceVariableEditor = true },
+                    onSetBookVariable: { showsBookVariableEditor = true },
+                    onOpenChooser: { showsMoreChooser = true }
+                )
+            }
+        }
+        .bookDetailMoreChooser(
+            isPresented: $showsMoreChooser,
+            onSetSourceVariable: { showsSourceVariableEditor = true },
+            onSetBookVariable: { showsBookVariableEditor = true }
+        )
+        .bookIntroActions($introActionRequest) { load() }
+        .bookVariableEditors(
+            source: source,
+            showsSourceVariable: $showsSourceVariableEditor,
+            showsBookVariable: $showsBookVariableEditor,
+            bookVariable: { BookCustomVariable.value(in: effectiveRuntimeVariables) },
+            onSaveBookVariable: saveBookVariable
+        )
+        .sheet(isPresented: $showSourcePicker, onDismiss: resolvePendingOrigin) {
             if canSwitchSource, let searchBook {
                 AdaptiveSheetContainer(maxWidth: DSLayout.readableListWidth) {
                     SourcePickerSheet(
                         searchBook: searchBook,
-                        onSelectOrigin: { origin in switchToOrigin(origin) }
+                        currentOrigin: currentOrigin,
+                        onSelectOrigin: { origin in pendingOrigin = origin }
                     )
                 }
             } else {
                 AdaptiveSheetContainer(maxWidth: DSLayout.readableListWidth) {
                     SourceSearchSheet(
                         query: currentBook.name,
-                        onSelectOrigin: { origin in switchToOrigin(origin) }
+                        currentSourceId: currentBook.sourceId,
+                        currentBookURL: currentBook.bookUrl,
+                        onSelectOrigin: { origin in pendingOrigin = origin }
                     )
                 }
+            }
+        }
+        .sourceKindMismatchAlert(origin: $kindMismatchOrigin, onConfirm: applyOrigin)
+        .removeFromShelfConfirmation(isPresented: $confirmsRemoval, onConfirm: removeFromShelf)
+        .sheet(isPresented: $showChapterList, onDismiss: {
+            guard let chapterIndex = pendingChapterSelection else { return }
+            pendingChapterSelection = nil
+            play(chapterIndex: chapterIndex)
+        }) {
+            NavigationStack {
+                BookDetailChapterListSheet(
+                    chapters: chapters,
+                    trailing: .play,
+                    onSelect: { offset in
+                        pendingChapterSelection = offset
+                        showChapterList = false
+                    }
+                )
             }
         }
         .fullScreenCover(isPresented: $showPlayer) {
@@ -240,103 +291,106 @@ struct AudiobookDetailView: View {
         }
     }
 
-    // MARK: Header
+    // MARK: Hero
 
-    private var header: some View {
-        HStack(alignment: .top, spacing: DSSpacing.lg) {
-            BookCoverImage(
+    private var coverArtwork: some View {
+        BookCoverImage(
+            coverURL: displayCoverUrl,
+            title: displayName,
+            author: displayAuthor == localized("未知作者") ? "" : displayAuthor,
+            sourceBaseURL: source?.bookSourceUrl,
+            sourceHeaders: source?.parsedHeaders ?? [:]
+        )
+    }
+
+    private var playAction: BookDetailAction {
+        BookDetailAction(
+            title: resumeChapterIndex > 0 ? localized("繼續播放") : localized("開始播放"),
+            systemImage: "play.fill",
+            isBusy: openingPlayer,
+            isEnabled: !chapters.isEmpty && !addingToShelf,
+            action: { play(chapterIndex: resumeChapterIndex) }
+        )
+    }
+
+    private var shelfAction: BookDetailAction {
+        BookDetailAction(
+            title: alreadyInShelf
+                ? localized("移除書架")
+                : (addingToShelf ? localized("加入中…") : localized("加入書架")),
+            systemImage: alreadyInShelf ? "minus" : "plus",
+            isBusy: addingToShelf,
+            isEnabled: !chapters.isEmpty,
+            action: {
+                if alreadyInShelf { confirmsRemoval = true } else { addToShelfOnly() }
+            }
+        )
+    }
+
+    private var infoItems: [BookDetailInfoItem] {
+        var items: [BookDetailInfoItem] = []
+        if !chapters.isEmpty {
+            items.append(BookDetailInfoItem(
+                id: "chapters", label: localized("章節"), value: chapters.count.formatted()
+            ))
+        }
+        items.append(.source(name: sourceName) { showSourcePicker = true })
+        return items
+    }
+
+    /// The runtime variables the next play, shelf add or fetch will carry.
+    private var effectiveRuntimeVariables: [String: String]? {
+        if alreadyInShelf, let id = addedBookId,
+           let shelved = bookStore.books.first(where: { $0.id == id }) {
+            return shelved.runtimeVariables
+        }
+        return resolvedRuntimeVariables
+    }
+
+    /// A 簡介 button or image: its script runs against this page's book.
+    private func requestIntroAction(_ action: BookIntroAction) {
+        guard let source else { return }
+        let variables = effectiveRuntimeVariables ?? [:]
+        introActionRequest = BookIntroActionRequest(
+            action: action,
+            source: source,
+            book: .detailPage(
+                name: displayName,
+                author: displayAuthor,
                 coverURL: displayCoverUrl,
-                title: displayName,
-                author: displayAuthor == localized("未知作者") ? "" : displayAuthor,
-                sourceBaseURL: source?.bookSourceUrl,
-                sourceHeaders: source?.parsedHeaders ?? [:]
-            )
-            .frame(width: 96, height: 132)
-            .clipShape(RoundedRectangle(cornerRadius: DSRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: DSRadius.md)
-                    .stroke(DSColor.separator, lineWidth: 0.5)
-            )
-            .shadow(color: DSColor.shadow, radius: 6, y: 3)
-
-            VStack(alignment: .leading, spacing: DSSpacing.xs) {
-                Text(displayName)
-                    .foregroundStyle(DSColor.textPrimary)
-                    .font(DSFont.title2.weight(.bold))
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text(displayAuthor)
-                    .font(DSFont.subheadline)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .lineLimit(1)
-
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, DSSpacing.lg)
+                bookURL: currentBook.bookUrl,
+                tocURL: resolvedTOCURL ?? currentBook.bookUrl,
+                intro: displayIntro,
+                runtimeVariables: variables
+            ),
+            runtimeVariables: variables
+        )
     }
 
-    // MARK: Tags
-
-    private var tagStrip: some View {
-        FlowLayout(spacing: DSSpacing.sm) {
-            ForEach(tags, id: \.self) { tag in
-                Text(tag)
-                    .font(DSFont.caption)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .padding(.horizontal, DSSpacing.md)
-                    .padding(.vertical, 6)
-                    .interfaceCardSurface(in: Capsule())
-            }
+    /// Legado's 設置書籍變量: write `custom` into every runtime-variable map this page
+    /// carries forward, and into the shelf record when the book is on the shelf.
+    private func saveBookVariable(_ value: String) {
+        currentBook.runtimeVariables = BookCustomVariable.merged(value, into: currentBook.runtimeVariables)
+        if let loaded = loadedRuntimeVariables {
+            loadedRuntimeVariables = BookCustomVariable.merged(value, into: loaded)
         }
-        .padding(.horizontal, DSSpacing.lg)
+        if detailInfo != nil {
+            detailInfo?.runtimeVariables = BookCustomVariable.merged(value, into: detailInfo?.runtimeVariables)
+        }
+        if alreadyInShelf, let id = addedBookId,
+           let shelved = bookStore.books.first(where: { $0.id == id }) {
+            bookStore.updateBookRuntimeVariables(
+                bookId: id,
+                variables: BookCustomVariable.merged(value, into: shelved.runtimeVariables)
+            )
+        }
     }
 
-    // MARK: Bottom Action Bar
-
-    private var bottomBar: some View {
-        HStack(spacing: DSSpacing.md) {
-            Button { alreadyInShelf ? removeFromShelf() : addToShelfOnly() } label: {
-                HStack(spacing: DSSpacing.sm) {
-                    if addingToShelf {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: alreadyInShelf ? "minus" : "plus")
-                    }
-                    Text(alreadyInShelf
-                        ? localized("移除書架")
-                        : (addingToShelf ? localized("加入中…") : localized("加入書架")))
-                }
-                .font(DSFont.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 30)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .tint(alreadyInShelf ? DSColor.warning : DSColor.accent)
-            .disabled(chapters.isEmpty || addingToShelf)
-
-            Button { play(chapterIndex: resumeChapterIndex) } label: {
-                HStack(spacing: DSSpacing.sm) {
-                    if openingPlayer {
-                        ProgressView().controlSize(.small).tint(.white)
-                    } else {
-                        Image(systemName: "play.fill")
-                    }
-                    Text(resumeChapterIndex > 0 ? localized("繼續播放") : localized("開始播放"))
-                }
-                .font(DSFont.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 30)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .tint(DSColor.accent)
-            .disabled(chapters.isEmpty || openingPlayer || addingToShelf)
+    /// The search-result origin this page shows, for the source sheet's checkmark.
+    private var currentOrigin: BookOrigin? {
+        searchBook?.origins.first {
+            $0.sourceId == currentBook.sourceId && $0.bookUrl == currentBook.bookUrl
         }
-        .padding(.horizontal, DSSpacing.lg)
-        .padding(.vertical, DSSpacing.sm)
-        .background(.bar)
     }
 
     /// Resume from the saved audio position when this book is already on the shelf.
@@ -347,211 +401,36 @@ struct AudiobookDetailView: View {
         return min(max(0, book.audioChapterIndex), max(0, chapters.count - 1))
     }
 
-    // MARK: Intro
-
-    private var introSection: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.sm) {
-            Text(localized("簡介")).font(DSFont.headline)
-                .foregroundStyle(DSColor.textPrimary)
-            Text(displayIntro)
-                .font(DSFont.subheadline)
-                .foregroundStyle(DSColor.textSecondary)
-                .lineSpacing(3)
-                .lineLimit(introExpanded ? nil : 4)
-            if displayIntro.count > 80 {
-                Button {
-                    withAnimation(DSAnimation.standard) { introExpanded.toggle() }
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .font(DSFont.subheadline.weight(.semibold))
-                        .foregroundStyle(DSColor.accent)
-                        .rotationEffect(.degrees(introExpanded ? 180 : 0))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(introExpanded ? localized("收合") : localized("展開"))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, DSSpacing.lg)
-    }
-
-    // MARK: Source
-
-    private var sourceSection: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.sm) {
-            Text(localized("來源"))
-                .font(DSFont.headline)
-                .foregroundStyle(DSColor.textPrimary)
-
-            Button {
-                showSourcePicker = true
-            } label: {
-                HStack(spacing: DSSpacing.md) {
-                    Image(systemName: "globe")
-                        .font(DSFont.subheadline)
-                        .foregroundStyle(DSColor.accent)
-
-                    Text(sourceName)
-                        .font(DSFont.subheadline.weight(.medium))
-                        .foregroundStyle(DSColor.textPrimary)
-                        .lineLimit(1)
-
-                    Spacer(minLength: DSSpacing.sm)
-
-                    Text(localized("換源"))
-                        .font(DSFont.caption)
-                        .foregroundStyle(DSColor.accent)
-                    Image(systemName: "chevron.right")
-                        .font(DSFont.caption)
-                        .foregroundStyle(DSColor.textTertiary)
-                }
-                .padding(.horizontal, DSSpacing.lg)
-                .padding(.vertical, DSSpacing.md)
-                .frame(maxWidth: .infinity)
-                .interfaceCardSurface()
-                .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            // Same contract as OnlineBookView's 來源 row: label = what it is, value =
-            // current source, hint = what activating it does, input label so Voice Control
-            // still matches the visible 「換源」.
-            .accessibilityLabel(localized("來源"))
-            .accessibilityValue(sourceName)
-            .accessibilityHint(localized("點兩下切換書源"))
-            .accessibilityInputLabels([localized("換源"), localized("來源")])
-        }
-        .padding(.horizontal, DSSpacing.lg)
-    }
-
-    // MARK: Chapters
-
-    private var chapterSection: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.md) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(localized("目錄"))
-                    .font(DSFont.headline)
-                    .foregroundStyle(DSColor.textPrimary)
-                Spacer()
-                if !chapters.isEmpty {
-                    Text(String(format: localized("%d 章"), chapters.count))
-                        .font(DSFont.subheadline)
-                        .foregroundStyle(DSColor.textSecondary)
-                }
-            }
-
-            if !displayLatestChapter.isEmpty {
-                Label(displayLatestChapter, systemImage: "clock.arrow.circlepath")
-                    .font(DSFont.caption)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .lineLimit(1)
-            }
-
-            chapterBody
-        }
-        .padding(.horizontal, DSSpacing.lg)
-    }
-
-    @ViewBuilder
-    private var chapterBody: some View {
-        if loading && chapters.isEmpty {
-            HStack {
-                Spacer()
-                ProgressView(localized("載入目錄…"))
-                Spacer()
-            }
-            .padding(.vertical, DSSpacing.xl)
-        } else if let loadError, chapters.isEmpty {
-            VStack(spacing: DSSpacing.sm) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(DSFont.title3)
-                    .foregroundStyle(DSColor.warning)
-                Text(loadError)
-                    .font(DSFont.caption)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .multilineTextAlignment(.center)
-                Button(localized("重試")) { load() }
-                    .font(DSFont.subheadline.weight(.medium))
-                    .foregroundStyle(DSColor.accent)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, DSSpacing.lg)
-        } else if chapters.isEmpty {
-            Text(localized("目錄為空"))
-                .font(DSFont.subheadline)
-                .foregroundStyle(DSColor.textSecondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, DSSpacing.lg)
-        } else {
-            chapterCard
-        }
-    }
-
-    private var chapterCard: some View {
-        let preview = Array(chapters.prefix(Self.chapterPreviewLimit))
-        return VStack(spacing: 0) {
-            ForEach(Array(preview.enumerated()), id: \.element.id) { index, chapter in
-                Button { play(chapterIndex: index) } label: {
-                    HStack(spacing: DSSpacing.md) {
-                        Text(chapter.title.isEmpty
-                             ? String(format: localized("第 %d 章"), index + 1)
-                             : chapter.title)
-                            .font(DSFont.subheadline)
-                            .foregroundStyle(DSColor.textPrimary)
-                            .lineLimit(1)
-                        Spacer(minLength: DSSpacing.sm)
-                        if chapter.isVip || chapter.isPay {
-                            Image(systemName: "lock.fill")
-                                .font(DSFont.caption2)
-                                .foregroundStyle(DSColor.warning)
-                        }
-                        Image(systemName: "chevron.right")
-                            .font(DSFont.caption)
-                            .foregroundStyle(DSColor.textTertiary)
-                    }
-                    .padding(.horizontal, DSSpacing.lg)
-                    .padding(.vertical, DSSpacing.md)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                if index < preview.count - 1 {
-                    Divider().padding(.leading, DSSpacing.lg)
-                }
-            }
-
-            if chapters.count > preview.count {
-                Divider().padding(.leading, DSSpacing.lg)
-                Button { play(chapterIndex: resumeChapterIndex) } label: {
-                    HStack {
-                        Text(String(format: localized("共 %d 章"), chapters.count))
-                        Spacer()
-                        Image(systemName: "chevron.right").font(DSFont.caption)
-                    }
-                    .font(DSFont.subheadline.weight(.medium))
-                    .foregroundStyle(DSColor.accent)
-                    .padding(.horizontal, DSSpacing.lg)
-                    .padding(.vertical, DSSpacing.md)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .interfaceCardSurface()
-        .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg))
-    }
-
     // MARK: Load (detail + TOC via the shared fetcher API)
+
+    /// Runs after the source sheet has dismissed, so the confirmation alert is not
+    /// presented over a sheet that is still leaving.
+    private func resolvePendingOrigin() {
+        guard let origin = pendingOrigin else { return }
+        pendingOrigin = nil
+        if DetailSourceKind.kind(of: origin, in: searchBook)
+            != DetailSourceKind.kind(of: currentBook, in: searchBook) {
+            kindMismatchOrigin = origin
+        } else {
+            applyOrigin(origin)
+        }
+    }
+
+    private func applyOrigin(_ origin: BookOrigin) {
+        if DetailSourceKind.kind(of: origin, in: searchBook) != .audio,
+           let onSourceKindChange {
+            onSourceKindChange(origin)
+            return
+        }
+        switchToOrigin(origin)
+    }
 
     private func switchToOrigin(_ origin: BookOrigin) {
         let newBook: OnlineBook
         if let searchBook {
-            newBook = Self.makeOnlineBook(from: searchBook, origin: origin)
+            newBook = OnlineBook(detailOrigin: origin, in: searchBook)
         } else {
-            newBook = Self.makeOnlineBook(from: origin, name: currentBook.name, author: currentBook.author)
+            newBook = OnlineBook(detailOrigin: origin, name: currentBook.name, author: currentBook.author)
         }
         guard newBook.sourceId != currentBook.sourceId
             || newBook.bookUrl != currentBook.bookUrl else { return }
@@ -781,50 +660,6 @@ extension BookSourceStore {
 
     func isAudiobookForBadge(_ searchBook: SearchBook) -> Bool {
         searchBook.inferredContentKind(sourceStore: self) == .audio
-    }
-}
-
-// MARK: - Flow Layout (wrapping tag chips)
-
-private struct FlowLayout: Layout {
-    var spacing: CGFloat = DSSpacing.sm
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
-        var origin = CGPoint.zero
-        var rowHeight: CGFloat = 0
-        var totalWidth: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if origin.x + size.width > maxWidth, origin.x > 0 {
-                origin.x = 0
-                origin.y += rowHeight + spacing
-                rowHeight = 0
-            }
-            origin.x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-            totalWidth = max(totalWidth, origin.x - spacing)
-        }
-        let width = maxWidth.isFinite ? maxWidth : totalWidth
-        return CGSize(width: width, height: origin.y + rowHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var origin = CGPoint(x: bounds.minX, y: bounds.minY)
-        var rowHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if origin.x + size.width > bounds.maxX, origin.x > bounds.minX {
-                origin.x = bounds.minX
-                origin.y += rowHeight + spacing
-                rowHeight = 0
-            }
-            subview.place(at: origin, anchor: .topLeading, proposal: ProposedViewSize(size))
-            origin.x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
     }
 }
 

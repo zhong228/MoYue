@@ -340,7 +340,7 @@ struct ContentView: View {
             SettingsView()
         case .search:
             NavigationStack {
-                SearchView()
+                SearchView(isTabRoot: true)
             }
         }
     }

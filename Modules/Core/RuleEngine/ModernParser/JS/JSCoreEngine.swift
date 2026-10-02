@@ -131,6 +131,15 @@ class JSCoreEngine {
         didSet { bridge.toastHandler = toastHandler }
     }
 
+    /// Called when JS invokes `java.refreshBookInfo()` / `java.refreshBookToc()`.
+    var refreshBookInfoHandler: (() -> Void)? {
+        didSet { bridge.refreshBookInfoHandler = refreshBookInfoHandler }
+    }
+
+    var refreshBookTocHandler: (() -> Void)? {
+        didSet { bridge.refreshBookTocHandler = refreshBookTocHandler }
+    }
+
     /// Called when JS invokes `java.setResponseBase64(data, mimeType)` — captures
     /// base64-decoded audio data from TTS `loginCheckJs` response processing.
     var responseBase64Handler: ((Data, String) -> Void)? {

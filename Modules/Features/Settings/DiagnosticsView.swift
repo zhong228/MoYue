@@ -9,8 +9,8 @@ import UIKit
 /// hit a bug could only ever report "it did the thing again". This screen turns that
 /// into a file they can send.
 ///
-/// Pushed page, so `.inline` title mode (docs/design.md §2.1 — only the four tab
-/// roots use `.inlineLarge`).
+/// Pushed page, so `.inline` title mode (docs/design.md §2.1 — only the tab roots
+/// use `rootTabTitle(_:onScroll:)`).
 struct DiagnosticsView: View {
 
     @StateObject private var model = DiagnosticsViewModel()

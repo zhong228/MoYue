@@ -48,15 +48,37 @@ private struct SearchResultDestination: View {
     let route: BookSearchResultRoute
     @EnvironmentObject private var bookStore: BookStore
 
-    @ViewBuilder
     var body: some View {
-        let book = route.snapshot
-        if BookSourceStore.shared.isAudiobook(book) {
-            AudiobookDetailView(searchBook: book)
-                .environmentObject(bookStore)
+        OnlineBookDetailDestination(.search(route.snapshot))
+            .environmentObject(bookStore)
+    }
+}
+
+/// 搜索's title: a tab root's at the root of its tab, `.inline` where it is pushed.
+private struct SearchPageTitle: ViewModifier {
+    let isTabRoot: Bool
+
+    func body(content: Content) -> some View {
+        if isTabRoot {
+            content.rootTabTitle(localized("搜索"), onScroll: .minimizesBar)
         } else {
-            OnlineBookView(searchBook: book)
-                .environmentObject(bookStore)
+            content
+                .navigationTitle(localized("搜索"))
+                .toolbarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+/// The results' scroll edge: a tab root's under the 搜索 tab's minimizing bar, the app's
+/// soft edge where the page is pushed.
+private struct SearchResultsScrollEdges: ViewModifier {
+    let isTabRoot: Bool
+
+    func body(content: Content) -> some View {
+        if isTabRoot {
+            content.rootTabSearchScrollEdges()
+        } else {
+            content.softScrollEdges()
         }
     }
 }
@@ -66,6 +88,12 @@ private struct SearchResultDestination: View {
 struct BookSearchView: View {
     var initialQuery: String = ""
     var showsCloseButton = false
+    /// A scope for this search page only, never saved — Legado's 搜索 on one source
+    /// (`searchScope.update(scope, save = false)`). `nil` uses the saved scope.
+    var sessionScope: SearchSourceScope?
+    /// The 搜索 tab's own root, which carries a tab root's title; pushed from elsewhere,
+    /// the page is `.inline` like any other.
+    var isTabRoot = false
 
     @EnvironmentObject var bookStore: BookStore
     @StateObject private var aggregator = SearchAggregator()
@@ -81,11 +109,18 @@ struct BookSearchView: View {
     @State private var selectedIOS17ResultRoute: BookSearchResultRoute?
     @State private var showsSourceScopeSheet = false
     @State private var needsSearchResubmission = false
+    /// The session scope as the reader changes it on this page.
+    @State private var editedSessionScope: SearchSourceScope?
     /// A book opened from 最近閱讀: pushed onto this stack, as a detail page pushes its
     /// reader. Audiobooks keep their own modal player.
     @State private var readerRoute: DetailReaderRoute?
     @State private var audiobookReaderRoute: DetailReaderRoute?
     @AppStorage(RecentSearchQueries.storageKey) private var recentQueries = RecentSearchQueries()
+
+    /// The scope this page searches: its own session scope, else the saved one.
+    private var activeScope: SearchSourceScope {
+        editedSessionScope ?? sessionScope ?? scopeStore.scope
+    }
 
     var enabledSources: [BookSource] { sourceStore.enabledSources }
 
@@ -112,15 +147,15 @@ struct BookSearchView: View {
                         resultList
                     } else if aggregator.isSearching {
                         // Progress and the pause control sit in the scope row above.
-                        VStack(spacing: 12) {
-                            Spacer()
-                            ProgressView(localized("搜索中…"))
-                            Spacer()
-                        }
+                        ProgressView(localized("搜索中…"))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .rootTabTitleScrollAnchor()
                     } else if aggregator.isPaused {
                         pausedPlaceholder
+                            .rootTabTitleScrollAnchor()
                     } else if shouldShowEmptyResult {
                         emptyResultView
+                            .rootTabTitleScrollAnchor()
                     } else {
                         SearchIdleContent(
                             isQueryEmpty: trimmedQuery.isEmpty,
@@ -128,6 +163,7 @@ struct BookSearchView: View {
                             onOpenBook: openRecentBook
                         ) {
                             hintView
+                                .rootTabTitleScrollAnchor()
                         }
                     }
                 }
@@ -138,8 +174,7 @@ struct BookSearchView: View {
         }
         .background(PageBackgroundView(scope: .search).ignoresSafeArea())
         .pageBackgroundToolbar(for: .search)
-        .navigationTitle(localized("搜索書籍"))
-        .toolbarTitleDisplayMode(.inline)
+        .modifier(SearchPageTitle(isTabRoot: isTabRoot))
         // Declared here, outside the lazy result containers, so the navigation
         // stack can always see the active destination.
         .modifier(
@@ -162,11 +197,16 @@ struct BookSearchView: View {
                 .environmentObject(bookStore)
                 .environment(\.readerNavigator, nil)
         }
-        .searchable(text: $query, prompt: localized("輸入書名或作者"))
+        // At the tab root on iOS 27 the field rises to the top as the bar slides away.
+        .searchable(
+            text: $query,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: localized("輸入書名或作者")
+        )
         .sheet(isPresented: $showsSourceScopeSheet) {
             SearchSourceScopeSheet(
                 enabledSources: enabledSources,
-                initialScope: scopeStore.scope,
+                initialScope: activeScope,
                 onSave: applySearchSourceScope
             )
         }
@@ -215,14 +255,11 @@ struct BookSearchView: View {
     // Shown when a search was paused before any result came back. The ring in the
     // scope row above carries the search on.
     private var pausedPlaceholder: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "pause.circle")
-                .font(DSFont.fixed(size: 48))
-                .foregroundStyle(DSColor.textSecondary.opacity(0.4))
-            Text(localized("已暫停")).font(DSFont.headline).foregroundStyle(DSColor.textPrimary)
-            Text(localized("點擊繼續搜索剩餘書源")).font(DSFont.subheadline).foregroundStyle(DSColor.textSecondary)
-            Spacer()
+        ContentUnavailableView {
+            UnavailableLabel(localized("已暫停"), systemImage: "pause.circle")
+        } description: {
+            Text(localized("點擊繼續搜索剩餘書源"))
+                .foregroundStyle(DSColor.textSecondary)
         }
     }
 
@@ -237,7 +274,7 @@ struct BookSearchView: View {
         HStack {
             SearchSourceScopeCapsule(
                 title: sourceScopeSummary,
-                isCustom: scopeStore.scope.mode == .custom,
+                isCustom: activeScope.mode == .custom,
                 action: { showsSourceScopeSheet = true }
             )
             Spacer(minLength: DSSpacing.sm)
@@ -261,13 +298,13 @@ struct BookSearchView: View {
     }
 
     private var sourceScopeSummary: String {
-        switch scopeStore.scope.mode {
+        switch activeScope.mode {
         case .all:
             return localized("全部書源")
         case .custom:
             return String(
                 format: localized("已選 %d 個書源"),
-                scopeStore.scope.resolvedSources(from: enabledSources).count
+                activeScope.resolvedSources(from: enabledSources).count
             )
         }
     }
@@ -299,6 +336,12 @@ struct BookSearchView: View {
                     book.id == aggregator.results.first?.id ? .hidden : .automatic,
                     edges: .top
                 )
+                .background {
+                    // The first result measures the list's scroll for the 搜索 tab's title.
+                    if book.id == aggregator.results.first?.id {
+                        Color.clear.rootTabTitleScrollAnchor()
+                    }
+                }
             }
 
             // 載入更多: fetch the next result page from every source that
@@ -309,7 +352,7 @@ struct BookSearchView: View {
                 .listRowBackground(Color.clear)
             }
         }
-        .softScrollEdges()
+        .modifier(SearchResultsScrollEdges(isTabRoot: isTabRoot))
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         // Apple Books' result rows carry no disclosure chevron; the whole row opens the book.
@@ -353,62 +396,58 @@ struct BookSearchView: View {
         Button {
             aggregator.loadMore()
         } label: {
-            HStack {
-                Spacer()
-                Label(localized("載入更多"), systemImage: "arrow.down.circle")
-                    .font(DSFont.subheadline)
-                    .foregroundColor(.accentColor)
-                Spacer()
-            }
-            .padding(.vertical, 8)
+            Label(localized("載入更多"), systemImage: "arrow.down.circle")
+                .font(DSFont.subheadline)
+                .foregroundStyle(DSColor.accent)
+                .frame(maxWidth: .infinity, minHeight: DSLayout.minimumTapTarget)
         }
     }
 
     // MARK: Empty State
     private var emptyResultView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "magnifyingglass").font(DSFont.fixed(size: 48)).foregroundStyle(
-                DSColor.textSecondary.opacity(0.3))
-            Text(String(format: localized("沒有找到「%@」"), submittedQuery)).font(DSFont.headline).foregroundStyle(DSColor.textPrimary)
-            Text(localized("嘗試換個關鍵字，或切換書源")).font(DSFont.subheadline).foregroundStyle(DSColor.textSecondary)
-            Spacer()
+        ContentUnavailableView {
+            UnavailableLabel(
+                String(format: localized("沒有找到「%@」"), submittedQuery),
+                systemImage: "magnifyingglass"
+            )
+        } description: {
+            Text(localized("嘗試換個關鍵字，或切換書源"))
+                .foregroundStyle(DSColor.textSecondary)
         }
     }
 
+    @ViewBuilder
     private var hintView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            if enabledSources.isEmpty {
-                Image(systemName: "exclamationmark.triangle").font(DSFont.fixed(size: 48))
-                    .foregroundColor(.orange)
-                Text(localized("尚未設置書源")).font(DSFont.headline).foregroundStyle(DSColor.textPrimary)
-                Text(localized("請先在書源管理中新增並啟用書源")).font(DSFont.subheadline).foregroundStyle(DSColor.textSecondary)
-            } else {
-                Image(systemName: "text.magnifyingglass").font(DSFont.fixed(size: 48)).foregroundStyle(
-                    DSColor.textSecondary.opacity(0.3))
-                if needsSearchResubmission {
-                    Text(localized("搜索範圍已更新，請再次搜索"))
-                        .font(DSFont.subheadline)
-                        .foregroundStyle(DSColor.textSecondary)
-                } else {
-                    Text(localized("輸入書名或作者搜索"))
-                        .font(DSFont.subheadline)
-                        .foregroundStyle(DSColor.textSecondary)
-                }
-                Text(String(format: localized("已啟用 %d 個書源"), enabledSources.count))
-                    .font(DSFont.caption)
-                    .foregroundStyle(
-                        DSColor.textSecondary.opacity(0.7))
+        if enabledSources.isEmpty {
+            ContentUnavailableView {
+                UnavailableLabel(localized("尚未設置書源"), systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(localized("請先在書源管理中新增並啟用書源"))
+                    .foregroundStyle(DSColor.textSecondary)
             }
-            Spacer()
+        } else {
+            ContentUnavailableView {
+                UnavailableLabel(
+                    needsSearchResubmission
+                        ? localized("搜索範圍已更新，請再次搜索")
+                        : localized("輸入書名或作者搜索"),
+                    systemImage: "text.magnifyingglass"
+                )
+            } description: {
+                Text(String(format: localized("已啟用 %d 個書源"), enabledSources.count))
+                    .foregroundStyle(DSColor.textSecondary)
+            }
         }
     }
 
     // MARK: Search Logic
     private func applySearchSourceScope(_ newScope: SearchSourceScope) {
-        guard newScope != scopeStore.scope else { return }
-        scopeStore.save(newScope)
+        guard newScope != activeScope else { return }
+        if sessionScope != nil {
+            editedSessionScope = newScope
+        } else {
+            scopeStore.save(newScope)
+        }
         submittedQuery = ""
         needsSearchResubmission = !trimmedQuery.isEmpty
         aggregator.cancelAndClear()
@@ -417,9 +456,9 @@ struct BookSearchView: View {
     private func doSearch() {
         let q = trimmedQuery
         guard !q.isEmpty else { return }
-        let sources = scopeStore.scope.resolvedSources(from: enabledSources)
+        let sources = activeScope.resolvedSources(from: enabledSources)
         guard !sources.isEmpty else {
-            errorMsg = scopeStore.scope.mode == .custom
+            errorMsg = activeScope.mode == .custom
                 ? localized("請至少選擇一個可用書源")
                 : localized("沒有可用的書源，請先啟用書源")
             return
@@ -469,89 +508,6 @@ struct AggregatedResultRow: View {
     }
 }
 
-// MARK: - Source Picker Sheet
-
-struct SourcePickerSheet: View {
-    @Environment(\.presentationMode) var dismiss
-    let searchBook: SearchBook
-    let onSelectOrigin: (BookOrigin) -> Void
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                HStack(alignment: .top, spacing: 12) {
-                    BookCoverImage(
-                        coverURL: searchBook.coverUrl,
-                        title: searchBook.displayName,
-                        author: searchBook.author
-                    )
-                    .frame(width: 60, height: 80)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(searchBook.displayName).font(DSFont.headline).foregroundStyle(DSColor.textPrimary)
-                        Text(searchBook.author).font(DSFont.subheadline).foregroundStyle(DSColor.textSecondary)
-                        if !searchBook.detailIntro.isEmpty {
-                            Text(searchBook.detailIntro)
-                                .font(DSFont.caption)
-                                .foregroundStyle(DSColor.textSecondary)
-                                .lineLimit(2)
-                        }
-                    }
-                    Spacer()
-                }
-                .padding()
-
-                Divider()
-
-                List(searchBook.origins) { origin in
-                    Button {
-                        dismiss.wrappedValue.dismiss()
-                        onSelectOrigin(origin)
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(origin.sourceName)
-                                    .font(DSFont.fixed(size: 15, weight: .medium))
-                                    .foregroundStyle(DSColor.textPrimary)
-                                if !origin.lastChapter.isEmpty {
-                                    Text(origin.lastChapter)
-                                        .font(DSFont.fixed(size: 12))
-                                        .foregroundStyle(DSColor.textSecondary)
-                                        .lineLimit(1)
-                                }
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(DSFont.fixed(size: 13))
-                                .foregroundStyle(DSColor.textSecondary.opacity(0.5))
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .buttonStyle(.plain)
-                    .listRowBackground(Color.clear)
-                }
-                .softScrollEdges()
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-            }
-            .background(PageBackgroundView(scope: .bookshelf).ignoresSafeArea())
-            .navigationTitle(
-                String(format: localized("選擇來源（%d 個）"), searchBook.origins.count))
-            .toolbarTitleDisplayMode(.inline)
-            .pageBackgroundToolbar(for: .bookshelf)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        dismiss.wrappedValue.dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                }
-            }
-        }
-    }
-}
-
 // MARK: - OnlineBook Identifiable (for sheet item)
 extension OnlineBook: Hashable {
     static func == (lhs: OnlineBook, rhs: OnlineBook) -> Bool {
@@ -572,7 +528,7 @@ extension SearchBook: Hashable {
     }
 }
 
-#Preview("搜索書籍") {
+#Preview("搜索") {
     NavigationStack {
         BookSearchView()
             .environmentObject(BookStore())

@@ -801,7 +801,6 @@
 
 /* Explore tab */
 "探索" = "Explore";
-"搜尋書名、作者、網址或關鍵字" = "Search title, author, URL or keyword";
 "搜尋書源名稱或網址" = "Search source name or URL";
 "書源發現" = "Discover";
 "網頁瀏覽" = "Web";
@@ -1590,7 +1589,6 @@
 "設置源變量" = "Set Source Variable";
 "設置書籍變量" = "Set Book Variables";
 "變量說明" = "Variable Comment";
-"書籍變量說明" = "Edit this book's runtime variables as a JSON object ({\"key\":\"value\"}); the source's JS reads them when fetching.";
 "JSON 格式錯誤" = "Invalid JSON format";
 
 // Account-linked purchases
@@ -3448,8 +3446,57 @@
 "%d 秒" = "%d s";
 "片頭 %d 秒，片尾 %d 秒" = "Intro %d s, outro %d s";
 "只套用在這本書；片頭只在章節從頭播放時跳過。" = "Applies to this book only. The intro is skipped only when a chapter plays from its beginning.";
+"書籍類型不一樣" = "Different Book Type";
+"是否確認換源" = "Switch to this source anyway?";
+"字數" = "Words";
+"付費章節" = "Paid chapter";
+"要把這本書移出書架嗎？" = "Remove This Book from the Shelf?";
+"這本書的閱讀進度和快取會一起刪除。" = "Its reading progress and cache will be deleted too.";
+"要清除所有瀏覽記錄嗎？" = "Clear All Browsing History?";
+"書籍變量可在 JS 中通過 book.getVariable(\"custom\") 取得" = "Sources read the book variable in JS with book.getVariable(\"custom\").";
+"源變量可在 JS 中通過 source.getVariable() 取得" = "Sources read the source variable in JS with source.getVariable().";
+"我的發現" = "My Discover";
+"從我的發現移除" = "Remove from My Discover";
+"加入我的發現" = "Add to My Discover";
+"長按任何書源的分類標題，或在分類頁點星號，就能把它加進來。" = "Touch and hold a category title from any source, or tap the star on a category, to add it here.";
+"篩選書源" = "Filter Sources";
+"直接轉碼閱讀" = "Read in Reader";
+"在網頁點「加入書籤」，網站就會出現在這裡。" = "Tap Add Bookmark on a page and the site appears here.";
+"加入書籤" = "Add Bookmark";
+"移除書籤" = "Remove Bookmark";
+"轉碼閱讀" = "Read in Reader";
+"在瀏覽器中開啟" = "Opens in the browser";
+"顯示全部" = "Show All";
+"編輯書籤" = "Edit Bookmarks";
+"清除瀏覽記錄" = "Clear History";
+"自訂起始頁" = "Customize Start Page";
 
 /* 搜索頁：最近搜索與最近閱讀 */
 "最近搜索" = "Recently Searched";
 "清除最近搜索" = "Clear Recently Searched";
 "清除最近閱讀" = "Clear Recently Read";
+
+/* 探索設定 */
+"探索設定" = "Explore Settings";
+"探索頁" = "Explore Page";
+"書源頁佈局" = "Source Page Layout";
+"雜誌" = "Magazine";
+"列表是上方一排分類、下方所選分類的書；雜誌是每個分類一排書架或一欄榜單。" = "List shows the categories along the top and the chosen one's books below; Magazine shows each category as a shelf or a chart.";
+"首屏配置" = "Start Page";
+"不啟用" = "Off";
+"設定後，打開探索時會直接進入這一頁。" = "Explore opens straight onto this page.";
+"豎排榜單關鍵詞" = "Chart Keywords";
+"新增關鍵詞" = "Add Keyword";
+"標題含任一關鍵詞的分類用豎排序號，其餘用橫滑封面。左滑可刪除。" = "Categories whose title contains any keyword show as numbered charts, the rest as sideways shelves of covers. Swipe left to delete.";
+"恢復預設關鍵詞" = "Restore Default Keywords";
+"榜單展示數量" = "Books Shown";
+"豎排展示數" = "In Each Chart";
+"橫滑展示數" = "On Each Shelf";
+"預加載" = "Preload";
+"預加載數量" = "Categories Ahead";
+"捲到某個分類時，順便排隊載入後面幾個分類。數字越大越少看到載入中，但排隊的書源請求也越多。" = "When a category comes into view, the next few queue up to load too. A higher number means fewer loading placeholders, but more requests queued to the source.";
+"封面並發" = "Cover Downloads";
+"封面並發數" = "At Once";
+"不限制" = "No Limit";
+"同時下載的封面上限，書架和書籍詳情的封面也算在內。數字越低捲動時越不容易發熱，但封面出現得慢一些。" = "The most covers downloading at once, counting those on the bookshelf and book details. Lower runs cooler while scrolling, but covers appear more slowly.";
+"%@：%@" = "%@: %@";

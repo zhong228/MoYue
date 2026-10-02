@@ -17,7 +17,7 @@ enum RootTabItem: String, CaseIterable, Codable, Hashable, Identifiable {
         case .explore: return "探索"
         case .rss: return "RSS 訂閱"
         case .settings: return "設定"
-        case .search: return "搜索書籍"
+        case .search: return "搜索"
         }
     }
 
