@@ -181,7 +181,35 @@ enum CoreTextChunkSlicer {
                 )
             }
 
-            let visible = CTFrameGetVisibleStringRange(frameBuild.frame)
+            var visible = CTFrameGetVisibleStringRange(frameBuild.frame)
+            if visible.length < actualRange.length,
+               visible.length == 0 || visible.location == actualRange.location {
+                // `SuggestFrameSize` sums each line's ascent + descent, but a frame only keeps
+                // a line whose baseline lies inside its path. A paragraph pinned to one line
+                // height (`min == max`, as a block image is) can come back with a negative
+                // descent — baseline below the line box — so the suggested height ends just
+                // above the baseline and the frame drops that line. When it was the chunk's
+                // only line the chunk laid out nothing and its image vanished. Size the chunk
+                // from where the range's lines actually end instead.
+                let laidOut = laidOutHeight(
+                    framesetter: framesetter,
+                    range: actualRange,
+                    width: contentWidth,
+                    metrics: &metrics
+                )
+                if laidOut > actualHeight {
+                    actualHeight = laidOut
+                    frameBuild = makeHorizontalFrame(
+                        framesetter: framesetter,
+                        attrStr: attrStr,
+                        range: actualRange,
+                        chunkSize: CGSize(width: contentWidth, height: actualHeight),
+                        writingMode: writingMode,
+                        metrics: &metrics
+                    )
+                    visible = CTFrameGetVisibleStringRange(frameBuild.frame)
+                }
+            }
             if visible.location == actualRange.location,
                visible.length > 0,
                visible.length < actualRange.length {
@@ -595,6 +623,40 @@ enum CoreTextChunkSlicer {
             floatAttachments: [attachment],
             splitBeforeFloatLocation: nil
         )
+    }
+
+    /// Height a rectangular frame needs to keep every line of `range`: the deepest line's
+    /// baseline (measured from the top of an unbounded frame) plus whatever descent it has
+    /// below that baseline. A negative descent adds nothing — the baseline itself must fit.
+    private static func laidOutHeight(
+        framesetter: CTFramesetter,
+        range: CFRange,
+        width: CGFloat,
+        metrics: inout CoreTextSliceMetrics
+    ) -> CGFloat {
+        // Far taller than any one chunk (the height cap is 2000pt; the tallest block image is
+        // bounded by the viewport), yet small enough that a baseline measured from it keeps
+        // sub-point precision if Core Text stores line positions in single precision.
+        let probeHeight: CGFloat = 1_000_000
+        let frame = metrics.measuringCreateFrame {
+            CTFramesetterCreateFrame(
+                framesetter,
+                range,
+                CGPath(rect: CGRect(x: 0, y: 0, width: width, height: probeHeight), transform: nil),
+                nil
+            )
+        }
+        let lines = CTFrameGetLines(frame) as! [CTLine]
+        guard !lines.isEmpty else { return 0 }
+        var origins = [CGPoint](repeating: .zero, count: lines.count)
+        CTFrameGetLineOrigins(frame, CFRange(location: 0, length: lines.count), &origins)
+        var bottom: CGFloat = 0
+        for (index, line) in lines.enumerated() {
+            var descent: CGFloat = 0
+            _ = CTLineGetTypographicBounds(line, nil, &descent, nil)
+            bottom = max(bottom, probeHeight - origins[index].y + max(0, descent))
+        }
+        return ceil(bottom)
     }
 
     /// Scans the specified range for block images with CTRunDelegate and returns the maximum drawHeight.
