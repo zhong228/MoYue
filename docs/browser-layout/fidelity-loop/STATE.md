@@ -14,6 +14,8 @@ Loop 每一輪更新這一頁。「佇列」和「雜訊」由 `fidelity-triage`
 
 **上一次合入的完整量測：`baseline-2026-09-30`**（[報告](reports/baseline-2026-09-30.md)）。驗證者的 `compare --base` 用這個名字；每合入一個切片，把這裡換成那次驗證的 run。
 
+最近候選：S001 第 3 次 `S001-attempt3-verify` 完整比較 PASS；章標題已修，但清單編號有可見退步，驗證者判為 **ESCALATE_HUMAN**。未合入，以下記分板不替換；第 2 次歷史仍保留在 D4。
+
 量的是：閱讀器 `main eb960673 + uncommitted changes`（當時工作目錄的內容，含按需字型），引擎 YueduCoreText 0.6.1。16 本、249 章；對照組 `ios27.0-32c823fa58959671`（語言固定為繁體中文）。
 
 | 書 | 分數 | dev | holdout | 過關 | 走新引擎／回退 |
@@ -41,23 +43,11 @@ Loop 每一輪更新這一頁。「佇列」和「雜訊」由 `fidelity-triage`
 
 ## 進行中
 
-（無）
+無。本輪 S001 第 3 次已停：章標題修正有效，獨立 186 tests／28 suites、458 章基線與完整 compare 全過；spine 15 清單編號消失，判定 ESCALATE_HUMAN。候選 8 檔保留、未 commit，記分板仍維持已接受基線。續修選項見 D4。
 
 ## 佇列
 
 前五項各對應一本還沒過關的書，從最小的改動排起。第六項之後是已經過關的書裡看得見的缺陷。每一項的「假設的根因」都還沒重現過，動手前先照 LOOP.md 第 2 步確認。
-
-### S001 — 深色模式的 `@media` 被當成版面相關，整章回退
-- 依據：回退原因 media-queries 共 16 章，全部是 ai-glossary（75.2 分，沒有任何一章走新引擎）
-- 代表章節：ai-glossary:1、ai-glossary:3、ai-glossary:8
-- 假設的根因：`BrowserLayoutCapabilityScanner.cssContainsMediaQuery` 看到任何 `@media` 就拒絕。這本書的樣式表只有一個 `@media (prefers-color-scheme: dark)`，裡面只改顏色；`CSSParser` 已經把這種區塊分流成 `isDarkMedia` 規則，不影響版面。
-- 完成的樣子：ai-glossary 不再有 media-queries 回退。走新引擎後分數下降，或掃描器接著報出別的原因（這本書還用了 `max-width: 42em`、`min-height: 100vh`、`linear-gradient`），就把看到的寫在這一項底下再拆，不要順手一起改
-- 嘗試：1（2026-10-01，驗證者 REJECT）
-- 第一次結果：候選修正讓 CSSParser 與能力掃描器共用 at-rule 邊界，只放行獨立 `@media (prefers-color-scheme: dark)` 的配色宣告，其他查詢、巢狀條件及版面宣告維持拒絕。Gate 通過（3 檔）；兩個新合成測試通過。
-- 實作方量測（未合入）：ai-glossary 的 10 個 dev 章節 72.0（`baseline-2026-09-30`）→ 97.3（`S001-after`），新引擎 0→10 章，media-queries 回退消失；部分比較 PASS。代表章節 3／8 的平均 77.1（`S001-before`）→ 96.4（`S001-after`）。未量 holdout，不能替換記分板。
-- 驗證者理由：`BrowserLayoutCapabilityScannerTests` 31 tests、2 failures：`rejectsRubyOutsideSupportedSubset` 未回報 `.ruby`；`rejectsEffectiveUnsupportedTextIndent` 的 `-1px` 未回報 `.textIndent`。依第一項失敗即停止，未進入獨立完整量測與並排圖關卡。
-- 基底核對：撤回本輪三檔後，原始類別 29 tests、同樣 2 failures（`/tmp/S001-base-scanner.log`），確認阻擋也存在於基底。沒有削弱斷言或順手修其他規則。
-- 收尾：未 commit；兩個工作副本乾淨，仍在原 `loop/fidelity` commit。候選 diff 保存在 `~/Desktop/Yuedu-fidelity-loop/S001-attempt-1-rejected.patch`；[本輪證據](reports/S001-attempt-1.md)。本輪停下，S001 保留佇列首位，未做 S002。
 
 ### S002 — 行內盒的左右 margin 沒有佔位
 - 依據：inline-start 5.8、line-count 5.3、inline-size 4.9、line-break 4.5（每本書的分數點數）；mahabharata 16 章全走新引擎，78.5 分
@@ -164,6 +154,39 @@ Loop 每一輪更新這一頁。「佇列」和「雜訊」由 `fidelity-triage`
   - 這個測試在基底上已經是綠的，不會再因為環境的差異擋住斷行、行內排版的切片。跑它要加 `-testLanguage zh-Hant -testRegion TW`，手冊已經寫了。
   - 2026-10-01 在 loop 的工作副本、loop 的模擬器上跑開工檢查：必跑組加斷行基線 85 tests in 16 suites 全過。
 - **2026-10-01 使用者決定：斷行基線每個切片都跑。** 不是要改斷行的切片讓它變了，就是回歸；本來就要改斷行的切片，在同一個 commit 重錄，報告列出全部變了的章，並抽 3 章說明規則用在哪裡；驗證者核對清單並自己再抽 2 章。閘門（`fidelity.py gate`）現在只放行 `redchamber.tsv` 這一個基線檔，其他錄製檔照舊要人看。細節在 [LOOP.md](LOOP.md)「斷行基線」。
+
+### D4 — S001 的候選改善分數，但章標題由兩行變三行
+
+原切片：**S001 — 深色模式的 `@media` 被當成版面相關，整章回退**
+- 依據：回退原因 media-queries 共 16 章，全部是 ai-glossary（75.2 分，沒有任何一章走新引擎）
+- 代表章節：ai-glossary:1、ai-glossary:3、ai-glossary:8
+- 假設的根因：`BrowserLayoutCapabilityScanner.cssContainsMediaQuery` 看到任何 `@media` 就拒絕。這本書的樣式表只有一個 `@media (prefers-color-scheme: dark)`，裡面只改顏色；`CSSParser` 已經把這種區塊分流成 `isDarkMedia` 規則，不影響版面。
+- 完成的樣子：ai-glossary 不再有 media-queries 回退。走新引擎後分數下降，或掃描器接著報出別的原因（這本書還用了 `max-width: 42em`、`min-height: 100vh`、`linear-gradient`），就把看到的寫在這一項底下再拆，不要順手一起改
+- 嘗試：1（2026-10-01，驗證者 REJECT）
+- 第一次結果：候選修正讓 CSSParser 與能力掃描器共用 at-rule 邊界，只放行獨立 `@media (prefers-color-scheme: dark)` 的配色宣告，其他查詢、巢狀條件及版面宣告維持拒絕。Gate 通過（3 檔）；兩個新合成測試通過。
+- 實作方量測（未合入）：ai-glossary 的 10 個 dev 章節 72.0（`baseline-2026-09-30`）→ 97.3（`S001-after`），新引擎 0→10 章，media-queries 回退消失；部分比較 PASS。代表章節 3／8 的平均 77.1（`S001-before`）→ 96.4（`S001-after`）。未量 holdout，不能替換記分板。
+- 驗證者理由：`BrowserLayoutCapabilityScannerTests` 31 tests、2 failures：`rejectsRubyOutsideSupportedSubset` 未回報 `.ruby`；`rejectsEffectiveUnsupportedTextIndent` 的 `-1px` 未回報 `.textIndent`。依第一項失敗即停止，未進入獨立完整量測與並排圖關卡。
+- 基底核對：撤回本輪三檔後，原始類別 29 tests、同樣 2 failures（`/tmp/S001-base-scanner.log`），確認阻擋也存在於基底。沒有削弱斷言或順手修其他規則。
+- 收尾：未 commit；兩個工作副本乾淨，仍在原 `loop/fidelity` commit。候選 diff 保存在 `~/Desktop/Yuedu-fidelity-loop/S001-attempt-1-rejected.patch`；[本輪證據](reports/S001-attempt-1.md)。本輪停下，S001 保留佇列首位，未做 S002。
+- 恢復開工檢查（2026-10-01 15:20）：PAUSE 不存在、oracle lock 通過、兩副本乾淨、空間 143GB；但 PID 35173 的 `xcodebuild -downloadPlatform iOS -buildVersion 26.5` 仍在執行。已提出是否排除純下載程序的確認，尚未開始基底回歸或第二次實作；嘗試次數維持 1，沒有新量測或驗證判定。
+
+- 第二次開工檢查已通過：使用者於本對話明確允許排除純 runtime 下載程序；其他編譯／測試仍串行等待。Reader 基底 `df002297f160b16b46c4bae34dbd47ef55247d34`、套件 `d7e16bd9aa64b80c4d0bc70fa0fc069409c34ea7`；必跑組與繁中斷行基線共 85 tests／16 suites 全過，458 章、跳過 0，log `/tmp/S001-attempt2-base.log`。修改前量測 `S001-attempt2-before`：代表 1／3／8 平均 78.9，3 章皆因 media-queries 回退；已開始第二次候選實作，尚待驗證者判定。
+- 第 2 次判定：**ESCALATE_HUMAN**（`fidelity-verifier`）。Oracle lock、Gate 3 檔、獨立回歸 87 tests／16 suites、458 章斷行基線皆過；完整 `compare --full` PASS。證據：[第 2 次](reports/S001-attempt-2.md)、[完整量測](reports/S001-attempt2-verify.md)、[比較](reports/S001-attempt2-compare-baseline-2026-09-30.md)。
+- 完整候選分數：ai-glossary 75.2→97.4，dev 72.0→97.3，holdout 80.4→97.4（`baseline-2026-09-30`→`S001-attempt2-verify`）；16 章全 Browser、media-queries 回退消失。其他可比較 Browser 章節 Δ=0.0；原有 56 章 Legacy 漂移不算此切片效果。
+- 需要人看：ai-glossary:3 的章標題在 WebKit／基線是兩行，候選變三行，末行只剩「型”」，插圖因此下移。依 verify skill 的分數改善但畫面變差條件升級；未完成後續 spine 8 與兩個控制章節的並排關卡。圓角沒有當成新增退步；標題斷行程式根因尚未釐清。
+- 候選目前保留：Reader `BrowserLayoutCapabilityScannerTests.swift` 與 package 的 `CSSParser.swift`、`BrowserLayoutCapabilityScanner.swift`，共 3 檔；未 commit、未 push、未發版、未改量法。兩分支 HEAD 未變，不再進入下一切片。
+- 選項：（a）先另案釐清並修好章標題退步，再重試 S001（推薦：兼顧分數與可見品質）；（b）用編輯撤回候選，等標題排版修正後重試，先讓副本乾淨。
+- 狀態：本輪停下待人決定。拒絕計數仍是 1（第 1 次 REJECT；第 2 次是 ESCALATE_HUMAN），沒有計成第 2 次 REJECT。記分板仍以最後接受的 `baseline-2026-09-30` 為準。
+
+- 2026-10-01 使用者在本對話選擇（a）／選項 1：先修好章標題退步再重試 S001。續修既有保留候選（未提交變更只有上次 3 檔，diff 完全相同），不處理 S002。PAUSE 不存在、oracle lock 通過、空間 113GB、第二台模擬器與 SDK 未變；等待主目錄測試結束後再動手。基底 85 tests 與候選 87 tests 的上輪通過證據在相關修改前沿用；修正後將重跑直接回歸與本輪必要驗證。
+
+
+- **第 3 次判定（2026-10-01）：ESCALATE_HUMAN。** 使用者選項 1 的通用 letter-spacing 修正已實作：依最終字級解析 em／rem／px／pt、繼承絕對長度，行尾不多算 kern；spine 3 標題恢復 WebKit 的兩行。與既有配色候選共 8 檔，未提交。
+- 本輪實作方 145 tests／24 suites；獨立驗證 186 tests／28 suites，跳過 0；458 章斷行基線未變未重錄。Oracle／main frozen status／Gate 8 檔通過。
+- 唯一完整 `S001-attempt3-verify`（16 本／249 章）對已接受 `baseline-2026-09-30`：COMPARE PASS。ai-glossary 全書 75.2→97.7、dev 72.0→97.7、holdout 80.4→97.9，Browser 0→16、總覆蓋 177→193；game-designer:58 79.9→80.5，全書 96.7→96.7。其他可比較 Browser 章節未變；56 章 Legacy／Legacy 漂移排除，最大 1.8。
+- **新阻擋：ai-glossary:15 有序清單 1–6 編號消失。** WebKit 與已接受基線可見，Browser 候選沒有；第 2 次未接受候選也沒有。因此不是字距修正新增的缺陷，仍是 S001 admission 相對已接受基線的可見退步。[三張圖與完整紀錄](reports/S001-attempt-3.md)、[獨立裁決](reports/S001-attempt3-verdict.md)、[完整量測](reports/S001-attempt3-verify.md)、[比較](reports/S001-attempt3-compare-baseline-2026-09-30.md)。驗證者遇到第一個圖像失敗即停，兩個控制章節圖像關卡未完成。
+- 需要使用者決定：（1）先另案補齊通用有序清單 marker，再重試保留的 S001（推薦：避免漏掉閱讀資訊）；（2）用編輯撤回候選，暫停 S001。
+- 收尾：本輪停止、候選 8 檔保留、兩 repo HEAD 未變、未 commit／push／發版，未改量法或套件 pin；記分板維持 `baseline-2026-09-30`，未做 S002。拒絕計數仍 1（第 1 次 REJECT；第 2、3 次為 ESCALATE_HUMAN）。
 
 ## 已合入
 
