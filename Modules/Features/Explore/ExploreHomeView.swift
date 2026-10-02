@@ -100,6 +100,11 @@ struct ExploreHomeView: View {
                     }
                     sourcesBlock
                 }
+                // The page's full width even when a search finds no source: while the
+                // search is active the scroll view takes its content's width, and an
+                // empty stack left the page background and 「沒有結果」 a 32pt strip
+                // (iOS 27 simulator).
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, DSSpacing.lg)
                 .padding(.vertical, DSSpacing.sm)
                 .animation(reduceMotion ? nil : DSAnimation.standard, value: entryLayout)

@@ -234,6 +234,12 @@ struct DSCapsuleLabel: View {
     /// A symbol after it — `chevron.down` on a menu, `arrow.up.right` on a link out.
     var trailingSystemImage: String? = nil
     var isSelected = false
+    /// Takes the width it is offered, its title centred and free to take a second line
+    /// — a chip in a grid of equal columns. Off, the capsule hugs its one line.
+    var fillsWidth = false
+    /// On a card that is glass itself: a plain gray fill when not selected, since glass
+    /// on glass turns muddy.
+    var onCard = false
 
     var body: some View {
         HStack(spacing: DSSpacing.xs) {
@@ -242,7 +248,8 @@ struct DSCapsuleLabel: View {
                     .accessibilityHidden(true)
             }
             Text(title)
-                .lineLimit(1)
+                .lineLimit(fillsWidth ? 2 : 1)
+                .multilineTextAlignment(.center)
             if let trailingSystemImage {
                 Image(systemName: trailingSystemImage)
                     .font(DSFont.caption.weight(.semibold))
@@ -251,11 +258,14 @@ struct DSCapsuleLabel: View {
         }
         .font(DSFont.subheadline.weight(.medium))
         .foregroundStyle(isSelected ? DSColor.textOnAccent : DSColor.textPrimary)
-        .padding(.horizontal, DSSpacing.md)
-        .frame(minHeight: DSLayout.capsuleControlHeight)
+        .padding(.horizontal, fillsWidth ? DSSpacing.sm : DSSpacing.md)
+        .padding(.vertical, fillsWidth ? DSSpacing.xs : 0)
+        .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: DSLayout.capsuleControlHeight)
         .background {
             if isSelected {
                 Capsule().fill(DSColor.accent)
+            } else if onCard {
+                Capsule().fill(DSColor.neutralControlFill)
             } else {
                 Color.clear.floatingSurfaceBackground(in: Capsule())
             }

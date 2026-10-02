@@ -307,6 +307,9 @@ enum DSLayout {
     /// address field, lifting them off the page as Safari does.
     static let browserLiftShadowRadius: CGFloat = 4
     static let browserLiftShadowY: CGFloat = 1
+    /// Narrowest a chip may get in 發現頁設定's grid: four to a row on an iPhone, fewer as
+    /// the text grows (scaled with Dynamic Type).
+    static let discoverChipMinWidth: CGFloat = 72
     /// A chip, filter or quick action drawn as a capsule (`DSCapsuleLabel`).
     static let capsuleControlHeight: CGFloat = 36
     /// A tab root's title starts to fade once its page has scrolled this far, and is gone

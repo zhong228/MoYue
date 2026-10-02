@@ -3500,3 +3500,7 @@
 "不限制" = "No Limit";
 "同時下載的封面上限，書架和書籍詳情的封面也算在內。數字越低捲動時越不容易發熱，但封面出現得慢一些。" = "The most covers downloading at once, counting those on the bookshelf and book details. Lower runs cooler while scrolling, but covers appear more slowly.";
 "%@：%@" = "%@: %@";
+
+/* 發現頁設定 */
+"快捷操作" = "Quick Actions";
+"選擇想看的分區" = "Choose the sections you want to see";

@@ -5,11 +5,16 @@ import SwiftUI
 
 /// One explore source's whole discover page, opened from 探索's list: every category the
 /// source lists with the source's own filters above them — as Apple Books lays out a
-/// store, or as Legado lists them (探索設定 › 書源頁佈局). 設定 opens the source's login
-/// page — where Legado sources keep their settings.
+/// store, or as Legado lists them (探索設定 › 書源頁佈局). The gear opens 發現頁設定, which
+/// picks the categories the page shows; the avatar opens the source's login page — where
+/// Legado sources keep their settings.
 struct ExploreSourcePage: View {
     @StateObject private var discover: DiscoverViewModel
     @State private var showsLogin = false
+    @State private var showsDiscoverSettings = false
+    /// A page link picked in 發現頁設定, opened once the sheet has gone: the browser
+    /// covers the whole screen, which cannot come up while the sheet is still there.
+    @State private var pendingPageAddress: String?
     @AppStorage(ExploreSettings.sourcePageLayoutKey) private var layout = ExploreSourcePageLayout.default
     private let source: BookSource
     /// Opens a category that is a web page (a source's `java.startBrowser` link).
@@ -42,13 +47,27 @@ struct ExploreSourcePage: View {
             .navigationTitle(currentSource.bookSourceName)
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showsDiscoverSettings = true } label: {
+                        Label(localized("發現頁設定"), systemImage: "gearshape")
+                    }
+                }
                 if hasLogin {
+                    // The account in its own glass, apart from the page's settings.
+                    #if compiler(>=6.2)
+                    if #available(iOS 26.0, *) {
+                        ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                    }
+                    #endif
                     ToolbarItem(placement: .topBarTrailing) {
                         Button { showsLogin = true } label: {
-                            Label(localized("設定"), systemImage: "gearshape")
+                            Label(localized("登入"), systemImage: "person.crop.circle")
                         }
                     }
                 }
+            }
+            .sheet(isPresented: $showsDiscoverSettings, onDismiss: openPendingPage) {
+                DiscoverPageSettingsSheet(discover: discover) { pendingPageAddress = $0 }
             }
             .sheet(isPresented: $showsLogin) {
                 BookSourceLoginSheet(source: currentSource) { showsLogin = false }
@@ -75,6 +94,14 @@ struct ExploreSourcePage: View {
                 // invalidate that live snapshot as well as the key-addressed category cache.
                 discover.reload(forceRefresh: true)
             }
+    }
+}
+
+extension ExploreSourcePage {
+    private func openPendingPage() {
+        guard let address = pendingPageAddress else { return }
+        pendingPageAddress = nil
+        onNavigate(address)
     }
 }
 

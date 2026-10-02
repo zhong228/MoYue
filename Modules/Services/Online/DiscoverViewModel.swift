@@ -33,6 +33,16 @@ struct DiscoverFilter: Identifiable {
     var selected: String
 }
 
+// MARK: - 發現頁設定
+
+/// A source's categories as 發現頁設定 lists them, under the group label the source
+/// emits before them (a non-fetchable title item, as Legado's explore page shows one).
+struct DiscoverCategoryGroup: Identifiable {
+    let id: String
+    let title: String
+    let items: [DiscoverCardItem]
+}
+
 // MARK: - Discover Showcase Section
 
 /// How a showcase section renders its books. `featured` = horizontal cover
@@ -121,6 +131,13 @@ final class DiscoverViewModel: ObservableObject {
     /// on every reload. Empty for sources that don't emit `select` items.
     @Published var filters: [DiscoverFilter] = []
 
+    /// The categories the reader picked to see (發現頁設定), or `nil` when none is picked
+    /// and the page shows every one. Once some are picked the page shows those alone, so
+    /// a category the source adds later stays off. Stored per source under the key
+    /// 發現頁設定 used before the page showed every category, so a choice made then holds.
+    @Published private(set) var shownCategoryKeys: Set<String>?
+    private let categorySelectionPrefix = "discover.categorySelection."
+
     private let sourceStore = BookSourceStore.shared
     private let runtimeStore = BookSourceRuntimeStateStore.shared
     /// The page's source, looked up again after an edit gives it a new session.
@@ -152,6 +169,7 @@ final class DiscoverViewModel: ObservableObject {
         sourceURL = source.bookSourceUrl
         exploreSources = [source]
         selectedSourceId = source.id
+        loadCategorySelection()
     }
 
     /// The explore sources 探索 lists: enabled, with explore on and an explore URL.
@@ -168,6 +186,7 @@ final class DiscoverViewModel: ObservableObject {
     /// `lastUpdateTime`, which keys a fresh `BookSourceSession` — and loads the page the
     /// first time.
     func refreshSources() {
+        let previousSourceId = selectedSourceId
         if let source = sourceStore.sources.first(where: { $0.bookSourceUrl == sourceURL }) {
             exploreSources = [source]
             selectedSourceId = source.id
@@ -175,7 +194,70 @@ final class DiscoverViewModel: ObservableObject {
             exploreSources = []
             selectedSourceId = nil
         }
+        if selectedSourceId != previousSourceId { loadCategorySelection() }
         if items.isEmpty, hasExploreSource { reload() }
+    }
+
+    // MARK: - 發現頁設定
+
+    /// 發現頁設定's list: the categories the source returned, each once, under the group
+    /// labels the source emits between them; `defaultTitle` heads those before any label.
+    func categoryGroups(defaultTitle: String) -> [DiscoverCategoryGroup] {
+        Self.categoryGroups(from: rawItems, defaultTitle: defaultTitle)
+    }
+
+    var hasCustomCategorySelection: Bool { shownCategoryKeys != nil }
+
+    /// Whether the page shows `item`: every category while none is picked.
+    func isCategoryShown(_ item: DiscoverCardItem) -> Bool {
+        shownCategoryKeys?.contains(item.stableKey) ?? true
+    }
+
+    /// Whether the reader picked `item` in 發現頁設定.
+    func isCategorySelected(_ item: DiscoverCardItem) -> Bool {
+        shownCategoryKeys?.contains(item.stableKey) ?? false
+    }
+
+    /// Picks `item`, or unpicks it; unpicking the last one shows every category again.
+    func toggleCategorySelection(_ item: DiscoverCardItem) {
+        guard item.isFetchable else { return }
+        var keys = shownCategoryKeys ?? []
+        if keys.contains(item.stableKey) {
+            keys.remove(item.stableKey)
+        } else {
+            keys.insert(item.stableKey)
+        }
+        shownCategoryKeys = keys.isEmpty ? nil : keys
+        persistCategorySelection()
+        buildSections(from: items)
+    }
+
+    func showAllCategories() {
+        shownCategoryKeys = nil
+        persistCategorySelection()
+        buildSections(from: items)
+    }
+
+    private var categorySelectionKey: String? {
+        selectedSourceId.map { categorySelectionPrefix + $0.uuidString }
+    }
+
+    private func loadCategorySelection() {
+        guard let key = categorySelectionKey,
+              let stored = UserDefaults.standard.stringArray(forKey: key) else {
+            shownCategoryKeys = nil
+            return
+        }
+        shownCategoryKeys = Set(stored)
+    }
+
+    private func persistCategorySelection() {
+        guard let key = categorySelectionKey else { return }
+        if let keys = shownCategoryKeys {
+            UserDefaults.standard.set(keys.sorted(), forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 
     // MARK: - Filters
@@ -379,15 +461,22 @@ final class DiscoverViewModel: ObservableObject {
 
     // MARK: - Showcase sections
 
-    /// Turn the source's fetchable explore categories into showcase sections.
+    /// Turn the source's fetchable explore categories into showcase sections, leaving out
+    /// those turned off in 發現頁設定. A category that already has a section keeps it,
+    /// books and all, so turning another one on or off loads nothing again; a reload
+    /// maps fresh items, so it starts every section anew.
     private func buildSections(from items: [DiscoverCardItem]) {
         // All sections share the selected source's cover context; parse the
         // header JSON once here instead of per row per render.
         let coverBaseURL = selectedSource?.bookSourceUrl
         let coverHeaders = selectedSource?.parsedHeaders ?? [:]
-        sections = Self.showcaseItems(from: items).map {
-            DiscoverShowcaseSection(item: $0, coverBaseURL: coverBaseURL, coverHeaders: coverHeaders)
-        }
+        let existing = Dictionary(sections.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        sections = Self.showcaseItems(from: items)
+            .filter { shownCategoryKeys?.contains($0.stableKey) ?? true }
+            .map {
+                existing[$0.id]
+                    ?? DiscoverShowcaseSection(item: $0, coverBaseURL: coverBaseURL, coverHeaders: coverHeaders)
+            }
     }
 
     /// Enqueue one section's books to load — driven by the section view's `.task`.
@@ -614,6 +703,45 @@ final class DiscoverViewModel: ObservableObject {
         var seen = Set<String>()
         return items.filter { $0.isFetchable && seen.insert($0.stableKey).inserted }
     }
+
+    /// The fetchable categories in `raw`, each once as on the page, grouped under the
+    /// non-fetchable title items between them, kept as the source draws them (☆ 排行榜 ☆).
+    /// Filters (`select`) and page links are not categories the page lists, so they are
+    /// left out.
+    nonisolated static func categoryGroups(
+        from raw: [ModernParserBridge.DiscoverItem],
+        defaultTitle: String
+    ) -> [DiscoverCategoryGroup] {
+        var groups: [DiscoverCategoryGroup] = []
+        var title = defaultTitle
+        var items: [DiscoverCardItem] = []
+        var seen = Set<String>()
+
+        func flush() {
+            guard !items.isEmpty else { return }
+            groups.append(DiscoverCategoryGroup(id: "\(groups.count)-\(title)", title: title, items: items))
+            items = []
+        }
+
+        for item in raw where (item.type ?? "") != "select" {
+            let label = (item.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !label.isEmpty, label != "--" else { continue }
+            if let card = mapItem(item) {
+                if card.isFetchable, seen.insert(card.stableKey).inserted {
+                    items.append(card)
+                }
+            } else {
+                flush()
+                // A label that is only a drawn line — a source's separator — names no group.
+                title = label.unicodeScalars.contains(where: CharacterSet.alphanumerics.contains)
+                    ? label
+                    : defaultTitle
+            }
+        }
+        flush()
+        return groups
+    }
+
 
     nonisolated static func uniqueAdditionalBooks(
         _ incoming: [OnlineBook],
