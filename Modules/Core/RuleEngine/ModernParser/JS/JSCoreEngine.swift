@@ -140,6 +140,11 @@ class JSCoreEngine {
         didSet { bridge.refreshBookTocHandler = refreshBookTocHandler }
     }
 
+    /// Called when JS invokes `java.refreshExplore()`.
+    var refreshExploreHandler: (() -> Void)? {
+        didSet { bridge.refreshExploreHandler = refreshExploreHandler }
+    }
+
     /// Called when JS invokes `java.setResponseBase64(data, mimeType)` — captures
     /// base64-decoded audio data from TTS `loginCheckJs` response processing.
     var responseBase64Handler: ((Data, String) -> Void)? {
@@ -168,6 +173,7 @@ class JSCoreEngine {
                 cacheBridge = LegadoCacheBridge(sourceId: src.bookSourceUrl)
                 injectSourceObject(into: context)
                 context.setObject(cacheBridge, forKeyedSubscript: "cache" as NSString)
+                installExploreInfoMap(into: context)
                 bridge.requestTimeoutSeconds = Self.clampedRequestTimeoutSeconds(src.respondTime)
             }
         }
@@ -1285,6 +1291,76 @@ class JSCoreEngine {
                 };
             })();
         """)
+
+        installExploreInfoMap(into: ctx)
+    }
+
+    // MARK: - Explore infoMap
+
+    /// Legado's explore `infoMap`: one map per source that the explore page's buttons,
+    /// inputs and toggles write and the source's JS reads — in its explore rule, its
+    /// category URLs and its explore actions. Legado keeps it in `CacheManager` under
+    /// `infoMap_<source URL>`; here it lives in the source's `cache` store under the same
+    /// key, and the JS global `infoMap` is loaded from it whenever a context is set up or
+    /// the source changes. `infoMap.save()` writes it back.
+    private var exploreInfoMapKey: String? {
+        bookSource.map { "infoMap_" + $0.bookSourceUrl }
+    }
+
+    private func installExploreInfoMap(into ctx: JSContext) {
+        let stored = exploreInfoMapKey.flatMap { cacheBridge.get($0) } ?? "{}"
+        let persist: @convention(block) (String) -> Void = { [weak self] json in
+            guard let self, let key = self.exploreInfoMapKey else { return }
+            self.cacheBridge.put(key, json)
+        }
+        ctx.setObject(persist, forKeyedSubscript: "__yueduPersistInfoMap" as NSString)
+        ctx.setObject(stored, forKeyedSubscript: "__yueduStoredInfoMap" as NSString)
+        ctx.evaluateScript("""
+            (function () {
+                var stored = {};
+                try {
+                    stored = JSON.parse(__yueduStoredInfoMap) || {};
+                } catch (e) {
+                    if (typeof java !== 'undefined' && java.log) java.log('infoMap: stored map is not JSON: ' + e);
+                }
+                var map = __yueduJavaMap(stored);
+                Object.defineProperty(map, 'save', {
+                    value: function () { __yueduPersistInfoMap(JSON.stringify(map)); return map; },
+                    enumerable: false,
+                    configurable: true
+                });
+                infoMap = map;
+            })();
+        """)
+    }
+
+    /// The source's explore `infoMap` as its JS holds it now, values as strings.
+    func exploreInfoMapValues() -> [String: String] {
+        onJSQueue {
+            let json = context.evaluateScript(
+                "JSON.stringify(typeof infoMap === 'undefined' ? {} : infoMap)"
+            )?.toString() ?? "{}"
+            do {
+                guard let object = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else {
+                    return [:]
+                }
+                return object.mapValues { value in
+                    (value as? String) ?? (value is NSNull ? "" : "\(value)")
+                }
+            } catch {
+                AppLogger.parse("Explore infoMap is not JSON", context: ["error": "\(error)"])
+                return [:]
+            }
+        }
+    }
+
+    /// Sets one `infoMap` entry, as an explore input or toggle does, and saves the map.
+    func setExploreInfoMapValue(_ value: String, forKey key: String) {
+        onJSQueue {
+            context.setObject(key, forKeyedSubscript: "__yueduInfoMapKey" as NSString)
+            context.setObject(value, forKeyedSubscript: "__yueduInfoMapValue" as NSString)
+            context.evaluateScript("infoMap.put(__yueduInfoMapKey, __yueduInfoMapValue); infoMap.save();")
+        }
     }
 
     /// Some Legado/Rhino source scripts read current-chapter fields as bare globals

@@ -234,12 +234,16 @@ struct DSCapsuleLabel: View {
     /// A symbol after it — `chevron.down` on a menu, `arrow.up.right` on a link out.
     var trailingSystemImage: String? = nil
     var isSelected = false
-    /// Takes the width it is offered, its title centred and free to take a second line
-    /// — a chip in a grid of equal columns. Off, the capsule hugs its one line.
+    /// Takes the width it is offered, its title centred — a chip in a grid of equal
+    /// columns, which gives a long title as many columns as it needs; a title wider than
+    /// the whole row takes a second line. Off, the capsule hugs its one line.
     var fillsWidth = false
     /// On a card that is glass itself: a plain gray fill when not selected, since glass
     /// on glass turns muddy.
     var onCard = false
+    /// A value after the title on the same line, in the secondary colour — what an input
+    /// holds, or that it is empty. It is cut short before the title is.
+    var detail: String? = nil
 
     var body: some View {
         HStack(spacing: DSSpacing.xs) {
@@ -250,6 +254,13 @@ struct DSCapsuleLabel: View {
             Text(title)
                 .lineLimit(fillsWidth ? 2 : 1)
                 .multilineTextAlignment(.center)
+                .layoutPriority(1)
+            if let detail {
+                Text(detail)
+                    .fontWeight(.regular)
+                    .foregroundStyle(isSelected ? DSColor.textOnAccent : DSColor.textSecondary)
+                    .lineLimit(1)
+            }
             if let trailingSystemImage {
                 Image(systemName: trailingSystemImage)
                     .font(DSFont.caption.weight(.semibold))

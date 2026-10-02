@@ -404,6 +404,10 @@ struct LegadoHTTPResult {
     /// open book detail page reloads. Set only while a detail page runs one of its scripts.
     var refreshBookInfoHandler: (() -> Void)?
     var refreshBookTocHandler: (() -> Void)?
+    /// Called when JS invokes `java.refreshExplore()` — Legado's explore page reloads the
+    /// source's categories. Set only while a source's page runs one of its explore
+    /// buttons, inputs or toggles.
+    var refreshExploreHandler: (() -> Void)?
 
     /// Delegate for rule evaluation (connected later).
     var getStringHandler: ((String) -> String?)?
@@ -1766,6 +1770,7 @@ struct LegadoHTTPResult {
         #if DEBUG
         print("[JSBridge] refreshExplore() called")
         #endif
+        refreshExploreHandler?()
     }
 
     func reLoginView() {

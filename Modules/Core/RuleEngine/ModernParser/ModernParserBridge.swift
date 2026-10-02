@@ -967,6 +967,29 @@ class ModernParserBridge {
         }
     }
 
+    /// Runs one of the explore page's own scripts — a button's action, an input's or a
+    /// toggle's action, a kind's display name — as Legado's `BaseSource.evalJS` does:
+    /// `baseUrl` is the source's key, and `java`, `source`, `cache` and the explore
+    /// `infoMap` are the context's own.
+    func evaluateExploreKindScript(_ script: String) -> String? {
+        evaluateJsLibIfNeeded()
+        return jsEngine.withExecutionStage("exploreKind") {
+            jsEngine.evaluateIsolated(script, bindings: [
+                "baseUrl": sourceRuleData.source.bookSourceUrl,
+                "baseURL": sourceRuleData.source.bookSourceUrl,
+            ])
+        }
+    }
+
+    /// The source's explore `infoMap` (see `JSCoreEngine.exploreInfoMapValues`).
+    func exploreInfoMapValues() -> [String: String] {
+        jsEngine.exploreInfoMapValues()
+    }
+
+    func setExploreInfoMapValue(_ value: String, forKey key: String) {
+        jsEngine.setExploreInfoMapValue(value, forKey: key)
+    }
+
     /// Presents URLs that source JS opens via `java.showBrowser` / `java.startBrowser`.
     /// Reading a 段評 bubble's click action means running the source's JS and seeing where it
     /// wants to send the user, so this has to be reachable from outside the parsing pipeline.
@@ -992,6 +1015,12 @@ class ModernParserBridge {
     var refreshBookInfoHandler: (() -> Void)? {
         get { jsEngine.refreshBookInfoHandler }
         set { jsEngine.refreshBookInfoHandler = newValue }
+    }
+
+    /// `java.refreshExplore()` — set while a source's page runs an explore action.
+    var refreshExploreHandler: (() -> Void)? {
+        get { jsEngine.refreshExploreHandler }
+        set { jsEngine.refreshExploreHandler = newValue }
     }
 
     var refreshBookTocHandler: (() -> Void)? {
@@ -2251,11 +2280,11 @@ class ModernParserBridge {
         value.range(of: #"</?[a-zA-Z][^>]*>"#, options: .regularExpression) != nil
     }
 
-    private static func isJSExploreRule(_ value: String) -> Bool {
+    static func isJSExploreRule(_ value: String) -> Bool {
         value.hasPrefix("<js>") || value.hasPrefix("@js:")
     }
 
-    private static func jsCode(fromExploreRule value: String) -> String {
+    static func jsCode(fromExploreRule value: String) -> String {
         if value.hasPrefix("@js:") {
             return String(value.dropFirst(4))
         }

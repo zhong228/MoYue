@@ -3502,5 +3502,6 @@
 "%@：%@" = "%@: %@";
 
 /* 發現頁設定 */
+"輸入" = "Enter";
 "快捷操作" = "Quick Actions";
 "選擇想看的分區" = "Choose the sections you want to see";

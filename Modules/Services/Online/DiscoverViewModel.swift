@@ -138,6 +138,14 @@ final class DiscoverViewModel: ObservableObject {
     @Published private(set) var shownCategoryKeys: Set<String>?
     private let categorySelectionPrefix = "discover.categorySelection."
 
+    /// The source's explore `infoMap`, read after each load and after each control runs:
+    /// what its inputs hold and where its toggles stand.
+    @Published private(set) var quickActionValues: [String: String] = [:]
+    /// Display names the source's `viewName` scripts gave its controls, by control.
+    @Published private(set) var quickActionNames: [String: String] = [:]
+    /// The control whose script is running; the others wait for it.
+    @Published private(set) var runningQuickActionID: String?
+
     private let sourceStore = BookSourceStore.shared
     private let runtimeStore = BookSourceRuntimeStateStore.shared
     /// The page's source, looked up again after an edit gives it a new session.
@@ -257,6 +265,93 @@ final class DiscoverViewModel: ObservableObject {
             UserDefaults.standard.set(keys.sorted(), forKey: key)
         } else {
             UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+
+    // MARK: - 快捷操作: the source's own controls
+
+    /// The source's buttons, inputs and toggles, each once (`DiscoverQuickAction`).
+    var quickActions: [DiscoverQuickAction] {
+        DiscoverQuickAction.actions(from: rawItems)
+    }
+
+    func displayName(for action: DiscoverQuickAction) -> String {
+        action.literalDisplayName ?? quickActionNames[action.id] ?? action.title
+    }
+
+    /// Reads the controls' values and display names from the source's scripts. A toggle
+    /// with nothing stored takes its default and keeps it, as legado-E and MD3 do.
+    func refreshQuickActions() async {
+        guard let source = selectedSource else { return }
+        let actions = quickActions
+        guard !actions.isEmpty else {
+            quickActionValues = [:]
+            quickActionNames = [:]
+            return
+        }
+        var values = await DiscoverQuickActionRunner.infoMapValues(source: source)
+        for action in actions where action.kind == .toggle && (values[action.title] ?? "").isEmpty {
+            let value = action.toggleValue(in: values)
+            await DiscoverQuickActionRunner.setInfoMapValue(value, forKey: action.title, source: source)
+            values[action.title] = value
+        }
+        quickActionValues = values
+        var names: [String: String] = [:]
+        for action in actions {
+            if let script = action.displayNameScript {
+                names[action.id] = await DiscoverQuickActionRunner.displayName(script, source: source)
+            }
+        }
+        quickActionNames = names
+    }
+
+    /// A button's tap: runs its script.
+    func runButton(_ action: DiscoverQuickAction, presentToast: @escaping @MainActor (String) -> Void) async {
+        await perform(action, presentToast: presentToast)
+    }
+
+    /// An input's new text: stored in `infoMap`, then its script runs if it has one.
+    func submitText(
+        _ text: String,
+        for action: DiscoverQuickAction,
+        presentToast: @escaping @MainActor (String) -> Void
+    ) async {
+        guard let source = selectedSource else { return }
+        await DiscoverQuickActionRunner.setInfoMapValue(text, forKey: action.title, source: source)
+        quickActionValues[action.title] = text
+        await perform(action, presentToast: presentToast)
+    }
+
+    /// A toggle's tap: the next value, stored in `infoMap`, then its script.
+    func cycleToggle(_ action: DiscoverQuickAction, presentToast: @escaping @MainActor (String) -> Void) async {
+        guard let source = selectedSource else { return }
+        let next = action.toggleValue(after: action.toggleValue(in: quickActionValues))
+        await DiscoverQuickActionRunner.setInfoMapValue(next, forKey: action.title, source: source)
+        quickActionValues[action.title] = next
+        await perform(action, presentToast: presentToast)
+    }
+
+    /// Runs a control's script, then reloads the categories when it called
+    /// `java.refreshExplore()` and reads the controls again — a script often changes
+    /// what they show.
+    private func perform(_ action: DiscoverQuickAction, presentToast: @escaping @MainActor (String) -> Void) async {
+        guard runningQuickActionID == nil, let source = selectedSource else { return }
+        guard let script = action.script else { return }
+        runningQuickActionID = action.id
+        let outcome = await DiscoverQuickActionRunner.run(
+            script,
+            title: action.title,
+            source: source,
+            presentToast: presentToast
+        )
+        runningQuickActionID = nil
+        if let error = outcome.errorMessage {
+            presentToast(String(format: localized("%@：%@"), localized("書源腳本錯誤"), error))
+        }
+        if outcome.refreshesExplore {
+            reload(forceRefresh: true)
+        } else {
+            await refreshQuickActions()
         }
     }
 
@@ -384,6 +479,7 @@ final class DiscoverViewModel: ObservableObject {
         items = mapped
         isLoadingItems = false
         buildSections(from: mapped)
+        Task { await refreshQuickActions() }
     }
 
     /// A message the source put in place of its categories.
