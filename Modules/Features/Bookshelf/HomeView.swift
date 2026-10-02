@@ -4,21 +4,78 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 // MARK: - Bookshelf Home
-@MainActor
-private final class BookshelfReaderGeometryStore: ObservableObject {
-    private var frames: [UUID: CGRect] = [:]
+/// A place on the shelf that lists books: 全部 or a group's page, which the shelf swipes
+/// between, or a group opened from its folder on 全部.
+private enum ShelfPage: Hashable {
+    case all
+    case group(String)
+    case folder(String)
 
-    func update(_ frame: CGRect, for bookID: UUID) {
-        guard !frame.isEmpty else { return }
-        frames[bookID] = frame
+    /// The page `HomeView.selectedGroup` names — `""` is 全部.
+    init(pagerGroup group: String) {
+        self = group.isEmpty ? .all : .group(group)
     }
 
-    func frame(for bookID: UUID) -> CGRect? {
-        frames[bookID]
+    /// One of the pages the shelf swipes between, not a folder's page pushed over it.
+    var isOnPager: Bool {
+        if case .folder = self { false } else { true }
+    }
+}
+
+/// What a page lists. 全部 folds each group into one folder; every other page lists books.
+private enum ShelfEntry: Identifiable {
+    case book(ReadingBook)
+    /// A group, with its books in the shelf's order.
+    case folder(name: String, books: [ReadingBook])
+
+    var id: String {
+        switch self {
+        case .book(let book): "book:" + book.id.uuidString
+        case .folder(let name, _): "group:" + name
+        }
+    }
+
+    var book: ReadingBook? {
+        if case .book(let book) = self { book } else { nil }
+    }
+
+    /// The book, or a folder's first book: what a book dropped before it in 手動 lands before.
+    var firstBookID: UUID? {
+        switch self {
+        case .book(let book): book.id
+        case .folder(_, let books): books.first?.id
+        }
+    }
+
+    /// What 書名 sorts it by: a folder goes by its group's name.
+    var sortTitle: String {
+        switch self {
+        case .book(let book): book.title
+        case .folder(let name, _): name
+        }
+    }
+}
+
+@MainActor
+private final class BookshelfReaderGeometryStore: ObservableObject {
+    /// By shelf page, then by book. A book is on 全部 and on its group's page, and the
+    /// page beside the one in view is laid out too, off screen, so one frame per book
+    /// would be whichever page reported last.
+    private var frames: [ShelfPage: [UUID: CGRect]] = [:]
+
+    func update(_ frame: CGRect, for bookID: UUID, onPage page: ShelfPage) {
+        guard !frame.isEmpty else { return }
+        frames[page, default: [:]][bookID] = frame
+    }
+
+    func frame(for bookID: UUID, onPage page: ShelfPage) -> CGRect? {
+        frames[page]?[bookID]
     }
 
     func invalidate(bookID: UUID) {
-        frames[bookID] = nil
+        for page in frames.keys {
+            frames[page]?[bookID] = nil
+        }
     }
 }
 
@@ -73,7 +130,10 @@ struct HomeView: View {
     @State private var bookToDelete: ReadingBook? = nil
     @State private var selectedOnlineBookDetail: OnlineBook? = nil
     @State private var editMode = EditMode.inactive
+    /// The group's page in view on the shelf; `""` is 全部.
     @State private var selectedGroup: String = ""
+    /// The group whose folder was opened from 全部, its page pushed over the shelf.
+    @State private var openedFolder: String?
     @State private var selectedBookIds: Set<UUID> = []
     @State private var showBulkDeleteAlert = false
     @State private var showAddToGroupSheet = false
@@ -118,6 +178,8 @@ struct HomeView: View {
     /// its new place is off screen, and the closing card had nowhere to land but a
     /// stand-in in the middle of the shelf.
     @State private var shelfScrollToTopRequest = 0
+    /// The page the book was opened from, which the request takes back to its top.
+    @State private var shelfScrollToTopPage = ShelfPage.all
     /// The grid scroll view's width, measured once per size change (not per cell, not
     /// per scroll), so every cell knows how large to decode its cover.
     @State private var gridContainerWidth: CGFloat = 0
@@ -141,11 +203,13 @@ struct HomeView: View {
               args.indices.contains(idx + 1) else { return }
         let needle = args[idx + 1]
         guard let book = store.books.first(where: { $0.title.contains(needle) }) else { return }
-        openBook(book, sourceGeometry: nil)
+        openBook(book, from: ShelfPage(pagerGroup: selectedGroup), sourceGeometry: nil)
     }
     #endif
 
-    private func openBook(_ book: ReadingBook, sourceGeometry: ReaderCardGeometry?) {
+    /// `page` is where the book was tapped, and where its card goes back to when it closes:
+    /// the reader covers the shelf, so nothing pages it or pops it in between.
+    private func openBook(_ book: ReadingBook, from page: ShelfPage, sourceGeometry: ReaderCardGeometry?) {
         AppLogger.info("⟐ openBook tap bookID=\(book.id) title=\(book.title) pipelineKind=\(book.resolvedPipelineKind) useCard=\(BookCardNavigationGate.shouldUseCardTransition(for: book)) hasGeometry=\(sourceGeometry != nil)")
         if BookCardNavigationGate.shouldUseCardTransition(for: book) {
             // Re-entrancy guard: once a card open is staged (readerBookID set)
@@ -170,7 +234,8 @@ struct HomeView: View {
             let snapshot = BookshelfCoverStyle.snapshot(
                 for: book,
                 colorScheme: colorScheme,
-                sourceSize: sourceGeometry?.frame.size ?? readerGeometryStore.frame(for: book.id)?.size
+                sourceSize: sourceGeometry?.frame.size
+                    ?? readerGeometryStore.frame(for: book.id, onPage: page)?.size
             )
             let snapshotUpgrade = snapshot == nil
                 ? nil
@@ -202,7 +267,7 @@ struct HomeView: View {
                         guard transitionBookStore?.books.contains(where: { $0.id == book.id }) == true else {
                             return nil
                         }
-                        return geometryStore?.frame(for: book.id)
+                        return geometryStore?.frame(for: book.id, onPage: page)
                     },
                     snapshot: snapshot,
                     snapshotUpgrade: snapshotUpgrade,
@@ -210,7 +275,7 @@ struct HomeView: View {
                 )
                 let shouldInvalidateForRecentSort =
                     sortOrder == BookSortOrder.recentlyRead.rawValue
-                    && sortedFilteredBooks.first?.id != book.id
+                    && entries(onPage: page).first?.book?.id != book.id
                 let readerBookID = book.id
                 let readerStore = store
                 let readerDependencies = appDependencies
@@ -233,6 +298,7 @@ struct HomeView: View {
                         }
                         transitionBookStore?.updateLastOpened(bookId: readerBookID)
                         if shouldInvalidateForRecentSort {
+                            shelfScrollToTopPage = page
                             shelfScrollToTopRequest += 1
                         }
                     }
@@ -284,8 +350,51 @@ struct HomeView: View {
         return direction
     }
 
+    /// The page the shelf's buttons act on: a group opened from its folder, otherwise the
+    /// page in view on the shelf.
+    private var activePage: ShelfPage {
+        openedFolder.map(ShelfPage.folder) ?? ShelfPage(pagerGroup: selectedGroup)
+    }
+
+    /// The books 選取 can take on that page: on 全部, the ones outside a folder.
     var sortedFilteredBooks: [ReadingBook] {
-        let base = selectedGroup.isEmpty ? store.books : store.books.filter { $0.group == selectedGroup }
+        entries(onPage: activePage).compactMap(\.book)
+    }
+
+    /// The shelf's pages: 全部 (`""`), then each group, in the order of the group bar.
+    private var shelfPages: [String] {
+        [""] + store.allGroups
+    }
+
+    /// What a page lists, in the shelf's order. On 全部 each group is one folder, where
+    /// its first book would be — the one read last, under 最近閱讀 — except under 書名,
+    /// which sorts a folder by its group's name among the titles.
+    private func entries(onPage page: ShelfPage) -> [ShelfEntry] {
+        switch page {
+        case .group(let group), .folder(let group):
+            return sortedBooks(inGroup: group).map(ShelfEntry.book)
+        case .all:
+            let books = sortedBooks(inGroup: nil)
+            let groups = Dictionary(grouping: books.filter { !$0.group.isEmpty }, by: \.group)
+            var placed = Set<String>()
+            var entries: [ShelfEntry] = []
+            for book in books {
+                if book.group.isEmpty {
+                    entries.append(.book(book))
+                } else if placed.insert(book.group).inserted, let members = groups[book.group] {
+                    entries.append(.folder(name: book.group, books: members))
+                }
+            }
+            if BookSortOrder(rawValue: sortOrder) == .title {
+                entries.sort { $0.sortTitle.localizedCompare($1.sortTitle) == .orderedAscending }
+            }
+            return entries
+        }
+    }
+
+    /// A group's books, or with `nil` every book, in the shelf's order.
+    private func sortedBooks(inGroup group: String?) -> [ReadingBook] {
+        let base = group.map { group in store.books.filter { $0.group == group } } ?? store.books
         switch BookSortOrder(rawValue: sortOrder) ?? .manual {
         case .manual:       return base
         case .recentlyRead: return base.sorted {
@@ -317,107 +426,45 @@ struct HomeView: View {
                             .rootTabTitleScrollAnchor()
                             .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
                     } else {
-                        VStack(spacing: 0) {
-                            if !store.allGroups.isEmpty {
-                                groupFilterBar
-                            }
-                            if isGridMode {
-                                bookGrid
-                            } else {
-                                bookList
-                            }
-                        }
-                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
+                        groupedShelf(pages: shelfPages)
+                            .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
                     }
                 }
             }
             .themedAppSurface(for: .bookshelf)
             .animation(DSAnimation.standard, value: store.books.isEmpty)
             .rootTabTitle(localized("書架"), onScroll: .fadesTitle)
-            .toolbar {
-                if editMode == .active {
-                    // Select-all kept as its own pill via the prominent + clear-tint
-                    // trick so it doesn't merge with the done button.
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            if isAllSelected {
-                                selectedBookIds = []
-                            } else {
-                                selectedBookIds = Set(sortedFilteredBooks.map(\.id))
-                            }
-                        } label: {
-                            Text(localized(isAllSelected ? "全不選" : "全選"))
-                                .font(DSFont.subheadline.weight(.medium))
-                                .foregroundStyle(DSColor.textPrimary)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.clear)
-                    }
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            withAnimation(reduceMotion ? nil : DSAnimation.standard) {
-                                editMode = .inactive
-                                selectedBookIds = []
-                            }
-                        } label: {
-                            Image(systemName: "checkmark")
-                                .font(DSFont.toolbarIcon)
-                        }
-                    }
-                    // Native bottom toolbar: delete · add-to-group · share.
-                    ToolbarItemGroup(placement: .bottomBar) {
-                        Button(role: .destructive) {
-                            if !selectedBookIds.isEmpty { showBulkDeleteAlert = true }
-                        } label: {
-                            Image(systemName: "trash")
-                        }
-                        .tint(.red)
-                        .disabled(selectedBookIds.isEmpty)
-                        .accessibilityLabel(localized("刪除"))
-
-                        Spacer()
-
-                        Button {
-                            if !selectedBookIds.isEmpty { showAddToGroupSheet = true }
-                        } label: {
-                            ToolbarTitleAndIconLabel(
-                                title: localized("加入分組"),
-                                systemImage: "text.badge.plus",
-                                width: DSLayout.bookshelfAddToGroupLabelWidth
-                            )
-                        }
-                        .disabled(selectedBookIds.isEmpty)
-                        .accessibilityLabel(localized("加入分組"))
-                        .accessibilityIdentifier("home_add_to_group")
-
-                        Spacer()
-
-                        ShareLink(items: selectedShareableURLs) {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                        .disabled(selectedShareableURLs.isEmpty)
-                        .accessibilityLabel(localized("分享"))
-                    }
-                } else {
-                    // Two separate glass pills. A ToolbarSpacer (iOS 26+) breaks the
-                    // auto-merge so the two menus sit in their own glass instead of
-                    // fusing into one. Order swapped: options (…) leads, add (+) trails.
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        bookshelfOptionsMenu
-                    }
-                    #if compiler(>=6.2)
-                    if #available(iOS 26.0, *) {
-                        ToolbarSpacer(.fixed, placement: .navigationBarTrailing)
-                    }
-                    #endif
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        addBookMenu
-                    }
-                }
-            }
+            .toolbar { shelfToolbar(addsBooks: true) }
             // In edit mode, hide the app tab bar so the contextual .bottomBar (delete / group / share)
             // takes its place — the system selection pattern used by Photos / Files.
             .toolbar(editMode == .active ? .hidden : .automatic, for: .tabBar)
+            .onChange(of: store.allGroups) { _, groups in
+                // A group whose last book moved out or was deleted has no page left to
+                // show: 全部 takes over, and its folder's page goes back to the shelf.
+                if !selectedGroup.isEmpty, !groups.contains(selectedGroup) {
+                    selectedGroup = ""
+                }
+                if let openedFolder, !groups.contains(openedFolder) {
+                    self.openedFolder = nil
+                }
+            }
+            .navigationDestination(item: $openedFolder) { group in
+                folderPage(group)
+            }
+            .onChange(of: openedFolder) { _, folder in
+                // 選取 on a group's page ends with the page.
+                if folder == nil, editMode == .active {
+                    editMode = .inactive
+                    selectedBookIds = []
+                }
+            }
+            .sheet(isPresented: $showAddToGroupSheet) {
+                AdaptiveSheetContainer(maxWidth: DSLayout.readableNarrowWidth) {
+                    BookshelfAddToGroupSheet(groups: groupBookCounts) { group in
+                        addSelection(toGroup: group)
+                    }
+                }
+            }
             .sheet(
                 isPresented: $showLegacyImportChooser,
                 onDismiss: presentLegacyImportAfterChooserDismissal
@@ -542,18 +589,6 @@ struct HomeView: View {
                 Button(localized("取消"), role: .cancel) {}
             } message: {
                 Text(String(format: localized("確定要刪除 %d 本書嗎？"), selectedBookIds.count))
-            }
-            .sheet(isPresented: $showAddToGroupSheet) {
-                AdaptiveSheetContainer(maxWidth: DSLayout.readableNarrowWidth) {
-                    BulkAddToGroupSheet(bookCount: selectedBookIds.count) { group in
-                        for id in selectedBookIds {
-                            store.setGroup(group, for: id)
-                        }
-                        selectedBookIds = []
-                        withAnimation(reduceMotion ? nil : DSAnimation.standard) { editMode = .inactive }
-                    }
-                    .environmentObject(store)
-                }
             }
             // Keep the probe inside this NavigationStack's root destination.
             // Its responder chain resolves this shelf's UIKit navigation
@@ -703,63 +738,298 @@ struct HomeView: View {
         .id("\(Locale.autoupdatingCurrent.identifier)_menu")
     }
 
-    // MARK: - Group Filter Bar
-    private var groupFilterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: DSSpacing.sm) {
-                DSChip(title: localized("全部"), isSelected: selectedGroup.isEmpty) {
-                    withAnimation(reduceMotion ? nil : DSAnimation.fast) { selectedGroup = "" }
-                }
-                ForEach(store.allGroups, id: \.self) { group in
-                    DSChip(title: group, isSelected: selectedGroup == group) {
-                        withAnimation(reduceMotion ? nil : DSAnimation.fast) { selectedGroup = group }
+    // MARK: - Toolbar
+
+    /// The shelf's buttons, on 書架 and on a group's page: the options menu and, on 書架,
+    /// the add button; while selecting, 全選 and done, with delete, 加入分組 and share in a
+    /// bottom bar.
+    @ToolbarContentBuilder
+    private func shelfToolbar(addsBooks: Bool) -> some ToolbarContent {
+        if editMode == .active {
+            // Select-all kept as its own pill via the prominent + clear-tint
+            // trick so it doesn't merge with the done button.
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    if isAllSelected {
+                        selectedBookIds = []
+                    } else {
+                        selectedBookIds = Set(sortedFilteredBooks.map(\.id))
                     }
+                } label: {
+                    Text(localized(isAllSelected ? "全不選" : "全選"))
+                        .font(DSFont.subheadline.weight(.medium))
+                        .foregroundStyle(DSColor.textPrimary)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.clear)
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    withAnimation(reduceMotion ? nil : DSAnimation.standard) {
+                        editMode = .inactive
+                        selectedBookIds = []
+                    }
+                } label: {
+                    Image(systemName: "checkmark")
+                        .font(DSFont.toolbarIcon)
                 }
             }
-            .padding(.horizontal, DSSpacing.lg).padding(.vertical, 6)
+            // Native bottom toolbar: delete · add-to-group · share.
+            ToolbarItemGroup(placement: .bottomBar) {
+                Button(role: .destructive) {
+                    if !selectedBookIds.isEmpty { showBulkDeleteAlert = true }
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .tint(.red)
+                .disabled(selectedBookIds.isEmpty)
+                .accessibilityLabel(localized("刪除"))
+
+                Spacer()
+
+                Button {
+                    if !selectedBookIds.isEmpty { showAddToGroupSheet = true }
+                } label: {
+                    ToolbarTitleAndIconLabel(
+                        title: localized("加入分組"),
+                        systemImage: "text.badge.plus",
+                        width: DSLayout.bookshelfAddToGroupLabelWidth
+                    )
+                }
+                .disabled(selectedBookIds.isEmpty)
+                .accessibilityLabel(localized("加入分組"))
+                .accessibilityIdentifier("home_add_to_group")
+
+                Spacer()
+
+                ShareLink(items: selectedShareableURLs) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .disabled(selectedShareableURLs.isEmpty)
+                .accessibilityLabel(localized("分享"))
+            }
+        } else {
+            // Two separate glass pills. A ToolbarSpacer (iOS 26+) breaks the
+            // auto-merge so the two menus sit in their own glass instead of
+            // fusing into one. Order swapped: options (…) leads, add (+) trails.
+            ToolbarItem(placement: .navigationBarTrailing) {
+                bookshelfOptionsMenu
+            }
+            if addsBooks {
+                #if compiler(>=6.2)
+                if #available(iOS 26.0, *) {
+                    ToolbarSpacer(.fixed, placement: .navigationBarTrailing)
+                }
+                #endif
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    addBookMenu
+                }
+            }
+        }
+    }
+
+    /// The shelf's groups in the group bar's order, each with how many books it holds.
+    private var groupBookCounts: [(name: String, count: Int)] {
+        let counts = Dictionary(grouping: store.books.filter { !$0.group.isEmpty }, by: \.group)
+            .mapValues(\.count)
+        return store.allGroups.map { (name: $0, count: counts[$0] ?? 0) }
+    }
+
+    /// Moves the selection into `group` and ends 選取. A name left empty moves nothing.
+    private func addSelection(toGroup group: String) {
+        guard !group.isEmpty, !selectedBookIds.isEmpty else { return }
+        store.setGroups(Dictionary(uniqueKeysWithValues: selectedBookIds.map { ($0, group) }))
+        selectedBookIds = []
+        withAnimation(reduceMotion ? nil : DSAnimation.standard) { editMode = .inactive }
+    }
+
+    // MARK: - Group Pages
+
+    /// The shelf as pages — 全部, then each group — that the reader swipes between, as
+    /// legado's bookshelf pages through its groups; the group bar names the page in view.
+    ///
+    /// From iOS 26 the group bar is a safe-area bar: it and the navigation bar are one
+    /// surface that the pages scroll on under, with one soft edge behind both. The system
+    /// draws that edge for the pager, the outermost scroll view, so the pager carries
+    /// `softScrollEdges()`; left to the system the edge is hard — a lighter band ending in
+    /// a hairline under the group bar (iOS 27 simulator), the line the bar used to show
+    /// under the navigation bar when it was a scroll view of its own above the shelf.
+    /// Earlier systems draw no edge and no line, so there the bar stays above the pages,
+    /// which stop under it.
+    @ViewBuilder
+    private func groupedShelf(pages: [String]) -> some View {
+        let showsGroupBar = pages.count > 1
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            shelfPager(pages: pages)
+                .safeAreaBar(edge: .top, spacing: 0) {
+                    if showsGroupBar {
+                        groupFilterBar(pages: pages)
+                    }
+                }
+        } else {
+            VStack(spacing: 0) {
+                if showsGroupBar {
+                    groupFilterBar(pages: pages)
+                }
+                shelfPager(pages: pages)
+            }
+        }
+        #else
+        VStack(spacing: 0) {
+            if showsGroupBar {
+                groupFilterBar(pages: pages)
+            }
+            shelfPager(pages: pages)
+        }
+        #endif
+    }
+
+    /// `selectedGroup` is the page in view: a chip tapped pages to its group, and a page
+    /// swiped past halfway selects its chip.
+    private func shelfPager(pages: [String]) -> some View {
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: 0) {
+                ForEach(pages, id: \.self) { group in
+                    let isInView = group == selectedGroup
+                    shelfContent(ShelfPage(pagerGroup: group), isInView: isInView)
+                        // VoiceOver reads the page in view and moves between pages with the
+                        // group bar, instead of walking out of one group's books into the next.
+                        .accessibilityHidden(!isInView)
+                        .containerRelativeFrame(.horizontal)
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollTargetBehavior(.paging)
+        .scrollPosition(id: pageInView, anchor: .center)
+        .scrollIndicators(.hidden)
+        // 全部 alone, with no group yet, does not page at all.
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        // The edge under the bars is drawn for this scroll view, not the pages' own (see
+        // `groupedShelf`). Hiding it here hides theirs too — the setting reaches every
+        // scroll view inside — and the books then show through the bars unblurred.
+        .softScrollEdges()
+    }
+
+    private var pageInView: Binding<String?> {
+        Binding(
+            get: { selectedGroup },
+            set: { page in
+                if let page { selectedGroup = page }
+            }
+        )
+    }
+
+    /// One page as the shelf shows it, in a list or a grid. `isInView`: the page on screen,
+    /// not one the pager has laid out beside it.
+    @ViewBuilder
+    private func shelfContent(_ page: ShelfPage, isInView: Bool) -> some View {
+        let listed = entries(onPage: page)
+        if isGridMode {
+            bookGrid(entries: listed, page: page, isInView: isInView)
+        } else {
+            bookList(entries: listed, page: page, isInView: isInView)
+        }
+    }
+
+    // MARK: - Folder Page
+
+    /// A group opened from its folder on 全部: its books as the shelf shows them, under the
+    /// group's name, with the shelf's options and 選取.
+    private func folderPage(_ group: String) -> some View {
+        AdaptiveContentContainer(maxWidth: DSLayout.readableShelfWidth) {
+            shelfContent(.folder(group), isInView: true)
+        }
+        .themedAppSurface(for: .bookshelf)
+        .navigationTitle(group)
+        .toolbarTitleDisplayMode(.inline)
+        .toolbar { shelfToolbar(addsBooks: false) }
+        .toolbar(editMode == .active ? .hidden : .automatic, for: .tabBar)
+    }
+
+    // MARK: - Group Filter Bar
+    private func groupFilterBar(pages: [String]) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: DSSpacing.sm) {
+                    ForEach(pages, id: \.self) { page in
+                        DSChip(
+                            title: page.isEmpty ? localized("全部") : page,
+                            isSelected: selectedGroup == page,
+                            minWidth: DSLayout.capsuleControlMinWidth
+                        ) {
+                            withAnimation(reduceMotion ? nil : DSAnimation.standard) { selectedGroup = page }
+                        }
+                        .accessibilityIdentifier("home_group_chip")
+                        .id(page)
+                    }
+                }
+                .padding(.horizontal, DSSpacing.lg).padding(.vertical, 6)
+            }
+            // A group swiped to brings its chip into view when the groups overflow the bar.
+            .onChange(of: selectedGroup) { _, page in
+                withAnimation(reduceMotion ? nil : DSAnimation.standard) {
+                    proxy.scrollTo(page, anchor: .center)
+                }
+            }
         }
     }
 
 
     // MARK: - Book List
-    private var bookList: some View {
+    private func bookList(entries: [ShelfEntry], page: ShelfPage, isInView: Bool) -> some View {
         ScrollViewReader { proxy in
-            bookListContent
+            bookListContent(entries: entries, page: page, isInView: isInView)
                 .onChange(of: shelfScrollToTopRequest) {
-                    if let first = sortedFilteredBooks.first {
+                    if shelfScrollToTopPage == page, let first = entries.first {
                         proxy.scrollTo(first.id, anchor: .top)
                     }
                 }
         }
     }
 
-    private var bookListContent: some View {
-        let books = sortedFilteredBooks
-        // Native multi-select: binding the selection Set drives the system selection circles in edit mode.
+    private func bookListContent(entries: [ShelfEntry], page: ShelfPage, isInView: Bool) -> some View {
+        let isSelecting = editMode == .active
+        // A group's page pushed over the shelf leaves 書架's title alone.
+        let measuresTitleFade = isInView && page.isOnPager
+        // Native multi-select: binding the selection Set drives the system selection circles in
+        // edit mode. A book row is tagged with its id; a folder has no id to select.
         return List(selection: $selectedBookIds) {
-            ForEach(books) { book in
-                BookRow(
-                    book: book,
-                    isEditing: editMode == .active,
-                    transitionNamespace: bookTransition,
-                    onTap: { sourceGeometry in
-                        openBook(book, sourceGeometry: sourceGeometry)
-                    },
-                    onCoverFrameChange: { frame in
-                        readerGeometryStore.update(frame, for: book.id)
-                    },
-                    onEdit: { editingBook = book },
-                    onDelete: { bookToDelete = book },
-                    onShowDetail: canShowOnlineBookDetail(for: book)
-                        ? { showOnlineBookDetail(for: book) }
-                        : nil
-                )
+            ForEach(entries) { entry in
+                Group {
+                    switch entry {
+                    case .book(let book):
+                        BookRow(
+                            book: book,
+                            isEditing: isSelecting,
+                            transitionNamespace: bookTransition,
+                            onTap: { sourceGeometry in
+                                openBook(book, from: page, sourceGeometry: sourceGeometry)
+                            },
+                            onCoverFrameChange: { frame in
+                                readerGeometryStore.update(frame, for: book.id, onPage: page)
+                            },
+                            onEdit: { editingBook = book },
+                            onDelete: { bookToDelete = book },
+                            onShowDetail: canShowOnlineBookDetail(for: book)
+                                ? { showOnlineBookDetail(for: book) }
+                                : nil
+                        )
+                        .tag(book.id)
+                    case .folder(let name, let books):
+                        BookshelfFolderRow(name: name, books: books, isSelecting: isSelecting) {
+                            openedFolder = name
+                        }
+                        .moveDisabled(true)
+                    }
+                }
                 .listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 0, leading: hInset, bottom: 0, trailing: hInset))
                 .listRowBackground(Color.clear)
                 .background {
-                    // The first row measures the list's scroll for the title's fade.
-                    if book.id == books.first?.id {
+                    // The first row of the page in view measures its scroll for the title's fade.
+                    if measuresTitleFade, entry.id == entries.first?.id {
                         Color.clear.rootTabTitleScrollAnchor()
                     }
                 }
@@ -771,24 +1041,32 @@ struct HomeView: View {
             }
             .onMove { src, dst in
                 guard sortOrder == BookSortOrder.manual.rawValue else { return }
-                let filtered = sortedFilteredBooks
-                let movingIds = src.map { filtered[$0].id }
-                let targetId: UUID? = dst < filtered.count ? filtered[dst].id : nil
+                // Folders stay put; a book dropped before one lands before its first book.
+                let movingIds = src.compactMap { entries[$0].book?.id }
+                let targetId: UUID? = dst < entries.count ? entries[dst].firstBookID : nil
                 store.moveBooks(ids: movingIds, before: targetId)
             }
         }
         .softScrollEdges()
         .listStyle(.plain)
         .environment(\.editMode, $editMode)
-        .animation(reduceMotion ? nil : DSAnimation.standard, value: sortedFilteredBooks.map(\.id))
-        .accessibilityIdentifier("home_book_list")
+        .animation(reduceMotion ? nil : DSAnimation.standard, value: entries.map(\.id))
+        .accessibilityIdentifier(shelfAccessibilityIdentifier(for: page, isInView: isInView, grid: false))
         .refreshable {
             await ChapterUpdater.refreshAll(bookStore: store)
         }
     }
 
+    /// The page in view answers to `home_book_list` / `home_book_grid`, a group's page pushed
+    /// from its folder to `home_folder_list` / `home_folder_grid`.
+    private func shelfAccessibilityIdentifier(for page: ShelfPage, isInView: Bool, grid: Bool) -> String {
+        let kind = grid ? "grid" : "list"
+        if !page.isOnPager { return "home_folder_\(kind)" }
+        return isInView ? "home_book_\(kind)" : "home_book_\(kind)_offscreen"
+    }
+
     // MARK: - Book Grid
-    private var bookGrid: some View {
+    private func bookGrid(entries: [ShelfEntry], page: ShelfPage, isInView: Bool) -> some View {
         let coverDisplaySize = gridCoverDisplaySize
         let selectedCoverScale = BookshelfGridSelectionStyle.liftScale(
             coverSize: coverDisplaySize,
@@ -799,12 +1077,17 @@ struct HomeView: View {
         let isSelecting = editMode == .active
         return ScrollViewReader { proxy in
             bookGridScrollView(
+                entries: entries,
+                page: page,
+                isInView: isInView,
                 coverDisplaySize: coverDisplaySize,
                 selectedCoverScale: selectedCoverScale,
                 isSelecting: isSelecting
             )
             .onChange(of: shelfScrollToTopRequest) {
-                proxy.scrollTo(Self.gridTopAnchorID, anchor: .top)
+                if shelfScrollToTopPage == page {
+                    proxy.scrollTo(Self.gridTopAnchorID, anchor: .top)
+                }
             }
         }
     }
@@ -813,6 +1096,9 @@ struct HomeView: View {
     private static let gridTopAnchorID = "bookshelf-grid-top"
 
     private func bookGridScrollView(
+        entries: [ShelfEntry],
+        page: ShelfPage,
+        isInView: Bool,
         coverDisplaySize: CGSize,
         selectedCoverScale: CGFloat,
         isSelecting: Bool
@@ -822,38 +1108,57 @@ struct HomeView: View {
                 columns: gridColumns,
                 spacing: DSSpacing.lg
             ) {
-                ForEach(sortedFilteredBooks) { book in
-                    BookGridCell(
-                        book: book,
-                        isCompactLayout: isCompactFiveColumnGrid,
-                        coverDisplaySize: coverDisplaySize,
-                        isEditing: isSelecting,
-                        isSelected: selectedBookIds.contains(book.id),
-                        selectedCoverScale: selectedCoverScale,
-                        transitionNamespace: bookTransition,
-                        onOpen: { sourceGeometry in
-                            openBook(book, sourceGeometry: sourceGeometry)
-                        },
-                        onToggleSelection: { toggleSelection(of: book.id) },
-                        onCoverFrameChange: { frame in
-                            readerGeometryStore.update(frame, for: book.id)
-                        },
-                        onEdit: { editingBook = book },
-                        onDelete: { bookToDelete = book },
-                        onShowDetail: canShowOnlineBookDetail(for: book)
-                            ? { showOnlineBookDetail(for: book) }
-                            : nil
-                    )
+                ForEach(entries) { entry in
+                    switch entry {
+                    case .book(let book):
+                        BookGridCell(
+                            book: book,
+                            isCompactLayout: isCompactFiveColumnGrid,
+                            coverDisplaySize: coverDisplaySize,
+                            isEditing: isSelecting,
+                            isSelected: selectedBookIds.contains(book.id),
+                            selectedCoverScale: selectedCoverScale,
+                            transitionNamespace: bookTransition,
+                            onOpen: { sourceGeometry in
+                                openBook(book, from: page, sourceGeometry: sourceGeometry)
+                            },
+                            onToggleSelection: { toggleSelection(of: book.id) },
+                            onCoverFrameChange: { frame in
+                                readerGeometryStore.update(frame, for: book.id, onPage: page)
+                            },
+                            onEdit: { editingBook = book },
+                            onDelete: { bookToDelete = book },
+                            onShowDetail: canShowOnlineBookDetail(for: book)
+                                ? { showOnlineBookDetail(for: book) }
+                                : nil
+                        )
+                    case .folder(let name, let books):
+                        BookshelfFolderGridCell(
+                            name: name,
+                            books: books,
+                            isCompactLayout: isCompactFiveColumnGrid,
+                            coverDisplaySize: coverDisplaySize,
+                            isSelecting: isSelecting
+                        ) {
+                            openedFolder = name
+                        }
+                    }
                 }
             }
             .padding(.horizontal, gridHorizontalInset)
             .padding(.vertical, DSSpacing.md)
-            .rootTabTitleScrollAnchor()
+            .background {
+                // The page in view measures its scroll for the title's fade; a group's page
+                // pushed over the shelf leaves 書架's title alone.
+                if isInView, page.isOnPager {
+                    Color.clear.rootTabTitleScrollAnchor()
+                }
+            }
             .id(Self.gridTopAnchorID)
         }
-        .accessibilityIdentifier("home_book_grid")
+        .accessibilityIdentifier(shelfAccessibilityIdentifier(for: page, isInView: isInView, grid: true))
         .softScrollEdges()
-        .animation(reduceMotion ? nil : DSAnimation.standard, value: sortedFilteredBooks.map(\.id))
+        .animation(reduceMotion ? nil : DSAnimation.standard, value: entries.map(\.id))
         .animation(reduceMotion ? nil : DSAnimation.standard, value: gs.bookshelfGridColumnCount)
         .refreshable {
             await ChapterUpdater.refreshAll(bookStore: store)
@@ -1374,8 +1679,10 @@ struct BookRow: View {
     let onDelete: () -> Void
     var onShowDetail: (() -> Void)? = nil
 
-    private let coverW: CGFloat = 45
-    private let coverH: CGFloat = 65
+    /// A row's cover. A group's folder in the list takes the same frame.
+    static let coverSize = CGSize(width: 45, height: 65)
+    private let coverW: CGFloat = BookRow.coverSize.width
+    private let coverH: CGFloat = BookRow.coverSize.height
     @State private var liveCoverFrame: CGRect = .zero
     @Environment(\.colorScheme) private var colorScheme
 
@@ -1755,6 +2062,266 @@ struct BookGridCell: View {
 
 }
 
+// MARK: - Group Folder
+
+/// A group on 全部: the covers of its first four books, two by two, in the frame a book's
+/// cover takes — a folder, as iOS gathers apps. A group of fewer books leaves the rest of
+/// the folder empty. It fills the frame it is given; `displaySize` is that frame, and sets
+/// the margins and the covers' decode size.
+private struct BookshelfFolderCover: View {
+    let books: [ReadingBook]
+    let displaySize: CGSize
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let inset = displaySize.width * DSLayout.bookshelfFolderInsetRatio
+        let spacing = displaySize.width * DSLayout.bookshelfFolderSpacingRatio
+        let coverSize = CGSize(
+            width: max(0, (displaySize.width - inset * 2 - spacing) / 2),
+            height: max(0, (displaySize.height - inset * 2 - spacing) / 2)
+        )
+        Grid(horizontalSpacing: spacing, verticalSpacing: spacing) {
+            GridRow {
+                cover(0, displaySize: coverSize)
+                cover(1, displaySize: coverSize)
+            }
+            GridRow {
+                cover(2, displaySize: coverSize)
+                cover(3, displaySize: coverSize)
+            }
+        }
+        .padding(inset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(DSColor.surface)
+    }
+
+    private func cover(_ index: Int, displaySize: CGSize) -> some View {
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay {
+                if books.indices.contains(index) {
+                    BookshelfCoverStyle.artwork(for: books[index], colorScheme: colorScheme, displaySize: displaySize)
+                }
+            }
+            .clipShape(RoundedRectangle(
+                cornerRadius: BookshelfCoverStyle.cornerRadius * DSLayout.bookshelfFolderCoverRadiusRatio
+            ))
+    }
+}
+
+/// How a group names itself: its name, and how many books are in it.
+private enum BookshelfFolderLabel {
+    static func count(_ bookCount: Int) -> String {
+        String(format: localized("%d 本"), bookCount)
+    }
+
+    static func accessibilityLabel(name: String, books: [ReadingBook]) -> String {
+        name + "，" + count(books.count)
+    }
+}
+
+/// A group on 全部 in the list: its folder where a book's cover would be, its name, and how
+/// many books it holds. A tap opens the group's page. 選取 takes books only, so the folder
+/// dims and takes no taps while it is on.
+private struct BookshelfFolderRow: View {
+    let name: String
+    let books: [ReadingBook]
+    var isSelecting = false
+    let onOpen: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: onOpen) {
+                HStack(alignment: .top, spacing: 12) {
+                    BookshelfFolderCover(books: books, displaySize: BookRow.coverSize)
+                        .frame(width: BookRow.coverSize.width, height: BookRow.coverSize.height)
+                        .clipShape(RoundedRectangle(cornerRadius: BookshelfCoverStyle.cornerRadius))
+                        .shadow(color: .black.opacity(0.08), radius: 15, x: 0, y: 10)
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(name)
+                            .font(DSFont.fixed(size: 15, weight: .medium))
+                            .lineLimit(2)
+                            .foregroundStyle(DSColor.textPrimary)
+                        Text(BookshelfFolderLabel.count(books.count))
+                            .font(DSFont.fixed(size: 13))
+                            .foregroundColor(DSColor.textSecondary)
+                            .lineLimit(1)
+                    }
+                    .padding(.top, 2)
+
+                    Spacer(minLength: 0)
+
+                    Image(systemName: "chevron.right")
+                        .font(DSFont.fixed(size: 14, weight: .semibold))
+                        .foregroundStyle(DSColor.textTertiary)
+                        .frame(maxHeight: .infinity)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .opacity(isSelecting ? DSLayout.bookshelfUnselectedCoverOpacity : 1)
+            .padding(.vertical, 10)
+
+            Rectangle()
+                .fill(Color(uiColor: .separator))
+                .frame(height: 0.5)
+        }
+        .disabled(isSelecting)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(BookshelfFolderLabel.accessibilityLabel(name: name, books: books))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onOpen() }
+        .accessibilityIdentifier("home_group_folder")
+    }
+}
+
+/// A group on 全部 in the grid: its folder in a book's cover's place, its name in the
+/// title's, and how many books it holds in the author's.
+private struct BookshelfFolderGridCell: View {
+    let name: String
+    let books: [ReadingBook]
+    var isCompactLayout = false
+    /// The cover's frame as the grid lays it out, which the folder takes.
+    var coverDisplaySize: CGSize = .zero
+    var isSelecting = false
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            VStack(alignment: .leading, spacing: DSLayout.bookshelfGridCoverTitleSpacing) {
+                Color.clear
+                    .aspectRatio(2/3, contentMode: .fit)
+                    .overlay(BookshelfFolderCover(books: books, displaySize: coverDisplaySize))
+                    .clipShape(RoundedRectangle(cornerRadius: BookshelfCoverStyle.cornerRadius))
+                    .shadow(color: .black.opacity(0.18), radius: 4, x: 0, y: 2)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name)
+                        .font(DSFont.fixed(size: isCompactLayout ? 12 : 13, weight: .semibold))
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .foregroundStyle(DSColor.textPrimary)
+                    Text(BookshelfFolderLabel.count(books.count))
+                        .font(DSFont.fixed(size: isCompactLayout ? 10 : 11))
+                        .foregroundColor(DSColor.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(isSelecting ? DSLayout.bookshelfUnselectedCoverOpacity : 1)
+        .disabled(isSelecting)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(BookshelfFolderLabel.accessibilityLabel(name: name, books: books))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onOpen() }
+        .accessibilityIdentifier("home_group_folder")
+    }
+}
+
+// MARK: - Add to Group Sheet
+
+/// 加入分組: 新建分組 first, which names a group in an alert and puts the books straight in,
+/// then each of the shelf's groups with how many books it holds, and 取消 on its own below.
+private struct BookshelfAddToGroupSheet: View {
+    let groups: [(name: String, count: Int)]
+    let onChoose: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var showsNewGroupAlert = false
+    @State private var newGroupName = ""
+    /// The list's full height, which the sheet takes: as tall as its buttons, however many
+    /// groups there are and however large the text. Nil until the list is laid out.
+    @State private var listHeight: CGFloat?
+
+    var body: some View {
+        List {
+            Section {
+                Button {
+                    newGroupName = ""
+                    showsNewGroupAlert = true
+                } label: {
+                    Label {
+                        Text(localized("新建分組"))
+                            .foregroundStyle(DSColor.textPrimary)
+                    } icon: {
+                        Image(systemName: "plus")
+                            .foregroundStyle(DSColor.textSecondary)
+                    }
+                }
+                .background {
+                    Color.clear.reportsScrollContentHeight { listHeight = $0 }
+                }
+                ForEach(groups, id: \.name) { group in
+                    Button {
+                        choose(group.name)
+                    } label: {
+                        LabeledContent {
+                            Text(BookshelfFolderLabel.count(group.count))
+                        } label: {
+                            Label {
+                                Text(group.name)
+                                    .foregroundStyle(DSColor.textPrimary)
+                            } icon: {
+                                Image(systemName: "folder")
+                                    .foregroundStyle(DSColor.textSecondary)
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text(localized("加入分組"))
+                    .font(DSFont.subheadline)
+                    .foregroundStyle(DSColor.textSecondary)
+                    .textCase(nil)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            .interfaceSectionSurface()
+
+            Section {
+                Button {
+                    dismiss()
+                } label: {
+                    Text(localized("取消"))
+                        .font(DSFont.body.weight(.semibold))
+                        .foregroundStyle(DSColor.textSecondary)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .interfaceSectionSurface()
+        }
+        .listStyle(.insetGrouped)
+        .softScrollEdges()
+        .themedAppSurface(for: .bookshelf)
+        .presentationDetents(detents)
+        .alert(localized("新建分組"), isPresented: $showsNewGroupAlert) {
+            TextField(localized("分組名稱"), text: $newGroupName)
+            Button(localized("新建")) {
+                choose(newGroupName.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            Button(localized("取消"), role: .cancel) {}
+        }
+    }
+
+    /// The list's height once it is known; the medium height for the moment before.
+    private var detents: Set<PresentationDetent> {
+        if let listHeight { [.height(listHeight)] } else { [.medium] }
+    }
+
+    /// Puts the books in `group` and closes the sheet. A new group left unnamed keeps the
+    /// sheet open, its books where they were.
+    private func choose(_ group: String) {
+        guard !group.isEmpty else { return }
+        onChoose(group)
+        dismiss()
+    }
+}
+
 // MARK: - Book Overflow Menu
 
 private struct BookOverflowMenu: View {
@@ -1786,68 +2353,6 @@ private struct BookOverflowMenu: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(localized("更多"))
-    }
-}
-
-// MARK: - Bulk Add to Group Sheet
-struct BulkAddToGroupSheet: View {
-    let bookCount: Int
-    let onConfirm: (String) -> Void
-
-    @EnvironmentObject private var store: BookStore
-    @Environment(\.presentationMode) private var dismiss
-    @State private var groupInput: String = ""
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section(header: Text(localized("分組名稱")).foregroundStyle(DSColor.textSecondary)) {
-                    TextField(localized("輸入分組名稱（留空＝未分組）"), text: $groupInput)
-                    if !store.allGroups.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(store.allGroups, id: \.self) { g in
-                                    Button(g) { groupInput = g }
-                                        .font(DSFont.caption)
-                                        .padding(.horizontal, 10).padding(.vertical, 4)
-                                        .background(groupInput == g ? DSColor.accent.opacity(0.2) : Color.secondary.opacity(0.1))
-                                        .foregroundColor(groupInput == g ? DSColor.accent : DSColor.textSecondary)
-                                        .clipShape(Capsule())
-                                }
-                            }
-                        }
-                    }
-                }
-                .interfaceSectionSurface()
-                Section {
-                    Text(String(format: localized("將套用到 %d 本書"), bookCount))
-                        .font(DSFont.footnote)
-                        .foregroundColor(DSColor.textSecondary)
-                }
-                .interfaceSectionSurface()
-            }
-            .softScrollEdges()
-            .navigationTitle(localized("加入分組"))
-            .toolbarTitleDisplayMode(.inline)
-            .themedAppSurface(for: .bookshelf)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        dismiss.wrappedValue.dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        onConfirm(groupInput)
-                        dismiss.wrappedValue.dismiss()
-                    } label: {
-                        Image(systemName: "checkmark")
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -1925,6 +2430,36 @@ private func previewOnlineBook(hasUpdate: Bool) -> ReadingBook {
         }
     }
     .padding()
+}
+
+#Preview("分組資料夾 – 列表／格狀") {
+    let books = (0..<3).map { previewOnlineBook(hasUpdate: $0 == 0) }
+    let coverSize = CGSize(width: 110, height: 165)
+    VStack(spacing: 0) {
+        List {
+            BookshelfFolderRow(name: "在追", books: books) {}
+            BookshelfFolderRow(name: "同人", books: Array(books.prefix(1))) {}
+            BookshelfFolderRow(name: "選取中", books: books, isSelecting: true) {}
+        }
+        .listStyle(.plain)
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: DSSpacing.md, alignment: .top), count: 3),
+            spacing: DSSpacing.lg
+        ) {
+            BookshelfFolderGridCell(name: "在追", books: books, coverDisplaySize: coverSize) {}
+            BookshelfFolderGridCell(name: "同人", books: Array(books.prefix(1)), coverDisplaySize: coverSize) {}
+            BookshelfFolderGridCell(name: "選取中", books: books, coverDisplaySize: coverSize, isSelecting: true) {}
+        }
+        .padding()
+    }
+    .background(DSColor.groupedBackground)
+}
+
+#Preview("加入分組") {
+    Color.clear
+        .sheet(isPresented: .constant(true)) {
+            BookshelfAddToGroupSheet(groups: [("未看", 18), ("在追", 18), ("同人", 3)]) { _ in }
+        }
 }
 
 #Preview("書籍資訊 – 封面區") {

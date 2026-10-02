@@ -14,9 +14,11 @@ final class BookshelfGridSelectionUITests: XCTestCase {
         let app = launchShelf(language: "en")
         let grid = app.scrollViews["home_book_grid"]
         XCTAssertTrue(grid.waitForExistence(timeout: 20), app.debugDescription)
-        let first = grid.buttons.element(boundBy: 0)
-        let second = grid.buttons.element(boundBy: 1)
-        XCTAssertTrue(second.waitForExistence(timeout: 10), "the shelf needs at least two books")
+        // Books, not the folders 全部 folds each group into: 選取 takes books only.
+        let books = grid.buttons.matching(NSPredicate(format: "identifier != %@", "home_group_folder"))
+        let first = books.element(boundBy: 0)
+        let second = books.element(boundBy: 1)
+        XCTAssertTrue(second.waitForExistence(timeout: 10), "the shelf needs at least two books outside a group")
 
         let addToGroup = enterSelection(in: app, selectTitle: "Select")
         XCTAssertFalse(addToGroup.isEnabled)

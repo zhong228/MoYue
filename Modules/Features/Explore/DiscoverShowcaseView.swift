@@ -839,7 +839,11 @@ struct DiscoverListLayoutView: View {
         ScrollView(.horizontal) {
             HStack(spacing: DSSpacing.sm) {
                 ForEach(discover.sections) { section in
-                    DSChip(title: section.title, isSelected: section.id == selectedSection?.id) {
+                    DSChip(
+                        title: section.title,
+                        isSelected: section.id == selectedSection?.id,
+                        minWidth: DSLayout.capsuleControlMinWidth
+                    ) {
                         selectedKey = section.item.stableKey
                     }
                 }

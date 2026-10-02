@@ -349,6 +349,10 @@ enum DSLayout {
     static let discoverChipMinWidth: CGFloat = 72
     /// A chip, filter or quick action drawn as a capsule (`DSCapsuleLabel`).
     static let capsuleControlHeight: CGFloat = 36
+    /// The narrowest a chip in a filter bar gets — 書架's groups, 探索's categories: the
+    /// HIG's 44pt minimum control width, so a one-character name is still a capsule wider
+    /// than it is tall.
+    static let capsuleControlMinWidth: CGFloat = 44
     /// A tab root's title starts to fade once its page has scrolled this far, and is gone
     /// this much further on (書架, as Apple Music's and Books' home titles go).
     static let rootTabTitleFadeStart: CGFloat = 10
@@ -382,6 +386,13 @@ enum DSLayout {
     static let bookCoverHeroShadowOffsetY: CGFloat = 10
     /// Gap between a shelf-grid cover and the title under it.
     static let bookshelfGridCoverTitleSpacing: CGFloat = 6
+    /// A group's folder on the shelf, as shares of its width: the margin around its four
+    /// covers, and the gap between them. Shares, so the list's thumbnail and a grid cell's
+    /// folder keep one look at their different sizes.
+    static let bookshelfFolderInsetRatio: CGFloat = 0.08
+    static let bookshelfFolderSpacingRatio: CGFloat = 0.05
+    /// A cover inside a folder rounds its corners by this share of the shelf's cover radius.
+    static let bookshelfFolderCoverRadiusRatio: CGFloat = 0.5
     /// A shelf cover the selection leaves out while 選取 is on, dimmed as Apple Books'
     /// library dims one: measured off its screenshots at 60% over the page.
     static let bookshelfUnselectedCoverOpacity: Double = 0.6

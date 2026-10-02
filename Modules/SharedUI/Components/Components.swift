@@ -244,6 +244,9 @@ struct DSCapsuleLabel: View {
     /// A value after the title on the same line, in the secondary colour — what an input
     /// holds, or that it is empty. It is cut short before the title is.
     var detail: String? = nil
+    /// The narrowest the capsule gets, its title centred: a one-character title would
+    /// otherwise make a capsule narrower than it is tall.
+    var minWidth: CGFloat? = nil
 
     var body: some View {
         HStack(spacing: DSSpacing.xs) {
@@ -271,7 +274,7 @@ struct DSCapsuleLabel: View {
         .foregroundStyle(isSelected ? DSColor.textOnAccent : DSColor.textPrimary)
         .padding(.horizontal, fillsWidth ? DSSpacing.sm : DSSpacing.md)
         .padding(.vertical, fillsWidth ? DSSpacing.xs : 0)
-        .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: DSLayout.capsuleControlHeight)
+        .frame(minWidth: minWidth, maxWidth: fillsWidth ? .infinity : nil, minHeight: DSLayout.capsuleControlHeight)
         .background {
             if isSelected {
                 Capsule().fill(DSColor.accent)
@@ -289,11 +292,13 @@ struct DSCapsuleLabel: View {
 struct DSChip: View {
     let title: String
     let isSelected: Bool
+    /// See `DSCapsuleLabel.minWidth`.
+    var minWidth: CGFloat? = nil
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            DSCapsuleLabel(title: title, isSelected: isSelected)
+            DSCapsuleLabel(title: title, isSelected: isSelected, minWidth: minWidth)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])

@@ -15,27 +15,46 @@ extension View {
     /// A list recycles the row this sits on once it scrolls far out of sight; the last
     /// offset reported stands until the row comes back near the top.
     func reportsScrollOffset(_ action: @escaping (CGFloat) -> Void) -> some View {
-        background(ScrollOffsetReader(onChange: action).accessibilityHidden(true))
+        background(ScrollViewMeasurer(measure: .offset, onChange: action).accessibilityHidden(true))
+    }
+
+    /// Reports how tall the scroll view this view sits in has to be to show all its content
+    /// without scrolling — the content and the insets around it, the safe area's among
+    /// them: once when the view is placed, then each time the content's size changes. A
+    /// sheet sizes itself to its list with it. Put it inside the scroll content, as
+    /// `reportsScrollOffset(_:)`; with no scroll view above it, it reports nothing.
+    func reportsScrollContentHeight(_ action: @escaping (CGFloat) -> Void) -> some View {
+        background(ScrollViewMeasurer(measure: .contentHeight, onChange: action).accessibilityHidden(true))
     }
 }
 
-private struct ScrollOffsetReader: UIViewRepresentable {
-    let onChange: (CGFloat) -> Void
-
-    func makeUIView(context: Context) -> ReaderView {
-        ReaderView(onChange: onChange)
+private struct ScrollViewMeasurer: UIViewRepresentable {
+    enum Measure {
+        /// How far the scroll view has scrolled from its top.
+        case offset
+        /// How tall it has to be to show its content without scrolling.
+        case contentHeight
     }
 
-    func updateUIView(_ view: ReaderView, context: Context) {
+    let measure: Measure
+    let onChange: (CGFloat) -> Void
+
+    func makeUIView(context: Context) -> MeasuringView {
+        MeasuringView(measure: measure, onChange: onChange)
+    }
+
+    func updateUIView(_ view: MeasuringView, context: Context) {
         view.onChange = onChange
     }
 
-    final class ReaderView: UIView {
+    final class MeasuringView: UIView {
+        let measure: Measure
         var onChange: (CGFloat) -> Void
         private var observation: NSKeyValueObservation?
         private weak var observedScrollView: UIScrollView?
 
-        init(onChange: @escaping (CGFloat) -> Void) {
+        init(measure: Measure, onChange: @escaping (CGFloat) -> Void) {
+            self.measure = measure
             self.onChange = onChange
             super.init(frame: .zero)
             isUserInteractionEnabled = false
@@ -56,28 +75,48 @@ private struct ScrollOffsetReader: UIViewRepresentable {
             let scrollView = ancestor as? UIScrollView
             if scrollView !== observedScrollView || observation == nil {
                 observedScrollView = scrollView
-                // contentOffset changes on the main thread, so the change handler runs there.
-                observation = scrollView?.observe(\.contentOffset, options: [.new]) { [weak self] scrollView, _ in
-                    MainActor.assumeIsolated {
-                        self?.report(scrollView)
-                    }
-                }
+                observation = scrollView.map(observe)
             }
-            // The offset as placed goes out on the main actor's next turn: SwiftUI is still
+            // The value as placed goes out on the main actor's next turn: SwiftUI is still
             // adding this view to the window here, and publishing in the middle of that is a
-            // change during a view update. Every later change comes from a scroll.
+            // change during a view update. Every later change comes from the observation.
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if let observedScrollView {
                     report(observedScrollView)
-                } else {
+                } else if measure == .offset {
                     onChange(0)
                 }
             }
         }
 
+        /// The offset and the content size both change on the main thread, so the change
+        /// handler runs there.
+        private func observe(_ scrollView: UIScrollView) -> NSKeyValueObservation {
+            switch measure {
+            case .offset:
+                scrollView.observe(\.contentOffset, options: [.new]) { [weak self] scrollView, _ in
+                    MainActor.assumeIsolated {
+                        self?.report(scrollView)
+                    }
+                }
+            case .contentHeight:
+                scrollView.observe(\.contentSize, options: [.new]) { [weak self] scrollView, _ in
+                    MainActor.assumeIsolated {
+                        self?.report(scrollView)
+                    }
+                }
+            }
+        }
+
         private func report(_ scrollView: UIScrollView) {
-            onChange(scrollView.contentOffset.y + scrollView.adjustedContentInset.top)
+            let insets = scrollView.adjustedContentInset
+            switch measure {
+            case .offset:
+                onChange(scrollView.contentOffset.y + insets.top)
+            case .contentHeight:
+                onChange(scrollView.contentSize.height + insets.top + insets.bottom)
+            }
         }
     }
 }

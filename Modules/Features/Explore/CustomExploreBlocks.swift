@@ -467,7 +467,12 @@ private struct CustomExploreMultiRankingBlock: View {
                         ForEach(Array(block.sections.enumerated()), id: \.element.id) { index, section in
                             let isSelected = section.id == selected?.id
                             Button { selectedIndex = index } label: {
-                                DSCapsuleLabel(title: section.title, isSelected: isSelected, onCard: true)
+                                DSCapsuleLabel(
+                                    title: section.title,
+                                    isSelected: isSelected,
+                                    onCard: true,
+                                    minWidth: DSLayout.capsuleControlMinWidth
+                                )
                             }
                             .buttonStyle(.plain)
                             .accessibilityAddTraits(isSelected ? .isSelected : [])
