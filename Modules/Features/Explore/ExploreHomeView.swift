@@ -5,9 +5,10 @@ import SwiftUI
 
 /// The landing screen of the 探索 (Explore) tab, a grid of tiles as Apple Music lays out
 /// its browse categories, or a list of cards: 瀏覽器 opens the in-app browser as it was
-/// left, 我的發現 gathers categories pinned from any source, and each explore source opens
-/// its whole discover page. A long press on a source offers the actions Legado's explore
-/// page does. The browser opens full screen, as the reader does. The search field narrows
+/// left, each of the reader's custom pages gathers categories of any sources in the
+/// layouts they chose (＋ names a new one; a long press renames or deletes it), and each
+/// explore source opens its whole discover page. A long press on a source offers the
+/// actions Legado's explore page does. The browser opens full screen, as the reader does. The search field narrows
 /// the sources as Legado's explore search does, in the page's own layout; books are
 /// searched from the 搜索 tab.
 ///
@@ -35,10 +36,35 @@ struct ExploreHomeView: View {
     @State private var showsSettings = false
     /// 首屏配置 opens its page once, the first time 探索 shows; going back stays here.
     @State private var appliedLanding = false
+    @ObservedObject private var pageStore = CustomExplorePageStore.shared
+    /// 新增自訂頁's or 重新命名's name prompt, and the name typed into it.
+    @State private var pageNamePrompt: PageNamePrompt?
+    @State private var pageName = ""
+    @State private var pagePendingDeletion: CustomExplorePage?
 
     private struct BrowserPresentation: Identifiable {
         let id = UUID()
         let entry: BrowserEntry
+    }
+
+    /// One alert for both prompts: two on one view compete for one presenter.
+    private enum PageNamePrompt: Identifiable {
+        case create
+        case rename(CustomExplorePage)
+
+        var id: String {
+            switch self {
+            case .create: "create"
+            case .rename(let page): page.id.uuidString
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .create: localized("新增自訂頁")
+            case .rename: localized("重新命名")
+            }
+        }
     }
 
     private var groups: [String] {
@@ -88,17 +114,48 @@ struct ExploreHomeView: View {
                     if !isFilteringSources {
                         entries {
                             browserEntry
-                            NavigationLink(value: ExploreNavigationRoute.myDiscover) {
-                                ExploreEntryLabel(
-                                    title: localized("我的發現"),
-                                    artwork: .symbol("star.fill"),
-                                    layout: entryLayout
-                                )
+                            ForEach(pageStore.pages) { page in
+                                NavigationLink(value: ExploreNavigationRoute.customPage(id: page.id)) {
+                                    ExploreEntryLabel(name: page.name, layout: entryLayout)
+                                }
+                                .buttonStyle(ExploreTileButtonStyle())
+                                .accessibilityLabel(page.name)
+                                .contextMenu { pageActions(page) }
                             }
-                            .buttonStyle(ExploreTileButtonStyle())
+                        }
+                        .confirmationDialog(
+                            String(format: localized("刪除「%@」？"), pagePendingDeletion?.name ?? ""),
+                            isPresented: Binding(
+                                get: { pagePendingDeletion != nil },
+                                set: { if !$0 { pagePendingDeletion = nil } }
+                            ),
+                            titleVisibility: .visible,
+                            presenting: pagePendingDeletion
+                        ) { page in
+                            Button(localized("刪除"), role: .destructive) { deletePage(page) }
+                            Button(localized("取消"), role: .cancel) {}
+                        } message: { _ in
+                            Text(localized("頁面裡的元件會一起刪除。"))
                         }
                     }
                     sourcesBlock
+                }
+                .alert(
+                    pageNamePrompt?.title ?? "",
+                    isPresented: Binding(
+                        get: { pageNamePrompt != nil },
+                        set: { if !$0 { pageNamePrompt = nil } }
+                    ),
+                    presenting: pageNamePrompt
+                ) { prompt in
+                    TextField(localized("名稱"), text: $pageName)
+                    switch prompt {
+                    case .create:
+                        Button(localized("新建")) { pageStore.createPage(named: pageName) }
+                    case .rename(let page):
+                        Button(localized("確定")) { pageStore.renamePage(id: page.id, to: pageName) }
+                    }
+                    Button(localized("取消"), role: .cancel) {}
                 }
                 // The page's full width even when a search finds no source: while the
                 // search is active the scroll view takes its content's width, and an
@@ -123,6 +180,16 @@ struct ExploreHomeView: View {
             .toolbar {
                 if groups.count > 1 {
                     ToolbarItem(placement: .topBarTrailing) { groupMenu }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        pageName = ""
+                        pageNamePrompt = .create
+                    } label: {
+                        Image(systemName: "plus")
+                            .accessibilityHidden(true)
+                    }
+                    .accessibilityLabel(localized("新增自訂頁"))
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showsSettings = true } label: {
@@ -197,6 +264,30 @@ struct ExploreHomeView: View {
 
     private func openBrowser(_ entry: BrowserEntry) {
         browserPresentation = BrowserPresentation(entry: entry)
+    }
+
+    /// A custom page's long-press actions.
+    @ViewBuilder
+    private func pageActions(_ page: CustomExplorePage) -> some View {
+        Button {
+            pageName = page.name
+            pageNamePrompt = .rename(page)
+        } label: {
+            Label(localized("重新命名"), systemImage: "pencil")
+        }
+        Button(role: .destructive) {
+            pagePendingDeletion = page
+        } label: {
+            Label(localized("刪除"), systemImage: "trash")
+        }
+    }
+
+    /// Deletes the page; 首屏配置 set to it goes back to off.
+    private func deletePage(_ page: CustomExplorePage) {
+        if ExploreLanding(rawValue: landing) == .customPage(id: page.id) {
+            landing = ExploreLanding.off.rawValue
+        }
+        pageStore.deletePage(id: page.id)
     }
 
     /// The sources, or how to add some. A search that finds none leaves this out for
@@ -282,9 +373,11 @@ struct ExploreHomeView: View {
         switch ExploreLanding(rawValue: landing) {
         case .off:
             appliedLanding = true
-        case .myDiscover:
+        case .customPage(let id):
             appliedLanding = true
-            navigation.push(.myDiscover)
+            if pageStore.page(id: id) != nil {
+                navigation.push(.customPage(id: id))
+            }
         case .source(let url):
             guard !exploreSources.isEmpty else { return }
             appliedLanding = true
@@ -307,10 +400,10 @@ struct ExploreHomeView: View {
             } else {
                 deletedSourceState
             }
-        case .myDiscover:
-            MyDiscoverView()
-        case .myDiscoverEditor:
-            MyDiscoverPinsEditor()
+        case .customPage(let id):
+            CustomExplorePageView(pageID: id)
+        case .customPageEditor(let id):
+            CustomExplorePageEditor(pageID: id)
         case .book(let book):
             OnlineBookDetailDestination(.book(book)).environmentObject(store)
         case .sourceCategory(let reference):

@@ -14,6 +14,24 @@ enum DSColor {
     /// Destructive / delete
     static let destructive = Color.red
 
+    // ── Rankings ──
+    /// A custom explore page's rank badges for first, second and third place, white
+    /// numerals on them; later places sit on `neutralControlFill`. The number is the cue,
+    /// the colour only marks the top three.
+    static let rankFirst = Color(uiColor: .systemRed)
+    static let rankSecond = Color(uiColor: .systemTeal)
+    static let rankThird = Color(uiColor: .systemOrange)
+
+    // ── Custom explore layouts ──
+    /// Each layout's hue on its tile in 新增元件, one per layout.
+    static let layoutFeaturedCards = Color(uiColor: .systemBlue)
+    static let layoutRanking = Color(uiColor: .systemTeal)
+    static let layoutGrid = Color(uiColor: .systemGreen)
+    static let layoutCarousel = Color(uiColor: .systemCyan)
+    static let layoutPagedRanking = Color(uiColor: .systemIndigo)
+    static let layoutMultiCategoryRanking = Color(uiColor: .systemOrange)
+    static let layoutWaterfall = Color(uiColor: .systemPink)
+
     // ── Text ──
     // Themed the same way the surfaces below are: an appearance theme (or an
     // imported appearance pack) may author all three levels, and anything that
@@ -215,6 +233,9 @@ enum DSFont {
 enum DSSpacing {
     /// Compact ambient reader information.
     static let readerBarComponentGap: CGFloat = 2
+    /// 2pt — between the stacked text lines of a dense row (a ranking's title, author
+    /// and intro beside a cover)
+    static let xxs: CGFloat = 2
     /// 4pt — extra-small (between compact elements)
     static let xs: CGFloat = 4
     /// 8pt — small (within elements)
@@ -299,6 +320,20 @@ enum DSLayout {
     /// How far the next chart column peeks in from the trailing edge, so the row
     /// reads as something to swipe — Apple Books' Top Charts.
     static let discoverChartPeek: CGFloat = 32
+    /// A 探索 cover that takes the width it is offered (a grid cell, a waterfall card)
+    /// keeps the 2:3 of the fixed-size ones.
+    static let discoverCoverAspectRatio: CGFloat = 2.0 / 3.0
+    /// Cover in a custom explore page's 推薦卡片 and 左右滑動 rows — five to a phone's card.
+    static let customExploreCardCoverWidth: CGFloat = 70
+    static let customExploreCardCoverHeight: CGFloat = 105
+    /// A custom explore page's rank badge at the default text size (scaled with
+    /// Dynamic Type); two-digit ranks widen it.
+    static let customExploreRankBadgeSize: CGFloat = 24
+    /// Narrowest a layout's tile gets in 新增元件's grid — four to a row on an iPhone,
+    /// fewer as the text grows (scaled with Dynamic Type) — and the circle its symbol
+    /// sits in.
+    static let customExploreLayoutTileMinWidth: CGFloat = 76
+    static let customExploreLayoutIconSize: CGFloat = 40
     /// Site icon in a bookmark or history row.
     static let browserRowIconSide: CGFloat = 28
     /// A site on the browser's start page — Safari's Favorites: the icon, and the

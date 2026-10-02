@@ -41,6 +41,18 @@ struct DiscoverCategoryGroup: Identifiable {
     let id: String
     let title: String
     let items: [DiscoverCardItem]
+
+    /// The groups holding categories that match `query`; a group whose own label matches
+    /// keeps all of its categories. An empty query keeps every group.
+    static func filtered(_ groups: [DiscoverCategoryGroup], matching query: String) -> [DiscoverCategoryGroup] {
+        guard !query.isEmpty else { return groups }
+        return groups.compactMap { group in
+            if group.title.localizedStandardContains(query) { return group }
+            let items = group.items.filter { $0.title.localizedStandardContains(query) }
+            guard !items.isEmpty else { return nil }
+            return DiscoverCategoryGroup(id: group.id, title: group.title, items: items)
+        }
+    }
 }
 
 // MARK: - Discover Showcase Section

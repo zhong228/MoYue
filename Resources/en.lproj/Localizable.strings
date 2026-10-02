@@ -3455,10 +3455,6 @@
 "要清除所有瀏覽記錄嗎？" = "Clear All Browsing History?";
 "書籍變量可在 JS 中通過 book.getVariable(\"custom\") 取得" = "Sources read the book variable in JS with book.getVariable(\"custom\").";
 "源變量可在 JS 中通過 source.getVariable() 取得" = "Sources read the source variable in JS with source.getVariable().";
-"我的發現" = "My Discover";
-"從我的發現移除" = "Remove from My Discover";
-"加入我的發現" = "Add to My Discover";
-"長按任何書源的分類標題，或在分類頁點星號，就能把它加進來。" = "Touch and hold a category title from any source, or tap the star on a category, to add it here.";
 "篩選書源" = "Filter Sources";
 "直接轉碼閱讀" = "Read in Reader";
 "在網頁點「加入書籤」，網站就會出現在這裡。" = "Tap Add Bookmark on a page and the site appears here.";
@@ -3505,3 +3501,35 @@
 "輸入" = "Enter";
 "快捷操作" = "Quick Actions";
 "選擇想看的分區" = "Choose the sections you want to see";
+
+/* 自訂頁 */
+"自訂頁" = "Custom Page";
+"新增自訂頁" = "New Custom Page";
+"加入自訂頁" = "Add to Custom Page";
+"尚未建立自訂頁" = "No custom pages yet";
+"已加入「%@」" = "Added to “%@”";
+"這一頁已被刪除" = "This page was deleted";
+"頁面裡的元件會一起刪除。" = "Its blocks are deleted with it.";
+"還沒有元件" = "No Blocks Yet";
+"加入元件，選書源的分類和版面，組出自己的探索頁。" = "Add blocks, each a source's category in a layout you pick, to build your own explore page.";
+"新增元件" = "Add Block";
+"編輯元件" = "Edit Blocks";
+"錯位瀑布流會一直往下載入，固定在最後。" = "The waterfall keeps loading as you scroll, so it stays last.";
+"未選擇" = "None";
+"發現項" = "Discover Item";
+"至少選 2 個分類，在頁面上用標籤切換。" = "Pick at least 2 categories; the page switches between them with tabs.";
+"標題" = "Title";
+"推薦卡片" = "Featured Cards";
+"排行榜" = "Ranking";
+"宮格" = "Grid";
+"左右滑動" = "Carousel";
+"網絡排行榜" = "Paged Chart";
+"多分類排行榜" = "Tabbed Chart";
+"錯位瀑布流" = "Waterfall";
+"一排封面，附書名和簡介" = "A row of covers with titles and intros";
+"前五名的列表，可展開到前十名" = "The top five as a list, expandable to ten";
+"兩排、每排五本的封面" = "Two rows of five covers";
+"只有封面，左右滑動" = "Covers only, swiped sideways";
+"一個榜單分成每欄四本，左右翻頁" = "One chart in columns of four, paged sideways";
+"同一書源的幾個分類，用標籤切換" = "Several categories of one source, switched with tabs";
+"三欄卡片，往下捲會一直載入" = "Cards in three columns that keep loading as you scroll";

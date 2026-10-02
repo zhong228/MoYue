@@ -24,6 +24,7 @@ struct ExploreSettingsSheet: View {
     @AppStorage(ExploreSettings.preloadCountKey)
     private var preloadCount = ExploreSettings.defaultPreloadCount
     @AppStorage(BookCoverLoader.downloadLimitKey) private var coverDownloadLimit = 0
+    @ObservedObject private var pageStore = CustomExplorePageStore.shared
     @State private var newKeyword = ""
 
     private var rankedKeywords: [String] {
@@ -108,7 +109,14 @@ struct ExploreSettingsSheet: View {
         Section {
             Picker(selection: $landing) {
                 Text(localized("不啟用")).tag(ExploreLanding.off.rawValue)
-                Text(localized("我的發現")).tag(ExploreLanding.myDiscover.rawValue)
+                if !pageStore.pages.isEmpty {
+                    Section(localized("自訂頁")) {
+                        ForEach(pageStore.pages) { page in
+                            Text(page.name)
+                                .tag(ExploreLanding.customPage(id: page.id).rawValue)
+                        }
+                    }
+                }
                 if !sources.isEmpty {
                     Section(localized("書源")) {
                         ForEach(sources) { source in

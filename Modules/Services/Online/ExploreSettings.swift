@@ -90,15 +90,17 @@ enum ExploreSourcePageLayout: String, CaseIterable, Identifiable {
 /// The page 探索 opens straight onto (首屏配置), stored as a string.
 enum ExploreLanding: Equatable {
     case off
-    case myDiscover
+    /// One of the reader's custom explore pages.
+    case customPage(id: UUID)
     case source(url: String)
 
-    private static let myDiscoverValue = "myDiscover"
+    private static let customPagePrefix = "page:"
     private static let sourcePrefix = "source:"
 
     init(rawValue: String) {
-        if rawValue == Self.myDiscoverValue {
-            self = .myDiscover
+        if rawValue.hasPrefix(Self.customPagePrefix),
+           let id = UUID(uuidString: String(rawValue.dropFirst(Self.customPagePrefix.count))) {
+            self = .customPage(id: id)
         } else if rawValue.hasPrefix(Self.sourcePrefix) {
             let url = String(rawValue.dropFirst(Self.sourcePrefix.count))
             self = url.isEmpty ? .off : .source(url: url)
@@ -110,7 +112,7 @@ enum ExploreLanding: Equatable {
     var rawValue: String {
         switch self {
         case .off: ""
-        case .myDiscover: Self.myDiscoverValue
+        case .customPage(let id): Self.customPagePrefix + id.uuidString
         case .source(let url): Self.sourcePrefix + url
         }
     }

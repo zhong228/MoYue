@@ -4,12 +4,12 @@ import SwiftUI
 enum ExploreNavigationRoute: Hashable {
     /// One explore source's discover page.
     case source(sourceURL: String)
-    /// 我的發現: pinned categories from any sources.
-    case myDiscover
-    /// 我的發現's pinned categories, reordered and removed.
-    case myDiscoverEditor
+    /// One of the reader's custom explore pages.
+    case customPage(id: UUID)
+    /// A custom page's blocks, changed, reordered and deleted.
+    case customPageEditor(id: UUID)
     case book(OnlineBook)
-    /// A category of any source — from the source list or 我的發現.
+    /// A category of any source — from its source's page or a custom page.
     case sourceCategory(ExploreCategoryReference)
     /// Legado's 搜索 on a source: the search page scoped to that source alone.
     case searchInSource(sourceURL: String)
@@ -20,8 +20,9 @@ enum ExploreNavigationRoute: Hashable {
         switch (lhs, rhs) {
         case (.source(let lhsURL), .source(let rhsURL)):
             return lhsURL == rhsURL
-        case (.myDiscover, .myDiscover), (.myDiscoverEditor, .myDiscoverEditor):
-            return true
+        case (.customPage(let lhsID), .customPage(let rhsID)),
+             (.customPageEditor(let lhsID), .customPageEditor(let rhsID)):
+            return lhsID == rhsID
         case (.book(let lhsBook), .book(let rhsBook)):
             return lhsBook.id == rhsBook.id
         case (.sourceCategory(let lhsReference), .sourceCategory(let rhsReference)):
@@ -49,10 +50,12 @@ enum ExploreNavigationRoute: Hashable {
         case .searchInSource(let sourceURL):
             hasher.combine(4)
             hasher.combine(sourceURL)
-        case .myDiscover:
+        case .customPage(let id):
             hasher.combine(5)
-        case .myDiscoverEditor:
+            hasher.combine(id)
+        case .customPageEditor(let id):
             hasher.combine(6)
+            hasher.combine(id)
         case .sourceManager:
             hasher.combine(7)
         }

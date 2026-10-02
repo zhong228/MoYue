@@ -75,16 +75,21 @@ struct ExploreEntryLabel: View {
         self.layout = layout
     }
 
-    /// A source's entry. A Legado source name often leads with an emoji (「📚书山聚合」);
-    /// that emoji becomes the picture and the rest the name. Otherwise the name's first
-    /// character is the picture.
-    init(source: BookSource, layout: Layout) {
-        let parts = Self.splitLeadingEmoji(source.bookSourceName)
+    /// An entry for a name a source or the reader gave. A Legado source name often leads
+    /// with an emoji (「📚书山聚合」); that emoji becomes the picture and the rest the name.
+    /// Otherwise the name's first character is the picture.
+    init(name: String, layout: Layout) {
+        let parts = Self.splitLeadingEmoji(name)
         self.init(
             title: parts.title,
             artwork: .glyph(parts.emoji ?? String(parts.title.prefix(1))),
             layout: layout
         )
+    }
+
+    /// A source's entry.
+    init(source: BookSource, layout: Layout) {
+        self.init(name: source.bookSourceName, layout: layout)
     }
 
     var body: some View {
@@ -231,7 +236,7 @@ struct ExploreTileButtonStyle: ButtonStyle {
                 spacing: DSSpacing.md
             ) {
                 ExploreEntryLabel(title: "瀏覽器", artwork: .symbol("safari"), layout: .grid(density))
-                ExploreEntryLabel(title: "我的發現", artwork: .symbol("star.fill"), layout: .grid(density))
+                ExploreEntryLabel(name: "男頻精選", layout: .grid(density))
                 ExploreEntryLabel(title: "书山聚合", artwork: .glyph("📚"), layout: .grid(density))
                 ExploreEntryLabel(title: "番茄小说", artwork: .glyph("番"), layout: .grid(density))
             }
@@ -245,7 +250,7 @@ struct ExploreTileButtonStyle: ButtonStyle {
     ScrollView {
         LazyVStack(spacing: DSSpacing.md) {
             ExploreEntryLabel(title: "瀏覽器", artwork: .symbol("safari"), layout: .list)
-            ExploreEntryLabel(title: "我的發現", artwork: .symbol("star.fill"), layout: .list)
+            ExploreEntryLabel(name: "男頻精選", layout: .list)
             ExploreEntryLabel(title: "书山聚合", artwork: .glyph("📚"), layout: .list)
             ExploreEntryLabel(title: "番茄小说", artwork: .glyph("番"), layout: .list)
         }

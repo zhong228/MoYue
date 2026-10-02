@@ -197,76 +197,57 @@ private struct DiscoverControlsRow: View {
 
 /// A section title in Apple Books' store style: the title itself is the link to the
 /// category's full list, marked by a trailing chevron. A section with nothing to
-/// list (still loading, empty, or no source) shows the bare title.
+/// list (still loading, empty, or no source) shows the bare title. A long press adds
+/// the category to a custom explore page.
 struct DiscoverSectionHeader: View {
     let section: DiscoverShowcaseSection
     let source: BookSource?
-    /// Where the title leads; the section's own category list by default.
-    var route: ExploreNavigationRoute?
-    /// A second line under the title — the source a 我的發現 shelf comes from.
-    var subtitle: String?
+    /// What the header reads; the category's own title by default — a custom page's
+    /// block can carry a title of its own.
+    var title: String?
 
-    @ObservedObject private var pins = ExplorePinStore.shared
-
-    private var pinReference: ExploreCategoryReference? {
+    private var reference: ExploreCategoryReference? {
         source.flatMap { ExploreCategoryReference(source: $0, item: section.item) }
     }
 
     private var destination: ExploreNavigationRoute? {
-        route ?? pinReference.map(ExploreNavigationRoute.sourceCategory)
+        reference.map(ExploreNavigationRoute.sourceCategory)
     }
 
     var body: some View {
         Group {
             if let destination, !section.books.isEmpty {
                 NavigationLink(value: destination) {
-                    title(showsChevron: true)
+                    titleLabel(showsChevron: true)
                         .frame(minHeight: DSLayout.minimumTapTarget)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint(localized("查看全部"))
             } else {
-                title(showsChevron: false)
+                titleLabel(showsChevron: false)
                     .frame(minHeight: DSLayout.minimumTapTarget)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contextMenu {
-            if let pinReference {
-                Button {
-                    pins.toggle(pinReference)
-                } label: {
-                    if pins.isPinned(pinReference) {
-                        Label(localized("從我的發現移除"), systemImage: "star.slash")
-                    } else {
-                        Label(localized("加入我的發現"), systemImage: "star")
-                    }
-                }
+            if let reference {
+                AddToCustomPageMenu(reference: reference)
             }
         }
     }
 
-    /// The chevron follows the title's first line, not the subtitle under it.
-    private func title(showsChevron: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: DSSpacing.xs) {
-                Text(section.title)
-                    .font(DSFont.title3.weight(.bold))
-                    .foregroundStyle(DSColor.textPrimary)
-                    .lineLimit(1)
-                if showsChevron {
-                    Image(systemName: "chevron.right")
-                        .font(DSFont.subheadline.weight(.semibold))
-                        .foregroundStyle(DSColor.textSecondary)
-                        .accessibilityHidden(true)
-                }
-            }
-            if let subtitle, !subtitle.isEmpty {
-                Text(subtitle)
-                    .font(DSFont.footnote)
+    private func titleLabel(showsChevron: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: DSSpacing.xs) {
+            Text(title ?? section.title)
+                .font(DSFont.title3.weight(.bold))
+                .foregroundStyle(DSColor.textPrimary)
+                .lineLimit(1)
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(DSFont.subheadline.weight(.semibold))
                     .foregroundStyle(DSColor.textSecondary)
-                    .lineLimit(1)
+                    .accessibilityHidden(true)
             }
         }
         .accessibilityElement(children: .combine)
@@ -321,8 +302,6 @@ struct DiscoverSectionPlaceholder: View {
 struct DiscoverSectionView: View {
     let section: DiscoverShowcaseSection
     let source: BookSource?
-    var route: ExploreNavigationRoute?
-    var subtitle: String?
     let onAppearLoad: () -> Void
     let onRetry: () -> Void
 
@@ -336,7 +315,7 @@ struct DiscoverSectionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DSSpacing.sm) {
-            DiscoverSectionHeader(section: section, source: source, route: route, subtitle: subtitle)
+            DiscoverSectionHeader(section: section, source: source)
                 .padding(.horizontal, DSSpacing.lg)
             if section.books.isEmpty {
                 DiscoverSectionPlaceholder(section: section, onRetry: onRetry)
@@ -531,22 +510,23 @@ private struct DiscoverFeaturedCard: View {
 
 /// A 探索 cover with the audiobook badge. Hidden from VoiceOver: the row or card it
 /// sits in already reads the title, and the badge is spoken as the row's value.
-private struct DiscoverCover: View {
+struct DiscoverCover: View {
     let display: DiscoverBookDisplay
     let section: DiscoverShowcaseSection
-    let size: CGSize
+    /// Its size; nil takes the width it is offered, at a cover's proportions.
+    let size: CGSize?
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: DSRadius.sm, style: .continuous)
-        BookCoverImage(
-            coverURL: display.book.coverUrl,
-            title: display.book.name,
-            author: display.book.author,
-            sourceBaseURL: section.coverBaseURL,
-            sourceHeaders: section.coverHeaders,
-            defaultCoverSeed: DiscoverDefaultCoverSeed.seed(for: display)
-        )
-        .frame(width: size.width, height: size.height)
+        Group {
+            if let size {
+                image.frame(width: size.width, height: size.height)
+            } else {
+                Color.clear
+                    .aspectRatio(DSLayout.discoverCoverAspectRatio, contentMode: .fit)
+                    .overlay { image }
+            }
+        }
         .clipShape(shape)
         .overlay(shape.stroke(DSColor.separator, lineWidth: 0.5))
         .overlay(alignment: .bottomTrailing) {
@@ -555,6 +535,17 @@ private struct DiscoverCover: View {
             }
         }
         .accessibilityHidden(true)
+    }
+
+    private var image: some View {
+        BookCoverImage(
+            coverURL: display.book.coverUrl,
+            title: display.book.name,
+            author: display.book.author,
+            sourceBaseURL: section.coverBaseURL,
+            sourceHeaders: section.coverHeaders,
+            defaultCoverSeed: DiscoverDefaultCoverSeed.seed(for: display)
+        )
     }
 }
 
@@ -619,8 +610,6 @@ struct DiscoverCategoryView: View {
     let section: DiscoverShowcaseSection
     let source: BookSource
 
-    @ObservedObject private var pins = ExplorePinStore.shared
-
     var body: some View {
         DiscoverCategoryBookList(section: section, source: source)
             .background(PageBackgroundView(scope: .explore).ignoresSafeArea())
@@ -630,15 +619,11 @@ struct DiscoverCategoryView: View {
             .toolbar {
                 if let reference = ExploreCategoryReference(source: source, item: section.item) {
                     ToolbarItem(placement: .topBarTrailing) {
-                        let pinned = pins.isPinned(reference)
-                        Button {
-                            pins.toggle(reference)
+                        Menu {
+                            AddToCustomPageItems(reference: reference)
                         } label: {
-                            Label(
-                                pinned ? localized("從我的發現移除") : localized("加入我的發現"),
-                                systemImage: pinned ? "star.fill" : "star"
-                            )
-                            .labelStyle(.iconOnly)
+                            Label(localized("加入自訂頁"), systemImage: "rectangle.stack.badge.plus")
+                                .labelStyle(.iconOnly)
                         }
                     }
                 }

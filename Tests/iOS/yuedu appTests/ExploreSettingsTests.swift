@@ -5,10 +5,11 @@ import Testing
 struct ExploreSettingsTests {
     @Test("首屏配置 keeps its choice as a string and reads anything else as off")
     func landingRoundTrips() {
-        for landing in [ExploreLanding.off, .myDiscover, .source(url: "https://fanqienovel.com")] {
+        for landing in [ExploreLanding.off, .customPage(id: UUID()), .source(url: "https://fanqienovel.com")] {
             #expect(ExploreLanding(rawValue: landing.rawValue) == landing)
         }
         #expect(ExploreLanding(rawValue: "source:") == .off)
+        #expect(ExploreLanding(rawValue: "page:not-a-uuid") == .off)
         #expect(ExploreLanding(rawValue: "something else") == .off)
     }
 
