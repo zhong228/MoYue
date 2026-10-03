@@ -130,6 +130,52 @@ final class DetailReaderBackSwipeUITests: XCTestCase {
         }
     }
 
+    /// The report's recipe on TestFlight build 5 (iOS 17, 2026-10-02): the 搜索 tab's own
+    /// page in Simplified Chinese, a manga result, its detail, the manga reader and back,
+    /// three times over. With 最近閱讀's reader as a second item destination on the search
+    /// page, iOS 17.5 froze on the first tap of the result (Technotes/iOS17ReaderNavigationWatchdog.md);
+    /// with that freeze removed, the second round's reader no longer left on Back.
+    @MainActor
+    func testSearchTabMangaResultOpensEveryTime() throws {
+        continueAfterFailure = false
+        try configureStoreKit()
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+                               "-yd_root_tab_visible_ids", "(bookshelf, explore, settings, search)"]
+        app.launch()
+        let searchTab = app.tabBars.buttons["搜索"]
+        XCTAssertTrue(searchTab.waitForExistence(timeout: 15), app.debugDescription)
+        searchTab.tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 15), app.debugDescription)
+        search.tap()
+        search.typeText("manga fixture\n")
+        // iOS 17 lists results in a UIKit table, later systems in a SwiftUI list.
+        let result = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@ AND (elementType == %d OR elementType == %d)",
+                                  "Navigation Manga Fixture", XCUIElement.ElementType.cell.rawValue,
+                                  XCUIElement.ElementType.button.rawValue)).firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 20), app.debugDescription)
+        let read = app.buttons.matching(NSPredicate(format: "label IN %@", ["立即阅读", "继续阅读"])).firstMatch
+        let readerBack = app.navigationBars.buttons["返回"]
+        for round in 1...3 {
+            result.tap()
+            XCTAssertTrue(read.waitForExistence(timeout: 15), "Round \(round): the result must open its detail.\n\(app.debugDescription)")
+            let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: read)
+            XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 15), .completed, app.debugDescription)
+            read.tap()
+            waitForMangaPage(app)
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            XCTAssertTrue(readerBack.waitForExistence(timeout: 8), app.debugDescription)
+            readerBack.tap()
+            XCTAssertTrue(read.waitForExistence(timeout: 8), "Round \(round): Back must return to the detail.\n\(app.debugDescription)")
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            let left = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: read)
+            XCTAssertEqual(XCTWaiter.wait(for: [left], timeout: 8), .completed,
+                           "Round \(round): Back must return to the results.\n\(app.debugDescription)")
+        }
+    }
+
     /// The shelf opens a manga with its card push, whose bar belongs to the shelf's
     /// UIKit navigation controller rather than to a SwiftUI stack. The book is added
     /// right before the app leaves the foreground and is killed: the shelf saves on a

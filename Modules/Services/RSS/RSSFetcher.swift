@@ -1056,6 +1056,12 @@ private extension String {
 
 @MainActor
 final class RSSFetcher: ObservableObject {
+    private let session: URLSession
+
+    init(session: URLSession = .shared) {
+        self.session = session
+    }
+
     @Published var items: [RSSItem] = []
     @Published var response: RSSFeedResponse?
     @Published var isLoading: Bool = false
@@ -1116,7 +1122,7 @@ final class RSSFetcher: ObservableObject {
         }
 
         do {
-            let (data, httpResponse) = try await URLSession.shared.data(for: request)
+            let (data, httpResponse) = try await session.data(for: request)
 
             if let http = httpResponse as? HTTPURLResponse, http.statusCode == 304 {
                 self.response = .notModified

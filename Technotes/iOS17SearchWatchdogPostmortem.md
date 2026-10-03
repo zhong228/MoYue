@@ -136,6 +136,20 @@ When editing search or online detail presentation:
     `SearchResultRoute` into one heterogeneous `NavigationPath`. Do not push `SearchView` with
     `navigationDestination(item:)` while pushing its result into a separate bound path: that
     corrupts the back-stack order on every iOS version.
+12. Keep one item-based `navigationDestination` on the search page, and keep
+    `@Environment(\.dismiss)` off it. TestFlight build 5 (2026-10-02) added 最近閱讀's reader
+    as a second item destination, and an iOS 17 phone then tapped a manga result and nothing
+    opened. On the iOS 17.5 simulator, with the report's recipe (搜索 tab, zh-Hans, a manga
+    result, its detail, the manga reader, back, again):
+    - two destinations, page reading `dismiss`: the first tap froze the app —
+      `BookSearchView: _dismiss changed.` 2,248 times inside one layout pass at 100% CPU;
+    - two destinations, `dismiss` replaced or removed: no freeze, but the second round's
+      manga reader would not open from the detail, or would not leave it on Back;
+    - one destination (`SearchPagePush`) without `dismiss`: every round passes.
+
+    The page read `dismiss` only for a close button no caller ever showed; it is gone.
+    Everything the page pushes by item goes through `SearchPagePush`. Regression:
+    `DetailReaderBackSwipeUITests.testSearchTabMangaResultOpensEveryTime`.
 
 ## Relevant Files
 

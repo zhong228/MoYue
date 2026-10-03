@@ -671,7 +671,11 @@ class JSCoreEngine {
             }
             let prepared = Self.prepareSourceJS(script)
             guard let value = context.evaluateScript(prepared) else { return nil }
-            return Self.extractBytes(from: value)
+            let bytes = Self.extractBytes(from: value)
+            if bytes == nil, lastError == nil, !value.isUndefined, !value.isNull {
+                lastError = "Image decode result must contain finite bytes and fit within 32 MiB"
+            }
+            return bytes
         }) {
         case .completed(let r): return r
         case .timedOut: return nil
@@ -681,11 +685,22 @@ class JSCoreEngine {
     private static func extractBytes(from value: JSValue) -> Data? {
         if value.isUndefined || value.isNull { return nil }
         if value.isArray {
-            guard let numbers = value.toArray() as? [NSNumber] else { return nil }
-            var data = Data(capacity: numbers.count)
-            for number in numbers {
-                // Tolerate Java's signed-byte range (-128…127) alongside 0…255.
-                data.append(UInt8(bitPattern: Int8(truncatingIfNeeded: number.intValue)))
+            // JSValue.toArray recursively bridges the entire graph to NSArray.
+            // A sparse/cyclic result or an enormous declared length can trap in
+            // Foundation before a Swift cast can reject it. Decode scalar bytes
+            // directly on the JS queue, with the image payload bounded to 32 MiB.
+            guard let lengthValue = value.forProperty("length") else { return nil }
+            let length = lengthValue.toDouble()
+            guard length.isFinite, length > 0, length <= 32 * 1024 * 1024,
+                  length.rounded(.towardZero) == length else { return nil }
+            var data = Data(capacity: Int(length))
+            for index in 0..<Int(length) {
+                guard let element = value.atIndex(index), element.isNumber else { return nil }
+                let number = element.toDouble()
+                guard number.isFinite else { return nil }
+                // Java signed bytes and JS unsigned bytes share the same low byte.
+                let byte = Int(number.rounded(.towardZero).truncatingRemainder(dividingBy: 256))
+                data.append(UInt8(truncatingIfNeeded: byte))
             }
             return data.isEmpty ? nil : data
         }

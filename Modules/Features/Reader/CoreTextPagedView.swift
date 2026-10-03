@@ -1628,6 +1628,10 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             }
 
             if usesCurlBackPages {
+                // Double-sided interactive curl asks for a back and then a front.
+                // At the book's end, returning a back first advertises a transition
+                // whose second controller is nil; UIKit rejects that incomplete pair.
+                guard vc.globalPageIndex < curlNeighbourPageCount - 1 else { return nil }
                 return curlBackPage(logicalPageIndex: vc.globalPageIndex)
             }
 

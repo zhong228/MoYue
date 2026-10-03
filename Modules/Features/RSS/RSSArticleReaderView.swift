@@ -45,7 +45,7 @@ struct RSSArticleReaderView: View {
                 .navigationTitle(navigationTitle(for: article))
                 .toolbarTitleDisplayMode(.inline)
                 .pageBackgroundToolbar(for: .rss)
-                .toolbar(.hidden, for: .tabBar)
+                .hidesRootTabBar()
                 .toolbar {
                     ToolbarItemGroup(placement: .navigationBarTrailing) {
                         Button {

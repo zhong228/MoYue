@@ -318,6 +318,7 @@ final class ReadiumBookResourceAdapter: BookResourceProvider {
 
 enum PublicationSessionError: LocalizedError {
     case fileNotFound
+    case chapterOutOfRange(Int)
     case parsingFailed(String)
     case resourceNotFound(String)
     case resourceReadFailed(String)
@@ -326,6 +327,8 @@ enum PublicationSessionError: LocalizedError {
         switch self {
         case .fileNotFound:
             return "EPUB file not found"
+        case .chapterOutOfRange(let index):
+            return "EPUB chapter out of range: \(index)"
         case .parsingFailed(let reason):
             return "EPUB parsing failed: \(reason)"
         case .resourceNotFound(let href):
@@ -434,6 +437,9 @@ final class PublicationSession {
     let author: String
     let language: String?
     let chapters: [PublicationChapterDescriptor]
+    /// Source text and reading positions use spine order. The navigation TOC may
+    /// contain several anchors in one spine, or omit a spine entirely.
+    let readingChapters: [BookChapter]
     let tocEntries: [EPUBTocEntry]
     let epubWritingMode: EPUBWritingMode
     let pageProgressionDirection: EPUBPageProgressionDirection
@@ -489,6 +495,9 @@ final class PublicationSession {
         self.author = author
         self.language = language
         self.chapters = chapters
+        self.readingChapters = chapters.map {
+            BookChapter(index: $0.index, title: $0.title, content: "", href: $0.href)
+        }
         self.tocEntries = tocEntries
         self.epubWritingMode = epubWritingMode
         self.pageProgressionDirection = pageProgressionDirection
@@ -847,6 +856,9 @@ final class PublicationSession {
     }
 
     func chapterDataSize(at index: Int) async throws -> Int {
+        guard chapters.indices.contains(index) else {
+            throw PublicationSessionError.chapterOutOfRange(index)
+        }
         let descriptor = chapters[index]
         guard let resource = resource(for: descriptor.href) else {
             throw PublicationSessionError.resourceNotFound(descriptor.href)
@@ -883,6 +895,9 @@ final class PublicationSession {
     }
 
     func chapterHTML(at index: Int) async throws -> String {
+        guard chapters.indices.contains(index) else {
+            throw PublicationSessionError.chapterOutOfRange(index)
+        }
         let descriptor = chapters[index]
         guard let resource = resource(for: descriptor.href) else {
             throw PublicationSessionError.resourceReadFailed(descriptor.href)

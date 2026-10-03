@@ -459,7 +459,9 @@ class AnalyzeUrl {
             body = b
         } else if let b = dict["body"] {
             // Body could be a dict/array — serialize to JSON string
-            if let bData = try? JSONSerialization.data(withJSONObject: b),
+            // Source options also allow JSON scalars. Without fragmentsAllowed,
+            // Foundation raises an Objective-C exception that Swift cannot catch.
+            if let bData = try? JSONSerialization.data(withJSONObject: b, options: [.fragmentsAllowed]),
                let bStr = String(data: bData, encoding: .utf8) {
                 body = bStr
             }

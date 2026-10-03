@@ -6,3 +6,5 @@
 "Yuedu Log File" = "閱讀日誌檔案";
 
 "NSLocalNetworkUsageDescription" = "用於連接區域網路書庫、接收 Calibre 傳送的書籍，以及使用本機語音服務。";
+
+"NSPhotoLibraryAddUsageDescription" = "用於將書封及閱讀分享圖片儲存到相簿。";

@@ -44,6 +44,9 @@ extension ReaderView {
         .environmentObject(store)
         .environment(\.appDependencies, dependencies)
         .environment(\.readerNavigator, readerNavigator)
+        // Above 書架's reader the detail gets its own hosting controller, which starts a
+        // new environment; without this it could hide only 書架's tab bar.
+        .environment(\.rootTabBarVisibility, rootTabBarVisibility)
         .navigationTitle(localized("書籍詳情"))
         .toolbarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(false)

@@ -1,14 +1,6 @@
 import SwiftUI
 import UIKit
 
-// MARK: - Hide TabBar
-
-struct HideTabBarModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        content.toolbar(.hidden, for: .tabBar)
-    }
-}
-
 // MARK: - Reader interaction isolation
 
 private struct ReaderContentInteractionModifier: ViewModifier {

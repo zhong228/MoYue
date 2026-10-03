@@ -165,6 +165,131 @@ struct RuleAnalyzerTests {
     }
 }
 
+/// Covers follow Legado's `BookList` / `BookInfo`: the cover rule's text, resolved against
+/// the page only when there is one. A cover is never the page's own URL, which the app would
+/// then download as an image — for a search, the source's search request again, per result.
+@Suite("Cover links follow Legado", .serialized)
+struct CoverLinkRuleTests {
+    private struct Parsed {
+        let search: OnlineBook?
+        let explore: OnlineBook?
+        let info: OnlineBook
+    }
+
+    private func parse(
+        listHTML: String,
+        infoHTML: String,
+        configure: (inout BookSource) -> Void
+    ) throws -> Parsed {
+        var source = BookSource()
+        source.bookSourceUrl = "https://example.com"
+        source.ruleSearch.bookList = "li.book"
+        source.ruleSearch.name = "a@text"
+        source.ruleSearch.bookUrl = "a@href"
+        source.ruleBookInfo.name = "h1@text"
+        configure(&source)
+        source.ruleExplore.bookList = source.ruleSearch.bookList
+        source.ruleExplore.name = source.ruleSearch.name
+        source.ruleExplore.bookUrl = source.ruleSearch.bookUrl
+        source.ruleExplore.coverUrl = source.ruleSearch.coverUrl
+
+        let bridge = ModernParserBridge(source: source)
+        let search = try bridge.parseSearchResults(
+            html: listHTML, baseURL: "https://example.com/search?key=first", source: source
+        )
+        let explore = bridge.parseExploreResults(
+            html: listHTML, baseURL: "https://example.com/explore", source: source
+        )
+        let info = try bridge.parseBookInfo(
+            html: infoHTML,
+            bookUrl: "https://example.com/book/1",
+            baseURL: "https://example.com/book/1",
+            source: source
+        )
+        return Parsed(search: search.first, explore: explore.first, info: info)
+    }
+
+    @Test("a source without cover rules leaves every cover empty")
+    func missingCoverRuleLeavesCoverEmpty() throws {
+        let parsed = try parse(
+            listHTML: #"<ul><li class="book"><a href="/book/1">First</a></li></ul>"#,
+            infoHTML: "<h1>First</h1>"
+        ) { _ in }
+
+        #expect(parsed.search?.coverUrl == "")
+        #expect(parsed.explore?.coverUrl == "")
+        #expect(parsed.info.coverUrl == "")
+    }
+
+    @Test("a cover rule that matches nothing leaves the cover empty")
+    func unmatchedCoverRuleLeavesCoverEmpty() throws {
+        let parsed = try parse(
+            listHTML: #"<ul><li class="book"><a href="/book/1">First</a></li></ul>"#,
+            infoHTML: "<h1>First</h1>"
+        ) { source in
+            source.ruleSearch.coverUrl = "img@src"
+            source.ruleBookInfo.coverUrl = "img@src"
+        }
+
+        #expect(parsed.search?.coverUrl == "")
+        #expect(parsed.explore?.coverUrl == "")
+        #expect(parsed.info.coverUrl == "")
+    }
+
+    @Test("a relative cover resolves against the page")
+    func relativeCoverResolves() throws {
+        let parsed = try parse(
+            listHTML: #"<ul><li class="book"><a href="/book/1">First</a><img src="/covers/1.jpg"></li></ul>"#,
+            infoHTML: #"<h1>First</h1><img src="/covers/1-large.jpg">"#
+        ) { source in
+            source.ruleSearch.coverUrl = "img@src"
+            source.ruleBookInfo.coverUrl = "img@src"
+        }
+
+        #expect(parsed.search?.coverUrl == "https://example.com/covers/1.jpg")
+        #expect(parsed.explore?.coverUrl == "https://example.com/covers/1.jpg")
+        #expect(parsed.info.coverUrl == "https://example.com/covers/1-large.jpg")
+    }
+
+    /// zymk narrows its bookList past the <img> (`class.item@h3`); discover finds no cover
+    /// in any book, so it widens the list one level and takes the covers from there.
+    @Test("discover widens a bookList narrowed past its covers")
+    func discoverWidensToRecoverCovers() {
+        var source = BookSource()
+        source.bookSourceUrl = "https://example.com"
+        source.ruleExplore.bookList = "class.item@h3"
+        source.ruleExplore.name = "a@text"
+        source.ruleExplore.bookUrl = "a@href"
+        source.ruleExplore.coverUrl = "img@data-src"
+        let html = #"""
+            <div class="item"><div class="thumbnail"><img data-src="/covers/1.jpg"></div>\#
+            <h3><a href="/book/1">First</a></h3></div>
+            """#
+
+        let books = ModernParserBridge(source: source).parseExploreResults(
+            html: html, baseURL: "https://example.com/explore", source: source
+        )
+
+        #expect(books.map(\.name) == ["First"])
+        #expect(books.first?.coverUrl == "https://example.com/covers/1.jpg")
+    }
+
+    /// Legado's own fallback, which covers do not share: a result with no book link is the
+    /// page it was listed on (`BookList`: `if (searchBook.bookUrl.isEmpty()) bookUrl = baseUrl`).
+    @Test("a result without a book link keeps Legado's fallback to its page")
+    func missingBookURLFallsBackToPage() throws {
+        let parsed = try parse(
+            listHTML: #"<ul><li class="book"><a>First</a></li></ul>"#,
+            infoHTML: "<h1>First</h1>"
+        ) { source in
+            source.ruleSearch.bookUrl = ""
+        }
+
+        #expect(parsed.search?.bookUrl == "https://example.com/search?key=first")
+        #expect(parsed.explore?.bookUrl == "https://example.com/explore")
+    }
+}
+
 @Suite("ModernParserBridge Chapter Compatibility", .serialized)
 struct ModernParserBridgeChapterCompatibilityTests {
 

@@ -7,6 +7,8 @@ struct BookReaderView: View {
     @EnvironmentObject var store: BookStore
     @Environment(\.appDependencies) private var dependencies
     @Environment(\.readerNavigator) private var readerNavigator
+    @Environment(\.readerUsesParentNavigationStack) private var usesParentNavigationStack
+    @Environment(\.rootTabBarVisibility) private var rootTabBarVisibility
     // iOS 17 repeatedly invalidates DismissAction during a detail-to-reader
     // push, feeding navigation layout back into this entire reader hierarchy.
     // Use the same stable presentation binding as ReaderView itself.
@@ -36,6 +38,7 @@ struct BookReaderView: View {
                 ReaderView(bookId: bookId)
             }
         }
+        .environment(\.rootTabBarVisibility, isInTabNavigation ? rootTabBarVisibility : nil)
         .onReceive(dependencies.remoteLibrary.failurePublisher) { failure in
             resourceFailureAlert.receive(failure, bookID: bookId, isReady: remoteReady)
         }
@@ -101,6 +104,15 @@ struct BookReaderView: View {
             // presentation. Closing also cancels the view's preparation task.
             presentationMode.wrappedValue.dismiss()
         }
+    }
+
+    /// Pushed onto a tab's navigation — by 書架's card transition or onto a detail page's
+    /// stack — the reader hides the root tab bar from every tab (`RootTabBarVisibility`).
+    /// A modal reader covers the tab bar instead, and so does everything pushed inside it:
+    /// asking from there would only hide the bar behind the cover, for it to jump back in
+    /// once the cover has slid away.
+    private var isInTabNavigation: Bool {
+        readerNavigator != nil || usesParentNavigationStack
     }
 
     private var shouldUseFixedPageReader: Bool {

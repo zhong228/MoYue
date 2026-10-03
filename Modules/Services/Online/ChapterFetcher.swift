@@ -752,19 +752,28 @@ struct ChapterFetcher {
             .lowercased()
             .replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
 
+        // MetricKit build 112 sampled most offline reconciliation CPU in repeated
+        // Foundation substring searches here. Normalize once, then search UTF-8 bytes:
+        // these fixed markers need canonical equivalence, not a new Unicode search
+        // and String bridge for every marker. Keep the full body and all conjunctions.
+        let bytes = Data(compact.precomposedStringWithCanonicalMapping.utf8)
+        func contains(_ marker: String) -> Bool {
+            bytes.range(of: Data(marker.utf8)) != nil
+        }
+
         let isIISRuntimeError =
             (
-                compact.contains("应用程序中的服务器错误")
-                    || compact.contains("應用程式中的伺服器錯誤")
-                    || compact.contains("servererrorin'/'application")
-                    || compact.contains("servererrorin/application")
+                contains("应用程序中的服务器错误")
+                    || contains("應用程式中的伺服器錯誤")
+                    || contains("servererrorin'/'application")
+                    || contains("servererrorin/application")
             )
             && (
-                compact.contains("运行时错误")
-                    || compact.contains("運行時錯誤")
-                    || compact.contains("runtimeerror")
-                    || compact.contains("web.config")
-                    || compact.contains("defaultredirect")
+                contains("运行时错误")
+                    || contains("運行時錯誤")
+                    || contains("runtimeerror")
+                    || contains("web.config")
+                    || contains("defaultredirect")
             )
 
         if isIISRuntimeError {
@@ -772,18 +781,18 @@ struct ChapterFetcher {
         }
 
         let isReadModeHint =
-            compact.contains("如遇到章节错误")
+            contains("如遇到章节错误")
             && (
-                compact.contains("关闭浏览器的阅读/畅读/小说模式")
-                    || compact.contains("關閉瀏覽器的閱讀/暢讀/小說模式")
+                contains("关闭浏览器的阅读/畅读/小说模式")
+                    || contains("關閉瀏覽器的閱讀/暢讀/小說模式")
                     || (
-                        compact.contains("阅读/畅读/小说模式")
-                            || compact.contains("閱讀/暢讀/小說模式")
+                        contains("阅读/畅读/小说模式")
+                            || contains("閱讀/暢讀/小說模式")
                     )
             )
             && (
-                compact.contains("关闭广告屏蔽过滤功能")
-                    || compact.contains("關閉廣告屏蔽過濾功能")
+                contains("关闭广告屏蔽过滤功能")
+                    || contains("關閉廣告屏蔽過濾功能")
             )
 
         if isReadModeHint {
@@ -792,22 +801,22 @@ struct ChapterFetcher {
 
         // Strict mode: only reject pages with precise Cloudflare challenge signatures
         let isCloudflareChallenge =
-            compact.contains("checkingyourbrowserbeforeaccessing")
-            || compact.contains("verifyyouarehuman")
-            || compact.contains("cf-browser-verification")
-            || (compact.contains("attentionrequired") && compact.contains("cf-ray"))
+            contains("checkingyourbrowserbeforeaccessing")
+            || contains("verifyyouarehuman")
+            || contains("cf-browser-verification")
+            || (contains("attentionrequired") && contains("cf-ray"))
 
         // "cloudflare" alone is insufficient; require additional verification keywords
-        let hasCloudflareMention = compact.contains("cloudflare")
+        let hasCloudflareMention = contains("cloudflare")
         let hasChallengeKeyword =
-            compact.contains("人机验证") || compact.contains("人機驗證")
-            || compact.contains("checkyourbrowser") || compact.contains("ddos")
+            contains("人机验证") || contains("人機驗證")
+            || contains("checkyourbrowser") || contains("ddos")
 
         let isHumanVerification =
             isCloudflareChallenge
             || (hasCloudflareMention && hasChallengeKeyword)
-            || (compact.contains("访问异常") && compact.contains("验证"))
-            || (compact.contains("訪問異常") && compact.contains("驗證"))
+            || (contains("访问异常") && contains("验证"))
+            || (contains("訪問異常") && contains("驗證"))
 
         if isHumanVerification {
             return true

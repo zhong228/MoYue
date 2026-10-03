@@ -289,7 +289,7 @@ struct UserDetailView: View {
         .themedAppSurface(for: .settings)
         .navigationTitle(localized("個人資料"))
         .toolbarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .hidesRootTabBar()
         .sheet(isPresented: $showReadingStats) {
             AdaptiveSheetContainer(maxWidth: DSLayout.readableListWidth) {
                 ReadingStatsView()

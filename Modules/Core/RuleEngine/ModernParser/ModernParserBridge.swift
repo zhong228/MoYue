@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import os
 
 // MARK: - Error
 
@@ -122,13 +123,26 @@ class ModernParserBridge {
     /// only when a chapter comes back empty — that is the one moment where knowing
     /// the server's actual answer decides between "we sent a bad request",
     /// "the source needs login/quota" and "our parsing dropped it".
-    struct JSNetworkExchange {
+    struct JSNetworkExchange: Sendable {
         let url: String
         let status: String
         let length: Int
         let bodyHead: String
     }
-    private var lastJSNetworkExchange: JSNetworkExchange?
+    // ajaxAll callbacks may finish concurrently with chapter parsing. Keep the
+    // complete diagnostic value atomic, including reset and snapshot reads.
+    final class NetworkExchangeStore: Sendable {
+        private let storage = OSAllocatedUnfairLock<JSNetworkExchange?>(initialState: nil)
+        var latest: JSNetworkExchange? {
+            get { storage.withLock { $0 } }
+            set { storage.withLock { $0 = newValue } }
+        }
+    }
+    private let networkExchange = NetworkExchangeStore()
+    private var lastJSNetworkExchange: JSNetworkExchange? {
+        get { networkExchange.latest }
+        set { networkExchange.latest = newValue }
+    }
 
     private func recordJSNetwork(
         url: String?, statusCode: Int?, timedOut: Bool, body: String?
@@ -1081,7 +1095,7 @@ class ModernParserBridge {
             if let earlyFilter, !earlyFilter(name, author) { continue }
 
             let bookUrl = engine.getString(ruleStr: source.ruleSearch.bookUrl, isUrl: true)
-            let coverUrl = engine.getString(ruleStr: source.ruleSearch.coverUrl, isUrl: true)
+            let coverUrl = engine.getOptionalURL(ruleStr: source.ruleSearch.coverUrl)
             let intro = engine.getString(ruleStr: source.ruleSearch.intro)
             let wordCount = engine.getString(ruleStr: source.ruleSearch.wordCount)
             let lastChapter = engine.getString(ruleStr: source.ruleSearch.lastChapter)
@@ -1167,11 +1181,9 @@ class ModernParserBridge {
 
         let name = engine.getString(ruleStr: source.ruleBookInfo.name)
         let author = engine.getString(ruleStr: source.ruleBookInfo.author)
-        // An empty cover rule must NOT fall back to baseUrl (getString's isUrl path does that),
-        // otherwise sources with an empty ruleBookInfo (七猫/书旗) get the site URL as a "cover"
-        // and clobber the real search-result cover. Empty rule → empty cover → UI keeps search cover.
-        let coverRule = source.ruleBookInfo.coverUrl.trimmingCharacters(in: .whitespacesAndNewlines)
-        let coverUrl = coverRule.isEmpty ? "" : engine.getString(ruleStr: coverRule, isUrl: true)
+        // No cover leaves this empty and the UI keeps the search result's cover. Sources with
+        // an empty ruleBookInfo (七猫/书旗 ship `{}`) used to get the page URL here instead.
+        let coverUrl = engine.getOptionalURL(ruleStr: source.ruleBookInfo.coverUrl)
         let intro = engine.getString(ruleStr: source.ruleBookInfo.intro)
         let kind = engine.getStringList(ruleStr: source.ruleBookInfo.kind)
             .joined(separator: ",")
@@ -2340,12 +2352,10 @@ class ModernParserBridge {
                 let name = engine.getString(ruleStr: nameRule)
                 guard !name.isEmpty else { continue }
                 let bookUrl = engine.getString(ruleStr: bookUrlRule, isUrl: true)
-                // `isUrl:true` falls back to baseURL when the rule matches nothing —
-                // a cover that is merely the page URL is junk (e.g. a bookList narrowed
-                // past the <img>, like zymk's `class.item@h3`), so treat it as missing.
-                // This also lets the cover-broaden retry below detect the gap.
-                var coverUrl = engine.getString(ruleStr: coverRule, isUrl: true)
-                if coverUrl == baseURL { coverUrl = "" }
+                // A cover rule that matches nothing (a bookList narrowed past the <img>,
+                // like zymk's `class.item@h3`) leaves the cover empty, which is what the
+                // cover-broaden retry below looks for.
+                let coverUrl = engine.getOptionalURL(ruleStr: coverRule)
                 result.append(OnlineBook(
                     name: name,
                     author: engine.getString(ruleStr: authorRule),

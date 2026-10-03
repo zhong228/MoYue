@@ -32,6 +32,7 @@ struct ReaderView: View {
     @Environment(\.appDependencies) var dependencies
     @Environment(\.presentationMode) var presentationMode
     @Environment(\.readerNavigator) var readerNavigator
+    @Environment(\.rootTabBarVisibility) var rootTabBarVisibility
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.colorScheme) private var systemColorScheme
@@ -2021,7 +2022,7 @@ struct ReaderView: View {
         .onChange(of: autoReadIsCoveredBySurface) { _, _ in
             applyAutoReadPause()
         }
-        .modifier(HideTabBarModifier())
+        .hidesRootTabBar()
         .alert(localized("TXT 目錄修復未完成"), isPresented: $showTXTIndexFailure) {
             Button(localized("確定"), role: .cancel) { setReaderChromeVisible(true) }
         } message: {
@@ -2655,7 +2656,7 @@ struct ReaderView: View {
         .sheet(isPresented: $showAIAssistantPanel, onDismiss: { aiLaunch = nil }) {
             let sourceContext = aiCurrentSourceContext
             let sourceBook = book
-            let sourceChapters = chapters
+            let sourceChapters = aiSourceIdentity.chapters
             let sourceConversion = settings.textConversion
             AdaptiveSheetContainer(maxWidth: DSLayout.readableListWidth) {
                 AIAssistantPanelView(

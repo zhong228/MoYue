@@ -140,7 +140,6 @@ final class SubscriptionStore: ObservableObject {
     // MARK: - Private
 
     private var updatesListenerTask: Task<Void, Never>?
-    private var storefrontUpdatesListenerTask: Task<Void, Never>?
     private var loadedStorefrontID: String?
     private var productLoadGeneration = 0
     private let accountService = SubscriptionAccountService.shared
@@ -189,7 +188,6 @@ final class SubscriptionStore: ObservableObject {
         // an update delivered while the app was backgrounded or during a
         // purchase interrupted by an Ask-to-Buy / SCA prompt.
         updatesListenerTask = listenForTransactions()
-        storefrontUpdatesListenerTask = listenForStorefrontChanges()
         Task {
             // Before anything reads an environment-scoped store: the suffix that
             // separates TestFlight from App Store state depends on it.
@@ -203,7 +201,6 @@ final class SubscriptionStore: ObservableObject {
 
     deinit {
         updatesListenerTask?.cancel()
-        storefrontUpdatesListenerTask?.cancel()
     }
 
     // MARK: - Feature gating
@@ -259,6 +256,23 @@ final class SubscriptionStore: ObservableObject {
     func loadProducts() async {
         let storefront = await Storefront.current
         await loadProducts(forStorefrontID: storefront?.id, forceReload: false)
+    }
+
+    /// Prices the loaded products for the App Store storefront again when it changed
+    /// while the app was away — it changes only in Settings, so this runs when the app
+    /// becomes active.
+    ///
+    /// In place of iterating `Storefront.updates`. Under StoreKit Testing, Xcode's test
+    /// server announces a storefront change every time the storefront is read, and the
+    /// sequence reads it again for every announcement: on the iOS 17.5 simulator that
+    /// fed itself about 5,000 times a second until the system killed the app some 90
+    /// seconds after launch, on every launch from Xcode.
+    func reloadProductsIfStorefrontChanged() async {
+        // Never loaded: the paywall loads them, for the storefront current then.
+        guard let loadedStorefrontID else { return }
+        guard let currentID = await Storefront.current?.id,
+              currentID != loadedStorefrontID else { return }
+        await loadProducts(forStorefrontID: currentID, forceReload: true)
     }
 
     private func loadProducts(forStorefrontID storefrontID: String?, forceReload: Bool) async {
@@ -771,15 +785,6 @@ final class SubscriptionStore: ObservableObject {
                 guard let transaction = try? self.checkVerified(result) else { continue }
                 await transaction.finish()
                 await self.refreshEntitlements()
-            }
-        }
-    }
-
-    private func listenForStorefrontChanges() -> Task<Void, Never> {
-        Task { [weak self] in
-            for await storefront in Storefront.updates {
-                guard let self else { return }
-                await self.loadProducts(forStorefrontID: storefront.id, forceReload: true)
             }
         }
     }

@@ -19,9 +19,14 @@ final class ReaderHostingController: UIHostingController<AnyView> {
     /// bottom bar to hide — the root tab bar stays overlaid on top of the reader,
     /// visible and tappable. (ReaderView's `.toolbar(.hidden, for: .tabBar)` can't
     /// help either: the reader's inner NavigationStack is detached from the root
-    /// TabView in the SwiftUI tree.) iOS 18+ wires the chain up and honors
-    /// `hidesBottomBarWhenPushed`, so this manual path only runs on iOS 17 and can
+    /// TabView in the SwiftUI tree.) This manual path only runs on iOS 17 and can
     /// be deleted once iOS 17 support is dropped.
+    ///
+    /// iOS 18+ does not need it, but not because of `hidesBottomBarWhenPushed`:
+    /// SwiftUI's TabView shows and hides the tab bar itself, and the reader's
+    /// `hidesRootTabBar()` hides it from every tab (`RootTabBarVisibility`).
+    /// `hidesBottomBarWhenPushed` takes no part there — on the iOS 26.5 simulator,
+    /// with SwiftUI's hide taken away, the tab bar stayed over the reader.
     private weak var managedTabBarController: UITabBarController?
     private var previousTabBarHidden: Bool?
 
@@ -111,7 +116,7 @@ final class ReaderHostingController: UIHostingController<AnyView> {
     // MARK: Root tab bar (iOS 17 only — see `managedTabBarController` doc)
 
     private func hideRootTabBar() {
-        // iOS 18+ honors `hidesBottomBarWhenPushed`; leave the system in charge.
+        // iOS 18+: SwiftUI's TabView owns the tab bar (see `managedTabBarController`).
         guard #unavailable(iOS 18.0) else { return }
         guard let tabBarController = resolveRootTabBarController() else { return }
         if managedTabBarController !== tabBarController {

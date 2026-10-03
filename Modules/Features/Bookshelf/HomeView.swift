@@ -114,6 +114,7 @@ private extension View {
 struct HomeView: View {
     @EnvironmentObject var store: BookStore
     @Environment(\.appDependencies) private var appDependencies
+    @Environment(\.rootTabBarVisibility) private var rootTabBarVisibility
     @ObservedObject private var gs = GlobalSettings.shared
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -279,6 +280,7 @@ struct HomeView: View {
                 let readerBookID = book.id
                 let readerStore = store
                 let readerDependencies = appDependencies
+                let readerTabBarVisibility = rootTabBarVisibility
                 readerCoordinator.open(
                     bookID: readerBookID,
                     source: source,
@@ -288,6 +290,9 @@ struct HomeView: View {
                                 .environmentObject(readerStore)
                                 .environment(\.appDependencies, readerDependencies)
                                 .environment(\.readerNavigator, navigator)
+                                // Its own hosting controller starts a new environment;
+                                // without this the reader could hide only 書架's tab bar.
+                                .environment(\.rootTabBarVisibility, readerTabBarVisibility)
                         ))
                     },
                     onTransitionCompleted: {
@@ -437,7 +442,7 @@ struct HomeView: View {
             .toolbar { shelfToolbar(addsBooks: true) }
             // In edit mode, hide the app tab bar so the contextual .bottomBar (delete / group / share)
             // takes its place — the system selection pattern used by Photos / Files.
-            .toolbar(editMode == .active ? .hidden : .automatic, for: .tabBar)
+            .hidesRootTabBar(editMode == .active)
             .onChange(of: store.allGroups) { _, groups in
                 // A group whose last book moved out or was deleted has no page left to
                 // show: 全部 takes over, and its folder's page goes back to the shelf.
@@ -945,7 +950,7 @@ struct HomeView: View {
         .navigationTitle(group)
         .toolbarTitleDisplayMode(.inline)
         .toolbar { shelfToolbar(addsBooks: false) }
-        .toolbar(editMode == .active ? .hidden : .automatic, for: .tabBar)
+        .hidesRootTabBar(editMode == .active)
     }
 
     // MARK: - Group Filter Bar

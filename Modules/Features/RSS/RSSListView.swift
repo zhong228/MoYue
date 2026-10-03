@@ -587,21 +587,8 @@ struct RSSListView: View {
             isRefreshingAll = false
         }
 
-        for source in sources {
-            let fetcher = RSSFetcher()
-            await fetcher.fetchItems(from: source, metadata: store.feedMetadata(for: source.id))
-            if fetcher.error == nil {
-                store.applyResolvedFeedURL(fetcher.resolvedFeedURL, homepageURL: fetcher.resolvedHomepageURL, to: source.id)
-                let currentSource = store.source(id: source.id) ?? source
-                let newArticles: [RSSArticleRecord]
-                if let response = fetcher.response {
-                    newArticles = store.applyFeedResponse(response, for: source.id)
-                } else {
-                    newArticles = store.mergeFetchedItems(fetcher.items, for: source.id)
-                }
-                RSSNotificationManager.shared.notifyNewArticles(newArticles, source: currentSource)
-            }
-            refreshProgress.completed += 1
+        await RSSFeedRefreshService.refreshAll(store: store) { completed, total in
+            refreshProgress = RSSRefreshProgress(completed: completed, total: total)
         }
     }
 

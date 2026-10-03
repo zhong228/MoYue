@@ -197,6 +197,21 @@ final class ModernRuleEngine {
         return isUrl ? (resultStr.isEmpty ? baseUrl : resolveURL(resultStr)) : resultStr
     }
 
+    /// A link that exists only when the rule yields one: the rule's text resolved against
+    /// the page, or an empty string. Legado reads covers this way in `BookList` and
+    /// `BookInfo` — `getString(rule)`, then `getAbsoluteURL` when it is not empty — and
+    /// Sigma reads RSS article images the same way; never with `isUrl`, whose blank result
+    /// falls back to the page's own URL. That fallback
+    /// suits a link the parse has to follow (a book, its contents); as a cover it made the
+    /// app download the page itself as an image — for a search, the search request again.
+    func getOptionalURL(ruleStr: String?) -> String {
+        guard let ruleStr, !ruleStr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return ""
+        }
+        let value = getString(ruleStr: ruleStr)
+        return value.isEmpty ? "" : resolveURL(value)
+    }
+
     // MARK: - getStringList (matching Legado AnalyzeRule.getStringList)
 
     /// Get a list of strings by evaluating a rule chain.

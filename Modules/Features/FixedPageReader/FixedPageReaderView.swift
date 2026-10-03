@@ -150,7 +150,7 @@ struct FixedPageReaderView: View {
             }
         }
         .animation(DSAnimation.fast, value: state.showControls)
-        .toolbar(.hidden, for: .tabBar)
+        .hidesRootTabBar()
         .navigationBarBackButtonHidden(true)
         .toolbarTitleDisplayMode(.inline)
         .toolbar(state.showControls ? .visible : .hidden, for: .navigationBar, .bottomBar)

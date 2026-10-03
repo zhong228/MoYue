@@ -147,7 +147,7 @@ struct AIBookshelfProposal: Equatable {
     }
 
     struct Group: Identifiable, Equatable {
-        let id: Int
+        let id = UUID()
         var name: String
         var moves: [Move]
     }
@@ -170,7 +170,7 @@ struct AIBookshelfProposal: Equatable {
             if let index = groups.firstIndex(where: { $0.name == name }) {
                 groups[index].moves.append(move)
             } else {
-                groups.append(Group(id: groups.count, name: name, moves: [move]))
+                groups.append(Group(name: name, moves: [move]))
             }
         }
         // The biggest groups first; ties keep the order the model named them in.

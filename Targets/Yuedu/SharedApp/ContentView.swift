@@ -13,6 +13,9 @@ struct ContentView: View {
     @StateObject private var rssStore = RSSStore.shared
     @ObservedObject private var importDrainer = SharedImportQueueDrainer.shared
     @StateObject private var nowPlaying = NowPlayingHub.shared
+    /// Whether any screen is hiding the tab bar — answered from every tab, not only the
+    /// screen's own (`RootTabBarVisibility`).
+    @StateObject private var rootTabBar = RootTabBarVisibility()
     @State private var selectedRootTab: RootTabItem = .bookshelf
     /// A keyword a book source's discover page handed back via `java.searchBook`.
     /// Presented as a sheet rather than by switching to the 搜尋 tab: that tab is
@@ -94,6 +97,7 @@ struct ContentView: View {
         AppearanceThemePreset.activeAppThemes = resolvedAppThemes
         GlobalAppTypography.activate(postScriptName: drawnGlobalFont, boldText: isBoldTextOn)
         return tabView
+        .environment(\.rootTabBarVisibility, rootTabBar)
         // Classic (默認) = the app's original look: no tint override at all.
         .tint(appearanceTheme?.accentColor)
         .accentColor(appearanceTheme?.accentColor)
@@ -289,6 +293,7 @@ struct ContentView: View {
                         scope: AppearancePageBackgroundScope(rawValue: tab.rawValue) ?? .global,
                         isProActive: subscriptionStore.hasAccess(.readerThemePacks)
                     ))
+                    .background { RootTabBarHider(visibility: rootTabBar) }
                     .tag(tab)
                     .tabItem {
                         rootTabItemLabel(for: tab)
@@ -307,6 +312,7 @@ struct ContentView: View {
                             scope: AppearancePageBackgroundScope(rawValue: tab.rawValue) ?? .global,
                             isProActive: subscriptionStore.hasAccess(.readerThemePacks)
                         ))
+                        .background { RootTabBarHider(visibility: rootTabBar) }
                         .tag(tab)
                         .tabItem {
                             rootTabItemLabel(for: tab)

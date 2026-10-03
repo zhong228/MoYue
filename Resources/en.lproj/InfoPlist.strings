@@ -6,3 +6,5 @@
 "Yuedu Log File" = "Yuedu Log File";
 
 "NSLocalNetworkUsageDescription" = "Connect to local book libraries, receive books from Calibre, and use local speech services.";
+
+"NSPhotoLibraryAddUsageDescription" = "Save book covers and shared reading images to your photo library.";

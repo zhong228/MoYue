@@ -45,6 +45,33 @@ stack inside that destination, and manga stopped opening from a book detail
 modal case; the two manga methods under Regression open a real manga from a
 detail.
 
+## The search page
+
+The search page sits under the same detail and reader, and it read
+`@Environment(\.dismiss)` too — for a close button no caller ever showed. On
+TestFlight build 5 an iOS 17 phone tapped a manga result on the 搜索 tab and
+nothing opened. With that recipe (zh-Hans, manga result, its reader and back), the
+iOS 17.5 simulator froze on the first tap: once the detail was pushed, one layout
+pass never ended at 100% CPU, and body-change logging (`Self._logChanges()`)
+reported `BookSearchView: _dismiss changed.` 2,248 times. Build 5 had also given
+the page a second `navigationDestination(item:)` (最近閱讀's reader); with the
+`dismiss` read gone but both destinations kept, the freeze went away and the
+second round's manga reader would not open or would not leave on Back instead.
+The page now reads no `DismissAction` and pushes everything through one item
+destination (`SearchPagePush`); see `Technotes/iOS17SearchWatchdogPostmortem.md`,
+guardrail 12.
+
+Even with one destination, iOS 17.5 replaced the search page's `DismissAction`
+about fourteen times per detail-and-reader round, re-running its body each time:
+treat `dismiss` in any view under this push hierarchy as a hazard on iOS 17.
+
+`AudiobookDetailView` still reads it, to close itself after 移除書架. Checked on
+the iOS 17.5 simulator (2026-10-03) from 搜索 and from 探索, playing a chapter and
+removing the book from the shelf: its `DismissAction` was replaced ten to fifteen
+times per visit and never looped, and every round trip completed — nothing is
+pushed above that page; its player is a full-screen cover. Check it again on
+iOS 17 before anything is pushed from it.
+
 This is separate from the synchronous publication during bookshelf probe
 teardown, addressed by owner-scoped deferred navigation detachment.
 The iOS 17 coordinator regression also exposed that UIKit can release an
@@ -60,6 +87,8 @@ Run these methods with `scripts/xctest.sh` on iOS 17:
 - `DetailReaderBackSwipeUITests.testSearchDetailReaderLoadsAndReturns`
 - `DetailReaderBackSwipeUITests.testDetailMangaReaderLoadsAndReturns`
 - `DetailReaderBackSwipeUITests.testSearchDetailMangaReaderLoadsAndReturns`
+- `DetailReaderBackSwipeUITests.testSearchTabMangaResultOpensEveryTime` (the 搜索 tab
+  in zh-Hans, three rounds)
 
 Each enters through the production UI and repeats entry. The text book requires
 actual chapter text and swipes back to the same detail. The manga, from the same

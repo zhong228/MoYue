@@ -234,4 +234,53 @@ struct LegadoRSSCompatTests {
         #expect(engine.getString(ruleStr: "a@href", isUrl: true) == "https://site.example/p/2")
         #expect(engine.getString(ruleStr: "class.date@text") == "2026-07-02")
     }
+
+    // MARK: - Article images (Sigma's RssParserByRule: an image only when the rule yields one)
+
+    private func articles(imageRule: String?, body: String) throws -> [RSSItem] {
+        var source = RSSSource(name: "Fixture", url: "https://site.example/list")
+        source.ruleTitle = "a@text"
+        source.ruleLink = "a@href"
+        source.ruleImage = imageRule
+        return try LegadoRSSScraper.parseArticles(
+            body: body, finalURL: "https://site.example/list", listRule: "class.item",
+            reverse: false, source: source, jsEngine: JSCoreEngine()
+        )
+    }
+
+    /// The feed page is never an article's image: as one, every thumbnail requested the page
+    /// itself and each article opened under a broken image.
+    @Test("an article from a source without an image rule has no image")
+    func missingImageRuleLeavesNoImage() throws {
+        let items = try articles(
+            imageRule: nil,
+            body: #"<div class="item"><a href="/p/1">标题一</a></div>"#
+        )
+
+        #expect(items.count == 1)
+        #expect(items.first?.imageURL == nil)
+        #expect(items.first?.contentHTML.contains("<img") == false)
+    }
+
+    @Test("an image rule that matches nothing leaves the article without an image")
+    func unmatchedImageRuleLeavesNoImage() throws {
+        let items = try articles(
+            imageRule: "img@src",
+            body: #"<div class="item"><a href="/p/1">标题一</a></div>"#
+        )
+
+        #expect(items.first?.imageURL == nil)
+        #expect(items.first?.contentHTML.contains("<img") == false)
+    }
+
+    @Test("a relative article image resolves against the page")
+    func relativeImageResolves() throws {
+        let items = try articles(
+            imageRule: "img@src",
+            body: #"<div class="item"><a href="/p/1">标题一</a><img src="/img/1.jpg"></div>"#
+        )
+
+        #expect(items.first?.imageURL == "https://site.example/img/1.jpg")
+        #expect(items.first?.contentHTML.contains(#"<img src="https://site.example/img/1.jpg""#) == true)
+    }
 }

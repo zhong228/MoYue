@@ -3230,6 +3230,7 @@ class GlobalSettings: ObservableObject {
     /// a theme collection, a single theme, or a bare array of themes. One entry
     /// point so 導入 can't grow a second parse route that behaves differently.
     @discardableResult
+    @MainActor
     func importAppearanceCustomization(from data: Data) throws -> AppearanceImportSummary {
         if let bundle = try? JSONDecoder().decode(AppearanceCustomizationBundle.self, from: data),
            bundle.format == AppearanceCustomizationBundle.formatIdentifier {
@@ -3248,6 +3249,7 @@ class GlobalSettings: ObservableObject {
     /// Imports the package form used by full-customization sharing. JSON stays
     /// supported by the synchronous entry point above for backward compatibility.
     @discardableResult
+    @MainActor
     func importAppearanceCustomizationPackage(from data: Data) async throws -> AppearanceImportSummary {
         if let legacyResult = try? importAppearanceCustomization(from: data) {
             return legacyResult

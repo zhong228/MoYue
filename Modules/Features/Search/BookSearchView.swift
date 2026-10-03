@@ -16,27 +16,63 @@ private typealias BookSearchResultRoute = SearchResultRoute<SearchBook>
 /// snapshot so later `SearchAggregator` publications cannot replace the data
 /// under an active iOS 17 destination.
 
-/// Installs only the navigation mechanism used by the active result renderer.
-///
-/// The UIKit renderer drives an item binding on iOS 17, while the native SwiftUI
-/// list uses value routing on later systems. Delete the item-based branch
-/// together with the native iOS 17 table when the deployment target reaches
-/// iOS 18.
+/// Installs value routing for results where the native SwiftUI list pushes them by
+/// value (iOS 18 and later). The UIKit list iOS 17 uses has no `NavigationLink`, so its
+/// results go through the page's one item-based destination instead
+/// (`SearchPagePush.result`). Delete the iOS 17 branch together with the native iOS 17
+/// table when the deployment target reaches iOS 18.
 private struct SearchResultNavigationModifier<Destination: View>: ViewModifier {
     let mode: SearchResultNavigationMode
-    @Binding var selectedRoute: BookSearchResultRoute?
     let destination: (BookSearchResultRoute) -> Destination
 
     @ViewBuilder
     func body(content: Content) -> some View {
         switch mode {
         case .selectedItem:
-            content.navigationDestination(item: $selectedRoute, destination: destination)
+            content
         case .valueRoute:
             content.navigationDestination(
                 for: BookSearchResultRoute.self,
                 destination: destination
             )
+        }
+    }
+}
+
+/// Everything the search page pushes through its one item-based destination.
+///
+/// One destination for every kind, not one each. TestFlight build 5 gave 最近閱讀's
+/// reader a second `navigationDestination(item:)` beside the results' own, and on iOS 17
+/// the result's detail then lost its own reader push: the second time through, the manga
+/// reader would not open from the detail, or would not leave it on Back (iOS 17.5
+/// simulator; `DetailReaderBackSwipeUITests.testSearchTabMangaResultOpensEveryTime`).
+/// With this page still reading `DismissAction`, the same build froze on the first tap of
+/// a result instead (Technotes/iOS17ReaderNavigationWatchdog.md).
+private enum SearchPagePush: Hashable {
+    /// A search result. Pushed this way on iOS 17 only; later systems push results by
+    /// value from the list's `NavigationLink`.
+    case result(BookSearchResultRoute)
+    /// A shelf book from 最近閱讀, back into its reader.
+    case reader(DetailReaderRoute)
+}
+
+/// Resolves a push without capturing `BookSearchView` or its live `SearchAggregator`
+/// (Technotes/iOS17SearchWatchdogPostmortem.md, guardrail 3).
+private struct SearchPagePushDestination: View {
+    let push: SearchPagePush
+    @EnvironmentObject private var bookStore: BookStore
+
+    var body: some View {
+        switch push {
+        case .result(let route):
+            SearchResultDestination(route: route)
+        case .reader(let route):
+            BookReaderView(bookId: route.id)
+                .environmentObject(bookStore)
+                .environment(\.readerNavigator, nil)
+                .environment(\.readerUsesParentNavigationStack, true)
+                .navigationBarBackButtonHidden(true)
+                .reservingNavigationBackSwipe()
         }
     }
 }
@@ -87,7 +123,6 @@ private struct SearchResultsScrollEdges: ViewModifier {
 
 struct BookSearchView: View {
     var initialQuery: String = ""
-    var showsCloseButton = false
     /// A scope for this search page only, never saved — Legado's 搜索 on one source
     /// (`searchScope.update(scope, save = false)`). `nil` uses the saved scope.
     var sessionScope: SearchSourceScope?
@@ -99,21 +134,23 @@ struct BookSearchView: View {
     @StateObject private var aggregator = SearchAggregator()
     @StateObject private var scopeStore = SearchSourceScopeStore.shared
     @ObservedObject private var sourceStore = BookSourceStore.shared
-    @Environment(\.dismiss) private var dismiss
+    // No `@Environment(\.dismiss)` here: iOS 17 replaces DismissAction over and over
+    // while a result's detail is pushed above this page, and every replacement re-runs
+    // this body (Technotes/iOS17ReaderNavigationWatchdog.md).
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var query = ""
     @State private var errorMsg: String? = nil
     @State private var submittedQuery = ""
-    @State private var selectedIOS17ResultRoute: BookSearchResultRoute?
     @State private var showsSourceScopeSheet = false
     @State private var needsSearchResubmission = false
     /// The session scope as the reader changes it on this page.
     @State private var editedSessionScope: SearchSourceScope?
-    /// A book opened from 最近閱讀: pushed onto this stack, as a detail page pushes its
-    /// reader. Audiobooks keep their own modal player.
-    @State private var readerRoute: DetailReaderRoute?
+    /// What this page has pushed through its one item-based destination: a result on
+    /// iOS 17, or a book opened from 最近閱讀 — pushed onto this stack, as a detail page
+    /// pushes its reader. Audiobooks keep their own modal player.
+    @State private var pushed: SearchPagePush?
     @State private var audiobookReaderRoute: DetailReaderRoute?
     @AppStorage(RecentSearchQueries.storageKey) private var recentQueries = RecentSearchQueries()
 
@@ -180,18 +217,11 @@ struct BookSearchView: View {
         .modifier(
             SearchResultNavigationModifier(
                 mode: .current,
-                selectedRoute: $selectedIOS17ResultRoute,
                 destination: SearchResultDestination.init(route:)
             )
         )
-        .navigationDestination(item: $readerRoute) { route in
-            BookReaderView(bookId: route.id)
-                .environmentObject(bookStore)
-                .environment(\.readerNavigator, nil)
-                .environment(\.readerUsesParentNavigationStack, true)
-                .navigationBarBackButtonHidden(true)
-                .reservingNavigationBackSwipe()
-        }
+        // The page's only item-based destination (see `SearchPagePush`).
+        .navigationDestination(item: $pushed, destination: SearchPagePushDestination.init(push:))
         .fullScreenCover(item: $audiobookReaderRoute) { route in
             BookReaderView(bookId: route.id)
                 .environmentObject(bookStore)
@@ -217,19 +247,6 @@ struct BookSearchView: View {
                 submittedQuery = ""
                 needsSearchResubmission = false
                 aggregator.cancelAndClear()
-            }
-        }
-        .toolbar {
-            if showsCloseButton {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .accessibilityHidden(true)
-                    }
-                    .accessibilityLabel(localized("關閉"))
-                }
             }
         }
         .alert(
@@ -367,12 +384,15 @@ struct BookSearchView: View {
             ),
             onSelect: { id in
                 guard let book = aggregator.results.first(where: { $0.id == id }) else {
+                    // The row on screen is no longer among the results, so the tap opens
+                    // nothing; logged rather than dropped without a trace.
+                    AppLogger.error(
+                        "⟐ search tap found no result",
+                        context: ["id": id.uuidString, "results": aggregator.results.count]
+                    )
                     return
                 }
-                selectedIOS17ResultRoute = BookSearchResultRoute(
-                    id: id,
-                    snapshot: book
-                )
+                pushed = .result(BookSearchResultRoute(id: id, snapshot: book))
             },
             onLoadMore: {
                 aggregator.loadMore()
@@ -483,7 +503,7 @@ struct BookSearchView: View {
         if book.resolvedPipelineKind == .audio {
             audiobookReaderRoute = DetailReaderRoute(id: book.id)
         } else {
-            readerRoute = DetailReaderRoute(id: book.id)
+            pushed = .reader(DetailReaderRoute(id: book.id))
         }
     }
 }

@@ -1,4 +1,3 @@
-import BackgroundTasks
 import FirebaseCore
 import UIKit
 import UserNotifications
@@ -185,7 +184,8 @@ final class RSSAppNotificationDelegate: NSObject, UIApplicationDelegate, UNUserN
         CrashContext.breadcrumb("app launch (build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"))")
         UNUserNotificationCenter.current().delegate = self
         RSSNotificationManager.shared.start()
-        scheduleBackgroundFeedRefresh()
+        RSSBackgroundRefresh.shared.register()
+        RSSBackgroundRefresh.shared.schedule()
         return true
     }
 
@@ -199,7 +199,7 @@ final class RSSAppNotificationDelegate: NSObject, UIApplicationDelegate, UNUserN
         // ago may still be in flight. This is the last reliable moment to let it land.
         BookSourceStore.shared.flushPendingWrites()
         RSSNotificationManager.shared.updateBadge(unreadCount: RSSStore.shared.totalUnreadCount())
-        scheduleBackgroundFeedRefresh()
+        RSSBackgroundRefresh.shared.schedule()
     }
 
     func application(
@@ -207,21 +207,6 @@ final class RSSAppNotificationDelegate: NSObject, UIApplicationDelegate, UNUserN
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
         ReaderOrientationController.shared.supportedMask(for: UIDevice.current.userInterfaceIdiom)
-    }
-
-    // MARK: - Background Fetch
-
-    private func scheduleBackgroundFeedRefresh() {
-        let request = BGAppRefreshTaskRequest(identifier: "com.yuedu.rss.feedRefresh")
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 60 * 60) // 1 hour minimum
-        do {
-            try BGTaskScheduler.shared.submit(request)
-        } catch {
-            AppLogger.network(
-                "Failed to schedule background refresh: \(error.localizedDescription)",
-                level: .warning
-            )
-        }
     }
 
     // MARK: - UNUserNotificationCenterDelegate

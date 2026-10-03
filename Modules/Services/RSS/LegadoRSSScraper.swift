@@ -80,7 +80,7 @@ enum LegadoRSSScraper {
         }
     }
 
-    private static func parseArticles(
+    static func parseArticles(
         body: String, finalURL: String, listRule: String,
         reverse: Bool, source: RSSSource, jsEngine: JSCoreEngine
     ) throws -> [RSSItem] {
@@ -116,8 +116,12 @@ enum LegadoRSSScraper {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let description = descriptionRuleIsEmpty(source) ? "" : engine.getString(ruleStr: source.ruleDescription)
             let pubDateText = engine.getString(ruleStr: source.rulePubDate)
-            let imageURL = engine.getString(ruleStr: source.ruleImage, isUrl: true)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            // As Sigma's RssParserByRule: an image only when the rule yields one. Through
+            // `isUrl`, a source without an image rule made the feed page every article's
+            // image — each thumbnail requested the page, and each article opened under a
+            // broken <img>. MD3 still reads the image with `isUrl`; Sigma's way was chosen
+            // over it on 2026-10-03.
+            let imageURL = engine.getOptionalURL(ruleStr: source.ruleImage)
 
             let finalDescription: String
             var finalContentHTML: String

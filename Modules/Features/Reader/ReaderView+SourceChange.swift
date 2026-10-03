@@ -1149,7 +1149,8 @@ extension ReaderView {
     /// Stable source context and one gathered snapshot, independent of layout-cache eviction.
     var aiSourceIdentity: ReaderAISourceIdentity {
         ReaderAISourceIdentity(bookID: bookId, sourceID: book?.bookSourceId,
-                               source: book?.source ?? "", chapters: chapters)
+                               source: book?.source ?? "",
+                               chapters: activePublicationSession?.readingChapters ?? chapters)
     }
 
     var aiCurrentSourceContext: String {
@@ -1196,12 +1197,13 @@ extension ReaderView {
         aiGatherGeneration = generation
         let capturedBook = bookId
         let capturedIdentity = aiSourceIdentity
-        let capturedChapters = chapters
+        let capturedChapters = capturedIdentity.chapters
         let conversion = settings.textConversion
         var gathered: [Int: String] = [:]
         var statuses: [Int: AISourceManifest.Availability] = [:]
         for index in capturedChapters.indices {
-            guard !Task.isCancelled, aiGatherGeneration == generation else { return }
+            guard !Task.isCancelled, aiGatherGeneration == generation,
+                  bookId == capturedBook, aiSourceIdentity == capturedIdentity else { return }
             let result = await epubRenderer.localChapterText(at: index)
             // AI quotes are located again by searching the rendered text, so the source text
             // has to carry the characters the reader shows.

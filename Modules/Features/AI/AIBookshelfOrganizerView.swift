@@ -169,8 +169,8 @@ struct AIBookshelfOrganizerView: View {
                         .foregroundStyle(DSColor.textSecondary)
                         .listRowBackground(Color.clear)
                 }
-                ForEach(Binding(get: { model.proposal?.groups ?? [] }, set: { model.proposal?.groups = $0 })) { $group in
-                    groupSection($group)
+                ForEach(proposal.groups) { group in
+                    groupSection(group)
                 }
             }
             if proposal.unchangedCount + proposal.unassignedCount > 0 {
@@ -189,14 +189,14 @@ struct AIBookshelfOrganizerView: View {
         }
     }
 
-    private func groupSection(_ group: Binding<AIBookshelfProposal.Group>) -> some View {
-        let isNew = !store.allGroups.contains(AIBookshelfOrganizer.groupName(group.wrappedValue.name))
+    private func groupSection(_ group: AIBookshelfProposal.Group) -> some View {
+        let isNew = !store.allGroups.contains(AIBookshelfOrganizer.groupName(group.name))
         return Section {
-            TextField(localized("分組名稱"), text: group.name)
+            TextField(localized("分組名稱"), text: model.nameBinding(for: group))
                 .font(DSFont.body.weight(.semibold))
                 .accessibilityLabel(localized("分組名稱"))
-            ForEach(group.moves) { $move in
-                Toggle(isOn: $move.isIncluded) {
+            ForEach(group.moves) { move in
+                Toggle(isOn: model.inclusionBinding(for: move, in: group)) {
                     VStack(alignment: .leading, spacing: DSSpacing.xs) {
                         Text(move.title)
                             .foregroundStyle(DSColor.textPrimary)
@@ -211,6 +211,37 @@ struct AIBookshelfOrganizerView: View {
                 .foregroundStyle(DSColor.textSecondary)
         }
         .interfaceSectionSurface()
+    }
+}
+
+extension AIBookshelfOrganizerModel {
+    // UIKit can read a surviving text field or switch while SwiftUI removes the
+    // review after apply/reset. Resolve identity each time; never retain an array
+    // subscript. The displayed snapshot remains readable after removal, while a
+    // late write cannot recreate a discarded proposal or affect a new one.
+    // Remove snapshot reads only when controls can no longer outlive a proposal.
+    func nameBinding(for group: AIBookshelfProposal.Group) -> Binding<String> {
+        Binding(
+            get: { self.proposal?.groups.first { $0.id == group.id }?.name ?? group.name },
+            set: { name in
+                guard let index = self.proposal?.groups.firstIndex(where: { $0.id == group.id }) else { return }
+                self.proposal?.groups[index].name = name
+            }
+        )
+    }
+
+    func inclusionBinding(for move: AIBookshelfProposal.Move, in group: AIBookshelfProposal.Group) -> Binding<Bool> {
+        Binding(
+            get: {
+                self.proposal?.groups.first { $0.id == group.id }?.moves.first { $0.id == move.id }?.isIncluded
+                    ?? move.isIncluded
+            },
+            set: { included in
+                guard let groupIndex = self.proposal?.groups.firstIndex(where: { $0.id == group.id }),
+                      let moveIndex = self.proposal?.groups[groupIndex].moves.firstIndex(where: { $0.id == move.id }) else { return }
+                self.proposal?.groups[groupIndex].moves[moveIndex].isIncluded = included
+            }
+        )
     }
 }
 

@@ -73,8 +73,14 @@ struct HostedCollectionList<Item: Hashable, Row: View>: UIViewControllerRepresen
 
 @MainActor
 final class HostedCollectionListController<Item: Hashable, Row: View>: UIViewController {
+    /// A data item can appear more than once; diffable identity belongs to its
+    /// occurrence in the list, not to the shared underlying value.
+    private struct RowID: Hashable {
+        let item: Item
+        let occurrence: Int
+    }
     private(set) var collectionView: UICollectionView!
-    private var dataSource: UICollectionViewDiffableDataSource<Int, Item>!
+    private var dataSource: UICollectionViewDiffableDataSource<Int, RowID>!
     private var items: [Item] = []
     private var contentVersion: Int?
     private var lastScrollSerial: Int?
@@ -112,7 +118,7 @@ final class HostedCollectionListController<Item: Hashable, Row: View>: UIViewCon
         configuration.itemSeparatorHandler = { [weak self] indexPath, separator in
             var separator = separator
             separator.topSeparatorVisibility = .hidden
-            guard let self, let item = self.dataSource.itemIdentifier(for: indexPath) else {
+            guard let self, let item = self.dataSource.itemIdentifier(for: indexPath)?.item else {
                 separator.bottomSeparatorVisibility = .hidden
                 return separator
             }
@@ -135,11 +141,11 @@ final class HostedCollectionListController<Item: Hashable, Row: View>: UIViewCon
             [weak self] cell, _, item in
             self?.configure(cell, with: item)
         }
-        dataSource = UICollectionViewDiffableDataSource<Int, Item>(
+        dataSource = UICollectionViewDiffableDataSource<Int, RowID>(
             collectionView: collectionView
         ) { collectionView, indexPath, item in
             collectionView.dequeueConfiguredReusableCell(
-                using: registration, for: indexPath, item: item)
+                using: registration, for: indexPath, item: item.item)
         }
     }
 
@@ -174,9 +180,15 @@ final class HostedCollectionListController<Item: Hashable, Row: View>: UIViewCon
             let startedAt = SourcePerfTrace.now
             items = newItems
             contentVersion = newVersion
-            var snapshot = NSDiffableDataSourceSnapshot<Int, Item>()
+            var occurrences: [Item: Int] = [:]
+            let rowIDs = newItems.map { item in
+                let occurrence = occurrences[item, default: 0]
+                occurrences[item] = occurrence + 1
+                return RowID(item: item, occurrence: occurrence)
+            }
+            var snapshot = NSDiffableDataSourceSnapshot<Int, RowID>()
             snapshot.appendSections([0])
-            snapshot.appendItems(newItems)
+            snapshot.appendItems(rowIDs)
             if animated {
                 dataSource.apply(snapshot, animatingDifferences: true)
                 // An animated apply only inserts, deletes and moves; a row that moved *and*
@@ -198,7 +210,7 @@ final class HostedCollectionListController<Item: Hashable, Row: View>: UIViewCon
     func scroll(to request: HostedCollectionListScrollRequest<Item>, animated: Bool) {
         guard request.serial != lastScrollSerial else { return }
         lastScrollSerial = request.serial
-        guard let indexPath = dataSource.indexPath(for: request.item) else { return }
+        guard let indexPath = dataSource.indexPath(for: RowID(item: request.item, occurrence: 0)) else { return }
         collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: animated)
     }
 
@@ -206,7 +218,7 @@ final class HostedCollectionListController<Item: Hashable, Row: View>: UIViewCon
     /// changes (`selfSizingInvalidation` is on by default since iOS 16).
     private func reconfigureVisibleRows() {
         for indexPath in collectionView.indexPathsForVisibleItems {
-            guard let item = dataSource.itemIdentifier(for: indexPath),
+            guard let item = dataSource.itemIdentifier(for: indexPath)?.item,
                   let cell = collectionView.cellForItem(at: indexPath) as? UICollectionViewListCell
             else { continue }
             configure(cell, with: item)
@@ -259,4 +271,3 @@ private struct HostedListCellSurface: View {
     }
     .background(DSColor.groupedBackground)
 }
-
