@@ -61,9 +61,26 @@ class BookStore: ObservableObject, BookProvider {
 
     private func replaceRecords(_ value: [ReadingBook], notifyLibraryViews: Bool = true) {
         if notifyLibraryViews { objectWillChange.send() }
-        recordStorage.values = value
+        recordStorage.values = movingChapterListsToStore(value)
         mutationRevision &+= 1
     }
+
+    /// A record never holds its table of contents, as legado's `Book` has none: a list
+    /// attached to one — a book built with its chapters, or read through `readingBook(id:)`
+    /// and saved back — moves to `chapterStore`, and the record keeps its summary. A record
+    /// without one leaves the stored list alone.
+    private func movingChapterListsToStore(_ value: [ReadingBook]) -> [ReadingBook] {
+        guard value.contains(where: { $0.onlineChapters != nil }) else { return value }
+        return value.map { book in
+            guard let chapters = book.onlineChapters else { return book }
+            var record = book
+            record.onlineChapters = nil
+            record.applyChapterSummary(from: chapters)
+            chapterStore.setChapters(chapters, for: book.id)
+            return record
+        }
+    }
+
     /// The network may finish after an import, deletion or reading-position edit.
     /// A result may replace the shelf only while its input snapshot is current.
     private(set) var mutationRevision: UInt64 = 0
@@ -87,7 +104,19 @@ class BookStore: ObservableObject, BookProvider {
 
     var readingBooks: [ReadingBook] { records }
 
-    func readingBook(id: UUID) -> ReadingBook? { records.first { $0.id == id } }
+    /// The book with its table of contents, which is read from `chapterStore` the first
+    /// time it is asked for — legado's `getChapterList(bookUrl)` for the book being opened.
+    func readingBook(id: UUID) -> ReadingBook? {
+        guard var book = records.first(where: { $0.id == id }) else { return nil }
+        book.onlineChapters = chapterStore.chapters(for: id)
+        return book
+    }
+
+    /// A book's table of contents (legado's `getChapterList`). The shelf's records carry
+    /// only its summary (`totalChapterNum`, `latestChapterTitle`).
+    func chapters(for bookId: UUID) -> [OnlineChapterRef]? {
+        chapterStore.chapters(for: bookId)
+    }
 
     func saveReadingBook(_ book: ReadingBook) {
         if let index = records.firstIndex(where: { $0.id == book.id }) {
@@ -145,6 +174,13 @@ class BookStore: ObservableObject, BookProvider {
     /// rewrites the app's own.
     let readerSettings: BookReaderSettingsStore
 
+    /// Every book's table of contents, one file per book beside the shelf file — legado's
+    /// chapters table. The shelf file holds the books and a summary of each list.
+    private let chapterStore: BookChapterStore
+    /// Whether the last load read both the shelf and the reading records. Only then may a
+    /// book missing from `records` be taken as gone, and its list removed.
+    private var recordsLoadedCompletely = false
+
     /// Where a book read and then taken off the shelf leaves its name for 搜索's 最近閱讀
     /// (`OffShelfReadRecords`). Nil for a store on any shelf but the app's own, which then
     /// leaves no names behind.
@@ -165,8 +201,12 @@ class BookStore: ObservableObject, BookProvider {
         readerSettings = BookReaderSettingsStore(
             fileURL: metadataFileURL.deletingPathExtension().appendingPathExtension("reader-settings.json")
         )
+        chapterStore = BookChapterStore(
+            directoryURL: metadataFileURL.deletingPathExtension().appendingPathExtension("chapters")
+        )
         let shelfLoaded = loadMeta()
         let readingRecordsLoaded = loadReadingRecords()
+        finishLoadingChapterLists(complete: shelfLoaded && readingRecordsLoaded)
         if let legacyReaderSettingsDefaults {
             readerSettings.migrateLegacyFixedPageReadingModes(
                 from: legacyReaderSettingsDefaults,
@@ -944,8 +984,8 @@ class BookStore: ObservableObject, BookProvider {
     @discardableResult
     func ensureOnlineBookForDownload(_ book: ReadingBook) -> ReadingBook {
         guard book.isOnline else { return book }
-        if let idx = records.firstIndex(where: { $0.id == book.id }) {
-            return records[idx]
+        if let stored = readingBook(id: book.id) {
+            return stored
         }
         var libraryBook = book
         libraryBook.addedDate = Date()
@@ -1288,6 +1328,8 @@ class BookStore: ObservableObject, BookProvider {
                 }
             }
             readerSettings.removeSettings(for: bookId)
+            // legado's chapters go with their book (`ForeignKey.CASCADE`); so does the list here.
+            chapterStore.removeChapters(for: bookId)
             // The 多角色朗讀 cast is keyed by book id and would otherwise outlive the book.
             let globalSettings = GlobalSettings.shared
             let remainingRoleVoices = TTSRoleVoiceCast.clearing(bookID: bookId, in: globalSettings.ttsRoleVoices)
@@ -1579,7 +1621,7 @@ class BookStore: ObservableObject, BookProvider {
 
     func updateCachedChapter(bookId: UUID, chapterIndex: Int, filename: String) {
         guard let idx = records.firstIndex(where: { $0.id == bookId }),
-            var chapters = records[idx].onlineChapters
+            var chapters = chapterStore.chapters(for: bookId)
         else { return }
         if let ci = chapters.firstIndex(where: { $0.index == chapterIndex }) {
             chapters[ci].cachedFilename = filename
@@ -1590,7 +1632,7 @@ class BookStore: ObservableObject, BookProvider {
 
     func clearCachedChapter(bookId: UUID, chapterIndex: Int) {
         guard let idx = records.firstIndex(where: { $0.id == bookId }),
-            var chapters = records[idx].onlineChapters
+            var chapters = chapterStore.chapters(for: bookId)
         else { return }
         if let ci = chapters.firstIndex(where: { $0.index == chapterIndex }) {
             chapters[ci].cachedFilename = nil
@@ -1603,7 +1645,7 @@ class BookStore: ObservableObject, BookProvider {
     /// Used alongside `clearAllChapterCache` during refresh to reset the book's cache state.
     func clearAllCachedChapterFilenames(bookId: UUID) {
         guard let idx = records.firstIndex(where: { $0.id == bookId }),
-            var chapters = records[idx].onlineChapters
+            var chapters = chapterStore.chapters(for: bookId)
         else { return }
         var changed = false
         for i in chapters.indices where chapters[i].cachedFilename != nil {
@@ -1641,7 +1683,7 @@ class BookStore: ObservableObject, BookProvider {
         // an index resolved before the await could now address a different book,
         // or be past the end of the array.
         guard let idx = records.firstIndex(where: { $0.id == bookId }) else { return }
-        if var chapters = records[idx].onlineChapters {
+        if var chapters = chapterStore.chapters(for: bookId) {
             for chapterIndex in chapters.indices {
                 chapters[chapterIndex].cachedFilename = nil
             }
@@ -1727,7 +1769,7 @@ class BookStore: ObservableObject, BookProvider {
                 userInfo: [NSLocalizedDescriptionKey: localized("此書源取不到目錄")])
         }
         let oldRefs = await MainActor.run {
-            records.first(where: { $0.id == bookId })?.onlineChapters ?? []
+            chapterStore.chapters(for: bookId) ?? []
         }
         try await SourcePerfTrace.spanAsync(
             "changeSource.reconcileOffline", "\(max(oldRefs.count, tocPackage.chapters.count))ch"
@@ -1771,7 +1813,7 @@ class BookStore: ObservableObject, BookProvider {
         onFirstChaptersReady: (@MainActor (ReadingBook) -> Void)? = nil
     ) async throws -> ReadingBook {
         guard let snapshot = await MainActor.run(body: {
-            records.first(where: { $0.id == bookId && $0.isOnline })
+            readingBook(id: bookId).flatMap { $0.isOnline ? $0 : nil }
         }) else {
             throw NSError(
                 domain: "BookStore", code: -2, userInfo: [NSLocalizedDescriptionKey: "找不到線上書籍"])
@@ -1865,7 +1907,7 @@ class BookStore: ObservableObject, BookProvider {
 
                     let previousTitle = self.records[idx].title
                     let previousAuthor = self.records[idx].author
-                    let existingChapters = self.records[idx].onlineChapters ?? []
+                    let existingChapters = self.chapterStore.chapters(for: bookId) ?? []
                     let mergedChapters = self.mergeOnlineChapters(
                         existing: existingChapters,
                         refreshed: firstChapters,
@@ -1897,7 +1939,7 @@ class BookStore: ObservableObject, BookProvider {
                     if runtimeChanged || chaptersChanged || tocChanged || titleChanged || authorChanged {
                         self.saveMeta()
                     }
-                    onFirstChaptersReady?(self.records[idx])
+                    onFirstChaptersReady?(self.readingBook(id: bookId) ?? self.records[idx])
                 }
             },
             // Always hit the network here: this is the "check for new chapters"
@@ -1924,12 +1966,12 @@ class BookStore: ObservableObject, BookProvider {
             ) == .commit else {
                 AppLogger.network("⟐ TOC refresh came back empty, keeping existing chapters", context: [
                     "bookId": bookId.uuidString,
-                    "existing": records[idx].onlineChapters?.count ?? 0,
+                    "existing": chapterStore.chapters(for: bookId)?.count ?? 0,
                 ])
                 return nil
             }
 
-            let existingChapters = records[idx].onlineChapters ?? []
+            let existingChapters = chapterStore.chapters(for: bookId) ?? []
             let mergedChapters = mergeOnlineChapters(existing: existingChapters, refreshed: tocPackage.chapters)
             let chaptersChanged = chapterListChanged(existing: existingChapters, refreshed: tocPackage.chapters)
             let tocChanged = normalizedOnlineValue(records[idx].tocURL) != finalTOCURL
@@ -1970,7 +2012,7 @@ class BookStore: ObservableObject, BookProvider {
             if runtimeChanged || chaptersChanged || tocChanged || titleChanged || authorChanged || gainedChapters {
                 saveMeta()
             }
-            return (records[idx], existingChapters, mergedChapters)
+            return (readingBook(id: bookId) ?? records[idx], existingChapters, mergedChapters)
         }
 
         guard let (updated, oldRefs, newRefs) = updateResult else {
@@ -2014,7 +2056,7 @@ class BookStore: ObservableObject, BookProvider {
     ) {
         guard let idx = records.firstIndex(where: { $0.id == bookId }) else { return }
         var invalidatedIndices: Set<Int> = []
-        if var chapters = records[idx].onlineChapters {
+        if var chapters = chapterStore.chapters(for: bookId) {
             for index in chapters.indices {
                 guard oldRefs.indices.contains(index), newRefs.indices.contains(index) else {
                     chapters[index].cachedFilename = nil
@@ -2150,13 +2192,19 @@ class BookStore: ObservableObject, BookProvider {
     @MainActor
     func snapshotForSync(_ syncedBooks: [ReadingBook], expectedMutationRevision: UInt64? = nil) -> SyncSnapshot? {
         if let expectedMutationRevision, expectedMutationRevision != mutationRevision { return nil }
-        // Remote metadata omits the local, re-fetchable table of contents.
-        let localChapters = Dictionary(records.map { ($0.id, $0.onlineChapters) }, uniquingKeysWith: { first, _ in first })
+        // The table of contents is this device's own: `chapterStore` keeps it, and the
+        // record's summary is derived from it. A synced copy carries none, except one a build
+        // before the store uploaded — an older list, taken only by a device that has none.
+        let localRecords = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let shelf = syncedBooks.map { book in
-            var merged = book
+            var merged = book.withoutTableOfContents()
             merged.isInBookshelf = true
-            if (book.onlineChapters?.isEmpty ?? true), let preserved = localChapters[book.id] ?? nil {
-                merged.onlineChapters = preserved
+            if let incoming = book.onlineChapters, !incoming.isEmpty, !chapterStore.hasList(for: book.id) {
+                merged.onlineChapters = incoming
+                merged.applyChapterSummary(from: incoming)
+            } else {
+                merged.totalChapterNum = localRecords[book.id]?.totalChapterNum
+                merged.latestChapterTitle = localRecords[book.id]?.latestChapterTitle
             }
             return merged
         }.sorted { lhs, rhs in
@@ -2197,8 +2245,10 @@ class BookStore: ObservableObject, BookProvider {
         guard prepared.snapshot.revision == mutationRevision else { return false }
         replaceRecords(prepared.snapshot.records)
         cancelPendingMetadataSave()
+        let bookIDs = Set(records.map(\.id))
+        if recordsLoadedCompletely { chapterStore.removeChapters(notIn: bookIDs) }
         persistMetadata(prepared.shelfData, readingData: prepared.readingData)
-        readerSettings.removeSettings(notIn: Set(records.map(\.id)))
+        readerSettings.removeSettings(notIn: bookIDs)
         return true
     }
 
@@ -2247,6 +2297,8 @@ class BookStore: ObservableObject, BookProvider {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(output.filter { $0.isInBookshelf == updated.isInBookshelf })
+        // Changed lists become durable with this write, as when they rode inside the shelf.
+        chapterStore.flush()
         try data.write(to: updated.isInBookshelf ? metadataFileURL : readingMetadataFileURL, options: .atomic)
         records[index] = updated
         if updated.isInBookshelf { markMetadataPersisted(data); syncWidgetData() }
@@ -2301,8 +2353,10 @@ class BookStore: ObservableObject, BookProvider {
     }
 
     private func persistMetadataIfChanged() {
-        guard let data = encodeBooksMetadata() else { return }
-        persistMetadata(data)
+        SourcePerfTrace.span("library.shelf.save", "books=\(records.count)", thresholdMs: 5) {
+            guard let data = encodeBooksMetadata() else { return }
+            persistMetadata(data)
+        }
     }
 
     private func persistMetadata(_ data: Data, readingData: Data? = nil) {
@@ -2312,10 +2366,15 @@ class BookStore: ObservableObject, BookProvider {
             if metadataWritesBlocked {
                 // What is on disk is the only copy of a shelf this launch could not read.
                 AppLogger.cache("Bookshelf metadata is unreadable and was not kept aside; leaving it as it is")
-            } else if data != lastPersistedMetadataData {
-                try data.write(to: metadataFileURL, options: .atomic)
-                markMetadataPersisted(data)
-                syncWidgetData()
+            } else {
+                // The lists go before the shelf that no longer carries them: a shelf moved out
+                // of an older build's file must not be written until its lists are on disk.
+                chapterStore.flush()
+                if data != lastPersistedMetadataData {
+                    try data.write(to: metadataFileURL, options: .atomic)
+                    markMetadataPersisted(data)
+                    syncWidgetData()
+                }
             }
             if let readingData { try persistEncodedReadingRecords(readingData) }
             else { persistReadingRecords() }
@@ -2373,8 +2432,32 @@ class BookStore: ObservableObject, BookProvider {
     /// Re-reads `books_meta.json` into memory. Used after an iCloud restore
     /// overwrites the file so the bookshelf reflects it without a relaunch.
     func reloadFromDisk() {
-        loadMeta()
-        loadReadingRecords()
+        let shelfLoaded = loadMeta()
+        let readingRecordsLoaded = loadReadingRecords()
+        finishLoadingChapterLists(complete: shelfLoaded && readingRecordsLoaded)
+    }
+
+    /// Runs once the shelf and the reading records are read. Lists that came inside them —
+    /// a file written before `chapterStore`, or by an older build since — are written out;
+    /// a book whose summary is missing gets it back from its stored list; and when both
+    /// files read completely, the lists of books that are in neither are removed.
+    private func finishLoadingChapterLists(complete: Bool) {
+        // A shelf without the summary has its lists on disk all the same: a backup restored
+        // over it never carries the summary (`strippedForSync`), and a build from before it
+        // drops the fields when it rewrites the file.
+        var repaired = records
+        var didRepair = false
+        for index in repaired.indices where repaired[index].totalChapterNum == nil {
+            let bookID = repaired[index].id
+            guard chapterStore.hasStoredList(for: bookID),
+                  let chapters = chapterStore.chapters(for: bookID) else { continue }
+            repaired[index].applyChapterSummary(from: chapters)
+            didRepair = true
+        }
+        if didRepair { records = repaired }
+        recordsLoadedCompletely = complete
+        if complete { chapterStore.removeChapters(notIn: Set(records.map(\.id))) }
+        if didRepair || chapterStore.hasUnwrittenChanges { saveMetaImmediately() }
     }
 
     /// Whether the shelf is known to be complete: the file decoded, or there is no shelf
@@ -2388,9 +2471,11 @@ class BookStore: ObservableObject, BookProvider {
             do {
                 let data = try Data(contentsOf: metadataFileURL)
                 do {
-                    records = try JSONDecoder().decode([ReadingBook].self, from: data)
+                    let decoded = try SourcePerfTrace.span("library.shelf.load", "bytes=\(data.count)", thresholdMs: 5) {
+                        try JSONDecoder().decode([ReadingBook].self, from: data)
+                    }
+                    records = Self.sanitizingInlineChapterURLs(decoded)
                     markMetadataPersisted(data)
-                    sanitizePersistedChapterURLs()
                     return true
                 } catch {
                     // The shelf opens empty when this happens, and nothing on screen says why.
@@ -2417,9 +2502,9 @@ class BookStore: ObservableObject, BookProvider {
         if let data = UserDefaults.standard.data(forKey: legacyMetaKey),
            let decoded = try? JSONDecoder().decode([ReadingBook].self, from: data)
         {
-            records = decoded
-            sanitizePersistedChapterURLs()
+            records = Self.sanitizingInlineChapterURLs(decoded)
             if !metadataWritesBlocked, let migrated = encodeBooksMetadata() {
+                chapterStore.flush()
                 try? migrated.write(to: metadataFileURL, options: .atomic)
                 markMetadataPersisted(migrated)
             }
@@ -2469,7 +2554,7 @@ class BookStore: ObservableObject, BookProvider {
         guard FileManager.default.fileExists(atPath: readingMetadataFileURL.path) else { return true }
         do {
             let data = try Data(contentsOf: readingMetadataFileURL)
-            let decoded = try JSONDecoder().decode([ReadingBook].self, from: data)
+            let decoded = Self.sanitizingInlineChapterURLs(try JSONDecoder().decode([ReadingBook].self, from: data))
             let shelfIDs = Set(records.map(\.id))
             records.append(contentsOf: decoded.filter { !$0.isInBookshelf && !shelfIDs.contains($0.id) })
             lastPersistedReadingData = data
@@ -2495,12 +2580,12 @@ class BookStore: ObservableObject, BookProvider {
         lastPersistedReadingData = data
     }
 
-    /// Cleans persisted online book chapter URLs: replaces URLs containing HTML
-    /// markup with sanitized href values.
-    private func sanitizePersistedChapterURLs() {
-        var needsSave = false
-        for i in records.indices {
-            guard records[i].isOnline, var chapters = records[i].onlineChapters else { continue }
+    /// Cleans the chapter URLs of lists read from inside a shelf file: replaces URLs
+    /// containing HTML markup with sanitized href values. Lists written by `chapterStore`
+    /// passed through here on their way out of the shelf, or came from a current parser.
+    private static func sanitizingInlineChapterURLs(_ books: [ReadingBook]) -> [ReadingBook] {
+        books.map { book in
+            guard book.isOnline, var chapters = book.onlineChapters else { return book }
             var bookChanged = false
             for j in chapters.indices {
                 let original = chapters[j].url
@@ -2510,13 +2595,10 @@ class BookStore: ObservableObject, BookProvider {
                     bookChanged = true
                 }
             }
-            if bookChanged {
-                records[i].onlineChapters = chapters
-                needsSave = true
-            }
-        }
-        if needsSave {
-            saveMeta()
+            guard bookChanged else { return book }
+            var sanitized = book
+            sanitized.onlineChapters = chapters
+            return sanitized
         }
     }
 

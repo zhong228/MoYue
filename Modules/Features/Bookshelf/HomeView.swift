@@ -1804,8 +1804,8 @@ struct BookRow: View {
     /// Offline-download progress (downloaded chapters / total), or nil when the
     /// chapter count isn't known yet (indeterminate).
     private var offlineDownloadProgress: Double? {
-        let total = book.offlineDownloadTask?.clamped(to: book.onlineChapters?.count ?? 0)?.totalChapterCount
-            ?? book.onlineChapters?.count
+        let total = book.offlineDownloadTask?.clamped(to: book.totalChapterNum ?? 0)?.totalChapterCount
+            ?? book.totalChapterNum
         guard let total, total > 0 else { return nil }
         return min(1, Double(book.downloadedChapterCount) / Double(total))
     }
@@ -2373,10 +2373,11 @@ private func previewOnlineBook(hasUpdate: Bool) -> ReadingBook {
     )
     book.isOnline = true
     book.currentPosition = 0.42
-    book.onlineChapters = [
+    // A shelf record: the summary of its table of contents, not the list.
+    book.applyChapterSummary(from: [
         OnlineChapterRef(index: 0, title: "第一章 開始", url: "https://example.com/1"),
         OnlineChapterRef(index: 1, title: "第一百零八章 大結局", url: "https://example.com/108"),
-    ]
+    ])
     book.hasNewChapterUpdate = hasUpdate
     return book
 }

@@ -300,7 +300,7 @@ enum ChapterUpdater {
     private static func refreshBook(book: ReadingBook, bookStore: BookStore) async {
         do {
             let needInfoRefresh = (book.tocURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-                || (book.onlineChapters?.isEmpty != false)
+                || (book.totalChapterNum ?? 0) == 0
             _ = try await bookStore.refreshOnlineBookMetadata(
                 bookId: book.id,
                 forceInfoRefresh: needInfoRefresh,

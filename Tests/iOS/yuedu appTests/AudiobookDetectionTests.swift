@@ -397,7 +397,7 @@ struct AudiobookDetectionTests {
             runtimeVariables: ["book.type": "1", "book_id": "b1", "tab": "听书"]
         )
 
-        let updated = try #require(store.books.first(where: { $0.id == book.id }))
+        let updated = try #require(store.readingBook(id: book.id))
         #expect(updated.onlineChapters?.count == 1)
         #expect(updated.runtimeVariables?["book_id"] == "b1")
         #expect(updated.runtimeVariables?["tab"] == "听书")

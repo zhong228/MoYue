@@ -119,7 +119,7 @@ final class AIBookshelfOrganizerModel: ObservableObject {
         }
         let requests = records.map { record in
             Request(book: AIBookshelfOrganizer.Book(id: record.id, title: record.title, author: record.author, group: record.group,
-                        chapterTitles: (record.onlineChapters ?? []).lazy.filter { !$0.isVolume }.prefix(AIBookshelfOrganizer.chapterTitles)
+                        chapterTitles: (store.chapters(for: record.id) ?? []).lazy.filter { !$0.isVolume }.prefix(AIBookshelfOrganizer.chapterTitles)
                             .map { ReaderHTMLUtilities.displayText(fromHTMLFragment: $0.title).trimmingCharacters(in: .whitespacesAndNewlines) }
                             .filter { !$0.isEmpty }),
                     infoURL: record.isOnline ? record.bookInfoURL : nil,

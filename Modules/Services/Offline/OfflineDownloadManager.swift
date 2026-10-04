@@ -211,8 +211,11 @@ actor OfflineDownloadManager: OfflineDownloadManaging {
         guard !isReconciling else { return }
         isReconciling = true
         defer { isReconciling = false }
+        // Shelf records carry no table of contents; each downloading book's is read here.
         let books = await MainActor.run {
-            store.books.filter { $0.isOnline && $0.offlineDownloadTask != nil }
+            store.books
+                .filter { $0.isOnline && $0.offlineDownloadTask != nil }
+                .compactMap { store.readingBook(id: $0.id) }
         }
         for book in books {
             guard let refs = book.onlineChapters else { continue }
@@ -351,7 +354,7 @@ actor OfflineDownloadManager: OfflineDownloadManaging {
             while !Task.isCancelled {
                 let snapshot = await MainActor.run { () -> (ReadingBook, BookOfflineDownloadTask)? in
                     guard
-                        let book = store.books.first(where: { $0.id == originalBook.id }),
+                        let book = store.readingBook(id: originalBook.id), book.isInBookshelf,
                         let task = book.offlineDownloadTask
                     else { return nil }
                     return (book, task)

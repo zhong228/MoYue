@@ -74,7 +74,7 @@ struct BookSourcePersistenceTests {
         )
 
         let reloaded = BookStore(metadataFileURL: metadataURL)
-        let persistedBook = try #require(reloaded.books.first)
+        let persistedBook = try #require(reloaded.books.first.flatMap { reloaded.readingBook(id: $0.id) })
         #expect(persistedBook.id == book.id)
         #expect(persistedBook.bookSourceId == newSource.id)
         #expect(persistedBook.bookInfoURL == "https://new.example/book")
@@ -153,7 +153,7 @@ struct BookSourcePersistenceTests {
             )
         }
 
-        let current = try #require(store.books.first(where: { $0.id == book.id }))
+        let current = try #require(store.readingBook(id: book.id))
         #expect(current.bookSourceId == oldSource.id)
         #expect(current.tocURL == "https://old.example/book/toc")
         #expect(current.onlineChapters?.map(\.url) == oldChapters.map(\.url))

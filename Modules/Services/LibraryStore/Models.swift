@@ -150,12 +150,38 @@ extension ReadingBook {
     /// shown on the bookshelf so a TOC refresh is visible. Nil for local books or
     /// when no chapters are known yet.
     var latestChapterDisplayTitle: String? {
-        guard isOnline, let chapters = onlineChapters, !chapters.isEmpty else { return nil }
+        guard isOnline, let latestChapterTitle, !latestChapterTitle.isEmpty else { return nil }
+        return latestChapterTitle
+    }
+
+    /// Brings `totalChapterNum` and `latestChapterTitle` in line with `chapters`, the
+    /// book's table of contents — legado's `BookChapterList` sets `Book.totalChapterNum` and
+    /// `latestChapterTitle` the same way whenever it stores a new list.
+    mutating func applyChapterSummary(from chapters: [OnlineChapterRef]) {
+        guard !chapters.isEmpty else {
+            totalChapterNum = nil
+            latestChapterTitle = nil
+            return
+        }
+        totalChapterNum = chapters.count
         let latest = chapters.last(where: { !$0.shouldRenderAsVolumeSeparator }) ?? chapters.last
-        guard let latest else { return nil }
-        let text = ReaderHTMLUtilities.displayText(fromHTMLFragment: latest.title)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? nil : text
+        let text = latest.map {
+            ReaderHTMLUtilities.displayText(fromHTMLFragment: $0.title)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } ?? ""
+        latestChapterTitle = text.isEmpty ? nil : text
+    }
+
+    /// The book as another device receives it through iCloud: without its table of
+    /// contents, and without the summary of one. Both belong to this device — the list is
+    /// fetched here and kept in `BookChapterStore`, and the summary is derived from it —
+    /// as legado's backup carries `bookshelf.json` without the chapters table.
+    func withoutTableOfContents() -> ReadingBook {
+        var copy = self
+        copy.onlineChapters = nil
+        copy.totalChapterNum = nil
+        copy.latestChapterTitle = nil
+        return copy
     }
 
     /// A copy suitable for storing in a single Firestore document. The online
@@ -163,8 +189,7 @@ extension ReadingBook {
     /// 1 MB document limit, so it is dropped — it stays local and is re-fetchable
     /// from the source's table of contents.
     func strippedForSync() -> ReadingBook {
-        var copy = self
-        copy.onlineChapters = nil
+        var copy = withoutTableOfContents()
         if let reference = copy.remoteSource {
             copy.remoteSource?.cachedFilename = nil
             copy.contentFilename = reference.offlineFilename ?? ""
@@ -196,7 +221,18 @@ struct ReadingBook: Identifiable, Codable {
     var bookInfoURL: String?
     var tocURL: String?
     var runtimeVariables: [String: String]?
+    /// The book's table of contents, for whoever holds this copy: `BookStore.readingBook(id:)`
+    /// reads it from `BookChapterStore` on demand, and code building a book can attach its
+    /// chapters. A record in `BookStore` never carries it — the list is stored on its own,
+    /// as legado's chapters table is — so it is not part of the book's encoding either.
     var onlineChapters: [OnlineChapterRef]?
+    /// The table of contents' chapter count and the display title of its newest readable
+    /// chapter, kept on the book so the shelf needs no list (legado's `Book.totalChapterNum`
+    /// / `latestChapterTitle`). Derived on this device by `applyChapterSummary(from:)`;
+    /// never synced (`withoutTableOfContents`). Optional, so a book without a list encodes
+    /// exactly as it did before these existed — see `audioPlayMode` on why that matters.
+    var totalChapterNum: Int?
+    var latestChapterTitle: String?
     var coverUrl: String?
 
     /// True when a table-of-contents refresh discovered chapters newer than the
@@ -314,7 +350,12 @@ struct ReadingBook: Identifiable, Codable {
         bookInfoURL = try? c.decode(String.self, forKey: .bookInfoURL)
         tocURL = try? c.decode(String.self, forKey: .tocURL)
         runtimeVariables = try? c.decode([String: String].self, forKey: .runtimeVariables)
-        onlineChapters = try? c.decode([OnlineChapterRef].self, forKey: .onlineChapters)
+        // Builds before `BookChapterStore`, and a shelf an older build wrote after this
+        // one, keep the list inside the record. `BookStore` moves it into the store on load.
+        onlineChapters = try? decoder.container(keyedBy: InlineChapterListKey.self)
+            .decode([OnlineChapterRef].self, forKey: .onlineChapters)
+        totalChapterNum = try? c.decode(Int.self, forKey: .totalChapterNum)
+        latestChapterTitle = try? c.decode(String.self, forKey: .latestChapterTitle)
         coverUrl = try? c.decode(String.self, forKey: .coverUrl)
         hasNewChapterUpdate = (try? c.decode(Bool.self, forKey: .hasNewChapterUpdate)) ?? false
         bookmarks = (try? c.decode([Bookmark].self, forKey: .bookmarks)) ?? []
@@ -344,7 +385,8 @@ struct ReadingBook: Identifiable, Codable {
 
     enum CodingKeys: String, CodingKey {
         case id, title, author, source, contentFilename, contentPipelineKind, currentPosition, addedDate
-        case isOnline, bookSourceId, bookInfoURL, tocURL, runtimeVariables, onlineChapters, coverUrl, hasNewChapterUpdate, bookmarks
+        case isOnline, bookSourceId, bookInfoURL, tocURL, runtimeVariables, coverUrl, hasNewChapterUpdate, bookmarks
+        case totalChapterNum, latestChapterTitle
         case coverImagePath, customCoverUrl, originalCoverImagePath
         case rendererPreference, compatibilityState
         case offlineDownloadState, downloadedChapterCount, offlineDownloadTask, group, lastOpenedDate
@@ -352,6 +394,11 @@ struct ReadingBook: Identifiable, Codable {
         case mangaChapterIndex, mangaPage
         case audioChapterIndex, audioTimeSeconds
         case audioPlayMode, audioOpenCreditsSeconds, audioCloseCreditsSeconds
+    }
+
+    /// Read only: where builds before `BookChapterStore` kept the table of contents.
+    private enum InlineChapterListKey: String, CodingKey {
+        case onlineChapters
     }
 
     private static func inferPipelineKind(

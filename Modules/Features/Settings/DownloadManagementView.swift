@@ -281,7 +281,7 @@ struct DownloadManagementView: View {
     }
 
     private func chapterTotal(for book: ReadingBook) -> Int {
-        max(book.onlineChapters?.count ?? 0, 0)
+        max(book.totalChapterNum ?? 0, 0)
     }
 
     private func isRetryState(for book: ReadingBook) -> Bool {

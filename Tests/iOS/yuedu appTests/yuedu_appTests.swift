@@ -2072,7 +2072,7 @@ struct yuedu_appTests {
 
         var intermediate: ReadingBook?
         for _ in 0..<100 {
-            if let current = store.books.first(where: { $0.id == stale.id }),
+            if let current = store.readingBook(id: stale.id),
                current.onlineChapters?.count == firstPage.count {
                 intermediate = current
                 break

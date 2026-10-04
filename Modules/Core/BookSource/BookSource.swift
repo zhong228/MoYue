@@ -711,7 +711,7 @@ enum OnlineBookValidationSelector {
 
 // MARK: - Online Chapter Reference
 
-struct OnlineChapterRef: Identifiable, Codable {
+struct OnlineChapterRef: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     var index: Int
     var title: String

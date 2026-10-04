@@ -503,7 +503,8 @@ struct ShuqiReaderLiveRegressionTests {
         )
         store.replaceBooksFromSync(store.books)
         let persistedBytes = try Data(contentsOf: metadataURL).count
-        let persisted = try #require(BookStore(metadataFileURL: metadataURL).books.first)
+        let reopened = BookStore(metadataFileURL: metadataURL)
+        let persisted = try #require(reopened.books.first.flatMap { reopened.readingBook(id: $0.id) })
         print("[ShuqiDiscoverDetail] persistedBookStoreBytes=\(persistedBytes)")
         #expect(persisted.onlineChapters?.count == toc.chapters.count)
         #expect(persisted.runtimeVariables == toc.runtimeVariables)
