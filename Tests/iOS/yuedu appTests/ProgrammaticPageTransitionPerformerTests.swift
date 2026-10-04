@@ -194,6 +194,9 @@ struct ProgrammaticPageTransitionPerformerTests {
         #expect(container.viewControllers?.first === target)
         #expect(container.viewControllers?.last === back)
         #expect(container.animatedCalls == 1)
+        // Re-entering setViewControllers from UIKit's completion corrupts its
+        // scroll transaction (App Store willManuallyScroll +728/+748).
+        #expect(container.nonAnimatedCalls == 0)
         #expect(settledViewController === target)
     }
 

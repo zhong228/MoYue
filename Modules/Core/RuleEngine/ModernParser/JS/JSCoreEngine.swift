@@ -17,9 +17,6 @@ class JSCoreEngine {
     private var context: JSContext
     private let bridge: LegadoJSBridge
     private let cookieBridge = LegadoCookieBridge()
-    /// SwiftSoup backing for the `org.jsoup.*` polyfill.
-    private let jsoupBridge = LegadoJsoupBridge()
-
     /// Bridge for `source.*` — replaces the plain dictionary with a full Legado-compatible object.
     private(set) var sourceBridge: LegadoSourceBridge
     /// Bridge for `cache.*` — persistent + memory key-value store.
@@ -29,7 +26,7 @@ class JSCoreEngine {
     /// Bridge for Legado's mutable `chapter` object.
     private(set) var chapterBridge: LegadoChapterBridge
 
-    // Serial queue owns the JSContext — all evaluations run on this thread.
+    // Serial queue owns the JSContext — all evaluations run on this queue.
     // Using a dedicated queue instead of NSLock eliminates the deadlock that
     // NSLock causes when JS calls java.ajax() (semaphore) while the lock is held.
     private var jsQueue = DispatchQueue(label: "com.yuedu.jsengine.serial", qos: .userInitiated)
@@ -890,7 +887,9 @@ class JSCoreEngine {
         ctx.setObject(cookieBridge, forKeyedSubscript: "cookie" as NSString)
 
         // SwiftSoup backing for the `org.jsoup.*` polyfill installed below.
-        ctx.setObject(jsoupBridge, forKeyedSubscript: "__yueduJsoup" as NSString)
+        // The context retains its own DOM bridge/cache. A timeout can leave the old
+        // context running, so a replacement context must not share mutable SwiftSoup nodes.
+        ctx.setObject(LegadoJsoupBridge(), forKeyedSubscript: "__yueduJsoup" as NSString)
 
         // Inject `source` as a full bridge object (Legado-compatible)
         injectSourceObject(into: ctx)
@@ -1202,7 +1201,7 @@ class JSCoreEngine {
                 // lifetime, so a selected element stays valid for as long as JS holds it —
                 // serialising back to a string between calls would mangle fragments the HTML
                 // parser is context-sensitive about (`<body>`, `<td>`, `<li>`, …).
-                // Mutating methods stay no-ops: the document is shared via JsoupDocumentCache.
+                // Mutating methods stay no-ops: wrappers in this context reuse parsed documents.
                 function Element(node, baseUrl) { this._n = node || null; this._baseUrl = baseUrl || ''; }
                 function wrap(list, baseUrl) {
                     var out = [];

@@ -1615,6 +1615,9 @@ class BookStore: ObservableObject, BookProvider {
         saveMeta()
     }
 
+    // Called from OfflineDownloadManager's actor. Both publications and the cache-clear
+    // notification can synchronously rebuild a mounted reader, including UIKit constraints.
+    @MainActor
     func clearOnlineDownload(
         bookId: UUID,
         offlineChapterStore: any OfflineChapterStoring = OfflineChapterStore()

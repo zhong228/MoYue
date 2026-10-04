@@ -1,9 +1,46 @@
+import Combine
 import Foundation
+import os
 import Testing
 @testable import yuedu_app
 
 @Suite("Offline download manager", .serialized)
 struct OfflineDownloadManagerTests {
+    @Test("removing a download publishes reader updates on the main actor")
+    @MainActor
+    func removalPublishesOnMainActor() async throws {
+        let fixture = makeFixture(chapters: 2)
+        defer { fixture.cleanup() }
+        let bookID = fixture.book.id
+        let publications = OSAllocatedUnfairLock(initialState: [Bool]())
+        let notifications = OSAllocatedUnfairLock(initialState: [Bool]())
+        let subscription = fixture.store.objectWillChange.sink {
+            publications.withLock { $0.append(Thread.isMainThread) }
+        }
+        let observer = NotificationCenter.default.addObserver(
+            forName: .onlineChapterCacheDidClear, object: nil, queue: nil
+        ) { notification in
+            if notification.userInfo?["bookId"] as? UUID == bookID {
+                notifications.withLock { $0.append(Thread.isMainThread) }
+            }
+        }
+        defer {
+            subscription.cancel()
+            NotificationCenter.default.removeObserver(observer)
+        }
+
+        // Enter through the download actor, as ReaderDownloadOptionsView does.
+        // Calling BookStore directly from this main-actor test would hide the bug.
+        try await fixture.manager.remove(bookId: bookID, store: fixture.store)
+
+        let publicationThreads = publications.withLock { $0 }
+        #expect(!publicationThreads.isEmpty)
+        #expect(publicationThreads.allSatisfy { $0 })
+        #expect(notifications.withLock { $0 } == [true])
+        #expect(fixture.store.books.first?.offlineDownloadState == BookOfflineDownloadState.none)
+        #expect(fixture.store.books.first?.offlineDownloadTask == nil)
+    }
+
     @Test("one failure does not block the next chapter")
     @MainActor
     func failureContinues() async throws {

@@ -1,7 +1,7 @@
 import Foundation
 import SwiftSoup
 
-/// Exact-match cache for parsed SwiftSoup documents, **confined to one thread**.
+/// Exact-match cache for parsed SwiftSoup documents, confined to one serial owner.
 ///
 /// The rule engine hands every extraction the raw HTML STRING, and each
 /// extractor called `SwiftSoup.parse` again — so a book-info parse with ten
@@ -32,10 +32,11 @@ import SwiftSoup
 /// `Attributes.updateLowercasedKeysCache` and `Element.storeSelectorResult`, with
 /// a double `doDecrementSlow` above them — concurrent release of one object.
 ///
-/// Thread confinement keeps every bit of the reuse this cache was built for — a
-/// parse chain is synchronous, so a rule set's field extractions all run on the
-/// thread that parsed the page — while making cross-thread sharing structurally
-/// impossible rather than merely unlikely.
+/// `current` is only for synchronous extractors: a rule set's field extractions
+/// finish on the thread that parsed the page. A JS wrapper can retain its Document
+/// after an evaluation returns, and a serial DispatchQueue can move between OS
+/// threads. Each JSContext therefore owns a separate instance through its
+/// LegadoJsoupBridge; it must never borrow a document from `current`.
 ///
 /// Capacity is 1 because the access pattern is consecutive: N field rules against
 /// the page currently being parsed. Holding more would multiply peak memory by the
@@ -65,7 +66,8 @@ final class JsoupDocumentCache {
     private var entry: Entry?
     private let minimumCacheableLength = 4096
 
-    private init() {}
+    /// Keep this instance and all documents it returns within the same serial owner.
+    init() {}
 
     /// Parse-or-reuse. `content` must already be in its final parse form
     /// (callers that truncate for SwiftSoup pass the truncated string).

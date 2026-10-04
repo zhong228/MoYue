@@ -8,8 +8,8 @@ import SwiftSoup
 /// this object, and it holds the owning `Document` (SwiftSoup's `parentNode` is weak, so the
 /// tree would otherwise be freed while JS still points into it).
 ///
-/// Read-only by design — documents come from the shared `JsoupDocumentCache`, so mutating one
-/// here would corrupt every other reader of the same markup.
+/// Read-only by design — one JSContext reuses its parsed documents, so mutating one
+/// here would change other wrappers that source JS still holds for the same markup.
 @objc protocol LegadoJsoupElementExport: JSExport {
     func select(_ query: String) -> [LegadoJsoupElement]
     func children() -> [LegadoJsoupElement]
@@ -94,6 +94,9 @@ import SwiftSoup
 // MARK: - Bridge
 
 @objc final class LegadoJsoupBridge: NSObject, LegadoJsoupBridgeExport {
+    /// Owned by one JSContext and accessed on that context's serial queue. Its nodes
+    /// may outlive an evaluation, so a thread-local extractor cache is not an owner.
+    private let documentCache = JsoupDocumentCache()
 
     /// `org.jsoup.Jsoup.parse(html[, baseUri])` — returns the document node.
     /// Never returns null: a parse failure yields an empty document so source JS fails on
@@ -102,13 +105,10 @@ import SwiftSoup
         let base = (baseUri.isUndefined || baseUri.isNull) ? "" : (baseUri.toString() ?? "")
         let document: Document
         do {
-            // Per-thread cache (see `JsoupDocumentCache`): source JS that parses the same
-            // response twice on the JS queue reuses one DOM, but the rule engine's
-            // extractors — running on a different thread — get their own. That separation
-            // is deliberate and load-bearing: SwiftSoup writes node state during reads, and
-            // this bridge racing an extractor over one shared Document is what crashed in
-            // `Attributes.getIgnoreCaseSlice`.
-            document = try JsoupDocumentCache.current.document(for: html, baseURL: base)
+            // SwiftSoup also writes indexes during reads. A retained JS wrapper must not
+            // share those indexes with an extractor or another context, even when their
+            // queues happen to execute on the same thread during the initial parse.
+            document = try documentCache.document(for: html, baseURL: base)
         } catch {
             AppLogger.parse("jsoup bridge parse failed", context: ["error": "\(error)"])
             document = Document(base)
