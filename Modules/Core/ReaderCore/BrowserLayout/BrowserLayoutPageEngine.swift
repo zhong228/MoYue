@@ -1321,6 +1321,18 @@ final class BrowserLayoutPageEngine: PageRenderingProvider, LinkNavigationProvid
         }
     }
 
+    /// Browser chapters draw from display lists and are left as they are; the
+    /// CoreText chapters this engine hands to `delegate` prefetch there.
+    func prefetchPageImages(around globalPage: Int) {
+        let (spine, local) = localPosition(for: globalPage)
+        switch choices[spine] ?? .browser {
+        case .browser:
+            return
+        case .legacyFallback, .legacyEngineFailure:
+            delegate.prefetchPageImages(around: delegatePageIndex(for: spine, localPage: local))
+        }
+    }
+
     // MARK: - PageViewControllerVending
 
     func pageViewController(at index: Int) -> UIViewController {

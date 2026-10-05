@@ -1,6 +1,7 @@
 import CoreText
 import CoreGraphics
 import CryptoKit
+import os
 import UIKit
 import ReadiumShared
 import YueduCoreText
@@ -245,6 +246,19 @@ final class CoreTextFontRegistrationService: FontRegistrationServicing {
 
 }
 
+/// A page as `CoreTextPageView.renderPage` painted it, with the bars it was painted
+/// with: a live page uses the bitmap only when it is exactly what the page would
+/// draw itself (see `prerenderedLivePage`).
+final class ReaderRenderedPage {
+    let image: UIImage
+    let bars: ReaderPageBars?
+
+    init(image: UIImage, bars: ReaderPageBars?) {
+        self.image = image
+        self.bars = bars
+    }
+}
+
 @MainActor
 final class CoreTextPageEngine: PageRenderingProvider, LinkNavigationProviding, PageBarsProviding {
 
@@ -260,8 +274,8 @@ final class CoreTextPageEngine: PageRenderingProvider, LinkNavigationProviding, 
     // the same bounded set of chapters as LayoutCache; image storage retains the
     // existing device-tiered NSCache limits.
     private var snapshotLayoutRevisions: [Int: UUID] = [:]
-    private let chapterSnapshots: NSCache<NSString, UIImage> = {
-        let cache = NSCache<NSString, UIImage>()
+    private let chapterSnapshots: NSCache<NSString, ReaderRenderedPage> = {
+        let cache = NSCache<NSString, ReaderRenderedPage>()
         let physicalMemory = ProcessInfo.processInfo.physicalMemory
         // Device-tiered snapshot budget. The old floor of 64MB was too high for
         // low-memory devices (<4GB): a 3x screen snapshot is ~10-12MB, so 64MB
@@ -1341,6 +1355,7 @@ _layouts.removeAll()
     }
 
     func warmUpNext(currentGlobalPage: Int) {
+        prefetchPageImages(around: currentGlobalPage)
         let (spineIndex, localPage) = localPosition(for: currentGlobalPage)
 
         guard let layout = _layouts[spineIndex] else {
@@ -1418,30 +1433,111 @@ _layouts.removeAll()
         if let cached = chapterSnapshots.object(forKey: key) {
             traceOutcome = "cached"
             AppLogger.render("[FlipTrace] renderSnapshot HIT cached page=\(globalPage) spine=\(spineIndex) local=\(localPage)")
-            return cached
+            return cached.image
         }
         AppLogger.render("[FlipTrace] renderSnapshot render page=\(globalPage) spine=\(spineIndex) local=\(localPage)")
-        
-        let bgColor: UIColor
-        if layout.attributedString.length > 0,
-           let color = layout.attributedString.attribute(
-               .backgroundColor, at: 0, effectiveRange: nil
-           ) as? UIColor {
-            bgColor = color
-        } else {
-            bgColor = .systemBackground
-        }
 
         traceOutcome = "rendered"
+        let bars = pageBars(forGlobalPage: globalPage)
         let image = Self.renderImage(
             layout: layout,
             pageIndex: localPage,
             size: renderSize,
-            bgColor: bgColor.cgColor,
-            bars: pageBars(forGlobalPage: globalPage)
+            bgColor: Self.snapshotBackgroundColor(of: layout).cgColor,
+            bars: bars
         )
-        storeSnapshotIfCurrent(image, key: key, spineIndex: spineIndex, localPage: localPage)
+        storeSnapshotIfCurrent(image, key: key, spineIndex: spineIndex, localPage: localPage, bars: bars)
         return image
+    }
+
+    /// Renders the pages either side of `globalPage`, and that page itself, off the
+    /// main thread into the snapshot cache, so the next turn finds them drawn.
+    ///
+    /// A page drawn on the main thread costs 10–55ms (CoreText line building, first
+    /// rasterisation of the page's glyphs, full-page fills). A device trace on
+    /// 2026-10-05 caught that draw landing at the start of a turn every time: one
+    /// dropped frame at the start of every slide swipe, a 50–84ms stall between
+    /// pages in every tapped burst, and a 20ms curl back-page render inside the
+    /// running curl. Rendered here ahead of time, the live page shows the bitmap
+    /// (`CoreTextPageView.display(_:)`) and the curl back page is a cache hit.
+    ///
+    /// Same renderer, key and budget as every other snapshot: nothing here is a
+    /// second cache. Which page, the one ahead or behind, is the reader's next is
+    /// unknown, so both are rendered; the page itself is the back of a forward curl.
+    func prefetchPageImages(around globalPage: Int) {
+        for page in [globalPage + 1, globalPage, globalPage - 1] {
+            prefetchPageImage(forPage: page)
+        }
+    }
+
+    private func prefetchPageImage(forPage globalPage: Int) {
+        guard globalPage >= 0, globalPage < totalPages,
+              renderSize.width > 0, renderSize.height > 0 else { return }
+        let (spineIndex, localPage) = localPosition(for: globalPage)
+        guard let layout = _layouts[spineIndex], localPage < layout.pageRanges.count,
+              let key = snapshotKey(spineIndex: spineIndex, localPage: localPage),
+              chapterSnapshots.object(forKey: key) == nil,
+              pageImagePrefetches[key] == nil else { return }
+        let size = renderSize
+        let bgColor = Self.snapshotBackgroundColor(of: layout).cgColor
+        let signpostID = Self.prefetchSignposter.makeSignpostID()
+        let interval = Self.prefetchSignposter.beginInterval("PagePrefetch", id: signpostID, "page=\(globalPage)")
+        // A main-actor task: it starts after the caller's runloop turn, so building
+        // the bars (~1.5ms a page) never delays the frame a turn is committing. A
+        // layout replaced meanwhile fails `storeSnapshotIfCurrent`'s key check.
+        pageImagePrefetches[key] = Task {
+            let bars = self.pageBars(forGlobalPage: globalPage)
+            let image = await Task.detached(priority: .userInitiated) {
+                Self.renderImage(layout: layout, pageIndex: localPage, size: size, bgColor: bgColor, bars: bars)
+            }.value
+            self.pageImagePrefetches[key] = nil
+            let stored = self.storeSnapshotIfCurrent(
+                image, key: key, spineIndex: spineIndex, localPage: localPage, bars: bars
+            )
+            Self.prefetchSignposter.endInterval("PagePrefetch", interval, "stored=\(stored ? 1 : 0)")
+        }
+    }
+
+    /// Waits for every prefetch already started. For tests: nothing in the reader
+    /// waits on a prefetch — a page that is not ready yet is simply drawn.
+    func finishPageImagePrefetches() async {
+        for task in Array(pageImagePrefetches.values) {
+            await task.value
+        }
+    }
+
+    /// Prefetches in flight, so a page requested twice before its render lands is
+    /// rendered once.
+    private var pageImagePrefetches: [NSString: Task<Void, Never>] = [:]
+    private static let prefetchSignposter = OSSignposter(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.zhangruilin.yuedureader",
+        category: "ReaderPerformance"
+    )
+
+    /// The cached bitmap of exactly what a live page would draw itself, if there is one.
+    ///
+    /// A live page draws its bars without the bookmark ribbon — the ribbon there is
+    /// its own animated view — while a snapshot draws it in, so a bookmarked page's
+    /// snapshot is not the live page's picture and is not offered as one.
+    private func prerenderedLivePage(
+        spineIndex: Int,
+        localPage: Int,
+        liveBars: ReaderPageBars?
+    ) -> UIImage? {
+        guard let key = snapshotKey(spineIndex: spineIndex, localPage: localPage),
+              let page = chapterSnapshots.object(forKey: key),
+              page.bars == liveBars else { return nil }
+        return page.image
+    }
+
+    private static func snapshotBackgroundColor(of layout: CoreTextPaginator.ChapterLayout) -> UIColor {
+        if layout.attributedString.length > 0,
+           let color = layout.attributedString.attribute(
+               .backgroundColor, at: 0, effectiveRange: nil
+           ) as? UIColor {
+            return color
+        }
+        return .systemBackground
     }
 
     private func invalidateSnapshots() {
@@ -1483,10 +1579,21 @@ _layouts.removeAll()
     /// through this check. An old background result must not repopulate the cache
     /// after a refetch, partial-to-full layout install, resize, or appearance change.
     @discardableResult
-    func storeSnapshotIfCurrent(_ image: UIImage, key: NSString, spineIndex: Int, localPage: Int) -> Bool {
+    /// - Parameter bars: the bars `image` was drawn with.
+    func storeSnapshotIfCurrent(
+        _ image: UIImage,
+        key: NSString,
+        spineIndex: Int,
+        localPage: Int,
+        bars: ReaderPageBars? = nil
+    ) -> Bool {
         guard snapshotKey(spineIndex: spineIndex, localPage: localPage) == key else { return false }
         if chapterSnapshots.object(forKey: key) == nil {
-            chapterSnapshots.setObject(image, forKey: key, cost: Self.imageCost(image))
+            chapterSnapshots.setObject(
+                ReaderRenderedPage(image: image, bars: bars),
+                forKey: key,
+                cost: Self.imageCost(image)
+            )
         }
         return true
     }
@@ -1501,18 +1608,8 @@ _layouts.removeAll()
               renderSize.width > 0, renderSize.height > 0 else { return }
         
         let size = renderSize
-        let bgColor: UIColor
-        if layout.attributedString.length > 0,
-           let color = layout.attributedString.attribute(
-               .backgroundColor, at: 0, effectiveRange: nil
-           ) as? UIColor {
-            bgColor = color
-        } else {
-            bgColor = .systemBackground
-        }
-        
         // Convert UIColor to CGColor for passing in non-isolated context
-        let bgCGColor = bgColor.cgColor
+        let bgCGColor = Self.snapshotBackgroundColor(of: layout).cgColor
         
         // Boundary pre-rendering uses the same key and budget as on-demand pages.
         guard let firstKey = snapshotKey(spineIndex: spineIndex, localPage: 0) else { return }
@@ -1522,7 +1619,7 @@ _layouts.removeAll()
                 let img = await Task.detached(priority: .userInitiated) {
                     Self.renderImage(layout: layout, pageIndex: 0, size: size, bgColor: bgCGColor, bars: firstBars)
                 }.value
-                self.storeSnapshotIfCurrent(img, key: firstKey, spineIndex: spineIndex, localPage: 0)
+                self.storeSnapshotIfCurrent(img, key: firstKey, spineIndex: spineIndex, localPage: 0, bars: firstBars)
             }
         }
 
@@ -1534,7 +1631,7 @@ _layouts.removeAll()
                     let img = await Task.detached(priority: .userInitiated) {
                         Self.renderImage(layout: layout, pageIndex: lastIdx, size: size, bgColor: bgCGColor, bars: lastBars)
                     }.value
-                    self.storeSnapshotIfCurrent(img, key: lastKey, spineIndex: spineIndex, localPage: lastIdx)
+                    self.storeSnapshotIfCurrent(img, key: lastKey, spineIndex: spineIndex, localPage: lastIdx, bars: lastBars)
                 }
             }
         }
@@ -1659,14 +1756,20 @@ _layouts.removeAll()
                 (self.onLinkNavigate ?? self.onNavigateToPage)?(targetPage)
             }
         }
-        vc.pageBars = pageBars(forGlobalPage: globalPage)
+        let bars = pageBars(forGlobalPage: globalPage)
+        vc.pageBars = bars
         let readingPosition = layout.readingPosition(atDisplay: Int(layout.pageRanges[localPage].location))
         vc.configure(
             layout: layout,
             localPage: localPage,
             globalPage: globalPage,
             readingPosition: readingPosition,
-            fallbackBackgroundColor: themeBackgroundColor
+            fallbackBackgroundColor: themeBackgroundColor,
+            prerenderedPage: prerenderedLivePage(
+                spineIndex: spineIndex,
+                localPage: localPage,
+                liveBars: bars?.removingBookmarkRibbon()
+            )
         )
         vc.setTextAnnotations(textAnnotations.filter { $0.spineIndex == spineIndex })
         return vc

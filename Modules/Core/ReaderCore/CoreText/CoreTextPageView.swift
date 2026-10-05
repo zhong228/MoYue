@@ -1,5 +1,6 @@
 import AVKit
 import CoreText
+import os
 import SwiftUI
 import UIKit
 import YueduCoreText
@@ -7,7 +8,9 @@ import YueduCoreTextTypography
 import Accessibility
 
 /// Single-page CoreText rendering view.
-/// Draws line-by-line using draw(_ rect:) (supporting CJK justified alignment), without snapshot caching or layer caching.
+/// `draw(_:)` paints the page line by line (supporting CJK justified alignment);
+/// `display(_:)` puts it on screen, from a bitmap drawn ahead of time when the
+/// engine has one, otherwise by running `draw(_:)` there and then.
 final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInteractionDelegate,
     AXCustomContentProvider {
 
@@ -60,6 +63,15 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
 
     private var layout: CoreTextPaginator.ChapterLayout?
     private var localPageIndex: Int = 0
+    /// Exactly what `draw(_:)` would paint for the configured page and bars, drawn
+    /// off the main thread before this page was needed
+    /// (`CoreTextPageEngine.prefetchPageImages`). Dropped the moment the page or
+    /// its bars change.
+    private var prerenderedPage: UIImage?
+    private static let displaySignposter = OSSignposter(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.zhangruilin.yuedureader",
+        category: "ReaderPerformance"
+    )
     private let interactor = TextSelectionInteractor()
     private let playbackOverlay = InteractionOverlayView()
     private let interactionOverlay = InteractionOverlayView()
@@ -150,7 +162,14 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
     }
 
     /// Sets the chapter layout and page index to render, automatically triggering a redraw.
-    func configure(layout: CoreTextPaginator.ChapterLayout, pageIndex: Int, fallbackBackgroundColor: UIColor = .systemBackground) {
+    /// - Parameter prerenderedPage: this very page, already drawn with the bars this
+    ///   view has, at its size; used instead of drawing it again.
+    func configure(
+        layout: CoreTextPaginator.ChapterLayout,
+        pageIndex: Int,
+        fallbackBackgroundColor: UIColor = .systemBackground,
+        prerenderedPage: UIImage? = nil
+    ) {
         // The single point where content is bound to a view, so the single place that can
         // say what this page is *about* to draw. A position guard being green does not
         // mean the right text is on screen: the view holds a **copy** of the layout, so a
@@ -171,6 +190,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
         pendingAISelection = nil
         self.layout = layout
         self.localPageIndex = pageIndex
+        self.prerenderedPage = prerenderedPage
         if !sourceAnnotations.isEmpty {
             textAnnotations = sourceAnnotations.values.flatMap { $0.displayed(in: layout) }
         }
@@ -528,6 +548,7 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
             // The ribbon is a view on the live page, so a bookmark coming or going
             // costs no redraw of the text.
             guard pageBars?.removingBookmarkRibbon() != oldValue?.removingBookmarkRibbon() else { return }
+            prerenderedPage = nil
             setNeedsDisplay()
             refreshBarAccessibilityContent()
         }
@@ -546,6 +567,47 @@ final class CoreTextPageView: UIView, UIGestureRecognizerDelegate, UIEditMenuInt
 
     func endInteractiveBookmarkRibbon(isBookmarked: Bool) {
         bookmarkRibbonView.endInteractive(isBookmarked: isBookmarked)
+    }
+
+    /// Puts the page on screen as the layer's contents.
+    ///
+    /// When the engine drew this page ahead of time, the bitmap goes straight in and
+    /// nothing is drawn here: a turn's first frame no longer waits on 10–55ms of
+    /// CoreText work on the main thread. Otherwise `draw(_:)` paints it now, as it
+    /// always did. An offscreen `layer.render(in:)` composites only what this has
+    /// already put in the layer, so render a page that was never on screen after
+    /// `layer.displayIfNeeded()`.
+    ///
+    /// `override` only because Swift mirrors `CALayerDelegate` onto `UIView`; UIKit
+    /// does not implement `displayLayer:`, so there is no `super` to call.
+    override func display(_ layer: CALayer) {
+        let size = bounds.size
+        guard let layout, localPageIndex < layout.pageRanges.count,
+              size.width > 0, size.height > 0 else {
+            layer.contents = nil
+            return
+        }
+        let scale = contentScaleFactor
+        let image: UIImage
+        let signpostID = Self.displaySignposter.makeSignpostID()
+        if let prerenderedPage, prerenderedPage.size == size, prerenderedPage.scale == scale {
+            Self.displaySignposter.emitEvent("PageDisplay", id: signpostID, "source=prerendered")
+            image = prerenderedPage
+        } else {
+            let interval = Self.displaySignposter.beginInterval(
+                "PageDisplay", id: signpostID,
+                "source=drawn prerendered=\(self.prerenderedPage == nil ? 0 : 1) size=\(Int(size.width))x\(Int(size.height))"
+            )
+            let format = UIGraphicsImageRendererFormat.preferred()
+            format.scale = scale
+            image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                draw(CGRect(origin: .zero, size: size))
+            }
+            Self.displaySignposter.endInterval("PageDisplay", interval)
+        }
+        UIView.performWithoutAnimation {
+            layer.contents = image.cgImage
+        }
     }
 
     override func draw(_ rect: CGRect) {
@@ -2316,6 +2378,7 @@ final class CoreTextPageViewController: UIViewController, ReaderBookmarkRibbonHo
 
     private var pendingLayout: CoreTextPaginator.ChapterLayout?
     private var pendingLocalPage: Int = 0
+    private var pendingPrerenderedPage: UIImage?
     private var pendingFallbackColor: UIColor = .systemBackground
     private var pendingPlaybackHighlight: ReaderPlaybackHighlight?
     private var pendingTextAnnotations: [CoreTextTextAnnotation] = []
@@ -2332,7 +2395,8 @@ final class CoreTextPageViewController: UIViewController, ReaderBookmarkRibbonHo
         localPage: Int,
         globalPage: Int,
         readingPosition: CoreTextReadingPosition? = nil,
-        fallbackBackgroundColor: UIColor = .systemBackground
+        fallbackBackgroundColor: UIColor = .systemBackground,
+        prerenderedPage: UIImage? = nil
     ) {
         self.globalPageIndex = globalPage
         self.coreTextReadingPosition = readingPosition
@@ -2345,13 +2409,19 @@ final class CoreTextPageViewController: UIViewController, ReaderBookmarkRibbonHo
             pageView.accessibilityUsesRTLPageOrder = accessibilityUsesRTLPageOrder
             pageView.pageBars = pageBars
             installImageTapHandler()
-            pageView.configure(layout: layout, pageIndex: localPage, fallbackBackgroundColor: fallbackBackgroundColor)
+            pageView.configure(
+                layout: layout,
+                pageIndex: localPage,
+                fallbackBackgroundColor: fallbackBackgroundColor,
+                prerenderedPage: prerenderedPage
+            )
             pageView.setTextAnnotations(pendingTextAnnotations)
             pageView.setPlaybackHighlight(pendingPlaybackHighlight)
             syncInlineVideos()
         } else {
             pendingLayout = layout
             pendingLocalPage = localPage
+            pendingPrerenderedPage = prerenderedPage
         }
     }
 
@@ -2392,10 +2462,16 @@ final class CoreTextPageViewController: UIViewController, ReaderBookmarkRibbonHo
         pageView.pageBars = pageBars
         view.addSubview(pageView)
         if let layout = pendingLayout {
-            pageView.configure(layout: layout, pageIndex: pendingLocalPage, fallbackBackgroundColor: pendingFallbackColor)
+            pageView.configure(
+                layout: layout,
+                pageIndex: pendingLocalPage,
+                fallbackBackgroundColor: pendingFallbackColor,
+                prerenderedPage: pendingPrerenderedPage
+            )
             pageView.setTextAnnotations(pendingTextAnnotations)
             pageView.setPlaybackHighlight(pendingPlaybackHighlight)
             pendingLayout = nil
+            pendingPrerenderedPage = nil
             syncInlineVideos()
         }
     }

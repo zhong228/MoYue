@@ -2899,6 +2899,8 @@ struct yuedu_appTests {
             let view = CoreTextPageView(frame: CGRect(origin: .zero, size: layout.renderSize))
             view.configure(layout: layout, pageIndex: 0)
             view.layoutIfNeeded()
+            // What the screen does first: the page puts its pixels in the layer.
+            view.layer.displayIfNeeded()
             return UIGraphicsImageRenderer(size: layout.renderSize).image { context in
                 view.layer.render(in: context.cgContext)
             }
@@ -2979,6 +2981,8 @@ struct yuedu_appTests {
             let view = CoreTextPageView(frame: CGRect(origin: .zero, size: layout.renderSize))
             view.configure(layout: layout, pageIndex: 0)
             view.layoutIfNeeded()
+            // What the screen does first: the page puts its pixels in the layer.
+            view.layer.displayIfNeeded()
             return UIGraphicsImageRenderer(size: layout.renderSize).image { context in
                 view.layer.render(in: context.cgContext)
             }
@@ -3272,6 +3276,8 @@ struct yuedu_appTests {
         let image = await MainActor.run { () -> UIImage in
             let view = CoreTextPageView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
             view.configure(layout: layout, pageIndex: 0)
+            // What the screen does first: the page puts its pixels in the layer.
+            view.layer.displayIfNeeded()
             return UIGraphicsImageRenderer(size: CGSize(width: 390, height: 844)).image { context in
                 view.layer.render(in: context.cgContext)
             }
@@ -3380,6 +3386,8 @@ struct yuedu_appTests {
         let image = await MainActor.run { () -> UIImage in
             let view = CoreTextPageView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
             view.configure(layout: layout, pageIndex: 0)
+            // What the screen does first: the page puts its pixels in the layer.
+            view.layer.displayIfNeeded()
             return UIGraphicsImageRenderer(size: CGSize(width: 390, height: 844)).image { context in
                 view.layer.render(in: context.cgContext)
             }

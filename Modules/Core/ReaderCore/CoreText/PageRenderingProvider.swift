@@ -282,17 +282,22 @@ protocol AnnotationApplying: AnyObject {
     func setTextAnnotations(_ annotations: [CoreTextTextAnnotation])
 }
 
-/// Rasterised pixels of a page, for animation overlays only — the cover
-/// transition's incoming/outgoing image views and the curl back face.
+/// Rasterised pixels of a page, for animation overlays — the cover transition's
+/// incoming/outgoing image views and the curl back face — and, for an engine that
+/// offers it, a live page's own pixels drawn ahead of time.
 /// Deliberately NOT a way to stand in for a page in the data source: a page's
 /// identity is its reading position, and an image cannot carry one.
 @MainActor
 protocol SnapshotRenderable: AnyObject {
     func renderSnapshot(forPage globalPage: Int) -> UIImage?
+    /// Draws the pages around `globalPage` off the main thread before a turn
+    /// needs them. Engines that draw a page cheaply, or not at all, ignore it.
+    func prefetchPageImages(around globalPage: Int)
 }
 
 extension SnapshotRenderable {
     func renderSnapshot(forPage globalPage: Int) -> UIImage? { nil }
+    func prefetchPageImages(around globalPage: Int) {}
 }
 
 /// Engines that draw 頁眉／頁腳 as part of the page.

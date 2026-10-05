@@ -57,6 +57,8 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             }
         } else {
             pvc.dataSource = context.coordinator
+            adapterDescriptor.disableBuiltInTapToTurn(on: pvc)
+            context.coordinator.pageTurnTrace.observeBuiltInGestures(of: pvc)
         }
         pvc.delegate = context.coordinator
 
@@ -151,6 +153,8 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIPageViewController, context: Context) {
+        let updateTrace = context.coordinator.pageTurnTrace.beginUpdatePass()
+        defer { context.coordinator.pageTurnTrace.endUpdatePass(updateTrace) }
         context.coordinator.currentEngine = engine
         context.coordinator.sessionCoordinator = sessionCoordinator
         // Refreshed every pass, ahead of the early returns below: these two read
@@ -284,7 +288,13 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             // has no layout yet (pageIndex(for:) returns nil).
             let resolvedTarget = command.targetPosition.flatMap { engine.pageIndex(for: $0) }
             let target = max(0, min(resolvedTarget ?? command.target, max(engine.totalPages - 1, 0)))
-            guard target != visible.globalPageIndex else { return }
+            guard target != visible.globalPageIndex else {
+                context.coordinator.pageTurnTrace.commandExecuted(
+                    version: command.version, target: target, visible: visible.globalPageIndex,
+                    speed: context.coordinator.activeTurnSpeed, adjacent: false, route: "samePage"
+                )
+                return
+            }
             // Rapid-tap speed-up: register cadence now, before the cover / slide /
             // curl branches read activeTurnSpeed.
             let turnSpeed = context.coordinator.registerTurnSpeed()
@@ -298,8 +308,15 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             }
             let isAdjacent = context.coordinator.isAdjacentDisplayPage(target, to: visible.globalPageIndex)
             let shouldAnimate = command.animated && (pageTurnStyle != .none) && isAdjacent
+            let traceCommand = { (route: StaticString) in
+                context.coordinator.pageTurnTrace.commandExecuted(
+                    version: command.version, target: target, visible: visible.globalPageIndex,
+                    speed: turnSpeed, adjacent: isAdjacent, route: route
+                )
+            }
 
             if pageTurnStyle == .cover {
+                traceCommand("cover")
                 if shouldAnimate {
                     context.coordinator.animateCoverTransition(
                         from: visible.globalPageIndex,
@@ -321,15 +338,24 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 )
                 // Deferred: the queue recorded the latest target; the running
                 // transition's settle chains to it (latest intent wins).
-                guard effects.contains(.requestPageTransition(targetPage: target)) else { return }
+                guard effects.contains(.requestPageTransition(targetPage: target)) else {
+                    traceCommand("queued")
+                    // The turn on screen finishes before this one starts; draw its
+                    // pages meanwhile.
+                    context.coordinator.prefetchPages(around: target)
+                    return
+                }
             } else if context.coordinator.isPageTransitioning {
                 _ = context.coordinator.requestPageTransition(
                     to: target,
                     visiblePage: visible.globalPageIndex
                 )
+                traceCommand("queued")
+                context.coordinator.prefetchPages(around: target)
                 return
             }
 
+            traceCommand(shouldAnimate ? "start" : "instant")
             context.coordinator.performProgrammaticTransition(
                 on: uiViewController,
                 to: target,
@@ -435,6 +461,13 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
         /// for a finger-driven turn, which is never retimed.
         private var turnInFlight: (layer: CALayer, builtInSpeed: Float)?
         private static let slideTransitionKey = "readerSlideTurn"
+        /// Instruments signposts for every turn, tapped or swiped.
+        let pageTurnTrace: ReaderPageTurnTrace
+        /// Held while any turn animates, tapped or swiped.
+        private let turnFrameRate = ReaderTurnFrameRateRequest()
+        /// UIKit pairs `willTransitionTo` with `didFinishAnimating`; this keeps an
+        /// unpaired callback from releasing a hold a tapped turn still owns.
+        private var nativeTurnHoldsFrameRate = false
         /// Where the reader is, and the only thing allowed to say so.
         ///
         /// `private(set)` is the point. Four separate places used to assign this directly
@@ -562,6 +595,7 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             guard let turn = turnInFlight else { return }
             let clockSpeed = activeTurnSpeed / turn.builtInSpeed
             guard clockSpeed > turn.layer.speed else { return }
+            pageTurnTrace.speedUp(to: clockSpeed)
             ReaderTurnLayerClock.setSpeed(clockSpeed, on: turn.layer)
         }
 
@@ -643,6 +677,8 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             layoutNow: Bool = false,
             notifyFallback: Bool = true
         ) -> Int? {
+            let stackWriteTrace = pageTurnTrace.beginStackWrite(targetVC)
+            defer { pageTurnTrace.endStep(stackWriteTrace) }
             applyPlaybackHighlight(to: targetVC)
             pageViewController.setViewControllers(
                 viewControllerStack(startingWith: targetVC),
@@ -652,7 +688,22 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             if layoutNow {
                 pageViewController.view.layoutIfNeeded()
             }
-            return syncStablePosition(afterShowing: targetVC, notifyFallback: notifyFallback)
+            let shownPage = syncStablePosition(afterShowing: targetVC, notifyFallback: notifyFallback)
+            // Opening, a jump or a chapter landing: no turn has settled to warm the
+            // neighbours, so the first swipe would draw its page mid-gesture.
+            if let page = (targetVC as? any PageIndexProviding)?.globalPageIndex {
+                prefetchPages(around: page)
+            }
+            return shownPage
+        }
+
+        /// Draws the pages a turn from `page` will show before the turn asks for them.
+        /// A spread turns two pages at a time, so the next spread is drawn too.
+        fileprivate func prefetchPages(around page: Int) {
+            currentEngine.prefetchPageImages(around: page)
+            if isDoublePageSpread {
+                currentEngine.prefetchPageImages(around: page + pageStride)
+            }
         }
 
         func applyVisibleRefresh(
@@ -691,6 +742,9 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 logicalPageIndex: logicalPageIndex,
                 totalPages: curlNeighbourPageCount
             ) else { return nil }
+            let snapshotTrace = pageTurnTrace.beginCurlBack(page: contentPage)
+            let renderedPageImage = currentEngine.renderSnapshot(forPage: contentPage)
+            pageTurnTrace.endCurlBack(snapshotTrace, hasImage: renderedPageImage != nil)
             return PageBackViewController(
                 virtualIndex: ReaderCurlVirtualIndex.backIndex(
                     forLogicalPage: logicalPageIndex,
@@ -705,7 +759,7 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 // If an unloaded/FXL provider cannot snapshot yet, the controller
                 // keeps the effective theme/custom color as a crash-safe back. Remove
                 // that fallback once every PageRenderingProvider supports snapshots.
-                renderedPageImage: currentEngine.renderSnapshot(forPage: contentPage),
+                renderedPageImage: renderedPageImage,
                 readingPosition: currentEngine.readingPosition(forPage: contentPage)
             )
         }
@@ -751,6 +805,7 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
              onPullDownBookmark: @escaping () -> Void = {}) {
             self.currentEngine = engine
             self.pageTurnStyle = pageTurnStyle
+            self.pageTurnTrace = ReaderPageTurnTrace(pageTurnStyle: pageTurnStyle)
             self.currentTheme = theme
             self.currentPlaybackHighlight = playbackHighlight
             self.isRTL = isRTL
@@ -798,7 +853,9 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                     AppLogger.render(line)
                     NSLog("%@", line)
                     if let spineIndex { self.unresolvedChapters.removeValue(forKey: spineIndex) }
+                    let chapterReadyTrace = self.pageTurnTrace.beginChapterReady(spine: spineIndex)
                     self.handleChapterReady(spineIndex, on: pageViewController)
+                    self.pageTurnTrace.endStep(chapterReadyTrace)
                 }
             }
 
@@ -1153,6 +1210,8 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 }
 
                 let didChange = self.currentPage != page
+                let publishTrace = self.pageTurnTrace.beginPublish(page: page, changed: didChange)
+                defer { self.pageTurnTrace.endStep(publishTrace) }
 
                 if didChange {
                     self.currentPage = page
@@ -1204,7 +1263,9 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             for effect in effects {
                 guard case let .warmUpNext(page) = effect else { continue }
                 Task { @MainActor in
+                    let warmUpTrace = self.pageTurnTrace.beginWarmUp(page: page)
                     self.currentEngine.warmUpNext(currentGlobalPage: page)
+                    self.pageTurnTrace.endStep(warmUpTrace)
                 }
             }
         }
@@ -1239,7 +1300,8 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                         to: targetPage,
                         from: visiblePage,
                         direction: direction,
-                        animated: shouldAnimate
+                        animated: shouldAnimate,
+                        chained: true
                     )
 
                 default:
@@ -1255,6 +1317,9 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             guard let sessionCoordinator else { return }
             let effects = sessionCoordinator.send(.pageTransitionSettled(visiblePage: visiblePage))
             guard !effects.isEmpty else { return }
+            if effects.contains(where: { if case .requestPageTransition = $0 { true } else { false } }) {
+                pageTurnTrace.queueChained(visible: visiblePage)
+            }
             // This runs inside the *completion* of the previous animated setViewControllers.
             // Starting the next animated transition synchronously here makes
             // _UIQueuingScrollView raise NSInternalInconsistencyException — it is still
@@ -1271,22 +1336,31 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             to targetPage: Int,
             from visiblePage: Int,
             direction: UIPageViewController.NavigationDirection,
-            animated: Bool
+            animated: Bool,
+            chained: Bool = false
         ) {
+            let turnTrace = pageTurnTrace.beginTapTurn(
+                from: visiblePage, to: targetPage, speed: activeTurnSpeed,
+                animated: animated, chained: chained
+            )
+            let buildTrace = pageTurnTrace.beginBuild(to: targetPage)
             let targetViewController = displayViewController(at: targetPage)
             applyPlaybackHighlight(to: targetViewController)
+            pageTurnTrace.endStep(buildTrace)
             // Rapid-tap speed-up (curl): UIKit's setViewControllers(animated:) has no
             // duration parameter, so the page-curl animation is scaled via the
             // container layer's timing. Set before the animation is added; reset to
             // 1× on settle so it never leaks into interactive swipes or later lone
             // taps. Chained catch-up turns re-apply activeTurnSpeed on their own call.
+            // The speed is re-based, never assigned: assigning it is what left the curl
+            // drawn every few refreshes — `ReaderTurnLayerClock` has the measurements.
             // UIKit's own slide can't use this — see `runsTimedSlide` below; the push
             // that replaces it carries its speed in its duration, and only a speed-up
             // arriving mid-turn goes through the layer clock (`speedUpTurnInFlight`).
             let scalesNativeTransition = animated && pageTurnStyle == .curl
             if scalesNativeTransition {
                 beginRetimableTurn(on: pageViewController.view.layer, builtInSpeed: 1)
-                pageViewController.view.layer.speed = activeTurnSpeed
+                ReaderTurnLayerClock.setSpeed(activeTurnSpeed, on: pageViewController.view.layer)
             }
             let runsTimedSlide = ReaderSlideTurnAnimation.runsTimedPush(
                 pageTurnStyle: pageTurnStyle,
@@ -1294,16 +1368,20 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             )
             let finishTransition: (UIViewController) -> Void = { shownViewController in
                 self.endRetimableTurn()
-                if let resolvedPage = self.syncStablePosition(afterShowing: shownViewController, notifyFallback: true) {
-                    self.continueQueuedTransitionIfNeeded(on: pageViewController, showing: resolvedPage)
-                } else {
-                    self.continueQueuedTransitionIfNeeded(on: pageViewController, showing: targetPage)
-                }
+                let resolvedPage = self.syncStablePosition(afterShowing: shownViewController, notifyFallback: true)
+                self.continueQueuedTransitionIfNeeded(on: pageViewController, showing: resolvedPage ?? targetPage)
                 self.endAnimatedTransition(on: pageViewController)
+                if animated { self.turnFrameRate.end() }
+                self.pageTurnTrace.endTapTurn(turnTrace, landed: resolvedPage)
             }
             if animated {
                 beginAnimatedTransition()
+                turnFrameRate.begin()
             }
+            // Once the turn has started, draw the pages a following tap would turn
+            // to while this one animates — the render server plays it, not the main
+            // thread.
+            defer { prefetchPages(around: targetPage) }
 
             func runTransition(
                 animated animatedFlag: Bool,
@@ -1342,6 +1420,8 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             // together) with a duration we own, and the page swap itself becomes
             // non-animated, so the stack is free again the moment the push lands and
             // a queued tap follows at once.
+            let startTrace = pageTurnTrace.beginStart(to: targetPage)
+            defer { pageTurnTrace.endStep(startTrace) }
             guard runsTimedSlide else {
                 runTransition(animated: animated, completion: finishTransition)
                 return
@@ -1378,7 +1458,11 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
                 )
                 action = config.action(at: point, in: view.bounds.size)
             }
-            DispatchQueue.main.async { self.onTapZone(action) }
+            pageTurnTrace.tapRecognized(action, at: point, in: view.bounds.size)
+            DispatchQueue.main.async {
+                self.onTapZone(action)
+                self.pageTurnTrace.tapDispatched()
+            }
         }
 
         /// The landing of a 覆蓋 turn, and the initial stack.
@@ -1570,22 +1654,22 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             _ pvc: UIPageViewController,
             viewControllerBefore viewController: UIViewController
         ) -> UIViewController? {
+            let neighbourTrace = pageTurnTrace.beginNeighbour("before")
             // RTL: swipe left-to-right = "before" in physical gesture, but should go to NEXT page.
             // So swap Before↔After for RTL books so the swipe direction matches the reading direction.
-            if isRTL {
-                return pageForward(from: viewController)
-            }
-            return pageBackward(from: viewController)
+            let neighbour = isRTL ? pageForward(from: viewController) : pageBackward(from: viewController)
+            pageTurnTrace.endNeighbour(neighbourTrace, neighbour)
+            return neighbour
         }
 
         func pageViewController(
             _ pvc: UIPageViewController,
             viewControllerAfter viewController: UIViewController
         ) -> UIViewController? {
-            if isRTL {
-                return pageBackward(from: viewController)
-            }
-            return pageForward(from: viewController)
+            let neighbourTrace = pageTurnTrace.beginNeighbour("after")
+            let neighbour = isRTL ? pageBackward(from: viewController) : pageForward(from: viewController)
+            pageTurnTrace.endNeighbour(neighbourTrace, neighbour)
+            return neighbour
         }
 
         private func pageBackward(from viewController: UIViewController) -> UIViewController? {
@@ -1666,6 +1750,15 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             _ pvc: UIPageViewController,
             willTransitionTo pendingViewControllers: [UIViewController]
         ) {
+            pageTurnTrace.beginNativeTurn(
+                on: pvc,
+                from: (pvc.viewControllers?.first as? any PageIndexProviding & UIViewController)?.globalPageIndex,
+                ourAnimationRunning: stackWriteGate.isAnimatingTransition
+            )
+            if !nativeTurnHoldsFrameRate {
+                nativeTurnHoldsFrameRate = true
+                turnFrameRate.begin()
+            }
             stackWriteGate.beginGesture()
             // The reader's swipe, not an animation of ours, puts the menu away.
             if !stackWriteGate.isAnimatingTransition { onUserPageTurnBegan() }
@@ -1705,6 +1798,14 @@ struct CoreTextPageEngineView: UIViewControllerRepresentable {
             previousViewControllers: [UIViewController],
             transitionCompleted completed: Bool
         ) {
+            pageTurnTrace.endNativeTurn(
+                completed: completed,
+                landed: (pvc.viewControllers?.first as? any PageIndexProviding & UIViewController)?.globalPageIndex
+            )
+            if nativeTurnHoldsFrameRate {
+                nativeTurnHoldsFrameRate = false
+                turnFrameRate.end()
+            }
             stackWriteGate.endGesture()
             AppLogger.render("[CurlTrace] didFinish completed=\(completed) visible=\((pvc.viewControllers?.first as? (any PageIndexProviding & UIViewController))?.globalPageIndex ?? -1) binding=\(currentPage)")
 

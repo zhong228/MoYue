@@ -163,6 +163,22 @@ struct PageViewControllerPagingAdapterDescriptor: Equatable {
     func spineLocation(isRTL: Bool) -> UIPageViewController.SpineLocation {
         isRTL && (style == .curl || style == .cover) ? .max : .min
     }
+
+    /// Switches off the tap-to-turn recognizer UIKit gives a page-curl controller.
+    ///
+    /// Every tapped turn here is ours — `Coordinator.handleTap` and the reader's
+    /// own, remappable tap zones — so UIKit's recognizer never turned a page: none
+    /// of 83 taps on a 2026-10-05 device trace. Deciding not to still cost a curl
+    /// back-page render on the main thread for 58 of them (~20ms each), because
+    /// `_gestureRecognizerShouldBegin:` asks the data source for the incoming pages,
+    /// and in a tap burst that render lands inside the running curl.
+    func disableBuiltInTapToTurn(on pageViewController: UIPageViewController) {
+        guard transitionStyle == .pageCurl else { return }
+        for recognizer in pageViewController.gestureRecognizers
+        where recognizer is UITapGestureRecognizer {
+            recognizer.isEnabled = false
+        }
+    }
 }
 
 /// Which animation engine plays a programmatic slide turn, and how.
@@ -177,8 +193,10 @@ struct PageViewControllerPagingAdapterDescriptor: Equatable {
 /// The push reproduces UIKit's own turn — duration and curve below — so a lone
 /// tap still moves exactly like the page a swipe settles. It used to read as a
 /// different, rougher animation because iPhone capped it at 60Hz while UIKit's
-/// scrolling ran at 120Hz; `CADisableMinimumFrameDurationOnPhone` in Info.plist
-/// plus `frameRateRange` lift that cap.
+/// scrolling ran at 120Hz. `CADisableMinimumFrameDurationOnPhone` in Info.plist
+/// plus `frameRateRange` were meant to lift that cap, but a device trace on
+/// 2026-10-05 still measured the push at 60Hz with both in place;
+/// `ReaderTurnFrameRateRequest` asks for the rate while the turn runs.
 enum ReaderSlideTurnAnimation {
     /// UIKit's programmatic `.scroll` turn, sampled frame by frame (2026-09-26,
     /// iOS 27 simulator): 0.30s, progress (1 − cos πt) / 2.

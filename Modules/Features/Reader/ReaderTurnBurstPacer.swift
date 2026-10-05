@@ -56,6 +56,17 @@ struct ReaderTurnBurstPacer {
 /// animation in flight jumps to a different point of its timeline. Re-basing the
 /// clock at the moment of the change keeps every animation exactly where it is
 /// and only changes how fast it goes on from there.
+///
+/// It also decides how often the render server draws a curl added under the
+/// layer, which is why a turn's speed goes through here even when nothing is in
+/// flight yet. Device traces on 2026-10-05 (iPhone 16 Pro Max): with the speed
+/// assigned at the start of a turn, the curl was drawn anywhere from every
+/// refresh to every 8th, varying turn to turn — 120 down to 15fps on a 120Hz
+/// display, 60 down to 20fps before it ran at 120Hz. After a re-based change in
+/// the same turns it was drawn on 511 of 513 refreshes at 120Hz (145 of 145 at
+/// 60Hz). Why is not documented; an assigned speed moves the layer's local time
+/// away from its parent's by (speed − 1) × the device's uptime, a re-based one
+/// does not move it at all.
 enum ReaderTurnLayerClock {
     static func setSpeed(_ speed: Float, on layer: CALayer, at now: CFTimeInterval = CACurrentMediaTime()) {
         let localNow = layer.convertTime(now, from: nil)
