@@ -2262,6 +2262,31 @@ class BookStore: ObservableObject, BookProvider {
         return true
     }
 
+    /// Every book this device holds a record of, on the shelf or only read.
+    var recordIDs: Set<UUID> { Set(records.map(\.id)) }
+
+    /// Books added on devices still on a build from before the iCloud sync split
+    /// (2026-10-05), taken onto the shelf under the id they carry, so a book is one book
+    /// when those devices update. Only ids with no record here: a book this device holds,
+    /// on the shelf or only read, stays as it is.
+    ///
+    /// - Returns: how many were taken.
+    @discardableResult
+    @MainActor
+    func adoptBooksAddedByOlderBuilds(_ books: [ReadingBook]) -> Int {
+        var known = recordIDs
+        let adopted = books.compactMap { book -> ReadingBook? in
+            guard known.insert(book.id).inserted else { return nil }
+            var shelved = book
+            shelved.isInBookshelf = true
+            return shelved
+        }
+        guard !adopted.isEmpty else { return 0 }
+        records = adopted + records
+        saveMeta()
+        return adopted.count
+    }
+
     /// Synchronous callers retain their immediate durability boundary. Live cloud
     /// sync uses snapshot → worker encoding → revision-checked application instead.
     @discardableResult

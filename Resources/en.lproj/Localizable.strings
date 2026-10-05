@@ -763,6 +763,7 @@
 "iCloud 無法使用" = "iCloud is unavailable";
 "iCloud 尚未找到可還原的備份" = "No restorable iCloud backup was found.";
 "iCloud 備份檔案不完整：%@" = "The iCloud backup file is incomplete: %@";
+"iCloud 上的同步資料無法讀取：%@" = "The sync data in iCloud could not be read: %@";
 "iCloud 備份中…" = "Backing up to iCloud…";
 "iCloud 備份成功" = "iCloud backup successful";
 "iCloud 還原成功" = "iCloud restore successful";

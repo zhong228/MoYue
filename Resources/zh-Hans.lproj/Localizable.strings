@@ -764,6 +764,7 @@
 "iCloud 無法使用" = "iCloud 无法使用";
 "iCloud 尚未找到可還原的備份" = "iCloud 尚未找到可还原的备份";
 "iCloud 備份檔案不完整：%@" = "iCloud 备份文件不完整：%@";
+"iCloud 上的同步資料無法讀取：%@" = "iCloud 上的同步数据无法读取：%@";
 "iCloud 備份中…" = "iCloud 备份中…";
 "iCloud 備份成功" = "iCloud 备份成功";
 "iCloud 還原成功" = "iCloud 还原成功";

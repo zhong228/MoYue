@@ -2656,12 +2656,24 @@ class GlobalSettings: ObservableObject {
     /// sync clock: the merged value already carries the winning device's
     /// timestamp, and re-stamping it here would make every device declare itself
     /// newest on the next pass.
-    func applyReaderBarLayoutFromSync(_ layout: ReaderBarLayout, modifiedAt: Date?) {
+    ///
+    /// Recorded in the reading setup, so the next theme sync keeps it, but not noted as a
+    /// setting made here (`isApplyingReadingSettingsSync`). Noted, it was this device's
+    /// newest 頁首頁尾 row (`noteReadingSettingSync`), and every other device took this
+    /// one's header and footer settings with it (2026-10-05).
+    ///
+    /// - Returns: false when the layout could not be stored, and was not applied.
+    @discardableResult
+    func applyReaderBarLayoutFromSync(_ layout: ReaderBarLayout, modifiedAt: Date?) -> Bool {
         guard layout != readerBarLayout || modifiedAt != readerBarLayoutSyncClock else {
-            return
+            return true
         }
-        guard persistReaderBarLayout(layout, stampsSyncClock: false) else { return }
+        let wasApplying = isApplyingReadingSettingsSync
+        isApplyingReadingSettingsSync = true
+        defer { isApplyingReadingSettingsSync = wasApplying }
+        guard persistReaderBarLayout(layout, stampsSyncClock: false) else { return false }
         readerBarLayoutSyncClock = modifiedAt
+        return true
     }
 
     @discardableResult

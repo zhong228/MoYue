@@ -762,6 +762,7 @@
 "iCloud 無法使用" = "iCloud를 사용할 수 없습니다";
 "iCloud 尚未找到可還原的備份" = "복원할 수 있는 iCloud 백업을 찾지 못했습니다";
 "iCloud 備份檔案不完整：%@" = "iCloud 백업 파일이 완전하지 않습니다: %@";
+"iCloud 上的同步資料無法讀取：%@" = "iCloud의 동기화 데이터를 읽을 수 없습니다: %@";
 "iCloud 備份中…" = "iCloud에 백업 중…";
 "iCloud 備份成功" = "iCloud 백업 완료";
 "iCloud 還原成功" = "iCloud 복원 완료";

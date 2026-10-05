@@ -72,6 +72,39 @@ struct ReadingSettingsSyncTests {
         #expect(settings.commentBubbleScale == GlobalSettings.sanitizedCommentBubbleScale(fixture.bubbleScale + 0.1))
     }
 
+    /// Another device's header/footer layout, from its own record, is worn and kept in the
+    /// reading setup but not noted as set here. Noted, the 頁首頁尾 row became this device's
+    /// newest setting, and every other device took this one's header and footer settings
+    /// with it (2026-10-05).
+    @Test func aLayoutFromAnotherDeviceIsNotNotedAsSetHere() throws {
+        let settings = GlobalSettings.shared
+        let fixture = Fixture(settings)
+        defer { fixture.restore() }
+        let originalLayout = settings.readerBarLayout
+        let originalClock = settings.readerBarLayoutSyncClock
+        defer { settings.applyReaderBarLayoutFromSync(originalLayout, modifiedAt: originalClock) }
+        settings.readingSettingSyncRecords = []
+
+        // As stored: saving a layout normalizes it.
+        var layout = ReaderBarLayout(fields: [
+            .init(kind: .bookTitle, slot: .headerRight),
+            .init(kind: .currentTime, slot: .footerLeft),
+        ]).normalized(preservingVersion: false)
+        if layout == originalLayout {
+            layout.fields.append(.init(kind: .chapterPage, slot: .footerRight))
+            layout = layout.normalized(preservingVersion: false)
+        }
+        let elsewhere = Date(timeIntervalSince1970: 1_900_000_000)
+        #expect(settings.applyReaderBarLayoutFromSync(layout, modifiedAt: elsewhere))
+
+        #expect(settings.readerBarLayout == layout)
+        #expect(settings.readerBarLayoutSyncClock == elsewhere)
+        #expect(settings.readingSettingSyncRecords.isEmpty)
+        // Kept in the setup: wearing it again keeps the layout.
+        settings.synchronizeReadingSettings()
+        #expect(settings.readerBarLayout == layout)
+    }
+
     /// Puts back the settings these tests set, then the stores and the sync rows — the
     /// writes that put the live values back note rows too.
     @MainActor

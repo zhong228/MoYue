@@ -31,7 +31,6 @@ private struct CloudSyncDownload<T: Codable> {
 
 private struct CloudSyncMergeResult<T> {
     let values: [T]
-    let shouldApplyLocally: Bool
     let uploaded: Bool
 }
 
@@ -65,6 +64,8 @@ enum ICloudSyncError: LocalizedError {
     case accountUnavailable(CKAccountStatus)
     case missingRemoteBackup
     case missingAsset(String)
+    /// A sync blob in neither the merge format nor a plain array.
+    case unreadableSyncData(String)
 
     var errorDescription: String? {
         switch self {
@@ -87,6 +88,8 @@ enum ICloudSyncError: LocalizedError {
             return localized("iCloud 尚未找到可還原的備份")
         case .missingAsset(let name):
             return String(format: localized("iCloud 備份檔案不完整：%@"), name)
+        case .unreadableSyncData(let name):
+            return String(format: localized("iCloud 上的同步資料無法讀取：%@"), name)
         }
     }
 }
@@ -134,43 +137,73 @@ final class ICloudSyncManager: ObservableObject {
     private static let fileRecordType = "YueduSyncFile"
     private static let bookFileRecordType = "YueduBookFile"
     private static let uploadedBookFilesKey = "icloud_uploaded_book_files"
-    /// Fixed per-device id for the single bubble-selection sync record, so two
-    /// devices merge the same record instead of appending duplicates.
+    /// Fixed id of the one item in the bubble-selection record, so two devices merge the
+    /// same item instead of appending duplicates. Also that record's name before the split.
     private static let bubbleSelectionRecordID = "comment_bubble_selection"
     private static let readerOverlayLayoutRecordID = "reader_overlay_layout"
-    /// A new record name rather than a new payload under the old one. A build that
-    /// predates the bar model still syncs `reader_overlay_layout`, and would fail
-    /// to decode a bar layout written into it — the two records coexist instead,
-    /// and each build reads the one it understands.
+    /// Fixed id of the one item in the header/footer layout record; also that record's name
+    /// before the split. A record of its own rather than a new payload in
+    /// `reader_overlay_layout`: a build that predates the bar model still syncs that one,
+    /// and would fail to decode a bar layout written into it.
     private static let readerBarLayoutRecordID = "reader_bar_layout"
+    private static let readerBackgroundPicturePrefix = "readerbg_"
+
+    // MARK: Merged records
+    //
+    // `_v2` since 2026-10-05. Devices on builds from before then — App Store 2.0.6 and
+    // TestFlight up to build 113 — keep syncing the records without it, and newer builds no
+    // longer share those with them. 2.0.6 hashed each item with an encoding whose key order
+    // changed on every call, so on every sync it stamped all it held `now`, and its copy won
+    // every conflict; and every build before then stored a merge's shadow before applying it,
+    // so an apply that did not happen sent tombstones for books that had only arrived
+    // (`shadowToCommit`). Shared, the records took books added on a newer device away from
+    // it, put an older device's header/footer layout over its own, and kept a book it had
+    // let go of twice (reported 2026-10-04). Of the old records, only the books those
+    // devices add are still brought over (`adoptBooksAddedByOlderBuilds`).
+    private static let bookSourcesRecordName = "book_sources_v2"
+    private static let replaceRulesRecordName = "replace_rules_v2"
+    private static let bubbleStylesRecordName = "comment_bubble_styles_v2"
+    private static let bubbleSelectionRecordName = "comment_bubble_selection_v2"
     /// The saved reading backgrounds, as one merged blob; their pictures are file records
     /// named `readerbg_<hash of the file name>`.
-    private static let readerBackgroundsRecordID = "reader_backgrounds"
-    private static let readerBackgroundPicturePrefix = "readerbg_"
+    private static let readerBackgroundsRecordName = "reader_backgrounds_v2"
     /// The reading setup, one item per 排版生效範圍 row as last set on any device.
-    private static let readingSettingsRecordID = "reading_settings"
+    private static let readingSettingsRecordName = "reading_settings_v2"
+    private static let readerBarLayoutRecordName = "reader_bar_layout_v2"
+    private static let booksRecordName = "books_meta_v2"
+    /// The shelf as builds from before the split sync it.
+    private static let olderBuildsBooksRecordName = "books_meta"
 
-    /// Every blob `sync()` merges, by record name — `deleteRemoteData` removes each, so a
-    /// new one belongs here as well. `reader_overlay_layout` is written only by builds
-    /// from before the bar layout, and is still in accounts they synced;
-    /// `reader_background_choice` only by development builds of 2026-09-29, before the
-    /// background joined the rest of the reading setup.
+    /// Every blob `sync()` merges, and every one builds before the split left in the
+    /// account, by record name — `deleteRemoteData` removes each, so a new one belongs
+    /// here as well. `reader_overlay_layout` is written only by builds from before the bar
+    /// layout; `reader_background_choice` only by development builds of 2026-09-29, before
+    /// the background joined the rest of the reading setup.
     private static let mergedRecordNames = [
+        bookSourcesRecordName, replaceRulesRecordName, bubbleStylesRecordName,
+        bubbleSelectionRecordName, readerBackgroundsRecordName, readingSettingsRecordName,
+        readerBarLayoutRecordName, booksRecordName,
         "book_sources", "replace_rules", "comment_bubble_styles", bubbleSelectionRecordID,
-        readerBackgroundsRecordID, readingSettingsRecordID, "reader_background_choice",
-        readerOverlayLayoutRecordID, readerBarLayoutRecordID, "books_meta",
+        "reader_backgrounds", "reading_settings", readerBarLayoutRecordID, olderBuildsBooksRecordName,
+        "reader_background_choice", readerOverlayLayoutRecordID,
     ]
 
-    // Local merge shadows (per-id updatedAt/hash/deleted) for the auto-merge sync.
-    private static let shadowBooks = "icloud_books"
-    private static let shadowBookSources = "icloud_bookSources"
-    private static let shadowReplaceRules = "icloud_replaceRules"
-    private static let shadowCommentBubbleStyles = "icloud_commentBubbleStyles"
-    private static let shadowCommentBubbleSelection = "icloud_commentBubbleSelection"
-    private static let shadowReaderOverlayLayout = "icloud_readerOverlayLayout"
-    private static let shadowReaderBarLayout = "icloud_readerBarLayout"
-    private static let shadowReaderBackgrounds = "icloud_readerBackgrounds"
-    private static let shadowReadingSettings = "icloud_readingSettings"
+    // Local merge shadows (per-id updatedAt/hash/deleted) for the auto-merge sync, new with
+    // the `_v2` records: the ones before them say what was in step with the old records.
+    private static let shadowBooks = "icloud_books_v2"
+    private static let shadowBookSources = "icloud_bookSources_v2"
+    private static let shadowReplaceRules = "icloud_replaceRules_v2"
+    private static let shadowCommentBubbleStyles = "icloud_commentBubbleStyles_v2"
+    private static let shadowCommentBubbleSelection = "icloud_commentBubbleSelection_v2"
+    private static let shadowReaderBarLayout = "icloud_readerBarLayout_v2"
+    private static let shadowReaderBackgrounds = "icloud_readerBackgrounds_v2"
+    private static let shadowReadingSettings = "icloud_readingSettings_v2"
+    /// What this device synced through `books_meta` before the split: every book it had
+    /// there, and every one it deleted. Only read, to tell a book an older build added from
+    /// one this device already knew (`adoptBooksAddedByOlderBuilds`).
+    private static let shadowBooksBeforeSplit = "icloud_books"
+    /// `books_meta` as last looked through for books older builds added.
+    private static let olderBuildsBooksChangeTagKey = "icloud_older_builds_books_change_tag"
 
     /// Bound at launch so the merge sync can read/write the live bookshelf.
     /// `BookStore` is not a singleton (created in the app entry point).
@@ -269,46 +302,47 @@ final class ICloudSyncManager: ObservableObject {
             var changedRemote = false
 
             let sourceMerge = try await mergeType(
-                recordName: "book_sources",
+                recordName: Self.bookSourcesRecordName,
                 shadowKey: Self.shadowBookSources,
                 local: localSources,
                 id: { $0.id.uuidString },
                 hash: { Self.stableHash($0) },
-                fallbackUpdatedAt: { Date(timeIntervalSince1970: TimeInterval(max($0.lastUpdateTime, 0)) / 1000) }
-            )
-            changedRemote = changedRemote || sourceMerge.uploaded
-            if sourceMerge.shouldApplyLocally {
-                // The network merge can outlive a user deletion. Only apply its result when the
-                // store still has the exact snapshot that was merged; otherwise the deletion
-                // remains local and the next sync can publish its tombstone.
-                // Timed because this is the apply that killed a device: it runs on the
-                // main actor, and until `save()` moved to a background queue it carried a
-                // ~3 MB encode and a synchronous file write with it. The span is the
-                // evidence that it stays cheap.
-                await MainActor.run {
-                    SourcePerfTrace.span("sync.apply.sources", "count=\(sourceMerge.values.count)") {
-                        _ = BookSourceStore.shared.replaceSourcesFromSync(
-                            sourceMerge.values,
-                            expectedMutationRevision: sourceMutationRevision
-                        )
+                fallbackUpdatedAt: { Date(timeIntervalSince1970: TimeInterval(max($0.lastUpdateTime, 0)) / 1000) },
+                applyLocally: { merged in
+                    // The network merge can outlive a user deletion. Only apply its result when
+                    // the store still has the exact snapshot that was merged; otherwise the
+                    // deletion remains local and the next sync can publish its tombstone.
+                    // Timed because this is the apply that killed a device: it runs on the
+                    // main actor, and until `save()` moved to a background queue it carried a
+                    // ~3 MB encode and a synchronous file write with it. The span is the
+                    // evidence that it stays cheap.
+                    await MainActor.run {
+                        SourcePerfTrace.span("sync.apply.sources", "count=\(merged.count)") {
+                            BookSourceStore.shared.replaceSourcesFromSync(
+                                merged,
+                                expectedMutationRevision: sourceMutationRevision
+                            )
+                        }
                     }
                 }
-            }
+            )
+            changedRemote = changedRemote || sourceMerge.uploaded
 
             // 2. Replace rules (singleton store).
             let localRules = await MainActor.run { ReplaceRuleStore.shared.rules }
             let ruleMerge = try await mergeType(
-                recordName: "replace_rules",
+                recordName: Self.replaceRulesRecordName,
                 shadowKey: Self.shadowReplaceRules,
                 local: localRules,
                 id: { $0.id },
                 hash: { Self.stableHash($0) },
-                fallbackUpdatedAt: { _ in Date.distantPast }
+                fallbackUpdatedAt: { _ in Date.distantPast },
+                applyLocally: { merged in
+                    await MainActor.run { ReplaceRuleStore.shared.replaceRulesFromSync(merged) }
+                    return true
+                }
             )
             changedRemote = changedRemote || ruleMerge.uploaded
-            if ruleMerge.shouldApplyLocally {
-                await MainActor.run { ReplaceRuleStore.shared.replaceRulesFromSync(ruleMerge.values) }
-            }
 
             // 3. Custom comment-bubble styles + selection (singleton settings).
             //    Styles merge per-item (last-write-wins on their stamped
@@ -323,17 +357,18 @@ final class ICloudSyncManager: ObservableObject {
                 return (settings.commentBubbleCustomStyles, settings.commentBubbleSelectionSyncClock)
             }
             let bubbleStyleMerge = try await mergeType(
-                recordName: "comment_bubble_styles",
+                recordName: Self.bubbleStylesRecordName,
                 shadowKey: Self.shadowCommentBubbleStyles,
                 local: localBubbleStyles,
                 id: { $0.id.uuidString },
                 hash: { Self.stableHash($0) },
-                fallbackUpdatedAt: { $0.updatedAt ?? .distantPast }
+                fallbackUpdatedAt: { $0.updatedAt ?? .distantPast },
+                applyLocally: { merged in
+                    await MainActor.run { GlobalSettings.shared.applyCommentBubbleSync(styles: merged) }
+                    return true
+                }
             )
             changedRemote = changedRemote || bubbleStyleMerge.uploaded
-            if bubbleStyleMerge.shouldApplyLocally {
-                await MainActor.run { GlobalSettings.shared.applyCommentBubbleSync(styles: bubbleStyleMerge.values) }
-            }
             // Snapshot the selection AFTER applying merged styles: a style
             // removed by sync may clear the local selection (invariant cleanup),
             // which must ride this same pass as the nil value.
@@ -345,18 +380,19 @@ final class ICloudSyncManager: ObservableObject {
                 modifiedAt: bubbleSelectionClock
             )
             let bubbleSelectionMerge = try await mergeType(
-                recordName: "comment_bubble_selection",
+                recordName: Self.bubbleSelectionRecordName,
                 shadowKey: Self.shadowCommentBubbleSelection,
                 local: [bubbleSelection],
                 id: { _ in Self.bubbleSelectionRecordID },
                 hash: { Self.stableHash($0) },
-                fallbackUpdatedAt: { $0.modifiedAt ?? .distantPast }
+                fallbackUpdatedAt: { $0.modifiedAt ?? .distantPast },
+                applyLocally: { merged in
+                    let mergedSelection = merged.first?.selectedCustomStyleID
+                    await MainActor.run { GlobalSettings.shared.applyCommentBubbleSync(selection: mergedSelection) }
+                    return true
+                }
             )
             changedRemote = changedRemote || bubbleSelectionMerge.uploaded
-            if bubbleSelectionMerge.shouldApplyLocally {
-                let mergedSelection = bubbleSelectionMerge.values.first?.selectedCustomStyleID
-                await MainActor.run { GlobalSettings.shared.applyCommentBubbleSync(selection: mergedSelection) }
-            }
 
             // 3b. Saved reading backgrounds (singleton settings). Per background,
             //     last-write-wins on their stamped `updatedAt`, like the bubble styles;
@@ -364,17 +400,18 @@ final class ICloudSyncManager: ObservableObject {
             //     knows them by.
             let localBackgrounds = await MainActor.run { GlobalSettings.shared.readerCustomBackgrounds }
             let backgroundMerge = try await mergeType(
-                recordName: Self.readerBackgroundsRecordID,
+                recordName: Self.readerBackgroundsRecordName,
                 shadowKey: Self.shadowReaderBackgrounds,
                 local: localBackgrounds,
                 id: { $0.id.uuidString },
                 hash: { Self.stableHash($0) },
-                fallbackUpdatedAt: { $0.updatedAt ?? .distantPast }
+                fallbackUpdatedAt: { $0.updatedAt ?? .distantPast },
+                applyLocally: { merged in
+                    await MainActor.run { GlobalSettings.shared.applyReaderCustomBackgroundsSync(merged) }
+                    return true
+                }
             )
             changedRemote = changedRemote || backgroundMerge.uploaded
-            if backgroundMerge.shouldApplyLocally {
-                await MainActor.run { GlobalSettings.shared.applyReaderCustomBackgroundsSync(backgroundMerge.values) }
-            }
             let backgroundPictures = Self.readerBackgroundPicturePayloads(backgroundMerge.values)
             var uploadedPictures = 0
             for picture in backgroundPictures {
@@ -394,19 +431,18 @@ final class ICloudSyncManager: ObservableObject {
             //     changes none of them, and only a new setting reads as a local edit.
             let localReadingSettings = await MainActor.run { GlobalSettings.shared.readingSettingSyncRecords }
             let readingSettingsMerge = try await mergeType(
-                recordName: Self.readingSettingsRecordID,
+                recordName: Self.readingSettingsRecordName,
                 shadowKey: Self.shadowReadingSettings,
                 local: localReadingSettings,
                 id: { $0.item },
                 hash: { Self.stableHash($0) },
-                fallbackUpdatedAt: { $0.editedAt }
+                fallbackUpdatedAt: { $0.editedAt },
+                applyLocally: { merged in
+                    await MainActor.run { GlobalSettings.shared.applyReadingSettingsSync(merged) }
+                    return true
+                }
             )
             changedRemote = changedRemote || readingSettingsMerge.uploaded
-            if readingSettingsMerge.shouldApplyLocally {
-                await MainActor.run {
-                    GlobalSettings.shared.applyReadingSettingsSync(readingSettingsMerge.values)
-                }
-            }
 
             // 4. Reader header/footer layout (singleton setting). Same shape as
             //    the bubble selection above: ONE always-present record under a
@@ -418,7 +454,7 @@ final class ICloudSyncManager: ObservableObject {
                 return (settings.readerBarLayout, settings.readerBarLayoutSyncClock)
             }
             let barLayoutMerge = try await mergeType(
-                recordName: Self.readerBarLayoutRecordID,
+                recordName: Self.readerBarLayoutRecordName,
                 shadowKey: Self.shadowReaderBarLayout,
                 local: [
                     ReaderBarLayoutSyncRecord(
@@ -428,21 +464,33 @@ final class ICloudSyncManager: ObservableObject {
                 ],
                 id: { _ in Self.readerBarLayoutRecordID },
                 hash: { Self.stableHash($0) },
-                fallbackUpdatedAt: { $0.modifiedAt ?? .distantPast }
+                fallbackUpdatedAt: { $0.modifiedAt ?? .distantPast },
+                applyLocally: { merged in
+                    guard let record = merged.first else { return true }
+                    return await MainActor.run {
+                        GlobalSettings.shared.applyReaderBarLayoutFromSync(
+                            record.layout,
+                            modifiedAt: record.modifiedAt
+                        )
+                    }
+                }
             )
             changedRemote = changedRemote || barLayoutMerge.uploaded
-            if barLayoutMerge.shouldApplyLocally, let merged = barLayoutMerge.values.first {
-                await MainActor.run {
-                    GlobalSettings.shared.applyReaderBarLayoutFromSync(
-                        merged.layout,
-                        modifiedAt: merged.modifiedAt
-                    )
-                }
-            }
 
             // 5. Bookshelf (bound store). Progress lives in each book's
             //    lastOpenedDate, so newest-wins handles reading-progress merges too.
             if let store = boundBookStore {
+                // Books added on devices still on a build from before the split. Not on the
+                // way to the background, where an older build's shelf — 100 MB and more with
+                // its tables of contents — has no business being downloaded. The look is
+                // logged and left when it fails: the shelf here still syncs.
+                if reason != "background" {
+                    do {
+                        try await adoptBooksAddedByOlderBuilds(into: store)
+                    } catch {
+                        AppLogger.sync("⟐ books from older builds not looked through: \(error.localizedDescription)", level: .error)
+                    }
+                }
                 // Without the table of contents: each device keeps its own (`BookChapterStore`),
                 // and uploading it made this blob 138 MB for a 110-book shelf, sent on every
                 // trip to the background.
@@ -450,25 +498,27 @@ final class ICloudSyncManager: ObservableObject {
                     (store.books.map { $0.withoutTableOfContents() }, store.mutationRevision)
                 }
                 let bookMerge = try await mergeType(
-                    recordName: "books_meta",
+                    recordName: Self.booksRecordName,
                     shadowKey: Self.shadowBooks,
                     local: localBooks,
                     id: { $0.id.uuidString },
                     hash: { Self.stableHash($0.strippedForSync()) },
-                    fallbackUpdatedAt: { $0.lastOpenedDate ?? $0.addedDate }
-                )
-                changedRemote = changedRemote || bookMerge.uploaded
-                if bookMerge.shouldApplyLocally,
-                   let snapshot = await MainActor.run(body: {
-                       store.snapshotForSync(bookMerge.values, expectedMutationRevision: bookMutationRevision)
-                   }) {
-                    let prepared = try await BookStore.encodeSyncSnapshot(snapshot)
-                    _ = await MainActor.run {
-                        SourcePerfTrace.span("sync.apply.books", "count=\(bookMerge.values.count)") {
-                            store.applySyncSnapshot(prepared)
+                    fallbackUpdatedAt: { $0.lastOpenedDate ?? $0.addedDate },
+                    applyLocally: { merged in
+                        // Refused while the shelf is not the one merged: a page turn or a
+                        // narrated paragraph during the round trip moves it.
+                        guard let snapshot = await MainActor.run(body: {
+                            store.snapshotForSync(merged, expectedMutationRevision: bookMutationRevision)
+                        }) else { return false }
+                        let prepared = try await BookStore.encodeSyncSnapshot(snapshot)
+                        return await MainActor.run {
+                            SourcePerfTrace.span("sync.apply.books", "count=\(merged.count)") {
+                                store.applySyncSnapshot(prepared)
+                            }
                         }
                     }
-                }
+                )
+                changedRemote = changedRemote || bookMerge.uploaded
             }
 
             // 6. Binary book files (EPUB/TXT content + cover images).
@@ -495,15 +545,20 @@ final class ICloudSyncManager: ObservableObject {
         }
     }
 
-    /// Downloads one cloud data blob, merges it with `local`, persists the new
-    /// shadow, uploads the merged blob back, and returns the merged values.
+    /// Downloads one cloud data blob, merges it with `local`, uploads the merged blob back,
+    /// hands the merged values to `applyLocally` when they differ from `local`, and then
+    /// persists the new shadow (`shadowToCommit`).
+    ///
+    /// - Parameter applyLocally: puts the merged values in the local store; false when the
+    ///   store would not take them — it changed during the round trip.
     private func mergeType<T: Codable>(
         recordName: String,
         shadowKey: String,
         local: [T],
         id: @escaping (T) -> String,
         hash: @escaping (T) -> String,
-        fallbackUpdatedAt: @escaping (T) -> Date
+        fallbackUpdatedAt: @escaping (T) -> Date,
+        applyLocally: ([T]) async throws -> Bool
     ) async throws -> CloudSyncMergeResult<T> {
         let remote = try await downloadRecords(recordName, as: T.self, id: id, fallbackUpdatedAt: fallbackUpdatedAt)
         let loadedShadow = SyncShadowStore.load(shadowKey)
@@ -515,9 +570,6 @@ final class ICloudSyncManager: ObservableObject {
             hash: hash,
             fallbackUpdatedAt: fallbackUpdatedAt
         )
-        if loadedShadow != result.shadow {
-            SyncShadowStore.save(shadowKey, result.shadow)
-        }
         let uploaded = try await uploadRecords(
             recordName,
             values: result.values,
@@ -525,8 +577,115 @@ final class ICloudSyncManager: ObservableObject {
             id: id,
             remotePayloadHash: remote.payloadHash
         )
-        AppLogger.sync("merge \(recordName): local=\(local.count) remote=\(remote.records.count) → \(result.values.count), uploaded=\(uploaded), applyLocally=\(result.shouldApplyLocally)", level: .notice)
-        return CloudSyncMergeResult(values: result.values, shouldApplyLocally: result.shouldApplyLocally, uploaded: uploaded)
+        let applied = result.shouldApplyLocally ? try await applyLocally(result.values) : true
+        let shadow = Self.shadowToCommit(
+            previous: loadedShadow,
+            merge: result,
+            local: local,
+            appliedLocally: applied,
+            id: id,
+            hash: hash
+        )
+        if loadedShadow != shadow {
+            SyncShadowStore.save(shadowKey, shadow)
+        }
+        AppLogger.sync("merge \(recordName): local=\(local.count) remote=\(remote.records.count) → \(result.values.count), uploaded=\(uploaded), applyLocally=\(result.shouldApplyLocally), applied=\(applied)", level: .notice)
+        if !applied {
+            AppLogger.sync("⟐ merge \(recordName): changed here during the sync, not applied; what arrived is applied by the next sync", level: .notice)
+        }
+        return CloudSyncMergeResult(values: result.values, uploaded: uploaded)
+    }
+
+    /// The shadow a merge leaves: what this device and the cloud now agree on.
+    ///
+    /// All of the merge's when its values were applied here, or there was nothing to apply.
+    /// When they were not, only the entries whose merged state is the state the local copy
+    /// already had — this device's own additions, edits and deletions, which the upload
+    /// carried — and the previous entry for everything else.
+    ///
+    /// The whole shadow used to be stored before the values were applied (until
+    /// 2026-10-05). An apply that did not happen — the shelf changed during the round trip
+    /// (a page turn, a narrated paragraph, a chapter check), the upload threw, the app was
+    /// suspended — left items in the shadow that had never been on this device, and the
+    /// next sync read each one as deleted here: it sent a tombstone, and the device that
+    /// had added the book deleted it. A remote edit went the same way: its hash went into
+    /// the shadow, the unchanged local copy no longer matched it, and the next sync stamped
+    /// that stale copy `now`, so it won over the edit. Left out, a remote item is new again
+    /// next time, and a remote edit or deletion is newer again, and each is applied then.
+    static func shadowToCommit<T>(
+        previous: [String: SyncShadowEntry],
+        merge: (values: [T], shadow: [String: SyncShadowEntry], shouldApplyLocally: Bool),
+        local: [T],
+        appliedLocally: Bool,
+        id: (T) -> String,
+        hash: (T) -> String
+    ) -> [String: SyncShadowEntry] {
+        guard merge.shouldApplyLocally, !appliedLocally else { return merge.shadow }
+        let localHashes = Dictionary(local.map { (id($0), hash($0)) }, uniquingKeysWith: { first, _ in first })
+        let mergedHashes = Dictionary(merge.values.map { (id($0), hash($0)) }, uniquingKeysWith: { first, _ in first })
+        var shadow = previous
+        for key in Set(merge.shadow.keys).union(previous.keys) where localHashes[key] == mergedHashes[key] {
+            shadow[key] = merge.shadow[key]
+        }
+        return shadow
+    }
+
+    // MARK: - Books from builds before the split
+
+    /// Books added on devices still on a build from before the split, which sync
+    /// `books_meta`: brought onto this shelf by the id they carry, and nothing else of that
+    /// record — not its tombstones, its edits or its timestamps, which those builds get
+    /// wrong (see "Merged records"). Once those devices update, the books are the same
+    /// books there and here.
+    ///
+    /// Looked through only when the record changed since the last look: its change tag
+    /// comes without the asset, which an older build's shelf, tables of contents and all,
+    /// makes 100 MB and more. Read for its ids first, and in full only when it has a book
+    /// this device has never known.
+    ///
+    /// Delete, with `olderBuildsBooksRecordName`, `shadowBooksBeforeSplit` and
+    /// `olderBuildsBooksChangeTagKey`, once no build from before the split writes
+    /// `books_meta`.
+    private func adoptBooksAddedByOlderBuilds(into store: BookStore) async throws {
+        let recordID = fileRecordID(Self.olderBuildsBooksRecordName)
+        let lastLook = UserDefaults.standard.string(forKey: Self.olderBuildsBooksChangeTagKey)
+        guard let changeTag = try await fetchRecordChangeTag(recordID), changeTag != lastLook else { return }
+        let record = try await fetchRecord(recordID)
+        guard let asset = record[Field.asset] as? CKAsset, let url = asset.fileURL else {
+            throw ICloudSyncError.missingAsset(Self.olderBuildsBooksRecordName)
+        }
+        let data = try Data(contentsOf: url)
+        let items = try JSONDecoder().decode([CloudSyncRecord<SkippedSyncValue>].self, from: data)
+        let held = await MainActor.run { store.recordIDs }
+        let known = Set(held.map(\.uuidString))
+            .union(SyncShadowStore.load(Self.shadowBooksBeforeSplit).keys)
+            .union(SyncShadowStore.load(Self.shadowBooks).keys)
+        let added = Self.idsAddedByOlderBuilds(items.map { (id: $0.id, deleted: $0.deleted) }, known: known)
+        var adopted = 0
+        if !added.isEmpty {
+            let books = try JSONDecoder().decode([CloudSyncRecord<ReadingBook>].self, from: data)
+                .compactMap { $0.deleted ? nil : $0.value }
+                .filter { added.contains($0.id.uuidString) }
+            adopted = await MainActor.run { store.adoptBooksAddedByOlderBuilds(books) }
+        }
+        UserDefaults.standard.set(record.recordChangeTag ?? changeTag, forKey: Self.olderBuildsBooksChangeTagKey)
+        AppLogger.sync("⟐ books from older builds: \(items.count) item(s) in \(Self.olderBuildsBooksRecordName), \(adopted) new here", level: .notice)
+    }
+
+    /// The books in `books_meta`, as builds from before the split sync it, that this device
+    /// has never known: live there, with no record here and no entry in either of its merge
+    /// shadows — so neither a book it holds nor one it deleted, before the split or since.
+    static func idsAddedByOlderBuilds(
+        _ items: [(id: String, deleted: Bool)],
+        known: Set<String>
+    ) -> Set<String> {
+        Set(items.filter { !$0.deleted && !known.contains($0.id) }.map(\.id))
+    }
+
+    /// Decodes nothing of an item: enough to read a blob's ids without building its books.
+    private struct SkippedSyncValue: Codable {
+        init(from decoder: Decoder) throws {}
+        func encode(to encoder: Encoder) throws {}
     }
 
     /// Everything `mergeType` decides between the download and the upload, apart
@@ -576,29 +735,63 @@ final class ICloudSyncManager: ObservableObject {
 
     /// Reads a cloud blob into sync records. Understands the current envelope
     /// format and migrates a legacy plain `[T]` backup on the fly.
+    /// One cloud data blob's records — none when the record does not exist yet. A fetch that
+    /// fails, a record whose asset is missing or cannot be read, and a blob in neither format
+    /// all throw. Until 2026-10-05 each of them came back as an empty blob, and the sync merged
+    /// "the cloud has nothing": it uploaded this device's view over the blob, and what only
+    /// other devices had was gone from it until they uploaded it again.
     private func downloadRecords<T: Codable>(
         _ recordName: String, as type: T.Type,
         id: (T) -> String, fallbackUpdatedAt: (T) -> Date
     ) async throws -> CloudSyncDownload<T> {
-        guard let record = try? await fetchRecord(fileRecordID(recordName)),
-              let asset = record[Field.asset] as? CKAsset,
-              let url = asset.fileURL,
-              let data = try? Data(contentsOf: url) else {
+        let record: CKRecord
+        do {
+            record = try await fetchRecord(fileRecordID(recordName))
+        } catch let error where isRecordNotFound(error) {
             return CloudSyncDownload(records: [], payloadHash: nil)
+        } catch let error as CKError where error.code == .assetFileNotFound || error.code == .assetNotAvailable {
+            // The record is there; the file it carries is not.
+            AppLogger.sync("⟐ \(recordName): its file cannot be fetched (CKError \(error.code.rawValue))", level: .error)
+            throw ICloudSyncError.missingAsset(recordName)
         }
+        guard let asset = record[Field.asset] as? CKAsset, let url = asset.fileURL else {
+            throw ICloudSyncError.missingAsset(recordName)
+        }
+        let data = try Data(contentsOf: url)
+        let blob = try Self.decodeCloudSyncBlob(data, recordName: recordName, id: id, fallbackUpdatedAt: fallbackUpdatedAt)
+        return CloudSyncDownload(records: blob.records, payloadHash: blob.payloadHash)
+    }
 
-        if let records = try? JSONDecoder().decode([CloudSyncRecord<T>].self, from: data) {
-            return CloudSyncDownload(records: records.map {
-                FirestoreSyncRecord(id: $0.id, value: $0.value, updatedAt: $0.updatedAt, deleted: $0.deleted)
-            }, payloadHash: try? Self.cloudSyncPayloadHash(records))
+    /// The records in one downloaded blob: the merge format, or the plain array builds from
+    /// before the merge sync backed up, every item of which is live. A blob in neither is
+    /// unreadable sync data, not an empty blob (see `downloadRecords`).
+    static func decodeCloudSyncBlob<T: Codable>(
+        _ data: Data,
+        recordName: String,
+        id: (T) -> String,
+        fallbackUpdatedAt: (T) -> Date
+    ) throws -> (records: [FirestoreSyncRecord<T>], payloadHash: String?) {
+        let decoder = JSONDecoder()
+        let records: [CloudSyncRecord<T>]
+        do {
+            records = try decoder.decode([CloudSyncRecord<T>].self, from: data)
+        } catch let mergeFormatError {
+            do {
+                let plain = try decoder.decode([T].self, from: data)
+                return (plain.map {
+                    FirestoreSyncRecord(id: id($0), value: $0, updatedAt: fallbackUpdatedAt($0), deleted: false)
+                }, nil)
+            } catch {
+                AppLogger.sync(
+                    "⟐ \(recordName): \(data.count) bytes in neither the merge format (\(mergeFormatError)) nor a plain array (\(error))",
+                    level: .error
+                )
+                throw ICloudSyncError.unreadableSyncData(recordName)
+            }
         }
-        // Legacy plain-array backup: treat every item as a live record.
-        if let plain = try? JSONDecoder().decode([T].self, from: data) {
-            return CloudSyncDownload(records: plain.map {
-                FirestoreSyncRecord(id: id($0), value: $0, updatedAt: fallbackUpdatedAt($0), deleted: false)
-            }, payloadHash: nil)
-        }
-        return CloudSyncDownload(records: [], payloadHash: nil)
+        return (records.map {
+            FirestoreSyncRecord(id: $0.id, value: $0.value, updatedAt: $0.updatedAt, deleted: $0.deleted)
+        }, try Self.cloudSyncPayloadHash(records))
     }
 
     /// Writes the merged values + tombstones back to the cloud blob.
@@ -781,19 +974,18 @@ final class ICloudSyncManager: ObservableObject {
         defer { Task { @MainActor in self.isSyncing = false } }
 
         // Book files and background pictures are records of their own, named after the
-        // file. The cloud's own lists name every device's, not only this one's.
-        let remoteBooks = try await downloadRecords(
-            "books_meta",
-            as: ReadingBook.self,
-            id: { $0.id.uuidString },
-            fallbackUpdatedAt: { _ in .distantPast }
-        ).records.compactMap(\.value)
-        let remoteBackgrounds = try await downloadRecords(
-            Self.readerBackgroundsRecordID,
-            as: ReaderCustomBackground.self,
-            id: { $0.id.uuidString },
-            fallbackUpdatedAt: { _ in .distantPast }
-        ).records.compactMap(\.value)
+        // file. The cloud's own lists name every device's, not only this one's — those
+        // builds from before the split keep as well.
+        var remoteBooks: [ReadingBook] = []
+        for recordName in [Self.booksRecordName, Self.olderBuildsBooksRecordName] {
+            remoteBooks += try await valuesNamedForDeletion(in: recordName, as: ReadingBook.self) { $0.id.uuidString }
+        }
+        var remoteBackgrounds: [ReaderCustomBackground] = []
+        for recordName in [Self.readerBackgroundsRecordName, "reader_backgrounds"] {
+            remoteBackgrounds += try await valuesNamedForDeletion(in: recordName, as: ReaderCustomBackground.self) {
+                $0.id.uuidString
+            }
+        }
         let localBackgrounds = await MainActor.run { GlobalSettings.shared.readerCustomBackgrounds }
         let files = bookFilePayloads(localBooks() + remoteBooks)
             + Self.readerBackgroundPicturePayloads(localBackgrounds + remoteBackgrounds)
@@ -814,6 +1006,32 @@ final class ICloudSyncManager: ObservableObject {
         await MainActor.run {
             lastSyncDate = nil
             statusMessage = localized("已刪除 iCloud 上的同步資料")
+        }
+    }
+
+    /// The items a blob names, for `deleteRemoteData` to find their files. A fetch that fails
+    /// stops the delete: it is not done until every file it can name is gone. A blob that
+    /// cannot be read — its asset missing, or in neither format — names nothing, and the
+    /// delete goes on and removes it with the rest: unreadable sync data fails every sync, and
+    /// the delete is the way out of it, which that same blob must not block. The files only
+    /// it named stay in the account.
+    private func valuesNamedForDeletion<T: Codable>(
+        in recordName: String,
+        as type: T.Type,
+        id: (T) -> String
+    ) async throws -> [T] {
+        do {
+            return try await downloadRecords(
+                recordName, as: type, id: id, fallbackUpdatedAt: { _ in .distantPast }
+            ).records.compactMap(\.value)
+        } catch let error as ICloudSyncError {
+            switch error {
+            case .missingAsset(let name), .unreadableSyncData(let name):
+                AppLogger.sync("⟐ deleteRemoteData: \(name) unreadable; the files only it names stay in iCloud", level: .error)
+                return []
+            default:
+                throw error
+            }
         }
     }
 
@@ -1197,6 +1415,37 @@ final class ICloudSyncManager: ObservableObject {
                     continuation.resume(throwing: CKError(.unknownItem))
                 }
             }
+        }
+    }
+
+    /// A record's change tag, without its fields: an empty `desiredKeys` leaves every field
+    /// behind, the asset with it, so a blob of any size costs one small round trip. Nil when
+    /// there is no such record.
+    private func fetchRecordChangeTag(_ recordID: CKRecord.ID) async throws -> String? {
+        try await withCheckedThrowingContinuation { continuation in
+            let operation = CKFetchRecordsOperation(recordIDs: [recordID])
+            operation.desiredKeys = []
+            // Both blocks run on the operation's own serial queue: the record's result
+            // first, when it has one, then the operation's.
+            var outcome: Result<String?, Error>?
+            operation.perRecordResultBlock = { _, result in
+                switch result {
+                case .success(let record):
+                    outcome = .success(record.recordChangeTag)
+                case .failure(let error):
+                    outcome = self.isRecordNotFound(error) ? .success(nil) : .failure(error)
+                }
+            }
+            operation.fetchRecordsResultBlock = { result in
+                if let outcome {
+                    continuation.resume(with: outcome)
+                } else if case .failure(let error) = result {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
+            database.add(operation)
         }
     }
 
