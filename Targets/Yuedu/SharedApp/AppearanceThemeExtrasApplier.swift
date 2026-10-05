@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// Applies the non-colour half of an appearance theme, keeps it up to date while
 /// that theme is selected, and puts the user's own settings back when they leave it.
@@ -61,6 +62,18 @@ extension GlobalSettings {
         appearanceUsesSeparateDarkTheme && appearanceOnScreen == .dark
             ? appearanceDarkThemeID
             : appearanceThemeID
+    }
+
+    /// The appearance the scene shows, as it changes and as the scene comes back from the
+    /// background. Not in the background, where the light／dark is the app-switcher
+    /// snapshots' (`ScenePhase.showsDeviceAppearance`): each snapshot used to wear the other
+    /// appearance's theme and reading setup, and lay the open book out for it.
+    func noteAppearanceOnScreen(_ scheme: ColorScheme, in phase: ScenePhase) {
+        guard phase.showsDeviceAppearance else { return }
+        let onScreen = AppearanceColorScheme(scheme)
+        guard appearanceOnScreen != onScreen else { return }
+        AppLogger.info("⟐ appearance on screen \(appearanceOnScreen.rawValue) → \(onScreen.rawValue) phase=\(phase)")
+        appearanceOnScreen = onScreen
     }
 
     /// The extras in force, or nil when the selected theme speaks for nothing.

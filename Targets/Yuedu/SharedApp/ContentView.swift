@@ -4,6 +4,7 @@ struct ContentView: View {
     @EnvironmentObject private var store: BookStore
     @EnvironmentObject private var subscriptionStore: SubscriptionStore
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// Bold Text: `.bold` while it is on. The global font needs telling; the system font
@@ -119,11 +120,13 @@ struct ContentView: View {
         .accentColor(appearanceTheme?.accentColor)
         .preferredColorScheme(preferredAppearanceColorScheme)
         // While 單獨設定深色主題 is on, the appearance on screen picks whose theme is worn.
+        // Not in the background, where the light／dark is the app-switcher snapshots';
+        // the scene coming back hands over the appearance it comes back to.
         .onChange(of: effectiveColorScheme, initial: true) { _, scheme in
-            let onScreen = AppearanceColorScheme(scheme)
-            if gs.appearanceOnScreen != onScreen {
-                gs.appearanceOnScreen = onScreen
-            }
+            gs.noteAppearanceOnScreen(scheme, in: scenePhase)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            gs.noteAppearanceOnScreen(effectiveColorScheme, in: phase)
         }
         .font(DSFont.body)
         .overlay {

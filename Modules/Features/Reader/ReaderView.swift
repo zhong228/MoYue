@@ -380,11 +380,15 @@ struct ReaderView: View {
             .accessibilityHidden(true)
     }
 
-    /// The device's appearance, handed to the reader's mode as the reader opens and
-    /// whenever the appearance or what follows it changes. The mode decides the
-    /// background; this only moves the mode (`GlobalSettings.alignReaderDarkMode`).
-    func alignReaderModeWithDevice() {
-        settings.alignReaderDarkMode(deviceIsDark: systemColorScheme == .dark)
+    /// The device's appearance, handed to the reader's mode as the reader opens, as the
+    /// scene comes back from the background, and whenever the appearance or what follows
+    /// it changes. The mode decides the background; this only moves the mode
+    /// (`GlobalSettings.alignReaderDarkMode`), and not in the background.
+    ///
+    /// - Parameter phase: the scene's phase, when the caller is the phase changing; the
+    ///   environment's otherwise.
+    func alignReaderModeWithDevice(in phase: ScenePhase? = nil) {
+        settings.alignReaderDarkMode(deviceIsDark: systemColorScheme == .dark, in: phase ?? scenePhase)
     }
 
     /// The 深色／白天 button: the reader's own dark mode, set by hand.
@@ -2175,6 +2179,12 @@ struct ReaderView: View {
             // minutes as 26 page-turn anomalies.
             if phase == .background {
                 cancelPendingRenderWorkUnlessNarrating()
+            }
+            // Back from the background, the environment's light／dark is the device's
+            // again, and the device may have changed while the app was away.
+            if phase.showsDeviceAppearance {
+                alignReaderModeWithDevice(in: phase)
+                syncActiveThemePreset()
             }
             if phase == .active {
                 restoreReaderDisplayStateAfterResume()

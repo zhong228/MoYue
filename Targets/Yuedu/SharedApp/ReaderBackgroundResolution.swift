@@ -86,10 +86,17 @@ extension GlobalSettings {
         if readerDarkMode != isDark { readerDarkMode = isDark }
     }
 
-    /// The device's appearance, as the reader opens and whenever it changes. Following
-    /// it, the reader takes it. Without 綁定閱讀主題 a mode set against the device holds
-    /// until the device comes round to it, and follows from there.
-    func alignReaderDarkMode(deviceIsDark: Bool) {
+    /// The device's appearance, as the reader opens, as the scene comes back from the
+    /// background, and whenever it changes. Following it, the reader takes it. Without
+    /// 綁定閱讀主題 a mode set against the device holds until the device comes round to it,
+    /// and follows from there.
+    ///
+    /// Nothing in the background, where the light／dark is the app-switcher snapshots'
+    /// (`ScenePhase.showsDeviceAppearance`). The light snapshot of a dark device read as the
+    /// device coming round to a reader set to 白天, and the dark one then took it to 深色 —
+    /// on every trip out of the app (reported 2026-10-04).
+    func alignReaderDarkMode(deviceIsDark: Bool, in phase: ScenePhase) {
+        guard phase.showsDeviceAppearance else { return }
         if readerFollowSystemTheme {
             if readerDarkMode != deviceIsDark { readerDarkMode = deviceIsDark }
         } else if !appearanceBindReaderTheme, readerDarkMode == deviceIsDark {

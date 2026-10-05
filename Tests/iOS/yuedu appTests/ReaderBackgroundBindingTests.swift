@@ -137,8 +137,8 @@ struct ReaderBackgroundBindingTests {
         #expect(settings.readerMode == .dark)
         #expect(settings.readerBackgroundResolution(mode: settings.readerMode, wornTheme: .green).theme == .sepia)
         // The device turning dark and light again moves nothing: nothing follows it.
-        settings.alignReaderDarkMode(deviceIsDark: true)
-        settings.alignReaderDarkMode(deviceIsDark: false)
+        settings.alignReaderDarkMode(deviceIsDark: true, in: .active)
+        settings.alignReaderDarkMode(deviceIsDark: false, in: .active)
         #expect(settings.readerDarkMode)
         // 白天.
         settings.setReaderDarkMode(false, deviceIsDark: false)
@@ -162,7 +162,7 @@ struct ReaderBackgroundBindingTests {
         settings.setReaderFollowsDevice(true, deviceIsDark: false)
         #expect(settings.readerFollowSystemTheme)
         #expect(!settings.readerDarkMode)
-        settings.alignReaderDarkMode(deviceIsDark: true)
+        settings.alignReaderDarkMode(deviceIsDark: true, in: .active)
         #expect(settings.readerDarkMode)
 
         // By hand, the way the device already is: nothing to give up.
@@ -172,7 +172,7 @@ struct ReaderBackgroundBindingTests {
         settings.setReaderDarkMode(false, deviceIsDark: true)
         #expect(!settings.readerFollowSystemTheme)
         #expect(!settings.readerDarkMode)
-        settings.alignReaderDarkMode(deviceIsDark: true)
+        settings.alignReaderDarkMode(deviceIsDark: true, in: .active)
         #expect(!settings.readerDarkMode)
         // Back to the device's by hand: the switch is the user's to turn on again.
         settings.setReaderDarkMode(true, deviceIsDark: true)
@@ -191,25 +191,63 @@ struct ReaderBackgroundBindingTests {
         settings.readerFollowSystemTheme = true
         settings.readerDarkMode = false
 
-        settings.alignReaderDarkMode(deviceIsDark: true)
+        settings.alignReaderDarkMode(deviceIsDark: true, in: .active)
         #expect(settings.readerDarkMode)
         #expect(settings.readerBackgroundResolution(mode: settings.readerMode, wornTheme: .white).theme == .night)
 
         // 白天 by hand while the device is dark: held.
         settings.setReaderDarkMode(false, deviceIsDark: true)
         #expect(!settings.readerFollowSystemTheme)
-        settings.alignReaderDarkMode(deviceIsDark: true)
+        settings.alignReaderDarkMode(deviceIsDark: true, in: .active)
         #expect(!settings.readerDarkMode)
         // The device comes round to it, and is followed from there.
-        settings.alignReaderDarkMode(deviceIsDark: false)
+        settings.alignReaderDarkMode(deviceIsDark: false, in: .active)
         #expect(settings.readerFollowSystemTheme)
-        settings.alignReaderDarkMode(deviceIsDark: true)
+        settings.alignReaderDarkMode(deviceIsDark: true, in: .active)
         #expect(settings.readerDarkMode)
 
         // Set against the device and back by hand, it follows again at once.
         settings.setReaderDarkMode(false, deviceIsDark: true)
         settings.setReaderDarkMode(true, deviceIsDark: true)
         #expect(settings.readerFollowSystemTheme)
+    }
+
+    /// The report (2026-10-04): with 主題切換 › 跟隨系統 on, a reader set to 白天 on a dark
+    /// device came back in 深色 after every trip out of the app. In the background UIKit
+    /// draws the app-switcher snapshots in both appearances — light, then dark again — and
+    /// SwiftUI hands each to the reader (iOS 27 simulator log, 2026-10-05). Neither is the
+    /// device changing its appearance.
+    @Test func leavingTheAppKeepsAModeSetAgainstTheDevice() {
+        let settings = GlobalSettings.shared
+        let fixture = Fixture(settings)
+        defer { fixture.restore() }
+
+        settings.appearanceBindReaderTheme = false
+        settings.readerCustomBackgroundID = nil
+        settings.readerFollowSystemTheme = true
+        settings.readerDarkMode = false
+        settings.alignReaderDarkMode(deviceIsDark: true, in: .active)
+        #expect(settings.readerDarkMode)
+        // 白天 by hand on the dark device.
+        settings.setReaderDarkMode(false, deviceIsDark: true)
+        #expect(!settings.readerFollowSystemTheme)
+
+        // Out of the app: the light snapshot, then the dark one.
+        settings.alignReaderDarkMode(deviceIsDark: false, in: .background)
+        settings.alignReaderDarkMode(deviceIsDark: true, in: .background)
+        // Back, to the same dark device.
+        settings.alignReaderDarkMode(deviceIsDark: true, in: .inactive)
+        settings.alignReaderDarkMode(deviceIsDark: true, in: .active)
+        #expect(!settings.readerDarkMode)
+        #expect(!settings.readerFollowSystemTheme)
+
+        // The device does turn light while the app is away: taken up as the scene comes
+        // back, and followed from there.
+        settings.alignReaderDarkMode(deviceIsDark: false, in: .background)
+        settings.alignReaderDarkMode(deviceIsDark: false, in: .inactive)
+        #expect(settings.readerFollowSystemTheme)
+        settings.alignReaderDarkMode(deviceIsDark: true, in: .active)
+        #expect(settings.readerDarkMode)
     }
 
     /// What the reader lets go of or takes up again by itself is not a setting made here:
@@ -226,7 +264,7 @@ struct ReaderBackgroundBindingTests {
 
         settings.setReaderDarkMode(true, deviceIsDark: false)
         #expect(!settings.readerFollowSystemTheme)
-        settings.alignReaderDarkMode(deviceIsDark: true)
+        settings.alignReaderDarkMode(deviceIsDark: true, in: .active)
         #expect(settings.readerFollowSystemTheme)
         #expect(Self.backgroundRecord(settings) == nil)
     }
@@ -254,13 +292,13 @@ struct ReaderBackgroundBindingTests {
         #expect(!settings.readerFollowSystemTheme)
 
         // The device comes round to it, and the setup is worn again.
-        settings.alignReaderDarkMode(deviceIsDark: true)
+        settings.alignReaderDarkMode(deviceIsDark: true, in: .active)
         settings.synchronizeReadingSettings()
         #expect(settings.readerFollowSystemTheme)
         #expect(settings.readerDarkMode)
 
         // Back to light: followed, and still followed after the setup is worn again.
-        settings.alignReaderDarkMode(deviceIsDark: false)
+        settings.alignReaderDarkMode(deviceIsDark: false, in: .active)
         ReaderConfig.shared.theme = .white
         settings.synchronizeReadingSettings()
         #expect(!settings.readerDarkMode)

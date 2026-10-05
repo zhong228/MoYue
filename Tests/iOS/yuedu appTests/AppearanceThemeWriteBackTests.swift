@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 import UIKit
 @testable import yuedu_app
@@ -126,6 +127,39 @@ struct AppearanceThemeWriteBackTests {
         settings.appearanceUsesSeparateDarkTheme = false
         #expect(settings.rootTabIconSize == 24)
         #expect(settings.readingSettingsThemeID == GlobalSettings.defaultAppearanceThemeID)
+    }
+
+    /// The app-switcher snapshots drawn in the background turn the light／dark to the other
+    /// appearance and back (iOS 27 simulator log, 2026-10-05). With 單獨設定深色主題 on, each
+    /// trip out of the app wore the other slot's theme — its icons, font and reading setup
+    /// — and laid the open book out for it (reported 2026-10-04).
+    @Test func snapshotsInTheBackgroundDoNotWearTheOtherAppearancesTheme() async throws {
+        let settings = GlobalSettings.shared
+        let fixture = Fixture(settings)
+        defer { fixture.restore() }
+        fixture.reset(iconSize: 24, columns: 3)
+
+        var extras = AppearanceThemeExtras()
+        extras.tabIconSize = 30
+        let pack = Self.colourTheme("Dark only", extras: extras)
+        settings.customAppearanceThemes.append(pack)
+        settings.appearanceUsesSeparateDarkTheme = true
+        settings.appearanceDarkThemeID = pack.id
+        settings.noteAppearanceOnScreen(.light, in: .active)
+        #expect(settings.appearanceOnScreen == .light)
+        #expect(settings.rootTabIconSize == 24)
+
+        // Out of the app: the dark snapshot, then the light one.
+        settings.noteAppearanceOnScreen(.dark, in: .background)
+        #expect(settings.appearanceOnScreen == .light)
+        #expect(settings.rootTabIconSize == 24)
+        settings.noteAppearanceOnScreen(.light, in: .background)
+
+        // The device does turn dark while the app is away: taken up as the scene comes back.
+        settings.noteAppearanceOnScreen(.dark, in: .background)
+        settings.noteAppearanceOnScreen(.dark, in: .inactive)
+        #expect(settings.appearanceOnScreen == .dark)
+        #expect(settings.rootTabIconSize == 30)
     }
 
     @Test func removingACoverAnotherThemeStillShowsLeavesTheFileOnDisk() async throws {
