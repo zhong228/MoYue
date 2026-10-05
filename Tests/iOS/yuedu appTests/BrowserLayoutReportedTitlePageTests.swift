@@ -97,6 +97,11 @@ struct BrowserLayoutReportedTitlePageTests {
             cell.layer.render(in: context.cgContext)
         }
         try #require(image.pngData()).write(to: output.appendingPathComponent("scroll-cell.png"))
+        // Normal scroll prepares only its own viewport document: since 14c7a441 it no
+        // longer paginates the whole chapter on the way, which is the point of viewport
+        // layout. The paged chapter is laid out the way the paged reader lays it out.
+        #expect(engine.testLayout(for: 4) == nil, "Scrolling must not paginate the chapter")
+        await engine.preloadChapter(at: 4)
         let paged = try #require(engine.testLayout(for: 4))
         #expect(paged.sourceText == tile.chapter.document.sourceText)
         let firstWhite = try #require(BrowserLayoutTestSupport.allTextFragments([paged.pages[0]]).first {
