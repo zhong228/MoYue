@@ -277,6 +277,30 @@ struct BookChapterStorageTests {
 
     // MARK: - Helpers
 
+    /// Every chapter of an audiobook is fetched by its entry in the table of contents. The
+    /// player looked the book up on the shelf, where a record carries none, and every
+    /// chapter of a shelf audiobook failed with 找不到章節 (caught before release, 2026-10-05).
+    @Test("the audiobook player plays the book with its table of contents")
+    func audiobookPlayerSeesTheTableOfContents() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = BookStore(metadataFileURL: directory.appendingPathComponent("books_meta.json"))
+        var audiobook = onlineBook(title: "有聲書", chapterCount: 12)
+        audiobook.contentPipelineKind = .audio
+        store.replaceBooksFromSync([audiobook])
+        #expect(store.books.first?.onlineChapters == nil, "a shelf record carries no list")
+
+        let playing = AudiobookPlayer.playingBook(id: audiobook.id, store: store, startedWith: nil)
+        #expect(playing?.onlineChapters?.count == 12)
+
+        // Not on the shelf — 立即閱讀 from a detail page — the store still has it.
+        var trial = onlineBook(title: "試聽", chapterCount: 5)
+        trial.contentPipelineKind = .audio
+        trial.isInBookshelf = false
+        store.saveReadingBook(trial)
+        #expect(AudiobookPlayer.playingBook(id: trial.id, store: store, startedWith: nil)?.onlineChapters?.count == 5)
+    }
+
     private func onlineBook(title: String, chapterCount: Int) -> ReadingBook {
         var book = ReadingBook(title: title, author: "作者", source: "https://example.com/\(UUID().uuidString)", contentFilename: "")
         book.isOnline = true

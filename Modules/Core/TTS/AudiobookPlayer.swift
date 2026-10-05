@@ -1212,9 +1212,18 @@ final class AudiobookPlayer: NSObject, ObservableObject {
     }
 
     private func currentBook() -> ReadingBook? {
-        guard let id = bookId else { return nil }
-        return store?.books.first(where: { $0.id == id })
-            ?? (activeBook?.id == id ? activeBook : nil)
+        Self.playingBook(id: bookId, store: store, startedWith: activeBook)
+    }
+
+    /// The book being played, as the store has it now: through `readingBook(id:)`, which
+    /// attaches its table of contents. Every chapter is fetched by its entry there, and a
+    /// shelf record carries none since the lists moved to `BookChapterStore` — looked up on
+    /// the shelf, every chapter of a shelf audiobook failed with 找不到章節 (caught before
+    /// that change shipped, 2026-10-05). The copy playback started with stands in while the
+    /// store holds no record of it.
+    static func playingBook(id: UUID?, store: BookStore?, startedWith active: ReadingBook?) -> ReadingBook? {
+        guard let id else { return nil }
+        return store?.readingBook(id: id) ?? (active?.id == id ? active : nil)
     }
 
     private func seekWithinCurrentChapter(to relativeTime: TimeInterval) {
