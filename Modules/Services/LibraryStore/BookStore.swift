@@ -984,7 +984,13 @@ class BookStore: ObservableObject, BookProvider {
     @discardableResult
     func ensureOnlineBookForDownload(_ book: ReadingBook) -> ReadingBook {
         guard book.isOnline else { return book }
-        if let stored = readingBook(id: book.id) {
+        if var stored = readingBook(id: book.id) {
+            // Only a shelf book's chapters download (`OfflineDownloadManager.runBook`). One
+            // only read — 立即閱讀's, which stays off the shelf — goes on it as its download
+            // starts, and stays there.
+            if !stored.isInBookshelf, addReadingBookToShelf(id: book.id) != nil {
+                stored.isInBookshelf = true
+            }
             return stored
         }
         var libraryBook = book
@@ -994,17 +1000,19 @@ class BookStore: ObservableObject, BookProvider {
         return libraryBook
     }
 
-    /// Finds a shelf book by its source-qualified online identity.
+    /// Finds a shelf book by its source-qualified online identity — or, `onShelf: false`, a
+    /// book only read: what 立即閱讀 keeps while its reader is open, and leaves behind when
+    /// the app ends before the reader closes.
     ///
     /// A detail URL is not globally unique: aggregation sources can expose the
     /// same site URL under different source rules. Keeping `bookSourceId` in the
     /// key lets those source variants coexist, matching the MD3 shelf model,
     /// while repeated opens of the same source reuse one shelf item.
-    func onlineBook(sourceId: UUID?, bookInfoURL: String?) -> ReadingBook? {
+    func onlineBook(sourceId: UUID?, bookInfoURL: String?, onShelf: Bool = true) -> ReadingBook? {
         let urlKey = Self.onlineBookURLKey(bookInfoURL)
         guard !urlKey.isEmpty else { return nil }
         return records.first { book in
-            guard book.isOnline, book.bookSourceId == sourceId else { return false }
+            guard book.isInBookshelf == onShelf, book.isOnline, book.bookSourceId == sourceId else { return false }
             return Self.onlineBookURLKey(book.bookInfoURL ?? book.source) == urlKey
         }
     }
@@ -1357,11 +1365,13 @@ class BookStore: ObservableObject, BookProvider {
         coverUrl: String = "",
         runtimeVariables: [String: String]? = nil,
         contentKind: OnlineBookContentKind? = nil,
-        chapters: [OnlineChapterRef]
+        chapters: [OnlineChapterRef],
+        isInBookshelf: Bool = true
     ) -> ReadingBook {
         var book = ReadingBook(
             title: name, author: author, source: bookInfoURL, contentFilename: "")
         book.isOnline = true
+        book.isInBookshelf = isInBookshelf
         let source = BookSourceStore.shared.sources.first { $0.id == sourceId }
         let inferredKind = contentKind ?? OnlineBookContentInference.infer(
             sourceType: source?.bookSourceType,

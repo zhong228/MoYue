@@ -752,9 +752,10 @@ struct OnlineBookView: View {
         alreadyInShelf = true
     }
 
+    /// Kept once it is on the shelf: its download put it there
+    /// (`BookStore.ensureOnlineBookForDownload`).
     private func shouldKeepTemporaryReaderBook(_ bookId: UUID) -> Bool {
-        guard let book = bookStore.books.first(where: { $0.id == bookId }) else { return false }
-        return book.offlineDownloadState != .none || book.offlineDownloadTask != nil
+        bookStore.books.contains { $0.id == bookId }
     }
 
     private func readerDidClose() {
@@ -794,18 +795,38 @@ struct OnlineBookView: View {
             temporaryReaderBookId = nil
             targetBookId = existingId
         } else {
-            let tempBook = bookStore.addOnlineBook(
-                name: displayName,
-                author: displayAuthor == localized("未知作者") ? "" : displayAuthor,
-                sourceId: source.id,
-                bookInfoURL: currentBook.bookUrl,
-                tocURL: resolvedTOCURL,
-                coverUrl: displayCoverUrl,
-                runtimeVariables: tocRuntimeVariables
-                    ?? detailInfo?.runtimeVariables
-                    ?? currentBook.runtimeVariables,
-                chapters: chapters
-            )
+            // A book read without being added is a record off the shelf: it neither shows
+            // on the shelf nor syncs. It used to be a shelf book until the reader closed,
+            // and synced while it was open; a device on 2.0.6, which never takes a
+            // deletion, kept it as a second copy of the book (reported 2026-10-04). One a
+            // reader left behind — the app ended before it closed — is read again rather
+            // than joined by another.
+            let runtimeVariables = tocRuntimeVariables
+                ?? detailInfo?.runtimeVariables
+                ?? currentBook.runtimeVariables
+            let tempBook: ReadingBook
+            if let leftover = bookStore.onlineBook(
+                sourceId: source.id, bookInfoURL: currentBook.bookUrl, onShelf: false
+            ) {
+                bookStore.updateOnlineChapters(
+                    bookId: leftover.id,
+                    chapters: chapters,
+                    runtimeVariables: runtimeVariables
+                )
+                tempBook = leftover
+            } else {
+                tempBook = bookStore.addOnlineBook(
+                    name: displayName,
+                    author: displayAuthor == localized("未知作者") ? "" : displayAuthor,
+                    sourceId: source.id,
+                    bookInfoURL: currentBook.bookUrl,
+                    tocURL: resolvedTOCURL,
+                    coverUrl: displayCoverUrl,
+                    runtimeVariables: runtimeVariables,
+                    chapters: chapters,
+                    isInBookshelf: false
+                )
+            }
             addedBookId = tempBook.id
             temporaryReaderBookId = tempBook.id
             targetBookId = tempBook.id
@@ -817,7 +838,7 @@ struct OnlineBookView: View {
                 let position = CoreTextReadingPosition(spineIndex: chapterIndex, charOffset: 0)
                 await dependencies.readingPositionStore.save(position, for: targetBookId.uuidString)
             }
-            guard let readingBook = bookStore.books.first(where: { $0.id == targetBookId }) else {
+            guard let readingBook = bookStore.readingBook(id: targetBookId) else {
                 openingReader = false
                 return
             }
