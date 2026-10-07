@@ -9,6 +9,7 @@ SCHEME="Yuedu-Reader"
 VERSION="${1:-1.0.0}"
 
 echo "Building $SCHEME (unsigned) for iOS device, version $VERSION ..."
+mkdir -p build
 
 # 1. Release build without code signing (device generic destination)
 xcodebuild \
