@@ -151,11 +151,17 @@ private struct RelationshipRingLayout {
 
     init(size: CGSize, count: Int) {
         middle = CGPoint(x: size.width / 2, y: size.height / 2)
-        let radius = max(0, min(size.width, size.height) / 2 - DSLayout.relationshipNodeInset)
-        points = (0..<count).map { index -> CGPoint in
-            let angle = 2 * Double.pi * Double(index) / Double(max(count, 1)) - Double.pi / 2
-            return CGPoint(x: middle.x + radius * cos(angle), y: middle.y + radius * sin(angle))
+        let radius: CGFloat = max(0, min(size.width, size.height) / 2 - DSLayout.relationshipNodeInset)
+        let divisor: CGFloat = CGFloat(max(count, 1))
+        var computed: [CGPoint] = []
+        computed.reserveCapacity(count)
+        for index in 0..<count {
+            let angle: CGFloat = 2 * .pi * CGFloat(index) / divisor - .pi / 2
+            let x: CGFloat = middle.x + radius * cos(angle)
+            let y: CGFloat = middle.y + radius * sin(angle)
+            computed.append(CGPoint(x: x, y: y))
         }
+        points = computed
     }
 }
 
