@@ -22,10 +22,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Select Xcode 16
+      - name: Select Xcode (prefer 26, fallback 16)
         run: |
           ls /Applications | grep -i xcode || true
-          XCODE_APP="$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)"
+          XCODE_APP="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$XCODE_APP" ]; then
+            XCODE_APP="$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)"
+          fi
           if [ -n "$XCODE_APP" ]; then
             sudo xcode-select -s "$XCODE_APP"
           fi
