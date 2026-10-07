@@ -62,8 +62,10 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   SWIFT_COMPILATION_MODE=incremental \
   build > build/xcodebuild.log 2>&1 || {
-    echo "xcodebuild FAILED (tail of log):"
-    tail -120 build/xcodebuild.log
+    echo "xcodebuild FAILED (error lines):"
+    grep -n "error:" build/xcodebuild.log | head -40 || true
+    echo "--- last 30 lines ---"
+    tail -30 build/xcodebuild.log
     exit 1
   }
 
