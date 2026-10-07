@@ -61,7 +61,6 @@ xcodebuild \
   -derivedDataPath build/DerivedData \
   CODE_SIGNING_ALLOWED=NO \
   SWIFT_COMPILATION_MODE=incremental \
-  OTHER_SWIFT_FLAGS="-Xfrontend -typecheck-timeout 0" \
   build > build/xcodebuild.log 2>&1 || {
     echo "xcodebuild FAILED (tail of log):"
     tail -120 build/xcodebuild.log
