@@ -19,7 +19,7 @@ tags: [yuedu, browser-layout, fidelity-loop]
 
 - [ ] 從**主工作目錄**執行下面的指令，對象是要驗收的閱讀器程式樹，結束碼為 0：
   ```bash
-  bash scripts/fidelity/measure.sh --sets dev,holdout --tree <要驗收的 Yuedu-reader> --require-goal
+  bash scripts/fidelity/measure.sh --sets dev,holdout --tree <要驗收的 MoYue> --require-goal
   ```
   也就是：每本書 ≥ 80 分，閱讀器這邊沒有任何一章擷取失敗，而且每本書抽到的章節至少一半量得到（WebView 自己畫不出來的章節不算分，規則見 [ORACLE.md](ORACLE.md)「分數」）。
 - [ ] 每本書 holdout 的分數不比 dev 低超過 8 分。低很多代表修法只對看過的章節有效。

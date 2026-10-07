@@ -6,7 +6,7 @@
 
 BrowserLayout 將以固定的 Lexbor `v3.0.0`
 （commit `2ae88a1c6b5261830eff73ee12bb3cdf805f3cfe`）
-作為新的 HTML／DOM／CSS syntax／selectors／style frontend，經 Yuedu
+作為新的 HTML／DOM／CSS syntax／selectors／style frontend，經 MoYue
 adapter 轉成既有 `ComputedStyleNode`。`BoxTreeBuilder` 以下的 layout、
 fragmentation、display list 與 paint 完全不改。
 
@@ -74,7 +74,7 @@ Packages/CLexbor/
 └── Tests/CLexborTests/
 ```
 
-`CLexbor.h` 只公開 Yuedu 需要的 opaque C bridge，Swift 不直接 import 巨大的
+`CLexbor.h` 只公開 MoYue 需要的 opaque C bridge，Swift 不直接 import 巨大的
 Lexbor public API。Generated `.c` 是唯一被 C target 編譯的 translation unit；
 它 include generated `.h` 與 committed bridge implementation。這避免同一
 amalgamated implementation 被多個 `.c` include 而出現 duplicate symbols。
@@ -218,15 +218,15 @@ Mandatory proofs：
 - 正確的 author `!important` precedence；
 - invalid attribute 不產生 hint、不 crash、不變 0。
 
-## Lexbor cascade 與 Yuedu adapter
+## Lexbor cascade 與 MoYue adapter
 
 `LexborCSSFrontend` 負責 parse HTML/CSS、stylesheet application、selector
 matching、specificity、cascade 與 inheritance traversal；
-`LexborComputedStyleAdapter` 是 Lexbor → Yuedu 的唯一映射點。
+`LexborComputedStyleAdapter` 是 Lexbor → MoYue 的唯一映射點。
 
 Adapter 不把 C pointer 寫入 `ComputedStyle`，也不以第二份自由格式 CSS parser
 重新解析整個 stylesheet。Lexbor bridge 將 winning declaration 暴露成 typed
-property/value snapshot；adapter 將其映射到現有 Yuedu types：
+property/value snapshot；adapter 將其映射到現有 MoYue types：
 
 - keywords → `CSSDisplay`、`CSSFloat`、`CSSClear`、`WhiteSpaceMode`、Ruby enums；
 - length/percentage/auto → `CSSLength`／`CSSTextIndent`，保留 used-value 所需
@@ -250,7 +250,7 @@ source identity 交給 scanner。Scanner 必須 whole-chapter fallback；不得�
 該 value 後用 initial `ComputedStyle` 假裝兩個 frontend identical。只有目前
 BrowserLayout 已有語意的欄位才寫入 layout-facing `ComputedStyle`。
 
-Lexbor 能 parse 但 Yuedu model 無 representation 的值分類為 `ADAPTER_GAP`。
+Lexbor 能 parse 但 MoYue model 無 representation 的值分類為 `ADAPTER_GAP`。
 Lexbor 能 parse 且 adapter 能表示、但 BrowserLayout 不會 layout 的 property
 仍由 capability scanner拒絕；frontend coverage 不等於 layout support。
 

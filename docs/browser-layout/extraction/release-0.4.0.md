@@ -8,8 +8,8 @@ Reader 呼叫了 `BrowserScrollDocument.documentPoint(forCharOffset:)` 等直排
 
 現在套件已發布 [0.4.0](https://github.com/CHANG-JUI-LIN/YueduCoreText/releases/tag/0.4.0)，commit 為 `4a49d3183f5f5c0cc44ff3e68c1a01113d255438`。Reader 的最低版本改為 0.4.0、限制在 0.4.x，並由 Xcode 實際解析、產生 Package.resolved。其他依賴的版本與 revision 均與修改前一致。
 
-- Package 原始 checkout：`/Users/zhangruilin/Desktop/YueduCoreText`，main；起始 HEAD `12bb1b29c64b552740cf322b132924ace4727826`。既有直排修改與三語文件已納入上述發布 commit。
-- Reader 原始 checkout：`/Users/zhangruilin/Desktop/Yuedu-reader`，main；起始 HEAD `4dc1d9f58cfcd866a518285de0d96e0e82dbe471`。原有 TTS、AI、匯入與其他同時修改保留；本次 Reader 接線修改留在工作目錄，未替其他工作提交或推送。
+- Package 原始 checkout：`<repo>/YueduCoreText`，main；起始 HEAD `12bb1b29c64b552740cf322b132924ace4727826`。既有直排修改與三語文件已納入上述發布 commit。
+- Reader 原始 checkout：`<repo>`，main；起始 HEAD `4dc1d9f58cfcd866a518285de0d96e0e82dbe471`。原有 TTS、AI、匯入與其他同時修改保留；本次 Reader 接線修改留在工作目錄，未替其他工作提交或推送。
 - `Yuedu-Reader.xcodeproj/project.pbxproj`：同一個遠端 package reference，`upToNextMinorVersion(0.4.0)`，沒有新增重複 product／local dependency。
 - `Yuedu-Reader.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`：鎖定真實 0.4.0 tag 對應 revision。
 - `CoreTextScrollEngine.chunkIndex(forChapter:charOffset:)` 可使用新版 `documentPoint` 還原直排位置；正常 project 編譯套件來源位於 Xcode 的遠端 `SourcePackages/checkouts/YueduCoreText`，沒有使用相鄰 checkout override 或修改快取原始碼。
@@ -61,4 +61,4 @@ xcodebuild build -project Yuedu-Reader.xcodeproj -scheme Yuedu-Reader \
 - 遠端實際 checkout HEAD 核對為 `4a49d3183f5f5c0cc44ff3e68c1a01113d255438`。正常 project 不再需要本機 override，也不再缺少 `documentPoint`。
 - 套件正式 ref 與 release 已存在；Reader 的依賴設定及既有直排 adapter 仍是本機未提交修改，因此未宣稱 Reader GitHub main 已同步本機全部修改。
 
-不取得 Yuedu Reader 原始碼，只取得 YueduCoreText 及其正式宣告的依賴，可以從 HTML + CSS 獨立完成排版、分頁與繪製；同一發布 commit 的 GitHub consumer 6/6 通過為直接證據。
+不取得 MoYue 原始碼，只取得 YueduCoreText 及其正式宣告的依賴，可以從 HTML + CSS 獨立完成排版、分頁與繪製；同一發布 commit 的 GitHub consumer 6/6 通過為直接證據。

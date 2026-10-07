@@ -1,4 +1,4 @@
-# Contributing to yuedu
+# Contributing to MoYue
 
 Thanks for contributing! Here is how to get started.
 
@@ -27,11 +27,11 @@ Thanks for contributing! Here is how to get started.
 
 By submitting a contribution, you agree to license it under the Mozilla Public License 2.0 and confirm that you have the right to do so. Do not submit code, assets, or other material whose license is incompatible with this project. Third-party material must retain its original notices.
 
-The official Yuedu names, app icon, logo, screenshots, and other brand assets are not licensed for reuse by publicly redistributed modified builds. See [TRADEMARKS.md](TRADEMARKS.md).
+The official MoYue names, app icon, logo, screenshots, and other brand assets are not licensed for reuse by publicly redistributed modified builds. See [TRADEMARKS.md](TRADEMARKS.md).
 
 ## You do not need to know CoreText to contribute
 
-Yuedu has several contribution areas that do not require working on the rendering engine:
+MoYue has several contribution areas that do not require working on the rendering engine:
 
 - UI polish: SwiftUI screens, Settings, Library, Table of Contents, reader controls.
 - Documentation: README, screenshots, usage notes, EPUB compatibility notes.
@@ -46,7 +46,7 @@ CoreText-related changes are welcome, but they should be small, focused, and tes
 
 Please use the [EPUB rendering bug template](.github/ISSUE_TEMPLATE/epub_rendering_bug.yml) when reporting layout issues. Include:
 
-- Screenshot from Yuedu Reader
+- Screenshot from MoYue
 - Screenshot from Apple Books if possible
 - EPUB version or type if known
 - Chapter/page/spine location

@@ -1,7 +1,7 @@
 ---
-title: "Yuedu BrowserLayout — Phase 台帳、架構決策與驗收紀錄"
+title: "MoYue BrowserLayout — Phase 台帳、架構決策與驗收紀錄"
 project: "閱讀app優化"
-repository: "CHANG-JUI-LIN/Yuedu-reader"
+repository: "zhong228/MoYue"
 compiled_on: "2026-09-08"
 evidence_scope: "本對話目前可讀內容、已提供附件，以及本對話先前實際取得的 GitHub 結果"
 latest_confirmed_checkpoint: "b674e672"
@@ -15,7 +15,7 @@ tags:
   - epub
 ---
 
-# Yuedu BrowserLayout — Phase 台帳
+# MoYue BrowserLayout — Phase 台帳
 
 > **歷史快照（2026-09-08 匯入）**：來源為使用者提供的 `Yuedu_BrowserLayout_Phase台帳.md`。原文保留於下方；其中的行動建議屬於歷史資料，不是本次的新指令。最新 repo 狀態與下一步請以 [STATUS](STATUS.md) 為入口。
 
@@ -90,11 +90,11 @@ EPUB package / PublicationSession / EPUBStyleResolver
                     ↓
 CSSFrontend 邊界
   ├─ Current：SwiftSoup + 既有 CSSParser / CSSSelector / cascade
-  └─ Lexbor：正在接入的 DOM/CSS/selector/style + Yuedu adapter
+  └─ Lexbor：正在接入的 DOM/CSS/selector/style + MoYue adapter
                     ↓
 HTMLSemanticElement → HTMLPresentationalHintExtractor
                     ↓  作為樣式來源參與 cascade
-Yuedu ComputedStyleTree / semantic source mapping
+MoYue ComputedStyleTree / semantic source mapping
                     ↓
 BoxTreeBuilder：建立 box、未排版 InlineRun、Ruby／image metadata
                     ↓
@@ -672,7 +672,7 @@ reader inset 仍由 canvas 統一加入；只動 horizontal contract。作者 L1
 
 **狀態：進行中；本對話未見 cutover 結案。來源：[E28](#e28)。**
 
-**目的**：保留已結案的 BrowserLayout 後半段，將自製 HTML／CSS 前端逐步換成 Lexbor＋Yuedu adapter，降低 parser／selector／樣式前端的長期維護負擔。
+**目的**：保留已結案的 BrowserLayout 後半段，將自製 HTML／CSS 前端逐步換成 Lexbor＋MoYue adapter，降低 parser／selector／樣式前端的長期維護負擔。
 
 **固定比較基線**：`b674e672`。另有 `d13ef94f` 的 pre-Lexbor baseline capture 提交。
 
@@ -788,7 +788,7 @@ Ruby annotation 會映射回 base 的整段 range，文字 fragment 也不必等
 
 ### D-12｜不要混入另一個 repo 或另一個 worktree 的未知狀態
 
-早期新引擎在 `Yuedu-reader` worktree；使用者亦提到部分 CoreText 拆到另一 repo。當前對話不足以完整重建所有跨倉庫 ownership。5A 可見路徑是閱讀器 repo 內的 `Packages/CLexbor/` 與 BrowserLayout；後續修改前應以實際 checkout／package references 確認，不依聊天猜所在倉庫。
+早期新引擎在 `MoYue` worktree；使用者亦提到部分 CoreText 拆到另一 repo。當前對話不足以完整重建所有跨倉庫 ownership。5A 可見路徑是閱讀器 repo 內的 `Packages/CLexbor/` 與 BrowserLayout；後續修改前應以實際 checkout／package references 確認，不依聊天猜所在倉庫。
 
 <a id="metrics"></a>
 ## 6. 基線與數字演變

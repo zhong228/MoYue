@@ -3,11 +3,11 @@
 > 其他章节：[快速开始](quickstart.zh-Hans.md) · [规则语法速查](rule-syntax.zh-Hans.md) · [常见症状对照表](troubleshooting.zh-Hans.md)
 > 繁體中文：[與 Legado 的差異](legado-differences.zh-Hant.md)
 
-Yuedu 可直接导入 Legado 3.0 的书源 JSON 数据模型，但**不代表所有运行时 API 都已兼容**。多数书源可以直接使用，依赖 Android／Java 特有 API 或不同语法语义的书源仍可能失效；实际能力以本页清单为准。
+MoYue 可直接导入 Legado 3.0 的书源 JSON 数据模型，但**不代表所有运行时 API 都已兼容**。多数书源可以直接使用，依赖 Android／Java 特有 API 或不同语法语义的书源仍可能失效；实际能力以本页清单为准。
 
 ## 0. 一句话总结
 
-| Legado | Yuedu |
+| Legado | MoYue |
 | --- | --- |
 | Rhino（Java）JavaScript 引擎 | JavaScriptCore（Safari 同款） |
 | jsoup HTML 解析 | SwiftSoup（jsoup 相容实现） |
@@ -15,7 +15,7 @@ Yuedu 可直接导入 Legado 3.0 的书源 JSON 数据模型，但**不代表所
 | Jayway JSONPath | 自实现 JSONPath |
 | JsoupXpath | libxml2 XPath 1.0 |
 
-**最大风险是 JS**：Legado 书源会调用 Android／Java API，Yuedu 用一个 `java.*` 相容层承接，**有一个白名单**——白名单外的调用会直接报 `ERROR`。书源在两端行为不同，九成是 JS 用了白名单外的东西。
+**最大风险是 JS**：Legado 书源会调用 Android／Java API，MoYue 用一个 `java.*` 相容层承接，**有一个白名单**——白名单外的调用会直接报 `ERROR`。书源在两端行为不同，九成是 JS 用了白名单外的东西。
 
 ## 1. `java.*` API 对照
 
@@ -75,11 +75,11 @@ Yuedu 可直接导入 Legado 3.0 的书源 JSON 数据模型，但**不代表所
 | `java.refreshExplore`／`refreshBookInfo`／`refreshBookToc`／`refreshContent` | no-op | — |
 | `java.openVideoPlayer` | 退化成开浏览器 | — |
 
-另外一个容易踩的：**`java.get` 的单参数／双参数歧义**。Legado 靠 Java 多载，Yuedu 用参数数量分派：单参数＝读变量，双参数＝HTTP GET。调用前数清楚参数个数。
+另外一个容易踩的：**`java.get` 的单参数／双参数歧义**。Legado 靠 Java 多载，MoYue 用参数数量分派：单参数＝读变量，双参数＝HTTP GET。调用前数清楚参数个数。
 
 ## 2. `Packages.*` 与 Java 类白名单
 
-书源 JS 常直接 import Java 类（`importClass(Packages.java.security.MessageDigest)` 等）。Yuedu **只注册了以下类**，白名单外的 `new`／调用会抛 `UnsupportedLegadoAPIError`（调试日志会看到 `ERROR:`）：
+书源 JS 常直接 import Java 类（`importClass(Packages.java.security.MessageDigest)` 等）。MoYue **只注册了以下类**，白名单外的 `new`／调用会抛 `UnsupportedLegadoAPIError`（调试日志会看到 `ERROR:`）：
 
 ```
 java.lang.String（含 getBytes）、java.lang.System（nanoTime/currentTimeMillis）
@@ -96,7 +96,7 @@ okhttp3：MediaType.parse、RequestBody.create、Request.Builder、OkHttpClient
 
 ## 3. 模板变量的语义差异（最容易踩）
 
-| 位置 | Legado | Yuedu（相同） | 差异 |
+| 位置 | Legado | MoYue（相同） | 差异 |
 | --- | --- | --- | --- |
 | 搜索/发现 URL | `{{key}}`、`{{page}}`、`{{pageIndex}}`、`{{header}}`、`{{JS}}` | ✅ 完全支持 | 无 |
 | 章节/目录 URL | 同上 | ✅ 支持 | 无 |
@@ -117,7 +117,7 @@ okhttp3：MediaType.parse、RequestBody.create、Request.Builder、OkHttpClient
 
 规则里的 `##正则##` 用 **ICU 正则**执行。Legado 书源常见的 Java-only 语法会自动做近似转换：
 
-| Java 语法 | ICU | Yuedu 处理 |
+| Java 语法 | ICU | MoYue 处理 |
 | --- | --- | --- |
 | `++`、`*+`、`?+`、`{n,m}+`（possessive） | 不支持 | 近似转成一般量词（语义不完全等价） |
 | `(?>…)`（atomic group） | 不支持 | 近似转换（语义不完全等价） |
@@ -145,7 +145,7 @@ okhttp3：MediaType.parse、RequestBody.create、Request.Builder、OkHttpClient
 ## 7. XPath 差异
 
 - 通过 libxml2 提供**完整 XPath 1.0**：`|` 联合、轴（`following-sibling::` 等）、`[position()>1]`、`[text()="x"]` 都可用——这部分比 Legado 的 JsoupXpath 更标准
-- **`!/` 前缀没有任何语义**：Legado 的 `!/`（取非？）在 Yuedu 不会被解释，等同查一条非法 XPath → 空结果。不要用
+- **`!/` 前缀没有任何语义**：Legado 的 `!/`（取非？）在 MoYue 不会被解释，等同查一条非法 XPath → 空结果。不要用
 - `@xpath:` 以外的 `//…` 开头（含没有前缀的 `//`）会被正确路由到 XPath 模式
 
 ## 8. 其他注意事项
@@ -156,7 +156,7 @@ okhttp3：MediaType.parse、RequestBody.create、Request.Builder、OkHttpClient
 | JS 执行 | JavaScriptCore；单次求值 30 秒超时，超时重置引擎（停在 `java.startBrowserAwait` 等用户看网页时不算）；`eval()` 保留开启（Legado 混淆 jsLib 需要）；每段 JS 结果会自动处理 `result` 包装 |
 | `setContent` | `java.setContent(content, baseUrl)` 可用，主路径照样执行 |
 | Cloudflare 挑战 | 与 Legado 相同：网络请求不会自己跳验证页，响应照原样交给书源。书源 JS 调用 `java.startBrowserAwait(url, title[, refetchAfterSuccess])` 时打开网页（带书源标头与 UA）；页面上的 Cloudflare 挑战一通过就自动完成，`refetchAfterSuccess` 默认 `true`＝带着新 cookie 重抓原网址返回，`false`＝返回网页 HTML。阅读菜单「打开网页」可手动打开本章网页过验证 |
-| 段落缩排 | Legado 在 `replaceRegex` 后会自动每行补全形空格缩排，Yuedu **刻意不做**（可自行在替换规则加 `　　`） |
+| 段落缩排 | Legado 在 `replaceRegex` 后会自动每行补全形空格缩排，MoYue **刻意不做**（可自行在替换规则加 `　　`） |
 | `respondTime`／`concurrentRate` | `respondTime` 作为 JS 网络请求（`java.ajax` 等）的超时（毫秒，下限 8 秒）；`concurrentRate` 做每源请求节流 |
 | 书源类型 | `bookSourceType` 0=文字、1=听书、2=漫画，决定内容路由，不会因此改用 WebView 传输 |
 | 章节 URL 带选项 | `tag.a@href##$##,{"webView":true}` 这类「URL+选项」写法支持（`chapterUrl`、`nextContentUrl`、`nextTocUrl`、`ruleContent.content` 为 URL 时） |

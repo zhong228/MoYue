@@ -251,7 +251,7 @@
 				<string>public.data</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>Yuedu Reader Style</string>
+			<string>MoYue Reader Style</string>
 			<key>UTTypeIdentifier</key>
 			<string>app.yuedu.reader-style</string>
 			<key>UTTypeTagSpecification</key>
@@ -268,7 +268,7 @@
 				<string>public.data</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>Yuedu Log File</string>
+			<string>MoYue Log File</string>
 			<key>UTTypeIdentifier</key>
 			<string>app.yuedu.log-file</string>
 			<key>UTTypeTagSpecification</key>

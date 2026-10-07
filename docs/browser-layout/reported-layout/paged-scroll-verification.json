@@ -93,7 +93,7 @@
     "passedTests": 1,
     "chapterComparisons": 2,
     "xcresult": "/tmp/yuedu-layout-fix-20260909/reported-coretext-appearance-final.xcresult",
-    "testSource": "/Users/zhangruilin/Desktop/Yuedu-reader/.worktrees/lexbor-computed-style/Tests/iOS/yuedu appTests/CoreTextReportedAppearanceTests.swift",
+    "testSource": "<repo>/.worktrees/lexbor-computed-style/Tests/iOS/yuedu appTests/CoreTextReportedAppearanceTests.swift",
     "testSourceSHA256": "79079a24710bea4a6ed9f4fc1172306b754966517d8a00c273df9f225e552d00",
     "execution": "isolated worktree, legacy CoreText path; Paginator and ChunkSlicer byte-identical to tested main sources",
     "conditions": {

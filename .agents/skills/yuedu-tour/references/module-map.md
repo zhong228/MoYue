@@ -1,4 +1,4 @@
-# Yuedu Module Map
+# MoYue Module Map
 
 Paths below are relative to the repository root. Read only the section relevant to the task.
 
@@ -9,8 +9,8 @@ Paths below are relative to the repository root. Read only the section relevant 
 | Reading rendering, layout, fonts, margins, paging | `Modules/Core/ReaderCore/`, `Modules/Core/ReaderCore/CoreText/`, `Modules/Features/Reader/` |
 | Bookshelf, book CRUD, grouping, drag sorting | `Modules/Services/LibraryStore/`, `Modules/Features/Bookshelf/` |
 | Book sources, online books, rule engine | `Modules/Core/BookSource/`, `Modules/Services/Online/`, `Modules/Core/RuleEngine/`, `Modules/Features/BookSource/`, `Modules/Features/Explore/` |
-| Global settings, themes, DI | `Targets/Yuedu/SharedApp/`, `Modules/SharedUI/DesignSystem/` |
-| Account, sign-in, Google Sign-In, Apple Sign-In | `Modules/Services/Account/`, `Modules/Features/Settings/ProfileView.swift`, `Modules/Features/Settings/UserDetailView.swift`, `Modules/Features/Settings/LoginView.swift`, `Targets/Yuedu/SharedApp/GlobalSettings.swift` |
+| Global settings, themes, DI | `Targets/MoYue/SharedApp/`, `Modules/SharedUI/DesignSystem/` |
+| Account, sign-in, Google Sign-In, Apple Sign-In | `Modules/Services/Account/`, `Modules/Features/Settings/ProfileView.swift`, `Modules/Features/Settings/UserDetailView.swift`, `Modules/Features/Settings/LoginView.swift`, `Targets/MoYue/SharedApp/GlobalSettings.swift` |
 | TTS | `Modules/Core/TTS/`, `Modules/Features/Reader/TTS/`, `Modules/Features/Settings/TTSSettingsView.swift` |
 | Search | `Modules/Features/Search/`, `Modules/Services/Online/SearchAggregator.swift` |
 | Sync and offline download | `Modules/Services/iCloud/`, `Modules/Services/WebDAV/`, `Modules/Services/Network/`, `Modules/Services/Online/OnlineReadingPipeline.swift`, `Modules/Features/Settings/DownloadManagementView.swift` |
@@ -21,8 +21,8 @@ Paths below are relative to the repository root. Read only the section relevant 
 
 | Need | Read first |
 | --- | --- |
-| App launch and environment injection | `Targets/Yuedu/SharedApp/yuedu_appApp.swift`, `Targets/Yuedu/SharedApp/AppDependencies.swift` |
-| Main tabs | `Targets/Yuedu/SharedApp/ContentView.swift` |
+| App launch and environment injection | `Targets/MoYue/SharedApp/yuedu_appApp.swift`, `Targets/MoYue/SharedApp/AppDependencies.swift` |
+| Main tabs | `Targets/MoYue/SharedApp/ContentView.swift` |
 | Bookshelf | `Modules/Features/Bookshelf/HomeView.swift` |
 | Book model and store | `Modules/Services/LibraryStore/Models.swift` (`ReadingBook`, `Bookmark`), `Modules/Services/LibraryStore/BookStore.swift` (`BookStore`) |
 | Reader screen | `Modules/Features/Reader/ReaderView.swift`, `Modules/Features/Reader/ReaderViewFactory.swift` |
@@ -35,7 +35,7 @@ Paths below are relative to the repository root. Read only the section relevant 
 | EPUB CSS parsing | `Modules/Core/ReaderCore/CoreText/EPUBStyleResolver.swift` |
 | HTML/Markdown/TXT attributed strings | `Modules/Core/ReaderCore/CoreText/*AttributedStringBuilder.swift` |
 | Vertical text normalization & config | `Modules/Core/ReaderCore/CoreText/CoreTextCommon/String+VerticalNormalization.swift`, `Modules/Core/ReaderCore/CoreText/CoreTextCommon/VerticalLayoutConfig.swift` |
-| Settings | `Targets/Yuedu/SharedApp/GlobalSettings.swift` (`GlobalSettings.shared`), `Modules/Features/Settings/` |
+| Settings | `Targets/MoYue/SharedApp/GlobalSettings.swift` (`GlobalSettings.shared`), `Modules/Features/Settings/` |
 | Account row and sign-in | `Modules/Features/Settings/ProfileView.swift`, `Modules/Features/Settings/UserDetailView.swift`, `Modules/Features/Settings/LoginView.swift` |
 | Online reading and download | `Modules/Services/Online/OnlineReadingPipeline.swift`, `Modules/Services/Online/ChapterFetcher.swift`, `Modules/Features/Settings/DownloadManagementView.swift` |
 | RSS list and feed parsing | `Modules/Features/RSS/RSSListView.swift`, `Modules/Features/RSS/RSSFeedView.swift`, `Modules/Services/RSS/RSSFetcher.swift` |
@@ -47,7 +47,7 @@ Paths below are relative to the repository root. Read only the section relevant 
 Use `rg` from the project root:
 
 ```bash
-ROOT="/Users/zhangruilin/Desktop/Yuedu-reader"
+ROOT="<repo>"
 
 rg -n "struct YourViewName" "$ROOT"/Modules "$ROOT"/Targets -g '*.swift'
 rg -n "store\\.yourMethod|\\.yourProperty" "$ROOT"/Modules "$ROOT"/Targets -g '*.swift'
@@ -71,7 +71,7 @@ rg -n "^protocol " "$ROOT"/Modules "$ROOT"/Targets -g '*.swift'
 | New TTS engine | `TTSPlayable` in `Modules/Core/TTS/TTSPlayable.swift` |
 | New book-source fetch logic | `BookSource` + `Modules/Core/BookSource/BookSourceFetcher+*` extensions |
 | New CSS property | `HTMLCSSPropertyApplier` in `Modules/Core/ReaderCore/CoreText/CSSPropertyApplier.swift` |
-| New global service | Define a protocol, add it to `Targets/Yuedu/SharedApp/AppDependencies.swift`, inject via `EnvironmentValues` |
+| New global service | Define a protocol, add it to `Targets/MoYue/SharedApp/AppDependencies.swift`, inject via `EnvironmentValues` |
 | New page transition effect | `ProgrammaticPageTransitionControlling` in `Modules/Core/ReaderCore/ProgrammaticPageTransitionPerformer.swift` |
 | Format-gated reader settings | `book.resolvedPipelineKind`, `ReadingBook` capability fields, or a persisted `ReadingBook` field |
 

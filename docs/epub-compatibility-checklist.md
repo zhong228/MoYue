@@ -26,7 +26,7 @@ Use this checklist when testing or reporting EPUB rendering issues.
 ## Debug information
 - Book title
 - Chapter or page
-- Screenshot from Yuedu Reader
+- Screenshot from MoYue
 - Screenshot from Apple Books if available
 - Whether the issue reproduces after changing font size
 - Whether the issue reproduces in scroll mode or paged mode

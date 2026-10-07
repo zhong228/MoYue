@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  Apple Books-inspired open-source reader for iOS.
+  A serene open-source reader for iOS — EPUB3, comics, audiobooks, RSS, and open catalogs, rendered natively with CoreText.
 </p>
 
 <p align="center">
@@ -15,22 +15,12 @@
 </p>
 
 <p align="center">
-  <a href="https://apps.apple.com/app/id6772972358">
-    <img src="https://img.shields.io/badge/App%20Store-Download-0D96F6?logo=apple&logoColor=white" alt="Download on the App Store">
-  </a>
-  <a href="https://testflight.apple.com/join/7hvbzYC1">
-    <img src="https://img.shields.io/badge/TestFlight-Beta-0D96F6?logo=apple&logoColor=white" alt="Join the TestFlight beta">
-  </a>
-  <a href="https://iosdevweekly.com/issues/751">
-    <img src="https://img.shields.io/badge/Featured%20in-iOS%20Dev%20Weekly%20%23751-FF6600" alt="Featured in iOS Dev Weekly #751">
-  </a>
   <img src="https://img.shields.io/badge/iOS-18.0%2B-000000?logo=apple&logoColor=white" alt="iOS 18.0+">
+  <img src="https://img.shields.io/badge/Swift-6.0-F05138?logo=swift&logoColor=white" alt="Swift 6.0">
   <img src="https://img.shields.io/badge/license-MPL--2.0-blue" alt="MPL 2.0 License">
 </p>
 
-> Featured in [iOS Dev Weekly #751](https://iosdevweekly.com/issues/751) — [*From WebView to CoreText: Building a Native EPUB Reader for iOS*](https://chang-jui-lin.github.io/Yuedu-reader/2026/05/20/from-webview-to-coretext/).
-
-MoYue (墨悦) is an open-source reading application, continued from the Yuedu open-source project focused on a high-quality local and open reading experience. One app for EPUB3, comics, audiobooks, RSS, and open catalogs — rendered natively with CoreText, no WebView.
+MoYue (墨悦) is an open-source iOS reading app for a high-quality local and open reading experience. One app for EPUB3, comics, audiobooks, RSS, and open catalogs — rendered natively with CoreText, no WebView.
 
 ## Features
 
@@ -43,7 +33,7 @@ MoYue (墨悦) is an open-source reading application, continued from the Yuedu o
 
 ## Why CoreText, not WebView
 
-Most readers wrap content in a WebView. MoYue renders every page with CoreText, which gives precise pagination, true CJK vertical writing, frame-accurate text-to-speech sync, and native text selection — at native performance. The full story is in [*From WebView to CoreText*](https://chang-jui-lin.github.io/Yuedu-reader/2026/05/20/from-webview-to-coretext/).
+Most readers wrap content in a WebView. MoYue renders every page with CoreText, which gives precise pagination, true CJK vertical writing, frame-accurate text-to-speech sync, and native text selection — at native performance.
 
 ## Architecture
 
@@ -66,14 +56,10 @@ Sync (WebDAV / iCloud / OPDS)
 ```bash
 git clone https://github.com/zhong228/MoYue.git
 cd MoYue
-open Yuedu-Reader.xcodeproj
+open *.xcodeproj
 ```
 
 Then select a simulator (or your device) and run. Self-built versions need their own signing configuration and bundle identifier. Publicly redistributed forks must use distinct app names, icons, and branding and must not imply official endorsement.
-
-## Official App Store build
-
-The source code is open source. The App Store version is the official build maintained, signed, reviewed, distributed, and supported by the project owner. Its purchase price supports ongoing development and release maintenance.
 
 ## Documentation
 
@@ -94,4 +80,4 @@ Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for convent
 
 ## License
 
-Source code is licensed under the [Mozilla Public License 2.0](LICENSE). The Yuedu name, app icon, logo, screenshots, and other brand assets are not licensed under the MPL; see [TRADEMARKS.md](TRADEMARKS.md). Versions released before the license transition remain available under the license that applied when they were published; see [LICENSING.md](LICENSING.md).
+Source code is licensed under the [Mozilla Public License 2.0](LICENSE). The MoYue name, app icon, logo, screenshots, and other brand assets are not licensed under the MPL; see [TRADEMARKS.md](TRADEMARKS.md). Versions released before a license change remain available under the license that applied when they were published; see [LICENSING.md](LICENSING.md).

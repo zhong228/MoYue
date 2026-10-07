@@ -3,7 +3,7 @@ require "minitest/autorun"
 class LicensingContractTest < Minitest::Test
   REPO_ROOT = File.expand_path("../..", __dir__)
   LAST_MIT_COMMIT = "87ffc527f5a9d1057591f448d402d07993af920f"
-  SOURCE_URL = "https://github.com/CHANG-JUI-LIN/Yuedu-reader"
+  SOURCE_URL = "https://github.com/zhong228/MoYue"
 
   def test_preserves_the_historical_mit_notice
     notice = read("LICENSES/MIT.txt")

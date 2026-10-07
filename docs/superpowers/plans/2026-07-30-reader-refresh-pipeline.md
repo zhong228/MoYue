@@ -34,7 +34,7 @@
 - `Modules/Features/Reader/ReaderViewModifiers.swift` — remove `ScrollConfigObserver`.
 - `Modules/Features/Reader/ReaderSettingsView.swift` — remove manual `readerConfig.refresh.send` calls.
 - `Modules/Features/Reader/ChapterTitleStyleSettingsView.swift` — rely on the style value mutation instead of a manual refresh send.
-- `Targets/Yuedu/SharedApp/GlobalSettings.swift` — clear chapter-title font references when deleting a font.
+- `Targets/MoYue/SharedApp/GlobalSettings.swift` — clear chapter-title font references when deleting a font.
 - Existing reader tests listed in Task 7 — update assertions only where the new transaction contract changes an interface.
 
 ## Task 1: Define Refresh Transactions and Identity
@@ -1153,7 +1153,7 @@ git commit -m "refactor: route reader settings through one refresh path"
 - Modify: `Modules/Features/Reader/ReaderView+OnlineChapterLoading.swift`
 - Modify: `Modules/Features/Reader/ReaderView+Logic.swift`
 - Modify: `Modules/Features/Reader/ReaderView.swift`
-- Modify: `Targets/Yuedu/SharedApp/GlobalSettings.swift`
+- Modify: `Targets/MoYue/SharedApp/GlobalSettings.swift`
 - Modify: `Tests/iOS/yuedu appTests/ReaderRenderRefreshTests.swift`
 - Modify: `Tests/iOS/yuedu appTests/UserFontSettingsTests.swift`
 
@@ -1410,7 +1410,7 @@ Expected: all selected tests pass.
 git add Modules/Features/Reader/ReaderView+OnlineChapterLoading.swift \
   Modules/Features/Reader/ReaderView+Logic.swift \
   Modules/Features/Reader/ReaderView.swift \
-  Targets/Yuedu/SharedApp/GlobalSettings.swift \
+  Targets/MoYue/SharedApp/GlobalSettings.swift \
   'Tests/iOS/yuedu appTests/ReaderRenderRefreshTests.swift' \
   'Tests/iOS/yuedu appTests/UserFontSettingsTests.swift'
 git commit -m "refactor: unify chapter and mode refresh transactions"

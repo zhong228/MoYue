@@ -2,7 +2,7 @@
   "name": "yuedu-firebase-gateway",
   "version": "1.0.0",
   "private": true,
-  "description": "Finite-purpose HTTPS relay in front of the existing Firebase project so the Yuedu iOS app can sign in and reach account/subscription data from networks where Google endpoints are unreachable.",
+  "description": "Finite-purpose HTTPS relay in front of the existing Firebase project so the MoYue iOS app can sign in and reach account/subscription data from networks where Google endpoints are unreachable.",
   "type": "module",
   "engines": {
     "node": "22"

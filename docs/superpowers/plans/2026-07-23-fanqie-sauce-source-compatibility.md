@@ -231,7 +231,7 @@ git commit -m "fix: add Legado HMAC byte bridge"
 
 **Files:**
 - Create: `Tests/iOS/yuedu appTests/FanqieSauceSourceTests.swift`
-- Test: `/Users/zhangruilin/Desktop/Test document/RULE/🌙 番茄酱.json`
+- Test: `<repo>/Test document/RULE/🌙 番茄酱.json`
 
 - [ ] **Step 1: Add the source-fixture test suite**
 
@@ -248,7 +248,7 @@ struct FanqieSauceSourceTests {
     static var jsonPath: String {
         ProcessInfo.processInfo.environment["FANQIE_SAUCE_SOURCE_JSON"]
             ?? ProcessInfo.processInfo.environment["TEST_RUNNER_FANQIE_SAUCE_SOURCE_JSON"]
-            ?? "/Users/zhangruilin/Desktop/Test document/RULE/🌙 番茄酱.json"
+            ?? "<repo>/Test document/RULE/🌙 番茄酱.json"
     }
 
     static var runLiveTests: Bool {
@@ -376,7 +376,7 @@ Expected result:
 Ask the user to run:
 
 ```bash
-TEST_RUNNER_FANQIE_SAUCE_SOURCE_JSON='/Users/zhangruilin/Desktop/Test document/RULE/🌙 番茄酱.json' \
+TEST_RUNNER_FANQIE_SAUCE_SOURCE_JSON='<repo>/Test document/RULE/🌙 番茄酱.json' \
 xcodebuild test \
   -project Yuedu-Reader.xcodeproj \
   -scheme Yuedu-Reader \
@@ -392,7 +392,7 @@ Expected result: the test passes and the source's unchanged `jsLib` produces a n
 Ask the user to run:
 
 ```bash
-TEST_RUNNER_FANQIE_SAUCE_SOURCE_JSON='/Users/zhangruilin/Desktop/Test document/RULE/🌙 番茄酱.json' \
+TEST_RUNNER_FANQIE_SAUCE_SOURCE_JSON='<repo>/Test document/RULE/🌙 番茄酱.json' \
 TEST_RUNNER_RUN_LIVE_FANQIE_SAUCE_TESTS=1 \
 xcodebuild test \
   -project Yuedu-Reader.xcodeproj \

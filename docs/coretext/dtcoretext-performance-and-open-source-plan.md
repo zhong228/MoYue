@@ -1,4 +1,4 @@
-# Yuedu CoreText：DTCoreText 對照、效能改善與獨立開源計畫
+# MoYue CoreText：DTCoreText 對照、效能改善與獨立開源計畫
 
 > 日期：2026-07-27
 >
@@ -27,7 +27,7 @@ DTCoreText 最值得學的不是把整套程式碼搬過來，而是四個邊界
 - 長內容用 `CATiledLayer` 背景分塊繪製，主執行緒只發布 immutable snapshot 與管理互動 view。
 - HTML parser 支援串流、取消與單次 builder 結果快取，而不是讓 UI 等完整同步管線。
 
-但 Yuedu 不應退化成一般 rich-text view。我們已經有 DTCoreText 沒有的閱讀器能力：穩定章節位置、分頁與連續模式共用內容語意、CJK 直排、跨頁互動、EPUB CSS／浮動元素／註解／TTS／線上書源。正確方向是保留這些優勢，重建「章節文件、layout session、display list、背景 raster」四個邊界。
+但 MoYue 不應退化成一般 rich-text view。我們已經有 DTCoreText 沒有的閱讀器能力：穩定章節位置、分頁與連續模式共用內容語意、CJK 直排、跨頁互動、EPUB CSS／浮動元素／註解／TTS／線上書源。正確方向是保留這些優勢，重建「章節文件、layout session、display list、背景 raster」四個邊界。
 
 建議先做 P0 量測，再依序做 P1 主執行緒止血、P2 章節結果共用、P3 單次 layout artifact、P4 背景分塊繪製。獨立開源則先在 app 內轉成 local Swift Package，等 app 使用同一套 public API 後再發佈 v0.1；不要直接把現在的資料夾複製出去。
 
@@ -45,18 +45,18 @@ DTCoreText 最值得學的不是把整套程式碼搬過來，而是四個邊界
 
 ## 架構對照
 
-| 面向 | DTCoreText | Yuedu 現況 | 判斷 |
+| 面向 | DTCoreText | MoYue 現況 | 判斷 |
 |---|---|---|---|
-| 產品定位 | HTML attributed string + 通用 rich-text view | EPUB/TXT/線上書源閱讀器 | Yuedu 的產品範圍更完整，不應直接換引擎 |
-| HTML 處理 | libxml2 串流 parser event，支援 async/cancel | SwiftSoup DOM → Styled AST → `RenderableNode` → attributed string | Yuedu IR 是擴充優勢，但目前有較高延遲與峰值記憶體 |
+| 產品定位 | HTML attributed string + 通用 rich-text view | EPUB/TXT/線上書源閱讀器 | MoYue 的產品範圍更完整，不應直接換引擎 |
+| HTML 處理 | libxml2 串流 parser event，支援 async/cancel | SwiftSoup DOM → Styled AST → `RenderableNode` → attributed string | MoYue IR 是擴充優勢，但目前有較高延遲與峰值記憶體 |
 | Layout owner | `CoreTextLayouter` 持有 attributed string 與 lazy framesetter | builder、paginator、page/scroll engine 分散持有 | 需要 `ChapterDocument` + queue-confined `LayoutSession` |
 | Frame reuse | `CoreTextLayoutFrame` 可由 `NSCache` 依 string/frame/range key 重用 | 同一 page range 被多個 extractor 各自建 frame，draw 又建一次 | 這是最明確的重工之一 |
 | 長內容繪製 | `CATiledLayer`，背景 tile draw，只畫可見 lines | 大 chunk 的 `UIView.draw(_:)` 同步 raster | 需要 tile／bitmap A/B 實驗 |
 | 衍生資料 | layout frame lazy 保存 lines、glyph-run layout | attachment、annotation、block renderable 分開重掃 | 應合併成單次 display list |
 | Custom view | 只為 visible rect 配置 attachment views | 圖片主要在 draw 內畫，互動 overlay 另管 | 可保留 overlay 優勢，base layer 改背景 raster |
 | Cache | 明確可選的 frame cache，圖片／字型也有 bounded cache | engine LRU + paginator dictionary + snapshot cache 多層重疊 | 統一 ownership、cost 與 memory-warning 行為 |
-| 直排 | 未見 `vertical-rl`／`kCTVerticalForms` 的完整支援 | 有完整 CJK 直排、標點正規化、選取／點擊座標處理 | Yuedu 的核心差異化 |
-| 閱讀位置 | rich-text range／view 座標 | `(spineIndex, charOffset)`、CFI／進度映射 | Yuedu 的核心差異化 |
+| 直排 | 未見 `vertical-rl`／`kCTVerticalForms` 的完整支援 | 有完整 CJK 直排、標點正規化、選取／點擊座標處理 | MoYue 的核心差異化 |
+| 閱讀位置 | rich-text range／view 座標 | `(spineIndex, charOffset)`、CFI／進度映射 | MoYue 的核心差異化 |
 
 ## 效能根因與程式碼證據
 
@@ -240,7 +240,7 @@ scroll store 時測試由 5/5 降為 4/5，還原後相關 focused suites 53/53 
 
 ### P2 級：HTML 管線峰值記憶體偏高
 
-Yuedu 同時經過 SwiftSoup DOM、Styled AST、`RenderableNode`、`NSAttributedString`。這換來清楚的語意層、測試性與多來源一致性，是值得保留的設計；問題在於中間結果的生命週期與整章 materialization。
+MoYue 同時經過 SwiftSoup DOM、Styled AST、`RenderableNode`、`NSAttributedString`。這換來清楚的語意層、測試性與多來源一致性，是值得保留的設計；問題在於中間結果的生命週期與整章 materialization。
 
 **改善：**
 
@@ -253,23 +253,23 @@ Yuedu 同時經過 SwiftSoup DOM、Styled AST、`RenderableNode`、`NSAttributed
 
 ### 1. Layouter 與 layout frame 的所有權
 
-`CoreTextLayouter` 將 attributed string 與 lazy framesetter 綁在一起；`CoreTextLayoutFrame` 再保存 frame、lines 與 glyph-run layout。Yuedu 應採用相似責任邊界，但輸出閱讀器需要的 `PageLayoutArtifact`／`ChunkLayoutArtifact`。
+`CoreTextLayouter` 將 attributed string 與 lazy framesetter 綁在一起；`CoreTextLayoutFrame` 再保存 frame、lines 與 glyph-run layout。MoYue 應採用相似責任邊界，但輸出閱讀器需要的 `PageLayoutArtifact`／`ChunkLayoutArtifact`。
 
 ### 2. Clip-aware 的可見範圍繪製
 
-DTCoreText 不會把整份長內容每次全部畫完，而是依 clip rect 選擇 visible lines 和 custom views。Yuedu 即使選 offscreen bitmap，也應讓 raster job 以 tile rect 為輸入，只產生需要的 draw commands。
+DTCoreText 不會把整份長內容每次全部畫完，而是依 clip rect 選擇 visible lines 和 custom views。MoYue 即使選 offscreen bitmap，也應讓 raster job 以 tile rect 為輸入，只產生需要的 draw commands。
 
 ### 3. `CATiledLayer` 背景繪製
 
-DTCoreText 的 `AttributedTextView` 強制使用無 fade 的 `CATiledLayer`，並透過 locked immutable snapshot 讓 tile callback 在背景執行。這非常適合作為 Yuedu 連續模式的第一個 A/B prototype。
+DTCoreText 的 `AttributedTextView` 強制使用無 fade 的 `CATiledLayer`，並透過 locked immutable snapshot 讓 tile callback 在背景執行。這非常適合作為 MoYue 連續模式的第一個 A/B prototype。
 
 ### 4. Builder 的取消與結果生命週期
 
-DTCoreText 的 HTML builder 能 async build、取消，並在 builder instance 上快取結果。Yuedu 應把這個概念提升成跨 page/scroll engine 的 `ChapterDocumentStore`，而不是只快取單一 builder。
+DTCoreText 的 HTML builder 能 async build、取消，並在 builder instance 上快取結果。MoYue 應把這個概念提升成跨 page/scroll engine 的 `ChapterDocumentStore`，而不是只快取單一 builder。
 
 ### 5. Package 與 public API 紀律
 
-DTCoreText 已是 Swift Package，核心 layout、UI view、HTML builder 的責任相對可辨識。Yuedu 開源前也應先讓 app 自己成為 package 的第一個外部使用者，才能找到隱藏的 app-global coupling。
+DTCoreText 已是 Swift Package，核心 layout、UI view、HTML builder 的責任相對可辨識。MoYue 開源前也應先讓 app 自己成為 package 的第一個外部使用者，才能找到隱藏的 app-global coupling。
 
 ## 不要直接照抄什麼
 
@@ -279,7 +279,7 @@ DTCoreText 已是 Swift Package，核心 layout、UI view、HTML builder 的責�
 - 不要把 DTCoreText 的通用 rich-text API 直接套到 reader navigation；`(resourceIndex, charOffset)` 必須保持第一級型別。
 - 不要加入「背景失敗就主線同步重做」的隱性 fallback。每個失敗都要有精確原因、可觀測狀態與唯一正式路徑。
 
-## Yuedu 現有優點
+## MoYue 現有優點
 
 ### 閱讀器語意
 
@@ -575,12 +575,12 @@ YueduCoreTextHTML
 YueduCoreTextUIKit
 
 YueduCoreTextExtras → YueduCoreText
-Yuedu app adapters → all needed package targets
+MoYue app adapters → all needed package targets
 ```
 
 `YueduCoreText` 只依賴 Foundation、CoreText、CoreGraphics，以及最低限度 UIKit（若 `UIFont`／`UIColor` 尚未完全 value-化）。理想上 core layout config 使用自有 value types，UIKit conversion 留在 UIKit target。
 
-Readium、publication storage、線上書源、媒體播放、使用者設定、資料庫與 app logging 留在 Yuedu app。HTML target 才依賴 SwiftSoup；MathML／SVG 依賴放 Extras，避免所有使用者被迫引入。
+Readium、publication storage、線上書源、媒體播放、使用者設定、資料庫與 app logging 留在 MoYue app。HTML target 才依賴 SwiftSoup；MathML／SVG 依賴放 Extras，避免所有使用者被迫引入。
 
 ### 第一個可獨立編譯的切片
 
@@ -677,7 +677,7 @@ public struct LayoutConfiguration: Hashable, Sendable {
 
 ## License 選項
 
-現有 Yuedu repo 是 MPL-2.0；從本 repo 搬出的程式碼預設仍受既有 license 約束。即使目前 CoreText 相關 commit 看起來皆為同一作者，正式 relicense 前仍要確認著作權、僱傭／委託關係與第三方貢獻。
+現有 MoYue repo 是 MPL-2.0；從本 repo 搬出的程式碼預設仍受既有 license 約束。即使目前 CoreText 相關 commit 看起來皆為同一作者，正式 relicense 前仍要確認著作權、僱傭／委託關係與第三方貢獻。
 
 1. **MPL-2.0（推薦）**：與現有 repo 一致，file-level copyleft，法律遷移最單純。
 2. Apache-2.0：較寬鬆且有明確 patent grant；需先確認有權 relicense。
@@ -710,7 +710,7 @@ public struct LayoutConfiguration: Hashable, Sendable {
 
 - `swift build` 與 `swift test` 可在乾淨 clone 獨立完成。
 - public API 有 DocC、concurrency contract、cache policy 與最小 migration guide。
-- sample 不需要 Yuedu app target 或 private assets。
+- sample 不需要 MoYue app target 或 private assets。
 - horizontal/vertical fixtures 有 screenshot/layout parity。
 - performance baseline 與 reference device／corpus 一起公開。
 - 無未標示的 singleton、global setting、app logger、Readium/WebKit dependency。
@@ -767,4 +767,4 @@ public struct LayoutConfiguration: Hashable, Sendable {
 
 第二個里程碑才是「連續捲動背景 raster」。先有 display list 和 queue confinement，再比較 `CATiledLayer` 與 offscreen bitmap，才能避免把目前的重複 layout 搬到另一條背景 queue，表面不掉幀、實際卻耗更多 CPU 與記憶體。
 
-第三個里程碑是「Yuedu app 完全透過 local Swift Package 使用 renderer」。這個狀態通過後，公開 repo 才不是把內部程式碼丟出去，而是真正可被別人採用、測試與貢獻的開源元件。
+第三個里程碑是「MoYue app 完全透過 local Swift Package 使用 renderer」。這個狀態通過後，公開 repo 才不是把內部程式碼丟出去，而是真正可被別人採用、測試與貢獻的開源元件。

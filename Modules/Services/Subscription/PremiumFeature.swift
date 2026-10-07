@@ -1,6 +1,6 @@
 import Foundation
 
-/// A capability unlocked by an active `Yuedu Pro` subscription.
+/// A capability unlocked by an active `MoYue Pro` subscription.
 ///
 /// Gating is intentionally coarse in v1: every feature maps to the single
 /// `isProActive` entitlement. The enum still enumerates each capability so the

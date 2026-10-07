@@ -167,7 +167,7 @@ private struct LegadoReadConfig: Decodable {
     let titleBottomSpacing: CGFloat?
     let pageAnim: Int?
 
-    // Yuedu's fixed header/footer schema, retained for importing older presets.
+    // MoYue's fixed header/footer schema, retained for importing older presets.
     let readerHeaderVisible: Bool?
     let readerFooterVisible: Bool?
     let readerHeaderFieldPositions: [String: String]?

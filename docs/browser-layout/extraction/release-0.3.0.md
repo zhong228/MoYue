@@ -68,4 +68,4 @@ GitHub Actions 使用 Xcode 16.4。0.3.0 能編譯，但 Typography 的 `punctua
 /Applications/Xcode-beta.app/Contents/Developer/usr/bin/xcodebuild -scheme YueduCoreTextConsumer -destination "platform=iOS Simulator,id=9022EC10-D454-4270-AA9B-36D15CAD67C6" -parallel-testing-enabled NO -resultBundlePath /tmp/yuedu-engine-release/consumer-remote.xcresult test-without-building
 ```
 
-不取得 Yuedu Reader 原始碼，只取得已發布 YueduCoreText 及其正式依賴，可以從 HTML + CSS 獨立完成排版、分頁與繪製；遠端 consumer 的 5/5 測試為本次直接證據。
+不取得 MoYue 原始碼，只取得已發布 YueduCoreText 及其正式依賴，可以從 HTML + CSS 獨立完成排版、分頁與繪製；遠端 consumer 的 5/5 測試為本次直接證據。

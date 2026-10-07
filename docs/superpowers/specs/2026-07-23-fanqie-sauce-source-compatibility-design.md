@@ -2,7 +2,7 @@
 
 ## Goal
 
-Support the provided `🌙 番茄酱` Legado book source through Yuedu's existing online-source pipeline, covering the complete basic reading flow:
+Support the provided `🌙 番茄酱` Legado book source through MoYue's existing online-source pipeline, covering the complete basic reading flow:
 
 1. Search for a book.
 2. Load book details.
@@ -21,7 +21,7 @@ undefined is not an object (evaluating 'f[...]')
 
 is a downstream virtual-machine failure rather than the actionable cause.
 
-Tracing the helper's request builder shows that it calls two Legado Java bridge APIs that Yuedu does not currently export:
+Tracing the helper's request builder shows that it calls two Legado Java bridge APIs that MoYue does not currently export:
 
 ```javascript
 java.HMacBase64(content, "HmacSHA256", key)

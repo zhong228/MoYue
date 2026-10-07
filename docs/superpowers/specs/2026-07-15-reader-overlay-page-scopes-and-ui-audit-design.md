@@ -2,7 +2,7 @@
 
 ## Goal
 
-Refine the reader header/footer editor so chapter-opening pages and chapter-body pages own independent component arrangements, snapping is stable and limited to meaningful typography guides, and every overlay-related screen follows the existing Yuedu DS tokens and native iOS interaction conventions. Publish matching Traditional Chinese and English documentation for battery SVG templates.
+Refine the reader header/footer editor so chapter-opening pages and chapter-body pages own independent component arrangements, snapping is stable and limited to meaningful typography guides, and every overlay-related screen follows the existing MoYue DS tokens and native iOS interaction conventions. Publish matching Traditional Chinese and English documentation for battery SVG templates.
 
 ## Terminology
 

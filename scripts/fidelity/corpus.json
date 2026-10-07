@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "note": "Machine-local corpus for the render-fidelity oracle. Every *.epub in `root` is measured. `match` is a piece of the file name; a file no entry matches gets an id derived from its name. `pinned` chapters are always in the dev sample. No book content is committed.",
-  "root": "/Users/zhangruilin/Desktop/Test document/EPUB Format",
+  "root": "<repo>/Test document/EPUB Format",
   "sample": {
     "dev": 10,
     "holdout": 6

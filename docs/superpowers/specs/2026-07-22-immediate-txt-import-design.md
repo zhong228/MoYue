@@ -18,8 +18,8 @@ Legado MD3 and the Luoyacheng fork use the desired separation: local import crea
 
 After the document picker returns a TXT file:
 
-1. Yuedu reads only a bounded prefix to infer metadata.
-2. Yuedu imports the original file through the local TXT store path.
+1. MoYue reads only a bounded prefix to infer metadata.
+2. MoYue imports the original file through the local TXT store path.
 3. The add-book sheet closes after the book is persisted.
 4. The new book appears at the front of the bookshelf.
 

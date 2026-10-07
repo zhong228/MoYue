@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  受 Apple Books 啟發的開源 iOS 閱讀器。
+  靜謐的開源 iOS 閱讀器 —— EPUB3、漫畫、有聲書、RSS 與開放目錄，全程以 CoreText 原生渲染。
 </p>
 
 <p align="center">
@@ -15,22 +15,12 @@
 </p>
 
 <p align="center">
-  <a href="https://apps.apple.com/app/id6772972358">
-    <img src="https://img.shields.io/badge/App%20Store-下載-0D96F6?logo=apple&logoColor=white" alt="從 App Store 下載">
-  </a>
-  <a href="https://testflight.apple.com/join/7hvbzYC1">
-    <img src="https://img.shields.io/badge/TestFlight-測試版-0D96F6?logo=apple&logoColor=white" alt="加入 TestFlight 測試">
-  </a>
-  <a href="https://iosdevweekly.com/issues/751">
-    <img src="https://img.shields.io/badge/iOS%20Dev%20Weekly-%23751%20收錄-FF6600" alt="獲 iOS Dev Weekly #751 收錄">
-  </a>
   <img src="https://img.shields.io/badge/iOS-18.0%2B-000000?logo=apple&logoColor=white" alt="iOS 18.0+">
+  <img src="https://img.shields.io/badge/Swift-6.0-F05138?logo=swift&logoColor=white" alt="Swift 6.0">
   <img src="https://img.shields.io/badge/授權-MPL--2.0-blue" alt="MPL 2.0 授權">
 </p>
 
-> 獲 [iOS Dev Weekly #751](https://iosdevweekly.com/issues/751) 收錄 —— [*From WebView to CoreText: Building a Native EPUB Reader for iOS*](https://chang-jui-lin.github.io/Yuedu-reader/2026/05/20/from-webview-to-coretext/)。
-
-墨悅（MoYue）是一個專注於高品質本地與開放閱讀體驗的開源閱讀應用，基於開源專案 Yuedu 的程式碼延續開發。一個 App 涵蓋 EPUB3、漫畫、有聲書、RSS 與開放目錄 —— 全程以 CoreText 原生渲染，無 WebView。
+墨悅（MoYue）是一個專注於高品質本地與開放閱讀體驗的開源 iOS 閱讀應用。一個 App 涵蓋 EPUB3、漫畫、有聲書、RSS 與開放目錄 —— 全程以 CoreText 原生渲染，無 WebView。
 
 ## 功能
 
@@ -43,7 +33,7 @@
 
 ## 為什麼用 CoreText，而非 WebView
 
-多數閱讀器把內容包進 WebView。墨悅每一頁都以 CoreText 渲染 —— 換來精準的分頁、真正的中日韓直排、逐幀對齊的語音朗讀同步，以及原生文字選取，且維持原生效能。完整來龍去脈見 [*From WebView to CoreText*](https://chang-jui-lin.github.io/Yuedu-reader/2026/05/20/from-webview-to-coretext/)。
+多數閱讀器把內容包進 WebView。墨悅每一頁都以 CoreText 渲染 —— 換來精準的分頁、真正的中日韓直排、逐幀對齊的語音朗讀同步，以及原生文字選取，且維持原生效能。
 
 ## 架構
 
@@ -66,14 +56,10 @@ Sync (WebDAV / iCloud / OPDS)
 ```bash
 git clone https://github.com/zhong228/MoYue.git
 cd MoYue
-open Yuedu-Reader.xcodeproj
+open *.xcodeproj
 ```
 
 接著選擇模擬器（或實機）執行。自行建置的版本需要自己的簽章設定與 Bundle Identifier；公開重新散布的分支版本必須使用不同的 App 名稱、圖示與品牌素材，且不得暗示獲得官方背書。
-
-## App Store 官方版本
-
-原始碼維持開源。App Store 版本是由專案作者維護、簽署、送審、發布並提供支援的官方版本；購買費用用於支持持續開發與版本維護。
 
 ## 文件
 
@@ -94,4 +80,4 @@ open Yuedu-Reader.xcodeproj
 
 ## 授權
 
-原始碼採用 [Mozilla Public License 2.0](LICENSE)。Yuedu／閱讀名稱、App 圖示、Logo、截圖及其他品牌素材不包含在 MPL 授權內，詳見 [TRADEMARKS.md](TRADEMARKS.md)。授權切換前發布的版本仍適用其發布時的授權，詳見 [LICENSING.md](LICENSING.md)。
+原始碼採用 [Mozilla Public License 2.0](LICENSE)。墨悅 MoYue 名稱、App 圖示、Logo、截圖及其他品牌素材不包含在 MPL 授權內，詳見 [TRADEMARKS.md](TRADEMARKS.md)。授權變更前發布的版本仍適用其發布時的授權，詳見 [LICENSING.md](LICENSING.md)。

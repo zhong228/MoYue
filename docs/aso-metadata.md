@@ -5,14 +5,14 @@
 描述不參與搜尋排名，只影響轉換，前 3 行最重要。
 
 ## English (U.S.)  — 主打 OPDS / Calibre
-- 名稱：`Yuedu - EPUB Reader & Manga`
+- 名稱：`MoYue - EPUB Reader & Manga`
 - 副標題：`OPDS, Calibre, TXT & RSS`
 - 關鍵字：`ebook,book,novel,comic,cbz,pdf,webdav,markdown,tts,aloud,bookshelf,highlight,notes,library,sync`
 - 宣傳文字：Connect your Calibre library or any OPDS catalog. Read EPUB with native typography, vertical CJK text, manga and RSS, and sync progress across your devices with iCloud.
 
 描述：
 ```
-Yuedu is a native iOS reader for the books you already own.
+MoYue is a native iOS reader for the books you already own.
 
 Connect your Calibre or Calibre-Web library, browse any OPDS catalog, or import files from WebDAV, then read them with CoreText typography built for long sessions: stable pagination, reading progress you can trust, highlights, notes and text-to-speech.
 
@@ -111,14 +111,14 @@ Terms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/st
 ```
 
 ## 日本語 — 主打 縦書き／青空文庫
-- 名稱：`Yuedu - EPUBリーダー 縦書き対応`
+- 名稱：`MoYue - EPUBリーダー 縦書き対応`
 - 副標題：`TXT・コミック・OPDS・読み上げ`
 - キーワード：`電子書籍,小説,ライトノベル,本棚,ルビ,マンガ,CBZ,RSS,WebDAV,Calibre,ハイライト,しおり,メモ,ダークモード,iCloud,PDF`
 - プロモーションテキスト：縦書きにも横書きにも対応した、iOSネイティブの電子書籍リーダー。EPUB・TXT・コミックを開き、読み上げ、ハイライト、iCloud同期も使えます。
 
 説明：
 ```
-Yuedu は、手持ちの電子書籍をきれいに読むための iOS ネイティブリーダーです。
+MoYue は、手持ちの電子書籍をきれいに読むための iOS ネイティブリーダーです。
 
 WebView ではなく CoreText で組版するため、縦書きの流れ、ページ送り、読書位置が安定します。長編小説を何時間読んでも疲れにくい設計です。
 
@@ -146,14 +146,14 @@ Terms of Use (EULA): https://www.apple.com/legal/internet-services/itunes/dev/st
 ```
 
 ## 한국어 — 전자책 / 만화 뷰어
-- 이름：`Yuedu - EPUB 전자책 리더`
+- 이름：`MoYue - EPUB 전자책 리더`
 - 부제：`TXT, 만화 CBZ, OPDS, 책장`
 - 키워드：`전자책,이북,소설,웹소설,만화,뷰어,낭독,TTS,하이라이트,북마크,메모,세로쓰기,RSS,WebDAV,Calibre,다크모드,동기화,iCloud`
 - 프로모션 텍스트：EPUB, TXT, 만화(CBZ)를 한곳에서. 세로쓰기와 낭독, 하이라이트를 지원하고 Calibre·OPDS 서재에 연결해 iCloud로 읽던 위치를 동기화합니다.
 
 설명：
 ```
-Yuedu는 내가 가진 책을 편하게 읽기 위한 iOS 네이티브 리더입니다.
+MoYue는 내가 가진 책을 편하게 읽기 위한 iOS 네이티브 리더입니다.
 
 웹뷰가 아닌 CoreText로 조판하여 페이지 넘김과 읽던 위치가 안정적이며, 긴 소설도 오래 읽을 수 있습니다.
 

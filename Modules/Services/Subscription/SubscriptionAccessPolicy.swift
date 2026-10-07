@@ -8,7 +8,7 @@ enum SubscriptionPurchaseAction: Equatable {
 enum SubscriptionAccessPolicy {
     /// Three independent grants, unioned. They are keyed by three different
     /// identities on purpose: `storeKit` by the App Store account, `account` by
-    /// the Yuedu (Firebase) account, `iCloud` by the iCloud account. A user who
+    /// the MoYue (Firebase) account, `iCloud` by the iCloud account. A user who
     /// switches App Store accounts loses only the first, which is what makes Pro
     /// look bound to the Apple ID when the other two are empty or unreachable.
     static func isProActive(storeKit: Bool, account: Bool, iCloud: Bool) -> Bool {
@@ -59,7 +59,7 @@ enum PaywallPresentationState: Equatable {
     /// An active monthly subscription. Lifetime is still sellable, framed as an
     /// upgrade, and monthly must not be offered again.
     case upgradeFromMonthly
-    /// Lifetime owned, or Pro arriving from the Yuedu account / iCloud mirror
+    /// Lifetime owned, or Pro arriving from the MoYue account / iCloud mirror
     /// with no local transaction to identify the plan. Either way there is
     /// nothing left to sell, so the paywall shows its member page, not an offer.
     case alreadyPro
@@ -84,7 +84,7 @@ enum PaywallPresentationPolicy {
 
     /// The plan the member page names as theirs: lifetime whenever it is owned — a
     /// monthly plan still held beside it is billing to cancel, not their plan — then
-    /// monthly. Nil for Pro from the Yuedu account or the iCloud mirror, which has no
+    /// monthly. Nil for Pro from the MoYue account or the iCloud mirror, which has no
     /// transaction on this Apple Account to name a plan by.
     static func ownedPlanID(
         purchasedProductIDs: Set<String>,
@@ -100,7 +100,7 @@ enum PaywallPresentationPolicy {
 /// What the paywall's member page offers for Apple's subscription management.
 enum ProSubscriptionManagement: Equatable {
     /// No monthly plan on this Apple Account: lifetime only, or Pro granted by the
-    /// Yuedu account or the iCloud mirror. Apple's subscription list has nothing
+    /// MoYue account or the iCloud mirror. Apple's subscription list has nothing
     /// of ours to show, so the page offers no link.
     case unavailable
     /// A monthly subscription the user may want to cancel.

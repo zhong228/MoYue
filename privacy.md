@@ -1,14 +1,14 @@
 ---
 layout: default
 title: Privacy Policy
-description: Privacy Policy for Yuedu Reader.
+description: Privacy Policy for MoYue.
 ---
 
-<p><img src="{{ site.baseurl }}/Resources/Assets.xcassets/YueduLogo.imageset/YueduLogo.png" alt="Yuedu Reader logo" width="88" style="border-radius:18px"></p>
+<p><img src="{{ site.baseurl }}/Resources/Assets.xcassets/MoYueLogo.imageset/MoYueLogo.png" alt="MoYue logo" width="88" style="border-radius:18px"></p>
 
 # 隱私權政策
 
-閱讀（Yuedu Reader）
+墨悅（MoYue）
 最後更新：2026 年 6 月 30 日
 
 [English](#en)
@@ -46,7 +46,7 @@ description: Privacy Policy for Yuedu Reader.
 ## 聯絡我們
 
 - Email: [r3212239269@gmail.com](mailto:r3212239269@gmail.com)
-- GitHub: [github.com/CHANG-JUI-LIN/Yuedu-reader/issues](https://github.com/CHANG-JUI-LIN/Yuedu-reader/issues)
+- GitHub: [github.com/zhong228/MoYue/issues](https://github.com/zhong228/MoYue/issues)
 
 ---
 
@@ -54,10 +54,10 @@ description: Privacy Policy for Yuedu Reader.
 
 # Privacy Policy
 
-Yuedu Reader
+MoYue
 Last updated: June 30, 2026
 
-Yuedu Reader is a local-first iOS reading app. We do not operate analytics, tracking, or advertising servers, and we do not sell your personal data. Your books, reading progress, bookmarks, annotations, RSS feeds, book sources, and reading preferences stay on your device by default.
+MoYue is a local-first iOS reading app. We do not operate analytics, tracking, or advertising servers, and we do not sell your personal data. Your books, reading progress, bookmarks, annotations, RSS feeds, book sources, and reading preferences stay on your device by default.
 
 ## What We Do Not Collect
 
@@ -77,7 +77,7 @@ If you use Apple or Google sign-in, the app stores basic account details locally
 
 ## Network Sources You Configure
 
-Yuedu Reader can connect to RSS, book source, online reading, TTS, or WebDAV URLs that you provide. Requests are sent to the third-party services you choose; their own policies govern their handling of data. Do not send sensitive content to sources you do not trust.
+MoYue can connect to RSS, book source, online reading, TTS, or WebDAV URLs that you provide. Requests are sent to the third-party services you choose; their own policies govern their handling of data. Do not send sensitive content to sources you do not trust.
 
 ## Children
 
@@ -90,4 +90,4 @@ If this policy changes, we will update the "Last updated" date on this page. Mat
 ## Contact
 
 - Email: [r3212239269@gmail.com](mailto:r3212239269@gmail.com)
-- GitHub: [github.com/CHANG-JUI-LIN/Yuedu-reader/issues](https://github.com/CHANG-JUI-LIN/Yuedu-reader/issues)
+- GitHub: [github.com/zhong228/MoYue/issues](https://github.com/zhong228/MoYue/issues)

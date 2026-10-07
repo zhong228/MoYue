@@ -14,7 +14,7 @@ opened manually, compared against Apple Books, or wired into automated tests.
 - `sources/`: editable source trees used to build the packaged EPUB files.
 - `screenshots/`: expected or observed render references when a case needs a
   visual comparison.
-- `compatibility-matrix.md`: current Yuedu support status for each sample.
+- `compatibility-matrix.md`: current MoYue support status for each sample.
 - `build-samples.sh`: rebuilds all packaged EPUB files from `sources/`.
 
 ## Samples

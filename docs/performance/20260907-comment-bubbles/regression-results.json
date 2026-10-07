@@ -158,7 +158,7 @@
       {
         "issueType": "Runtime Warning",
         "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread.",
-        "sourceURL": "file:///Users/zhangruilin/Desktop/Yuedu-reader/Tests/iOS/yuedu%20appTests/BrowserMediaPronunciationParityTests.swift"
+        "sourceURL": "file://<repo>/Tests/iOS/yuedu%20appTests/BrowserMediaPronunciationParityTests.swift"
       }
     ],
     "startTime": 1788785561.245,
@@ -174,7 +174,7 @@
       {
         "issueType": "Runtime Warning",
         "message": "    AVAudioSession_iOS.mm:978   This method can lead to UI unresponsiveness if called on the main thread. Consider using the asynchronous activate/deactivate API instead for calls from the main thread.",
-        "sourceURL": "file:///Users/zhangruilin/Desktop/Yuedu-reader/Tests/iOS/yuedu%20appTests/BrowserMediaPronunciationParityTests.swift"
+        "sourceURL": "file://<repo>/Tests/iOS/yuedu%20appTests/BrowserMediaPronunciationParityTests.swift"
       }
     ],
     "startTime": 1788785821.75,

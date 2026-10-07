@@ -412,7 +412,7 @@ enum RSSOPMLExporter {
         <?xml version="1.0" encoding="UTF-8"?>
         <opml version="2.0">
           <head>
-            <title>yuedu RSS</title>
+            <title>MoYue RSS</title>
           </head>
           <body>
         \(outlines.joined(separator: "\n"))

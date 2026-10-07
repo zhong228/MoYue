@@ -3,7 +3,7 @@
 > 其他章節：[快速開始](quickstart.zh-Hant.md) · [與 Legado 的差異](legado-differences.zh-Hant.md) · [常見症狀對照表](troubleshooting.zh-Hant.md)
 > 简体中文：[规则语法速查](rule-syntax.zh-Hans.md)
 
-一條「規則」告訴 App 從抓回來的網頁（HTML／JSON）裡取出哪個資料。規則可以串接、可以套正則、可以執行 JS。本頁是 Yuedu 規則引擎的語法速查，所有語法都與 Legado 3.0 相容。
+一條「規則」告訴 App 從抓回來的網頁（HTML／JSON）裡取出哪個資料。規則可以串接、可以套正則、可以執行 JS。本頁是 MoYue 規則引擎的語法速查，所有語法都與 Legado 3.0 相容。
 
 ## 1. 規則模式與前綴
 
@@ -161,7 +161,7 @@ https://example.com/search,{"method":"POST","body":"key={{key}}&page={{page}}","
 
 ### 9.1 正文圖片點擊與段評頁
 
-Legado 正文常在圖片 URL 後附 `,{...}` 點擊設定。Yuedu 支援 `click`、`action`，以及相容分支使用的 `js` 鍵；點擊時會在**原書源的同一個 session** 執行原始 JS，並還原當時的 `book`、`chapter`、`result`、`src`、`baseUrl` 與非敏感運行變數。像 `showCmt(bookId, chapterId, paragraphId)` 這種參數不是 URL，App 不會自行猜 API 路徑。
+Legado 正文常在圖片 URL 後附 `,{...}` 點擊設定。MoYue 支援 `click`、`action`，以及相容分支使用的 `js` 鍵；點擊時會在**原書源的同一個 session** 執行原始 JS，並還原當時的 `book`、`chapter`、`result`、`src`、`baseUrl` 與非敏感運行變數。像 `showCmt(bookId, chapterId, paragraphId)` 這種參數不是 URL，App 不會自行猜 API 路徑。
 
 來源呼叫 `java.showBrowser(baseUrl, html, preloadJS, configJSON)` 時，第四參數支援：
 
@@ -225,5 +225,5 @@ App 的書源編輯器以「基本／搜索／發現／詳情／目錄／正文�
 
 ## 下一步
 
-- [與 Legado 的差異](legado-differences.zh-Hant.md) — 哪些語法在 Yuedu 行為不同或不存在
+- [與 Legado 的差異](legado-differences.zh-Hant.md) — 哪些語法在 MoYue 行為不同或不存在
 - [常見症狀對照表](troubleshooting.zh-Hant.md) — 書源壞掉時對照症狀找解法

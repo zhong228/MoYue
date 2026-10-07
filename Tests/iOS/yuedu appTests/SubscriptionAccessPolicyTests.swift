@@ -15,7 +15,7 @@ struct SubscriptionAccessPolicyTests {
 
     @Test("iCloud alone carries a guest purchase across an App Store account switch")
     func iCloudMirrorSurvivesStoreAccountSwitch() {
-        // The reported failure: a guest purchase, so no Yuedu account, and the new
+        // The reported failure: a guest purchase, so no MoYue account, and the new
         // App Store account holds no transactions. Only the mirror is left.
         #expect(SubscriptionAccessPolicy.isProActive(storeKit: false, account: false, iCloud: true))
     }
@@ -139,7 +139,7 @@ struct SubscriptionAccessPolicyTests {
 
     @Test("Pro without a local transaction gets the member page, not the offer")
     func accountGrantedProHidesPaywall() {
-        // Pro arriving from the Yuedu account or the iCloud mirror — bought on
+        // Pro arriving from the MoYue account or the iCloud mirror — bought on
         // another Apple Account — leaves no local transaction to name the plan,
         // but there is still nothing to sell.
         #expect(paywallState(purchased: [], isProActive: true) == .alreadyPro)
@@ -164,7 +164,7 @@ struct SubscriptionAccessPolicyTests {
         #expect(ownedPlanID(purchased: [Self.monthlyID]) == Self.monthlyID)
         // A monthly plan still held next to lifetime is billing to cancel, not their plan.
         #expect(ownedPlanID(purchased: [Self.monthlyID, Self.lifetimeID]) == Self.lifetimeID)
-        // Pro from the Yuedu account or the iCloud mirror names no plan on this Apple Account.
+        // Pro from the MoYue account or the iCloud mirror names no plan on this Apple Account.
         #expect(ownedPlanID(purchased: []) == nil)
     }
 

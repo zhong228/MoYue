@@ -30,7 +30,7 @@ body:
     id: screenshots
     attributes:
       label: Screenshots
-      description: Add screenshots from Yuedu Reader and, if possible, Apple Books.
+      description: Add screenshots from MoYue and, if possible, Apple Books.
 
   - type: dropdown
     id: epub_type

@@ -100,7 +100,7 @@ extension LLMRawResponse {
 /// Where an answer got a claim from: the chunk, the quoted evidence, and a reading position
 /// the reader can actually jump to.
 ///
-/// The position is Yuedu's own `(spineIndex, charOffset)` rather than a global page index —
+/// The position is MoYue's own `(spineIndex, charOffset)` rather than a global page index —
 /// pages shift when chapters load, so a page number would not survive the trip.
 struct LLMCitation: Codable, Hashable, Sendable {
     let chunkID: String

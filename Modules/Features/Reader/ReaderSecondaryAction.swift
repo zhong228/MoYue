@@ -21,7 +21,7 @@ struct ReaderSecondaryAction: Identifiable {
     let id: ID
     let icon: String
     let label: String
-    /// Needs Yuedu Pro the reader does not have (AI 助手, 翻譯): shown marked, and `action`
+    /// Needs MoYue Pro the reader does not have (AI 助手, 翻譯): shown marked, and `action`
     /// opens the paywall instead.
     let isLocked: Bool
     let action: () -> Void

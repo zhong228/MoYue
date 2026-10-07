@@ -1,9 +1,9 @@
 ---
 layout: default
-title: Yuedu Reader Engineering
+title: MoYue Engineering
 ---
 
-# Yuedu Reader Engineering
+# MoYue Engineering
 
 Developer notes about building a native iOS reader with SwiftUI, CoreText, EPUB, RSS, and CJK typography.
 
@@ -17,5 +17,5 @@ Developer notes about building a native iOS reader with SwiftUI, CoreText, EPUB,
 
 ## Posts
 
-- [Adapting EPUB 3 Features to CoreText in Yuedu Reader]({{ site.baseurl }}/2026/06/08/coretext-epub3-adaptation/)
+- [Adapting EPUB 3 Features to CoreText in MoYue]({{ site.baseurl }}/2026/06/08/coretext-epub3-adaptation/)
 - [From WebView to CoreText: Building a Native EPUB Reader for iOS]({{ site.baseurl }}/2026/05/20/from-webview-to-coretext/)

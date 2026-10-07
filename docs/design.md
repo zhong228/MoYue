@@ -1,21 +1,21 @@
-# Yuedu Reader — iOS 原生設計規範 (design.md)
+# MoYue — iOS 原生設計規範 (design.md)
 
-> 本檔是 Yuedu Reader（閱讀）所有 UI 設計與實作必須遵守的單一準則。
+> 本檔是 MoYue（閱讀）所有 UI 設計與實作必須遵守的單一準則。
 > 目標：做出「**成熟的大型 iOS 原生閱讀器**」，而不是網頁後台、Landing Page、Dashboard 或 Android App。
 > 實作入口見 `.claude/skills/yuedu-ios-design/SKILL.md` 與 `.agents/skills/yuedu-ios-design/SKILL.md`；兩份 skill 必須同步維護，規則以本檔為準。
 
 合成來源（依優先序）：
 1. **Apple Human Interface Guidelines / Apple 平台文件** — 平台行為與元件的最高權威。
-2. **Yuedu 專案規範與既有設計系統** — 在不違反 Apple 規範下維持產品一致性。
+2. **MoYue 專案規範與既有設計系統** — 在不違反 Apple 規範下維持產品一致性。
 3. **通用可用性建議** — 例如 Nielsen 啟發法，作為設計檢查而非平台行為依據。
 
 ### 規則權威層級
 
 - **[Apple]**：Apple HIG、Accessibility、SwiftUI API 與官方設計資源；若規則衝突，以此層為準。
-- **[Yuedu]**：本專案的產品決策、元件慣例與 `DS*` token；僅能在 Apple 允許的範圍內加嚴或具體化。
-- **[建議]**：Nielsen 等通用可用性原則與設計經驗；不能覆蓋 [Apple] 或 [Yuedu]。
+- **[MoYue]**：本專案的產品決策、元件慣例與 `DS*` token；僅能在 Apple 允許的範圍內加嚴或具體化。
+- **[建議]**：Nielsen 等通用可用性原則與設計經驗；不能覆蓋 [Apple] 或 [MoYue]。
 
-優先序為 **[Apple] > [Yuedu] > [建議]**。下文未標示時，硬規則視為 [Yuedu]；涉及系統元件語意與行為時仍以 [Apple] 為準。
+優先序為 **[Apple] > [MoYue] > [建議]**。下文未標示時，硬規則視為 [MoYue]；涉及系統元件語意與行為時仍以 [Apple] 為準。
 
 ---
 
@@ -74,7 +74,7 @@
 - Sheet 的 **Done** 放 trailing：完成流程，並在有編輯內容時儲存或提交。
 - **Back** 只用於 sheet 內部多步導航，不代表取消或完成。
 - 同一層級不要同時呈現 Back、Cancel / Close、Done 三者；先釐清當前步驟的退出與提交語意。
-- [Yuedu] 可見的 modal / toolbar chrome 使用 `xmark` 與 `checkmark`，並提供 `localized(...)` 的 `accessibilityLabel`。系統 alert / confirmation dialog 中 `role: .cancel` 的動作保留文字，維持清楚語意。
+- [MoYue] 可見的 modal / toolbar chrome 使用 `xmark` 與 `checkmark`，並提供 `localized(...)` 的 `accessibilityLabel`。系統 alert / confirmation dialog 中 `role: .cancel` 的動作保留文字，維持清楚語意。
 - Toolbar 圖示優先跟隨相鄰 semantic text style 或系統控制 sizing；`DSFont.toolbarIcon` / `DSFont.toolbarIconLarge` 是固定尺寸例外，只能用於不承載文字的 chrome，且必須以最大 Dynamic Type 驗證。顏色使用 `DSColor.accent` 或 `DSColor.textSecondary`。
 
 ```swift
@@ -157,7 +157,7 @@ Reduce Motion 開啟時，移除非必要位移與縮放；需要保留狀態轉
 
 ## 3.1 iPad / 自適應佈局
 
-iPad 是同一個 iOS app 的原生自適應版，不是另一個 app root。共享資料模型與 reader engine 在 `Modules/Core` / `Modules/Services`，feature UI 與設定在 `Modules/Features`，design token 在 `Modules/SharedUI/DesignSystem`；iPad 專屬 shell 放 `Targets/Yuedu/iPad/`、iPad reader UI 放 `Modules/Features/Reader/iPad/` 等明確目錄，避免散落機型判斷。
+iPad 是同一個 iOS app 的原生自適應版，不是另一個 app root。共享資料模型與 reader engine 在 `Modules/Core` / `Modules/Services`，feature UI 與設定在 `Modules/Features`，design token 在 `Modules/SharedUI/DesignSystem`；iPad 專屬 shell 放 `Targets/MoYue/iPad/`、iPad reader UI 放 `Modules/Features/Reader/iPad/` 等明確目錄，避免散落機型判斷。
 
 - 佈局用 size class、scene/window size 與 readable width 驅動；不要散落 `UIDevice.model` 或機型字串判斷。
 - 內容必須尊重 safe areas 與 system margins；除非是刻意的沉浸式背景，不要用負間距或硬編碼 inset 蓋過系統區域。
@@ -454,7 +454,7 @@ Text("\(localized("當前速度"))：\(speechRateText)")
 
 ### 外部設計 skill 參考（知識交叉比對，非本專案規則來源）
 
-社群 app UI/UX agent skill 的**可操作準則已提煉並整合進本文件**（§4/§5/§8/§9/§11/§12/§13）；下表是來源與適用範圍，作為設計決策的交叉比對與靈感來源。任何衝突仍以 [Apple] > [Yuedu] > [建議] 為準（見 §0）。星數為 2026-08 查詢時約略值。
+社群 app UI/UX agent skill 的**可操作準則已提煉並整合進本文件**（§4/§5/§8/§9/§11/§12/§13）；下表是來源與適用範圍，作為設計決策的交叉比對與靈感來源。任何衝突仍以 [Apple] > [MoYue] > [建議] 為準（見 §0）。星數為 2026-08 查詢時約略值。
 
 | Skill | 說明 | 適用 |
 |-------|------|------|

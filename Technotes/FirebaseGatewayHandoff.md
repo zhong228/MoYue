@@ -1,4 +1,4 @@
-# Handoff — Yuedu Firebase Gateway integration
+# Handoff — MoYue Firebase Gateway integration
 
 Session handoff for the next agent. This is a working note, not product
 documentation. It captures current state, every bug found, exact commands,
@@ -231,7 +231,7 @@ session's SSH key; note `/usr/bin/docker` for sudo):
 rsync -az --exclude node_modules --exclude lib --exclude .env \
   --exclude gateway.env --exclude .git \
   -e "ssh -i /var/folders/cv/0p6b6fyx01bbk8yfty_z1gdc0000gn/T/opencode/yuedu_deploy -o IdentitiesOnly=yes" \
-  /Users/zhangruilin/Desktop/Yuedu-reader/gateway/ \
+  <repo>/gateway/ \
   ubuntu@43.129.29.13:/home/ubuntu/yuedu-gateway/
 
 ssh -i /var/folders/cv/0p6b6fyx01bbk8yfty_z1gdc0000gn/T/opencode/yuedu_deploy ubuntu@43.129.29.13 \

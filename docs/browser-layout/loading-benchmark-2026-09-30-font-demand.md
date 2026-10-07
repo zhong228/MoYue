@@ -110,5 +110,5 @@ bash scripts/xctest.sh -t 1800 -l /tmp/yuedu-loading-benchmark-font-demand.log -
   -testLanguage zh-Hant -testRegion TW
 ```
 
-workspace 僅引用原始 App `.xcodeproj` 與 `/Users/zhangruilin/Desktop/YueduCoreText`。詳細 log／xcresult 路徑及來源驗證在 summary metadata。
+workspace 僅引用原始 App `.xcodeproj` 與 `<repo>/YueduCoreText`。詳細 log／xcresult 路徑及來源驗證在 summary metadata。
 

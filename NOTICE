@@ -1,4 +1,4 @@
-Yuedu Reader（閱讀）
+MoYue（墨悅）
 Copyright 2026 CHANG-JUI-LIN
 
 This product includes software developed by third parties.
@@ -8,7 +8,7 @@ ChatBook — Apache License 2.0
 https://github.com/bsnmldb/ChatBook
 --------------------------------------------------------------------------------
 
-Yuedu's AI reading assistant is derived from ChatBook. The following files are
+MoYue's AI reading assistant is derived from ChatBook. The following files are
 ports or adaptations of ChatBook sources, each carrying a header naming the file
 it came from:
 

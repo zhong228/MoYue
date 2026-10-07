@@ -3,7 +3,7 @@
 > 其他章節：[規則語法速查](rule-syntax.zh-Hant.md) · [與 Legado 的差異](legado-differences.zh-Hant.md) · [常見症狀對照表](troubleshooting.zh-Hant.md)
 > 简体中文：[快速开始](quickstart.zh-Hans.md)
 
-Yuedu 直接讀取 **Legado 格式的書源 JSON**（`ruleBookSource` 結構），不需要轉換。多數在 Legado 上運作正常的書源可以直接匯入，少數會因為規則引擎的差異而失效——這份指南教你在 App 內完成「匯入 → 驗證 → 調試 → 修正」的完整流程。
+MoYue 直接讀取 **Legado 格式的書源 JSON**（`ruleBookSource` 結構），不需要轉換。多數在 Legado 上運作正常的書源可以直接匯入，少數會因為規則引擎的差異而失效——這份指南教你在 App 內完成「匯入 → 驗證 → 調試 → 修正」的完整流程。
 
 ## 適用範圍
 

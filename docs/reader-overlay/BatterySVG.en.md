@@ -1,6 +1,6 @@
 # Reader Battery SVG Template Specification
 
-This specification applies to `.svg` templates imported for Yuedu's reader battery component. A template is safety-validated and normalized before the app stores it. Files outside this subset are not imported.
+This specification applies to `.svg` templates imported for MoYue's reader battery component. A template is safety-validated and normalized before the app stores it. Files outside this subset are not imported.
 
 ## Quick start
 
@@ -146,7 +146,7 @@ The importer rejects:
 - Any `on...` event attribute such as `onclick`, and any non-allowlisted attribute.
 - `javascript:`, `http:`, `https:`, `data:`, `file:`, `ftp:`, and protocol-relative `//` URLs.
 - External `href`, external `url(...)`, CSS-escaped URLs, and comment-obfuscated URLs.
-- Namespaced elements, unknown Yuedu markers, and unknown fill directions.
+- Namespaced elements, unknown MoYue markers, and unknown fill directions.
 
 ## Complete horizontal example
 

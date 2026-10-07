@@ -1,6 +1,6 @@
 # Book Source Guide (书源指南 · 書源指南)
 
-How to import, validate, debug, and fix **Legado-format book sources** in Yuedu. If a source works in Legado but fails here, start with the differences page — most breakages come from the rule-engine differences.
+How to import, validate, debug, and fix **Legado-format book sources** in MoYue. If a source works in Legado but fails here, start with the differences page — most breakages come from the rule-engine differences.
 
 ## Pages
 

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Visibility rules for reader customization surfaces that should not be
-/// discoverable until the single Yuedu Pro entitlement is active.
+/// discoverable until the single MoYue Pro entitlement is active.
 struct ReaderPremiumVisibilityPolicy {
     let isProActive: Bool
 

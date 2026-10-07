@@ -5,7 +5,7 @@
 //
 import Foundation
 
-/// Where a chunk sits in the book, in the only coordinates Yuedu treats as stable.
+/// Where a chunk sits in the book, in the only coordinates MoYue treats as stable.
 ///
 /// `(spineIndex, charOffset)`, never a global page index — CLAUDE.md's first critical
 /// convention, because pages shift as chapters load. Offsets are source UTF-16; progress is UI-only.

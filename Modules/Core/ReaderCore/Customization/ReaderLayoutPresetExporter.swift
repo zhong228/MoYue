@@ -32,7 +32,7 @@ struct ReaderLayoutSnapshot: Equatable, Sendable {
 /// rather than a new schema: an exported file therefore round-trips through the
 /// one import route the app already has (no second parser), and legado can open
 /// it too. `readerOverlayLayout` rides alongside as an extra key legado ignores
-/// and Yuedu's importer picks up.
+/// and MoYue's importer picks up.
 enum ReaderLayoutPresetExporter {
     static func encode(_ snapshot: ReaderLayoutSnapshot) throws -> Data {
         let encoder = JSONEncoder()

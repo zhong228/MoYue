@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the version-1 `components` JSON key as the chapter-body compatibility field and add `chapterOpeningComponents` in layout version 2. Runtime and editor code select a `ReaderOverlayPageScope`; a stateful snap session latches independently on X and Y to body-frame boundaries or matching peer alignments. Existing feature views stay in their current files but are normalized to native sheet/list/form conventions and DS tokens.
 
-**Tech Stack:** Swift 6, SwiftUI, CoreGraphics, Swift Testing, existing Yuedu `DS*` tokens and localization system.
+**Tech Stack:** Swift 6, SwiftUI, CoreGraphics, Swift Testing, existing MoYue `DS*` tokens and localization system.
 
 ---
 
@@ -299,7 +299,7 @@ git add Modules/Features/Reader/ReaderHeaderFooterEditorView.swift \
 git commit -m "feat: redesign reader overlay editor"
 ```
 
-### Task 6: Audit all overlay feature screens against Yuedu iOS design
+### Task 6: Audit all overlay feature screens against MoYue iOS design
 
 **Files:**
 - Modify: `Modules/Features/Reader/ReaderBatterySVGImportView.swift`

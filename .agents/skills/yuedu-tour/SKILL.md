@@ -1,9 +1,9 @@
 ---
 name: yuedu-tour
-description: Locate Yuedu module ownership and cross-module data flows when the relevant entry points or boundaries are unclear.
+description: Locate MoYue module ownership and cross-module data flows when the relevant entry points or boundaries are unclear.
 ---
 
-# Yuedu Code Tour
+# MoYue Code Tour
 
 Use this map when code ownership or a cross-module path is unclear. A known local edit does not require a tour. Search the relevant symbol first and read only the matching reference section.
 

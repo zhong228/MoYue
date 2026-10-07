@@ -2,12 +2,12 @@
 
 Status values:
 
-- `supported`: expected behavior currently works in Yuedu Reader.
+- `supported`: expected behavior currently works in MoYue.
 - `partial`: opens, but the specific behavior is incomplete or fragile.
 - `unsupported`: not expected to work yet.
 - `needs-check`: fixture exists but has not been verified recently.
 
-| Sample | EPUB Version | Primary Feature | Apple Books Expected | Yuedu Status | Notes |
+| Sample | EPUB Version | Primary Feature | Apple Books Expected | MoYue Status | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `block-image-before-paragraph.epub` | EPUB 2 | Image-only block reserves height | Logo appears centered above `CHAPTER ONE`; no overlap. | supported | Covers the #4 block image overlap regression. |
 | `centered-percent-image.epub` | EPUB 2 | Percentage block image sizing | Image is centered at 40% content width with proportional height. | supported | Exercises `width: 40%; height: auto`. |

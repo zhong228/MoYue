@@ -6,7 +6,7 @@
 - Firebase 直連與 Gateway `/v1/subscription/testflight-access` 都呼叫同一 Cloud Function。只接受登入 token 的 UID，不接受客戶端提交 UID、會員旗標或快取放行。
 - Function 逐筆向 Apple Production API 查詢已綁定的永久購買並驗證 JWS，再讀取最新 binding；Sandbox、月會員、未登入、退款、查詢失敗均不能通過。沒有離線寬限。
 - TF 通過驗證後取得 Pro；Sandbox 交易、Keychain、iCloud 快取不能越過此閘門。未通過時顯示登入／重試／切換帳號入口，保留本機資料。舊前景／舊帳號的非同步成功不能解除新閘門。
-- Apple 通知更新 binding 後，Firestore trigger 重算會員並移除該帳號邀請郵箱對 **Yuedu 這一個 App** 的測試權限。失敗保留 `revocationPending` 並由事件重試；每小時稽核也會向 Apple 查核歷史名單。稽核保存游標，超時預算前交棒給下次排程。
+- Apple 通知更新 binding 後，Firestore trigger 重算會員並移除該帳號邀請郵箱對 **MoYue 這一個 App** 的測試權限。失敗保留 `revocationPending` 並由事件重試；每小時稽核也會向 Apple 查核歷史名單。稽核保存游標，超時預算前交棒給下次排程。
 - `signedDate` 在 Firestore transaction 內排序，舊通知不能覆蓋較新的退款。正式版重新綁定也先向 Apple 取現況，防止重送退款前 JWS。退款撤回或重新購買後可重新申請同一郵箱，不新增第二個名額。
 
 ## 部署前必要設定

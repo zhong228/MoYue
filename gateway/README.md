@@ -1,7 +1,7 @@
-# Yuedu Firebase Gateway
+# MoYue Firebase Gateway
 
 Finite-purpose HTTPS API in front of the **existing** Firebase project. It lets
-the Yuedu iOS app sign in and reach account / profile / avatar / subscription
+the MoYue iOS app sign in and reach account / profile / avatar / subscription
 data from networks where `*.googleapis.com` and `*.cloudfunctions.net` are
 unreachable, without creating a second account system.
 

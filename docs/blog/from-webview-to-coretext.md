@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "From WebView to CoreText: Building a Native EPUB Reader for iOS"
-description: "How CJK vertical writing pushed Yuedu Reader away from WebView and toward a custom CoreText rendering engine."
+description: "How CJK vertical writing pushed MoYue away from WebView and toward a custom CoreText rendering engine."
 date: 2026-05-20
 tags:
   - ios
@@ -16,9 +16,9 @@ tags:
 
 How CJK vertical writing pushed my reader away from WebView and toward a custom rendering engine.
 
-![Yuedu Reader CJK vertical reading demo](https://raw.githubusercontent.com/CHANG-JUI-LIN/Yuedu-reader/main/docs/demo/cjk-vertical-toc.gif)
+![MoYue CJK vertical reading demo](https://raw.githubusercontent.com/zhong228/MoYue/main/docs/demo/cjk-vertical-toc.gif)
 
-This post covers why Yuedu Reader moved from a WebView-based EPUB prototype to a CoreText rendering path, where Readium still helped, and why CJK vertical writing affects much more than glyph drawing.
+This post covers why MoYue moved from a WebView-based EPUB prototype to a CoreText rendering path, where Readium still helped, and why CJK vertical writing affects much more than glyph drawing.
 
 ## Contents
 
@@ -30,9 +30,9 @@ This post covers why Yuedu Reader moved from a WebView-based EPUB prototype to a
 - [The table of contents had to become directional too](#the-table-of-contents-had-to-become-directional-too)
 - [Pagination is a cache problem too](#pagination-is-a-cache-problem-too)
 - [What I would not underestimate again](#what-i-would-not-underestimate-again)
-- [Where Yuedu is now](#where-yuedu-is-now)
+- [Where MoYue is now](#where-yuedu-is-now)
 
-When I started building Yuedu Reader, I was not trying to build an EPUB rendering engine.
+When I started building MoYue, I was not trying to build an EPUB rendering engine.
 
 The original goal was a native iOS reader for web novels, TXT files, and long-form reading workflows I personally wanted. I cared about CJK reading from the beginning, but mostly in the sense of making plain text and online fiction comfortable to read.
 
@@ -50,7 +50,7 @@ The first EPUB prototype used `WKWebView`, because EPUB content is mostly XHTML,
 
 `WKWebView` is a reasonable choice for many EPUB readers. It already understands HTML, CSS, links, images, scrolling, text selection, and layout. If the product is mostly a web-document viewer, WebView is hard to beat.
 
-Yuedu Reader needed a different kind of control:
+MoYue needed a different kind of control:
 
 - page-based reading instead of only scrolling
 - custom native page-turn interaction
@@ -86,11 +86,11 @@ But my goal was not only to open EPUB files. I wanted the main reader to feel fu
 - CJK-aware typography and vertical reading UI
 - stable restore points across layout changes
 
-So Yuedu ended up using EPUB concepts from the ecosystem while building the primary reflowable rendering path itself.
+So MoYue ended up using EPUB concepts from the ecosystem while building the primary reflowable rendering path itself.
 
 Today the split is deliberate:
 
-- Reflowable EPUB goes through Yuedu's CoreText reader.
+- Reflowable EPUB goes through MoYue's CoreText reader.
 - Fixed-layout EPUB can still use a WebView-based renderer, because fixed-layout content is closer to a web page or positioned canvas.
 - Readium remains important for EPUB opening and publication structure.
 
@@ -98,7 +98,7 @@ That boundary is important. The point was never "WebView is bad." The point was 
 
 ## The CoreText pipeline
 
-The CoreText path in Yuedu is roughly:
+The CoreText path in MoYue is roughly:
 
 ```text
 EPUB spine/resources
@@ -148,7 +148,7 @@ One of the biggest design shifts was moving away from page number as identity.
 
 Page numbers are output, not source truth. They change when the font size changes, when margins change, when an image finally loads, when CSS changes, or when a chapter is lazily loaded.
 
-Yuedu stores reading position as content coordinates, then resolves it through the current layout:
+MoYue stores reading position as content coordinates, then resolves it through the current layout:
 
 ```swift
 struct CoreTextReadingPosition: Codable, Equatable {
@@ -216,7 +216,7 @@ Horizontal Latin text is already complex. Vertical CJK text adds another set of 
 
 CoreText supports vertical text, but not as a complete EPUB reader. You still have to build the surrounding engine.
 
-In Yuedu, the vertical switch is split between frame creation and attributed-string preparation. The frame attributes only tell CoreText how columns should progress:
+In MoYue, the vertical switch is split between frame creation and attributed-string preparation. The frame attributes only tell CoreText how columns should progress:
 
 ```swift
 static func frameAttributes(for writingMode: ReaderWritingMode) -> [String: Any] {
@@ -267,7 +267,7 @@ The hard part was not only rendering vertical glyphs. It was making every reader
 
 Once vertical reading worked on the page, the table of contents started to feel wrong.
 
-For a vertical CJK book, a normal left-to-right chapter list is functional but visually inconsistent. Yuedu added a vertical table of contents mode that follows the book's reading direction.
+For a vertical CJK book, a normal left-to-right chapter list is functional but visually inconsistent. MoYue added a vertical table of contents mode that follows the book's reading direction.
 
 This became its own rendering problem:
 
@@ -280,7 +280,7 @@ This is where building a reader differs from building a document viewer. The UI 
 
 ## Pagination is a cache problem too
 
-CoreText pagination can be expensive. Yuedu caches chapter layouts, but the cache key has to include anything that can change layout. The important part is not the struct definition by itself; it is where the paginator builds the key before deciding whether the old layout is still valid:
+CoreText pagination can be expensive. MoYue caches chapter layouts, but the cache key has to include anything that can change layout. The important part is not the struct definition by itself; it is where the paginator builds the key before deciding whether the old layout is still valid:
 
 ```swift
 let key = CacheKey(
@@ -335,9 +335,9 @@ Each bug looked local at first. A clipped callout block looked like a drawing is
 
 That is the main lesson from building a CoreText EPUB reader: **the renderer is not only the thing that draws glyphs. It is the system that preserves meaning across parsing, layout, drawing, and interaction.**
 
-## Where Yuedu is now
+## Where MoYue is now
 
-Yuedu Reader now uses a native CoreText reader for the main EPUB/TXT reading experience. It supports paged and scroll modes, CJK vertical writing, vertical table of contents, highlights, bookmarks, TTS, image preview, internal links, publisher CSS, and a growing EPUB regression corpus.
+MoYue now uses a native CoreText reader for the main EPUB/TXT reading experience. It supports paged and scroll modes, CJK vertical writing, vertical table of contents, highlights, bookmarks, TTS, image preview, internal links, publisher CSS, and a growing EPUB regression corpus.
 
 It is still not a complete EPUB engine. EPUB compatibility is a long tail. Fixed-layout EPUB, complex CSS, SVG, media overlays, and publisher-specific edge cases can each become their own project.
 
@@ -347,6 +347,6 @@ That path took longer than embedding a web view. It also made the reader feel li
 
 ---
 
-Yuedu Reader is open source here:
+MoYue is open source here:
 
-[github.com/CHANG-JUI-LIN/Yuedu-reader](https://github.com/CHANG-JUI-LIN/Yuedu-reader)
+[github.com/zhong228/MoYue](https://github.com/zhong228/MoYue)

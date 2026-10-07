@@ -2,7 +2,7 @@
 
 > 後續更新：套件已發布 0.4.0，Reader 正常 project 已更新依賴。以下保留發布前的本機 workspace 驗收紀錄；目前遠端接線與建置結果以 [0.4.0 發布報告](extraction/release-0.4.0.md) 為準。
 
-工作目錄為原本的 `Yuedu-reader` 與相鄰 `YueduCoreText` checkout，未建立副本、commit、push 或 tag。Reader 起點為 `4dc1d9f58cfcd866a518285de0d96e0e82dbe471`，套件起點為 `12bb1b29c64b552740cf322b132924ace4727826`。原有文件、TTS 與 AI 的同時修改保留。
+工作目錄為原本的 `MoYue` 與相鄰 `YueduCoreText` checkout，未建立副本、commit、push 或 tag。Reader 起點為 `4dc1d9f58cfcd866a518285de0d96e0e82dbe471`，套件起點為 `12bb1b29c64b552740cf322b132924ace4727826`。原有文件、TTS 與 AI 的同時修改保留。
 
 ## 正式路由
 

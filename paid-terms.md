@@ -1,14 +1,14 @@
 ---
 layout: default
 title: Paid Service Terms
-description: Paid Service Terms for Yuedu Reader.
+description: Paid Service Terms for MoYue.
 ---
 
-<p><img src="{{ site.baseurl }}/Resources/Assets.xcassets/YueduLogo.imageset/YueduLogo.png" alt="Yuedu Reader logo" width="88" style="border-radius:18px"></p>
+<p><img src="{{ site.baseurl }}/Resources/Assets.xcassets/MoYueLogo.imageset/MoYueLogo.png" alt="MoYue logo" width="88" style="border-radius:18px"></p>
 
 # 付費服務條款
 
-閱讀（Yuedu Reader）
+墨悅（MoYue）
 最後更新：2026 年 6 月 30 日
 
 [English](#en)
@@ -53,7 +53,7 @@ description: Paid Service Terms for Yuedu Reader.
 ## 7. 聯絡我們
 
 - Email: [r3212239269@gmail.com](mailto:r3212239269@gmail.com)
-- GitHub: [github.com/CHANG-JUI-LIN/Yuedu-reader/issues](https://github.com/CHANG-JUI-LIN/Yuedu-reader/issues)
+- GitHub: [github.com/zhong228/MoYue/issues](https://github.com/zhong228/MoYue/issues)
 
 ---
 
@@ -61,10 +61,10 @@ description: Paid Service Terms for Yuedu Reader.
 
 # Paid Service Terms
 
-Yuedu Reader
+MoYue
 Last updated: June 30, 2026
 
-These terms apply to any paid features, one-time purchases, subscriptions, memberships, or value-added services that Yuedu Reader may offer in the future. If the app does not currently offer paid features, these terms serve as advance notice. Before any actual purchase, the app will show the relevant feature, price, billing period, and purchase confirmation information.
+These terms apply to any paid features, one-time purchases, subscriptions, memberships, or value-added services that MoYue may offer in the future. If the app does not currently offer paid features, these terms serve as advance notice. Before any actual purchase, the app will show the relevant feature, price, billing period, and purchase confirmation information.
 
 ## 1. Relationship to the User Agreement
 
@@ -104,4 +104,4 @@ We may adjust, suspend, or terminate paid features for technical, legal, platfor
 ## 7. Contact
 
 - Email: [r3212239269@gmail.com](mailto:r3212239269@gmail.com)
-- GitHub: [github.com/CHANG-JUI-LIN/Yuedu-reader/issues](https://github.com/CHANG-JUI-LIN/Yuedu-reader/issues)
+- GitHub: [github.com/zhong228/MoYue/issues](https://github.com/zhong228/MoYue/issues)

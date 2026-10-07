@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Yuedu Reader — native iOS EPUB/TXT/RSS/web-novel reader. SwiftUI + CoreText, targeting iOS 17.0+, Swift 6.0, Xcode 16+. The reader renders via CoreText (not WebView) for precise pagination, CJK vertical writing, TTS sync, and text selection.
+MoYue — native iOS EPUB/TXT/RSS/web-novel reader. SwiftUI + CoreText, targeting iOS 17.0+, Swift 6.0, Xcode 16+. The reader renders via CoreText (not WebView) for precise pagination, CJK vertical writing, TTS sync, and text selection.
 
 ## Build & Test
 
@@ -97,8 +97,8 @@ Swift sources live under `Modules/` and `Targets/` (Xcode 16 file-system-synchro
 | `Modules/Services/` | `Network`, `RSS`, `OPDS`, `Online`, `LibraryStore`, `iCloud`/`WebDAV`/`Account`, `LanServer`, `Stats`, `Migration` |
 | `Modules/Features/` | SwiftUI screens: `Bookshelf`, `Reader` (+`iPad`/`Manga`/`TTS`), `BookDetail`, `Explore`, `WebBrowser`, `Search`, `RSS`, `Settings`, `BookSource`, `Stats` |
 | `Modules/SharedUI/` | `DesignSystem` (`DesignTokens.swift`), `Adaptive`, `Components`, `Extensions` |
-| `Targets/Yuedu/SharedApp/` | App entry (`yuedu_appApp.swift`, `ContentView.swift`), DI, `GlobalSettings`, app config |
-| `Targets/Yuedu/iPad/` | iPad-specific shell (e.g. `IPadAdaptiveRootTabStyle.swift`) |
+| `Targets/MoYue/SharedApp/` | App entry (`yuedu_appApp.swift`, `ContentView.swift`), DI, `GlobalSettings`, app config |
+| `Targets/MoYue/iPad/` | iPad-specific shell (e.g. `IPadAdaptiveRootTabStyle.swift`) |
 | `Resources/` | Resources only: `Assets.xcassets`, `*.lproj`, entitlements |
 
 ## Key Architecture
@@ -154,7 +154,7 @@ This project is past "make it work" and into systems engineering. Locally-reason
 
 ## Dependencies
 
-Detailed package versions and their transitive dependencies are recorded in [Dependencies.md](file:///Users/zhangruilin/Desktop/Yuedu-reader/Technotes/Dependencies.md).
+Detailed package versions and their transitive dependencies are recorded in [Dependencies.md](Technotes/Dependencies.md).
 
 - **Readium** (BSD) — EPUB parsing (ReadiumShared, ReadiumStreamer, ReadiumZIPFoundation, ReadiumFuzi)
 - **SwiftSoup** (MIT) — HTML parsing for RSS and rule engine

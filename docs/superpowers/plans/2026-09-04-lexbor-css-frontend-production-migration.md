@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Vend official Lexbor `v3.0.0`, adapt its DOM/CSS/selector/style output into Yuedu's existing `ComputedStyleNode`, prove Current/Lexbor semantic and geometry attribution across the complete corpus, and change the production frontend default only if every cutover gate passes.
+**Goal:** Vend official Lexbor `v3.0.0`, adapt its DOM/CSS/selector/style output into MoYue's existing `ComputedStyleNode`, prove Current/Lexbor semantic and geometry attribution across the complete corpus, and change the production frontend default only if every cutover gate passes.
 
 **Architecture:** `PublicationSession` and `EPUBStyleResolver` remain the only EPUB resource path. A typed `CSSFrontendInput` feeds either `CurrentCSSFrontend` or `LexborCSSFrontend`; both produce a pointer-free `CSSFrontendResult` containing the same neutral DOM snapshots, computed style tree, semantic metadata, diagnostics, and scanner facts. `BoxTreeBuilder` and every layout/fragmentation/paint stage consume that result without knowing Lexbor exists and without changing layout algorithms.
 
@@ -33,7 +33,7 @@
 - Create `Packages/CLexbor/Package.swift`: local C package; compiles committed source only.
 - Create `Packages/CLexbor/LICENSE` and `Packages/CLexbor/NOTICE`: byte-copies of upstream legal files.
 - Create `Packages/CLexbor/VENDOR-MANIFEST.json`: tag, commit, generator hashes/arguments, release timestamp, modules, and output hashes.
-- Create `Packages/CLexbor/Sources/CLexbor/include/CLexbor.h`: narrow opaque Yuedu bridge API.
+- Create `Packages/CLexbor/Sources/CLexbor/include/CLexbor.h`: narrow opaque MoYue bridge API.
 - Create `Packages/CLexbor/Sources/CLexbor/CLexborBridgeImplementation.inc`: bridge implementation included by the one C translation unit.
 - Create `Packages/CLexbor/Sources/CLexbor/lexbor-amalgamated.generated.h`: deterministic header half.
 - Create `Packages/CLexbor/Sources/CLexbor/lexbor-amalgamated.generated.c`: deterministic source half and only compiled C source.

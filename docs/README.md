@@ -1,9 +1,9 @@
 ---
-title: Yuedu 文件首頁
+title: MoYue 文件首頁
 tags: [yuedu, index]
 ---
 
-# Yuedu 文件首頁
+# MoYue 文件首頁
 
 這個 vault 就是專案原有的 `docs/`。在 Obsidian 編輯會直接修改 repo 文件，原有目錄與連結維持原位。
 

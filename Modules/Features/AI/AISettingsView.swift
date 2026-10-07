@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Where the reader points Yuedu at their own AI service.
+/// Where the reader points MoYue at their own AI service.
 ///
-/// BYOK by design: there is no Yuedu-operated backend, the key is the user's, and it is
+/// BYOK by design: there is no MoYue-operated backend, the key is the user's, and it is
 /// billed to them. The screen says so, because a reader who does not know that will not
 /// understand why anything costs money.
 struct AIServiceEditorView: View {

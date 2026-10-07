@@ -1,4 +1,4 @@
-# Yuedu Workflows
+# MoYue Workflows
 
 Paths below are relative to the repository root. Read only the section relevant to the task.
 

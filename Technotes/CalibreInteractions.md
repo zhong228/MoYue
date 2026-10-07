@@ -7,7 +7,7 @@ server was started from Preferences → Sharing over the net, limited to
 127.0.0.1:8080 with interface fallback and Bonjour advertising disabled. The
 existing Quick Start Guide was opened and paged in its browser reader.
 
-`LiveCalibreIntegrationTests` then used the actual Yuedu OPDS client,
+`LiveCalibreIntegrationTests` then used the actual MoYue OPDS client,
 RemoteLibraryService, Readium package resources and CoreText paginator against
 that desktop server. Navigation, search, empty search, opening, unshelved position
 and bookmark persistence, shelf promotion and offline opening passed before
@@ -77,9 +77,9 @@ models and are not treated as the native Calibre position API.
 
 ## Computer-initiated transfers
 
-Open Calibre library → Receive from computer in Yuedu. Start Wireless device
+Open Calibre library → Receive from computer in MoYue. Start Wireless device
 connection in desktop Calibre's Connect/share menu, discover it via
-`_calibresmartdeviceapp._tcp` or enter its address/port. Yuedu opens the socket;
+`_calibresmartdeviceapp._tcp` or enter its address/port. MoYue opens the socket;
 Calibre then initiates commands and Send to device file transfers.
 
 The receiver uses decimal UTF-8 byte-length JSON frames, bounded buffering and

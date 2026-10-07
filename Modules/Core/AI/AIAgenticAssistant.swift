@@ -7,7 +7,7 @@ import Foundation
 
 /// One step of an agentic run, kept for diagnostics.
 ///
-/// Far smaller than the original's evaluation record: Yuedu needs to be able to explain why an
+/// Far smaller than the original's evaluation record: MoYue needs to be able to explain why an
 /// answer came out thin, not to replay a run offline.
 struct AIAgenticStep: Sendable, Equatable {
     enum Action: String, Sendable {

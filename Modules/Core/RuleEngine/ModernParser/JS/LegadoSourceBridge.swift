@@ -348,7 +348,7 @@ import JavaScriptCore
         let currentJson = getVariableHandler?() ?? ""
         let normalized = Self.normalizeStored(value)
 
-        // Older Yuedu sources used getVariable() as a JSON object and expected
+        // Older MoYue sources used getVariable() as a JSON object and expected
         // source.put/get to address that object. Preserve that compatibility only when
         // the variable really is a JSON object. Legado also allows getVariable() to be
         // an opaque token; in that case source.put must use a separate key-value store.

@@ -2,21 +2,21 @@
 
 ## Goal
 
-Replace Yuedu's source-by-source JavaScript compatibility patching with a local,
+Replace MoYue's source-by-source JavaScript compatibility patching with a local,
 contract-driven Legado runtime layer. The runtime must support the provided Qimao
 and Shuqi sources through the existing online-reading pipeline without source-name
 checks, alternate parsers, retries, or a remote Legado service.
 
 The compatibility boundary is the documented Legado JavaScript API plus the common
 JVM types required by real book sources. Arbitrary Java packages are not promised.
-When a source invokes an API outside that boundary, Yuedu must report the exact API
+When a source invokes an API outside that boundary, MoYue must report the exact API
 and execution stage instead of returning an unexplained empty result.
 
 ## Confirmed Root Cause
 
 Legado, Legado with MD3, and Sigma share the same fundamental rule-engine lineage:
 Kotlin `AnalyzeRule` / `AnalyzeUrl`, Rhino 1.7.14, and direct access to Android/JVM,
-Jsoup, and utility-library objects. Yuedu independently implements the rules in
+Jsoup, and utility-library objects. MoYue independently implements the rules in
 Swift and executes source JavaScript with JavaScriptCore. Its `java.*`, `source.*`,
 HTTP response, and `Packages.*` surfaces are therefore partial compatibility
 bridges rather than the original runtime.
@@ -27,11 +27,11 @@ The two supplied sources expose different symptoms of the same missing contract:
   `let sourceUrl`. Rhino accepts the source, while JavaScriptCore rejects the whole
   `jsLib` with `SyntaxError: Cannot declare a let variable twice: 'sourceUrl'`.
   Its login code also calls `java.get(url, {}).cookies()`. Legado returns a Jsoup
-  `Connection.Response`; Yuedu currently returns a response bridge that exposes
+  `Connection.Response`; MoYue currently returns a response bridge that exposes
   only `body()` and `url`.
 - Qimao calls `Packages.java.lang.String`, `Packages.android.util.Base64`,
   `Packages.java.util.UUID`, `Packages.java.util.Arrays`, and
-  `Packages.javax.crypto.*`. Yuedu's current generic `Packages` proxy contains
+  `Packages.javax.crypto.*`. MoYue's current generic `Packages` proxy contains
   selected crypto helpers but not the required Java String, UUID, or Android Base64
   semantics. Request-device parameters and signatures are consequently invalid
   before the real search request is sent.
@@ -212,9 +212,9 @@ Tests load the unchanged files from configurable environment variables, with the
 user-provided paths as local defaults:
 
 - `QIMAO_SOURCE_JSON` defaults to
-  `/Users/zhangruilin/Desktop/Test document/RULE/七猫四合一本地版（同人）.json`.
+  `<repo>/Test document/RULE/七猫四合一本地版（同人）.json`.
 - `SHUQI_SOURCE_JSON` defaults to
-  `/Users/zhangruilin/Desktop/Test document/RULE/书旗（同人）.json`.
+  `<repo>/Test document/RULE/书旗（同人）.json`.
 
 Deterministic tests use injected network responses and verify:
 

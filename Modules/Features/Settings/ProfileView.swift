@@ -27,14 +27,14 @@ struct SettingsView: View {
     private let privacyPolicyURL = URL(string: "https://yuedureader.com/privacy")
     private let userAgreementURL = URL(string: "https://yuedureader.com/terms")
     private let paidTermsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")
-    private let sourceCodeURL = URL(string: "https://github.com/CHANG-JUI-LIN/Yuedu-reader/releases")
+    private let sourceCodeURL = URL(string: "https://github.com/zhong228/MoYue/releases")
 
     private var feedbackMailURL: URL? {
         var components = URLComponents()
         components.scheme = "mailto"
         components.path = feedbackEmail
         components.queryItems = [
-            URLQueryItem(name: "subject", value: localized("yuedu app 反饋"))
+            URLQueryItem(name: "subject", value: localized("MoYue app 反饋"))
         ]
         return components.url
     }
@@ -216,7 +216,7 @@ struct SettingsView: View {
                             )
                         } label: {
                             HStack {
-                                Label(localized("關於 Yuedu Reader"), systemImage: "info.circle.fill")
+                                Label(localized("關於 MoYue"), systemImage: "info.circle.fill")
                                     .foregroundColor(DSColor.textPrimary)
                                     .labelStyle(IconConsistentLabelStyle())
                                 Spacer(minLength: 12)
@@ -364,7 +364,7 @@ private struct AboutSupportView: View {
         List {
             Section {
                 VStack(spacing: 12) {
-                    Image("YueduLogo")
+                    Image("MoYueLogo")
                         .resizable()
                         .scaledToFit()
                         .frame(width: 82, height: 82)
@@ -510,7 +510,7 @@ private struct AboutSupportView: View {
             .interfaceSectionSurface()
         }
         .softScrollEdges()
-        .navigationTitle(localized("關於 Yuedu Reader"))
+        .navigationTitle(localized("關於 MoYue"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)
         .alert(localized("已複製"), isPresented: $showCopiedQQGroup) {

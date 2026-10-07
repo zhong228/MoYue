@@ -1,9 +1,9 @@
 ---
 name: yuedu-ios-design
-description: Use when creating, reviewing, or modifying Yuedu user-facing SwiftUI views, screens, sheets, toolbars, lists, settings, reader overlays, dialogs, or localized UI.
+description: Use when creating, reviewing, or modifying MoYue user-facing SwiftUI views, screens, sheets, toolbars, lists, settings, reader overlays, dialogs, or localized UI.
 ---
 
-# Yuedu iOS Design
+# MoYue iOS Design
 
 Apply these guardrails to every user-facing SwiftUI change. Read the repo-root `docs/design.md` before substantial design work; it is the detailed source of rationale, examples, page archetypes, and review guidance.
 
@@ -17,7 +17,7 @@ Consult only the context needed for the change:
 
 ## Decision Order
 
-Resolve conflicts in this order: **Apple platform behavior and accessibility > explicit Yuedu conventions > contextual recommendations**. Yuedu preferences are product conventions, not universal Apple HIG rules.
+Resolve conflicts in this order: **Apple platform behavior and accessibility > explicit MoYue conventions > contextual recommendations**. MoYue preferences are product conventions, not universal Apple HIG rules.
 
 ## Hard Rules
 
@@ -43,7 +43,7 @@ Resolve conflicts in this order: **Apple platform behavior and accessibility > e
 - Put Done, or a clearer task-specific alternative, trailing; save or complete the task.
 - Use Back only for internal sheet navigation; it must not dismiss the sheet.
 - Never show Back, Cancel/Close, and Done together at one hierarchy level.
-- Visible Yuedu modal chrome uses `xmark` and `checkmark` with localized accessibility labels.
+- Visible MoYue modal chrome uses `xmark` and `checkmark` with localized accessibility labels.
 - Alerts and confirmation dialogs keep textual cancel actions.
 
 ## Avoid

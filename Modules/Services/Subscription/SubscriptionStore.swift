@@ -21,7 +21,7 @@ enum SubscriptionProductReloadPolicy {
     }
 }
 
-/// Single source of truth for the `Yuedu Pro` subscription.
+/// Single source of truth for the `MoYue Pro` subscription.
 ///
 /// Wraps StoreKit 2: loads the monthly/lifetime products, drives purchase and
 /// restore, listens for transaction updates in the background, and combines
@@ -223,7 +223,7 @@ final class SubscriptionStore: ObservableObject {
     }
 
     /// The plan the member page names, lifetime first; nil for Pro granted by the
-    /// Yuedu account or the iCloud mirror.
+    /// MoYue account or the iCloud mirror.
     var ownedPlan: ProProduct? {
         PaywallPresentationPolicy.ownedPlanID(
             purchasedProductIDs: purchasedProductIDs,
@@ -401,7 +401,7 @@ final class SubscriptionStore: ObservableObject {
     }
 
     /// Presents Apple's offer-code sheet, then synchronizes any entitlement
-    /// created by the redemption with StoreKit and the signed-in Yuedu account.
+    /// created by the redemption with StoreKit and the signed-in MoYue account.
     func redeemOfferCode(in scene: UIWindowScene?) async {
         switch SubscriptionOfferCodeRedemptionPolicy.action(
             isRedeeming: isRedeemingOfferCode,

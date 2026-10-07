@@ -2,7 +2,7 @@ import StoreKit
 import SwiftUI
 import UIKit
 
-/// Modal paywall for `Yuedu Pro`, and the only Pro page: presented from feature lock
+/// Modal paywall for `MoYue Pro`, and the only Pro page: presented from feature lock
 /// rows and from Settings' 「閱讀Pro」 row. Someone who owns Pro gets its member page
 /// (`PaywallMemberPage`) instead of the offer; a purchase made here turns the offer into
 /// that page, celebrating.
@@ -110,7 +110,7 @@ struct PaywallView: View {
                     purchaseAfterLogin = false
                 }
             } message: {
-                Text(localized("未登入時，會員只會跟隨本次購買使用的 Apple 帳號。登入後購買可綁定 Yuedu 帳號，切換 App Store 帳號後仍可使用。"))
+                Text(localized("未登入時，會員只會跟隨本次購買使用的 Apple 帳號。登入後購買可綁定 MoYue 帳號，切換 App Store 帳號後仍可使用。"))
             }
             .sheet(isPresented: $showLogin, onDismiss: purchasePendingProductAfterLogin) {
                 LoginView()

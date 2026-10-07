@@ -20,28 +20,28 @@
       "internalID" : "E47B2A91",
       "localizations" : [
         {
-          "description" : "永久解鎖全部 Yuedu Pro 高級個人化",
+          "description" : "永久解鎖全部 MoYue Pro 高級個人化",
           "displayName" : "閱讀Pro 永久會員",
           "locale" : "zh_Hant"
         },
         {
-          "description" : "永久解锁全部 Yuedu Pro 高级个性化",
+          "description" : "永久解锁全部 MoYue Pro 高级个性化",
           "displayName" : "阅读Pro 永久会员",
           "locale" : "zh_Hans"
         },
         {
-          "description" : "Unlock all Yuedu Pro premium features forever",
-          "displayName" : "Yuedu Pro Lifetime",
+          "description" : "Unlock all MoYue Pro premium features forever",
+          "displayName" : "MoYue Pro Lifetime",
           "locale" : "en_US"
         }
       ],
       "productID" : "com.zhangruilin.yuedureader.pro.lifetime",
-      "referenceName" : "Yuedu Pro Lifetime",
+      "referenceName" : "MoYue Pro Lifetime",
       "type" : "NonConsumable"
     }
   ],
   "settings" : {
-    "_applicationInternalID" : "6772972358",
+    "_applicationInternalID" : "",
     "_askToBuyEnabled" : false,
     "_billingGracePeriodEnabled" : false,
     "_billingIssuesEnabled" : false,
@@ -76,7 +76,7 @@
         },
         {
           "description" : "",
-          "displayName" : "Yuedu Pro Monthly",
+          "displayName" : "MoYue Pro Monthly",
           "locale" : "en_US"
         }
       ],
@@ -107,24 +107,24 @@
           ],
           "localizations" : [
             {
-              "description" : "每月解鎖全部 Yuedu Pro 高級個人化",
+              "description" : "每月解鎖全部 MoYue Pro 高級個人化",
               "displayName" : "閱讀Pro 月會員",
               "locale" : "zh_Hant"
             },
             {
-              "description" : "每月解锁全部 Yuedu Pro 高级个性化",
+              "description" : "每月解锁全部 MoYue Pro 高级个性化",
               "displayName" : "阅读Pro 月会员",
               "locale" : "zh_Hans"
             },
             {
-              "description" : "Unlock all Yuedu Pro personalization, billed monthly",
-              "displayName" : "Yuedu Pro Monthly",
+              "description" : "Unlock all MoYue Pro personalization, billed monthly",
+              "displayName" : "MoYue Pro Monthly",
               "locale" : "en_US"
             }
           ],
           "productID" : "com.zhangruilin.yuedureader.pro.monthly",
           "recurringSubscriptionPeriod" : "P1M",
-          "referenceName" : "Yuedu Pro Monthly",
+          "referenceName" : "MoYue Pro Monthly",
           "subscriptionGroupID" : "4B1A0032-648A-4BE4-AAE6-86B68D25D05B",
           "type" : "RecurringSubscription",
           "winbackOffers" : [

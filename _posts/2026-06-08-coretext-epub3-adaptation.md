@@ -1,7 +1,7 @@
 ---
 layout: post
-title: "Adapting EPUB 3 Features to CoreText in Yuedu Reader"
-description: "How Yuedu Reader routes fixed layout, media overlays, HTML5 media, CSS float, tables, and RTL/bidi EPUB behavior through a native CoreText reading engine."
+title: "Adapting EPUB 3 Features to CoreText in MoYue"
+description: "How MoYue routes fixed layout, media overlays, HTML5 media, CSS float, tables, and RTL/bidi EPUB behavior through a native CoreText reading engine."
 date: 2026-06-08
 tags:
   - ios
@@ -12,9 +12,9 @@ tags:
   - typography
 ---
 
-# Adapting EPUB 3 Features to CoreText in Yuedu Reader
+# Adapting EPUB 3 Features to CoreText in MoYue
 
-Yuedu Reader's main reading surface is not a WebView. It is a native SwiftUI shell around a CoreText pagination and interaction engine. That decision started with CJK vertical writing, stable pagination, text selection, highlights, and TTS synchronization. The harder test came later, when real EPUB 3 books started combining fixed layout, `nav.xhtml`, media overlays, HTML5 audio and video, CSS float, tables, RTL/bidi text, font styling, and box-model details in the same publication.
+MoYue's main reading surface is not a WebView. It is a native SwiftUI shell around a CoreText pagination and interaction engine. That decision started with CJK vertical writing, stable pagination, text selection, highlights, and TTS synchronization. The harder test came later, when real EPUB 3 books started combining fixed layout, `nav.xhtml`, media overlays, HTML5 audio and video, CSS float, tables, RTL/bidi text, font styling, and box-model details in the same publication.
 
 This post is a practical engineering note about connecting EPUB 3 semantics to a CoreText reader. It is not a guide to writing an EPUB engine from scratch. The more useful question is narrower: once you already have a native CoreText reader, how do EPUB 3 features survive parsing, intermediate representation, attributed strings, pagination, drawing, hit testing, playback, and regression tests?
 
@@ -35,7 +35,7 @@ This post is a practical engineering note about connecting EPUB 3 semantics to a
 
 EPUB 3 content often looks like "XHTML plus CSS plus media." If you use a WebView, the browser already handles flow layout, media elements, links, selection, bidi, tables, float, and CSS cascade. Once the main renderer becomes CoreText, none of that exists by default.
 
-So the boundary in Yuedu is not "CoreText replaces the browser." The boundary is more deliberate:
+So the boundary in MoYue is not "CoreText replaces the browser." The boundary is more deliberate:
 
 - Reflowable text reading uses CoreText because it needs native pagination, selection, highlights, TTS, vertical writing, and stable reading positions.
 - Fixed-layout EPUB uses `FixedPageReader` because it is closer to positioned pages or visual canvases than to reflowable text.
@@ -58,7 +58,7 @@ Those are not isolated features. Together, they move EPUB support from "the book
 
 Important EPUB 3 information is often not inside a single XHTML chapter. It lives in OPF metadata, spine items, manifest properties, and navigation resources. A CoreText renderer cannot wait until draw time to guess it.
 
-Yuedu extracts reader-level contracts in `PublicationSession`:
+MoYue extracts reader-level contracts in `PublicationSession`:
 
 - `EPUBLayoutMode`: reflowable or pre-paginated.
 - `EPUBPageProgressionDirection`: LTR, RTL, or default.
@@ -75,7 +75,7 @@ For example, `page-progression-direction="rtl"` means right-to-left page progres
 
 CoreText eventually consumes attributed strings and frame paths, but EPUB 3 features cannot be flattened into text too early.
 
-Yuedu has a `RenderableNode` path that looks roughly like this:
+MoYue has a `RenderableNode` path that looks roughly like this:
 
 ```text
 XHTML + CSS
@@ -107,7 +107,7 @@ If HTML is parsed straight into plain text, most EPUB 3 behavior is already gone
 
 EPUB 3 fixed layout is one of the easiest ways to break a CoreText reader. Fixed layout is about pages: viewport, page spread, orientation, left/right/center page placement. That is a different problem from reflowable text.
 
-Yuedu routes this through `FixedPageReader`:
+MoYue routes this through `FixedPageReader`:
 
 - `FixedLayoutEPUBPageProvider` supplies fixed-layout pages.
 - `FixedPageReaderConfiguration` defines shared fixed-layout and manga reading modes.
@@ -128,7 +128,7 @@ EPUB media overlays are not just "an audio file in the book." SMIL ties text fra
 - which fragment should be highlighted during playback,
 - and how playback should stop or switch when the user changes chapter or page.
 
-Yuedu models overlays and fragments in `EPUBMediaOverlay.swift`, parses spine item `media-overlay` references in `PublicationSession`, then connects them to `EPUBMediaOverlayPlaybackCoordinator` and `EPUBMediaOverlayPlayerView`.
+MoYue models overlays and fragments in `EPUBMediaOverlay.swift`, parses spine item `media-overlay` references in `PublicationSession`, then connects them to `EPUBMediaOverlayPlaybackCoordinator` and `EPUBMediaOverlayPlayerView`.
 
 CoreText is not responsible for audio playback itself. Its job is to provide a text world that can be addressed. A media overlay fragment must become a highlightable target inside the CoreText page. This is the same family of problems as TTS, highlights, and bookmarks: interaction should return to a stable `(spineIndex, charOffset)` or anchor/fragment contract, not to "the current page number."
 
@@ -138,7 +138,7 @@ The media overlay work in `1b8e65d` also touched highlights, bookmarks, landscap
 
 EPUB 3 allows audio and video. A WebView can render media elements directly. CoreText cannot.
 
-Yuedu turns media elements into reader attachments:
+MoYue turns media elements into reader attachments:
 
 - Inline audio/video becomes `RenderableNode.media` or an attributed placeholder in the text flow.
 - Pagination reserves geometry for the placeholder.
@@ -154,7 +154,7 @@ That is why commits `0484c49` and `c674d57` handled inline video, background sou
 
 CoreText's natural model is "lay text inside a path." CSS float says "this image occupies a region and following text wraps around it." Those models can work together, but only if the reader converts float into path geometry.
 
-Yuedu handles float like this:
+MoYue handles float like this:
 
 1. The HTML builder sees `float: left/right` on an image and emits a zero-width marker.
 2. The marker carries a `FloatPlaceholder` with side, resolved drawing size, and margins.
@@ -164,7 +164,7 @@ Yuedu handles float like this:
 
 Float must exist in both paged and scroll paths. If paged mode handles float but scroll chunk slicing does not, text and images overlap or disappear when the same chapter is read in scroll mode. Commit `fb2b268` extended CSS float into the IR and scroll path to close that gap.
 
-Tables require a different tradeoff. CoreText can lay out text, but it is not a table layout engine. Yuedu keeps table structure as `HTMLTableModel`, then rasterizes it into a block that can be inserted into the reading flow. It is not full CSS table support, but it is practical for a reader: row, cell, header, and caption semantics survive long enough to avoid turning a table into unreadable inline text.
+Tables require a different tradeoff. CoreText can lay out text, but it is not a table layout engine. MoYue keeps table structure as `HTMLTableModel`, then rasterizes it into a block that can be inserted into the reading flow. It is not full CSS table support, but it is practical for a reader: row, cell, header, and caption semantics survive long enough to avoid turning a table into unreadable inline text.
 
 The box model follows the same rule. Borders, backgrounds, padding, margins, `hr` width/alignment, font weight, italic styling, and whitespace collapsing cannot live only in the CSS parser. They must pass through the whole pipeline:
 
@@ -198,7 +198,7 @@ For a reader, RTL is not one switch. It is a contract that affects parsing, layo
 
 EPUB bugs hide easily inside real books. A single production EPUB can include CSS, images, fonts, chapters, TOC files, media, and publisher-specific markup. Without a small reproduction, debugging turns into screenshot archaeology.
 
-Yuedu now keeps small EPUB regression fixtures for targeted behavior:
+MoYue now keeps small EPUB regression fixtures for targeted behavior:
 
 - `nav-xhtml-basic.epub` tests EPUB 3 `nav.xhtml`.
 - `toc-ncx-basic.epub` tests EPUB 2 `toc.ncx`.

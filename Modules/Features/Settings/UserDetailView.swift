@@ -452,7 +452,7 @@ struct UserDetailView: View {
     }
 
     /// Under 閱讀Pro: what Pro unlocks, led by AI — or the plan they hold. Lifetime is not
-    /// a subscription, and Pro from the Yuedu account or the iCloud mirror names no plan
+    /// a subscription, and Pro from the MoYue account or the iCloud mirror names no plan
     /// on this Apple Account, so each gets its own line.
     private var proRowSubtitle: String {
         guard subscriptionStore.isProActive else { return localized("解鎖 AI 閱讀助手與高級個人化") }

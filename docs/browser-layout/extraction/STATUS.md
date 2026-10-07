@@ -8,12 +8,12 @@
 
 | Repo | 實際 checkout | 起始 branch / HEAD | 起始狀態 |
 |---|---|---|---|
-| Reader | `/Users/zhangruilin/Desktop/Yuedu-reader` | main / `5e18b6aa5e39bfff802911cbdc14dc82ebc05843` | clean |
-| CoreText | `/Users/zhangruilin/Desktop/YueduCoreText` | main / `18253ed6e142cb416af0826f5a62d1737c5e833b` | clean |
+| Reader | `<repo>` | main / `5e18b6aa5e39bfff802911cbdc14dc82ebc05843` | clean |
+| CoreText | `<repo>/YueduCoreText` | main / `18253ed6e142cb416af0826f5a62d1737c5e833b` | clean |
 
 兩邊改動均保留為未提交 diff；本 task 沒有 commit、push、tag、release、stash 或 reset。執行期間其他工作在 Reader 增加 navigation/back-swipe 等變更，已保留，不能將全部工作樹 diff 都歸於本次抽取。
 
-實際工具鏈為 Xcode 27.0 beta (`27A5252f`)、Swift 6.4 (`swiftlang-6.4.0.33.1`)、iOS Simulator 27.0 SDK。測試 destination 為 `platform=iOS Simulator,id=9022EC10-D454-4270-AA9B-36D15CAD67C6`，裝置名稱 Yuedu Baseline Attribution，iPhone 17 Pro Max / iOS 27.0。套件仍宣告 Swift tools 6.0 / iOS 17，未提高最低要求；Xcode 16 的最低版本相容性本次未另行執行。
+實際工具鏈為 Xcode 27.0 beta (`27A5252f`)、Swift 6.4 (`swiftlang-6.4.0.33.1`)、iOS Simulator 27.0 SDK。測試 destination 為 `platform=iOS Simulator,id=9022EC10-D454-4270-AA9B-36D15CAD67C6`，裝置名稱 MoYue Baseline Attribution，iPhone 17 Pro Max / iOS 27.0。套件仍宣告 Swift tools 6.0 / iOS 17，未提高最低要求；Xcode 16 的最低版本相容性本次未另行執行。
 
 起始 App remote package 為 YueduCoreText 0.2.1（上述 package SHA）；SwiftSoup 為 2.13.7 / `8d6ad267714cac3ae747cefdd21f7a6665006e1f`。App 的 project references 與既有 Package.resolved 沒有改成虛構版本。
 
@@ -72,7 +72,7 @@ CoreTextPageEngine 的 legacy orchestration／不同演算法、固定版面 EPU
 ## 5. 依賴、資源與所有權
 
 ```text
-Yuedu Reader → YueduCoreText → YueduCoreTextTypography
+MoYue → YueduCoreText → YueduCoreTextTypography
                             → SwiftSoup 2.13.7
                             → UIKit / CoreText / CoreGraphics / Foundation
 StandaloneConsumer → YueduCoreText（同上，沒有 Reader）
@@ -121,7 +121,7 @@ App `build-for-testing` 完成編譯與連結，見 app-integration-build13.log�
 
 ## 8. 本機整合與待發布項目
 
-相鄰 checkout 擺放後，開啟 `Yuedu-reader/Yuedu-Engine.xcworkspace`。workspace 只用 `group:../YueduCoreText` 相對路徑 override 同一 package identity，不同時向 target 加入兩個同名套件。可在任意共同父目錄重現，沒有把 /Users 絕對路徑寫入可提交的 Xcode 設定。
+相鄰 checkout 擺放後，開啟 `MoYue/Yuedu-Engine.xcworkspace`。workspace 只用 `group:../YueduCoreText` 相對路徑 override 同一 package identity，不同時向 target 加入兩個同名套件。可在任意共同父目錄重現，沒有把 /Users 絕對路徑寫入可提交的 Xcode 設定。
 
 本機跨 repo 建置與測試已驗證。遠端仍是已發布的 0.2.1 工具包，不含本次引擎；只有遠端 Reader project 的乾淨 checkout 目前不能建置這份新接線。後續需使用者另行授權發布實際套件 ref，再把 App requirement 更新到該真實 ref、正常 resolve 並驗證乾淨遠端建置。此次沒有虛構已發布版本。
 
@@ -133,4 +133,4 @@ App `build-for-testing` 完成編譯與連結，見 app-integration-build13.log�
 - CTLine 結果不能任意跨 concurrent executors；資源由 consumer 明確擁有。
 - 遠端依賴發布尚待授權；不屬於已完成的 remote resolve 驗收。
 
-**驗收答案：是，不取得 Yuedu Reader 原始碼，只取得 YueduCoreText 與正式宣告的依賴，已能從 HTML + CSS 獨立完成排版、分頁與繪製；證據是乾淨目錄 consumer-clean-render.xcresult 的 5/5 public-only iOS Simulator 測試。**
+**驗收答案：是，不取得 MoYue 原始碼，只取得 YueduCoreText 與正式宣告的依賴，已能從 HTML + CSS 獨立完成排版、分頁與繪製；證據是乾淨目錄 consumer-clean-render.xcresult 的 5/5 public-only iOS Simulator 測試。**

@@ -1,4 +1,4 @@
-# Yuedu Localization
+# MoYue Localization
 
 Paths below are relative to the repository root. Read only the section relevant to the task.
 

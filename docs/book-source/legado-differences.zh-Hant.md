@@ -3,11 +3,11 @@
 > 其他章節：[快速開始](quickstart.zh-Hant.md) · [規則語法速查](rule-syntax.zh-Hant.md) · [常見症狀對照表](troubleshooting.zh-Hant.md)
 > 简体中文：[与 Legado 的差异](legado-differences.zh-Hans.md)
 
-Yuedu 可直接匯入 Legado 3.0 的書源 JSON 資料模型，但**不代表所有運行時 API 都已相容**。多數書源可以直接用，依賴 Android／Java 特有 API 或不同語法語意的書源仍可能失效；實際能力以本頁清單為準。
+MoYue 可直接匯入 Legado 3.0 的書源 JSON 資料模型，但**不代表所有運行時 API 都已相容**。多數書源可以直接用，依賴 Android／Java 特有 API 或不同語法語意的書源仍可能失效；實際能力以本頁清單為準。
 
 ## 0. 一句話總結
 
-| Legado | Yuedu |
+| Legado | MoYue |
 | --- | --- |
 | Rhino（Java）JavaScript 引擎 | JavaScriptCore（Safari 同款） |
 | jsoup HTML 解析 | SwiftSoup（jsoup 相容實作） |
@@ -15,7 +15,7 @@ Yuedu 可直接匯入 Legado 3.0 的書源 JSON 資料模型，但**不代表所
 | Jayway JSONPath | 自實作 JSONPath |
 | JsoupXpath | libxml2 XPath 1.0 |
 
-**最大風險是 JS**：Legado 書源會呼叫 Android／Java API，Yuedu 用一個 `java.*` 相容層承接，**有一個白名單**——白名單外的呼叫會直接報 `ERROR`。書源在兩端行為不同，九成是 JS 用了白名單外的東西。
+**最大風險是 JS**：Legado 書源會呼叫 Android／Java API，MoYue 用一個 `java.*` 相容層承接，**有一個白名單**——白名單外的呼叫會直接報 `ERROR`。書源在兩端行為不同，九成是 JS 用了白名單外的東西。
 
 ## 1. `java.*` API 對照
 
@@ -75,11 +75,11 @@ Yuedu 可直接匯入 Legado 3.0 的書源 JSON 資料模型，但**不代表所
 | `java.refreshExplore`／`refreshBookInfo`／`refreshBookToc`／`refreshContent` | no-op | — |
 | `java.openVideoPlayer` | 退化成開瀏覽器 | — |
 
-另外一個容易踩的：**`java.get` 的單參數／雙參數歧義**。Legado 靠 Java 多載，Yuedu 用參數數量分派：單參數＝讀變數，雙參數＝HTTP GET。呼叫前數清楚參數個數。
+另外一個容易踩的：**`java.get` 的單參數／雙參數歧義**。Legado 靠 Java 多載，MoYue 用參數數量分派：單參數＝讀變數，雙參數＝HTTP GET。呼叫前數清楚參數個數。
 
 ## 2. `Packages.*` 與 Java 類別白名單
 
-書源 JS 常直接 import Java 類別（`importClass(Packages.java.security.MessageDigest)` 等）。Yuedu **只註冊了以下類別**，白名單外的 `new`／呼叫會拋 `UnsupportedLegadoAPIError`（調試日誌會看到 `ERROR:`）：
+書源 JS 常直接 import Java 類別（`importClass(Packages.java.security.MessageDigest)` 等）。MoYue **只註冊了以下類別**，白名單外的 `new`／呼叫會拋 `UnsupportedLegadoAPIError`（調試日誌會看到 `ERROR:`）：
 
 ```
 java.lang.String（含 getBytes）、java.lang.System（nanoTime/currentTimeMillis）
@@ -96,7 +96,7 @@ okhttp3：MediaType.parse、RequestBody.create、Request.Builder、OkHttpClient
 
 ## 3. 模板變數的語意差異（最容易踩）
 
-| 位置 | Legado | Yuedu（相同） | 差異 |
+| 位置 | Legado | MoYue（相同） | 差異 |
 | --- | --- | --- | --- |
 | 搜索/發現 URL | `{{key}}`、`{{page}}`、`{{pageIndex}}`、`{{header}}`、`{{JS}}` | ✅ 完全支援 | 無 |
 | 章節/目錄 URL | 同上 | ✅ 支援 | 無 |
@@ -117,7 +117,7 @@ okhttp3：MediaType.parse、RequestBody.create、Request.Builder、OkHttpClient
 
 規則裡的 `##正則##` 用 **ICU 正則**執行。Legado 書源常見的 Java-only 語法會自動做近似轉換：
 
-| Java 語法 | ICU | Yuedu 處理 |
+| Java 語法 | ICU | MoYue 處理 |
 | --- | --- | --- |
 | `++`、`*+`、`?+`、`{n,m}+`（possessive） | 不支援 | 近似轉成一般量詞（語義不完全等價） |
 | `(?>…)`（atomic group） | 不支援 | 近似轉換（語義不完全等價） |
@@ -145,7 +145,7 @@ okhttp3：MediaType.parse、RequestBody.create、Request.Builder、OkHttpClient
 ## 7. XPath 差異
 
 - 透過 libxml2 提供**完整 XPath 1.0**：`|` 聯合、軸（`following-sibling::` 等）、`[position()>1]`、`[text()="x"]` 都可用——這部分比 Legado 的 JsoupXpath 更標準
-- **`!/` 前綴沒有任何語義**：Legado 的 `!/`（取非？）在 Yuedu 不會被解釋，等同查一條非法 XPath → 空結果。不要用
+- **`!/` 前綴沒有任何語義**：Legado 的 `!/`（取非？）在 MoYue 不會被解釋，等同查一條非法 XPath → 空結果。不要用
 - `@xpath:` 以外的 `//…` 開頭（含沒有前綴的 `//`）會被正確路由到 XPath 模式
 
 ## 8. 其他注意事項
@@ -156,7 +156,7 @@ okhttp3：MediaType.parse、RequestBody.create、Request.Builder、OkHttpClient
 | JS 執行 | JavaScriptCore；單次求值 30 秒超時，超時重置引擎（停在 `java.startBrowserAwait` 等使用者看網頁時不算）；`eval()` 保留開啟（Legado 混淆 jsLib 需要）；每段 JS 結果會自動處理 `result` 包裝 |
 | `setContent` | `java.setContent(content, baseUrl)` 可用，主路徑照樣執行 |
 | Cloudflare 挑戰 | 與 Legado 相同：網路請求不會自己跳驗證頁，回應照原樣交給書源。書源 JS 呼叫 `java.startBrowserAwait(url, title[, refetchAfterSuccess])` 時開網頁（帶書源標頭與 UA）；頁面上的 Cloudflare 挑戰一通過就自動完成，`refetchAfterSuccess` 預設 `true`＝帶著新 cookie 重抓原網址回傳，`false`＝回傳網頁 HTML。閱讀選單「開啟網頁」可手動開本章網頁過驗證 |
-| 段落縮排 | Legado 在 `replaceRegex` 後會自動每行補全形空格縮排，Yuedu **刻意不做**（可自行在替換規則加 `　　`） |
+| 段落縮排 | Legado 在 `replaceRegex` 後會自動每行補全形空格縮排，MoYue **刻意不做**（可自行在替換規則加 `　　`） |
 | `respondTime`／`concurrentRate` | `respondTime` 作為 JS 網路請求（`java.ajax` 等）的超時（毫秒，下限 8 秒）；`concurrentRate` 做每源請求節流（SourceRateLimiter） |
 | 書源類型 | `bookSourceType` 0=文字、1=聽書、2=漫畫，決定內容路由，不會因此改用 WebView 傳輸 |
 | 章節 URL 帶選項 | `tag.a@href##$##,{"webView":true}` 這類「URL+選項」寫法支援（`chapterUrl`、`nextContentUrl`、`nextTocUrl`、`ruleContent.content` 為 URL 時） |

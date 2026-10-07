@@ -24,7 +24,7 @@ struct TestFlightApplyView: View {
                     Text(localized("搶先體驗新功能"))
                         .font(DSFont.title3.weight(.semibold))
                         .foregroundStyle(DSColor.textPrimary)
-                    Text(localized("加入 TestFlight 測試版，搶先體驗新功能並協助我們改善 Yuedu Reader。名額為永久會員專屬，申請後我們會寄邀請郵件到你填寫的郵箱。"))
+                    Text(localized("加入 TestFlight 測試版，搶先體驗新功能並協助我們改善 MoYue。名額為永久會員專屬，申請後我們會寄邀請郵件到你填寫的郵箱。"))
                         .font(DSFont.footnote)
                         .foregroundColor(DSColor.textSecondary)
                         .multilineTextAlignment(.center)

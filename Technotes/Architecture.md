@@ -1,8 +1,8 @@
-# Yuedu-reader Architecture
+# MoYue Architecture
 
 ## Overview
 
-Yuedu-reader is an iOS EPUB/TXT/web-novel reader built with SwiftUI and CoreText.  
+MoYue is an iOS EPUB/TXT/web-novel reader built with SwiftUI and CoreText.  
 The app supports paged and scroll reading, bookmark annotation, TTS, RSS subscriptions, and rule-engine-based web novel sources.
 
 ## Target Structure
@@ -24,7 +24,7 @@ Modules/
 ├── Services/              # LibraryStore, Online, WebDAV, iCloud, OPDS, Network, Account, RSS, Migration...
 └── SharedUI/              # DesignSystem (DSColor, DSFont, DSSpacing), Components, Extensions, Utilities, Adaptive layout
 Resources/                 # Assets.xcassets, Assets/ (book source engine JS), {en,ja,ko,zh-Hans,zh-Hant}.lproj
-Targets/Yuedu/             # SharedApp, iPhone/, iPad/ entry points
+Targets/MoYue/             # SharedApp, iPhone/, iPad/ entry points
 ```
 
 ## Reader Pipeline

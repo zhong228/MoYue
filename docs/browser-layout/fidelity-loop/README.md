@@ -55,7 +55,7 @@ bash scripts/fidelity/measure.sh --run 我的測試 --books guimi,quanzhi
 
 # 量另一個工作目錄（例如某個分支的 worktree）；要用本機的 YueduCoreText 時，
 # 給一個把閱讀器和套件配在一起的 workspace
-YUEDU_WORKSPACE=<workspace> bash scripts/fidelity/measure.sh --tree <那個 Yuedu-reader> --run 我的測試-after --books kusamakura
+YUEDU_WORKSPACE=<workspace> bash scripts/fidelity/measure.sh --tree <那個 MoYue> --run 我的測試-after --books kusamakura
 
 # 驗收：全部的書，dev 和 holdout 都量
 bash scripts/fidelity/measure.sh --sets dev,holdout --run 我的測試-verify

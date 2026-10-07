@@ -1,19 +1,19 @@
 ---
 layout: default
 title: User Agreement
-description: User Agreement for Yuedu Reader.
+description: User Agreement for MoYue.
 ---
 
-<p><img src="{{ site.baseurl }}/Resources/Assets.xcassets/YueduLogo.imageset/YueduLogo.png" alt="Yuedu Reader logo" width="88" style="border-radius:18px"></p>
+<p><img src="{{ site.baseurl }}/Resources/Assets.xcassets/MoYueLogo.imageset/MoYueLogo.png" alt="MoYue logo" width="88" style="border-radius:18px"></p>
 
 # 使用者協議
 
-閱讀（Yuedu Reader）
+墨悅（MoYue）
 最後更新：2026 年 6 月 30 日
 
 [English](#en)
 
-本協議適用於你下載、安裝、存取或使用閱讀（Yuedu Reader）及其相關功能。使用本 App 即表示你理解並同意本協議；若你不同意，請停止使用本 App。
+本協議適用於你下載、安裝、存取或使用墨悅（MoYue）及其相關功能。使用本 App 即表示你理解並同意本協議；若你不同意，請停止使用本 App。
 
 ## 1. 服務性質
 
@@ -59,7 +59,7 @@ description: User Agreement for Yuedu Reader.
 ## 9. 聯絡我們
 
 - Email: [r3212239269@gmail.com](mailto:r3212239269@gmail.com)
-- GitHub: [github.com/CHANG-JUI-LIN/Yuedu-reader/issues](https://github.com/CHANG-JUI-LIN/Yuedu-reader/issues)
+- GitHub: [github.com/zhong228/MoYue/issues](https://github.com/zhong228/MoYue/issues)
 
 ---
 
@@ -67,14 +67,14 @@ description: User Agreement for Yuedu Reader.
 
 # User Agreement
 
-Yuedu Reader
+MoYue
 Last updated: June 30, 2026
 
-This agreement applies when you download, install, access, or use Yuedu Reader and related features. By using the app, you understand and agree to this agreement. If you do not agree, stop using the app.
+This agreement applies when you download, install, access, or use MoYue and related features. By using the app, you understand and agree to this agreement. If you do not agree, stop using the app.
 
 ## 1. Nature of the Service
 
-Yuedu Reader is a local-first reader tool for managing and reading content that you import yourself or obtain through sources you configure. Unless expressly stated otherwise, we do not provide, host, upload, sell, or distribute third-party novels, books, comics, audio, RSS content, or other copyrighted content.
+MoYue is a local-first reader tool for managing and reading content that you import yourself or obtain through sources you configure. Unless expressly stated otherwise, we do not provide, host, upload, sell, or distribute third-party novels, books, comics, audio, RSS content, or other copyrighted content.
 
 ## 2. Your Content and Source Responsibility
 
@@ -116,4 +116,4 @@ If any provision is found invalid, the remaining provisions remain effective. Pa
 ## 9. Contact
 
 - Email: [r3212239269@gmail.com](mailto:r3212239269@gmail.com)
-- GitHub: [github.com/CHANG-JUI-LIN/Yuedu-reader/issues](https://github.com/CHANG-JUI-LIN/Yuedu-reader/issues)
+- GitHub: [github.com/zhong228/MoYue/issues](https://github.com/zhong228/MoYue/issues)

@@ -11,7 +11,7 @@ private let subscriptionICloudLog = Logger(
 /// CloudKit database.
 ///
 /// This is the only entitlement path that survives an App Store account switch
-/// for a purchase made without a Yuedu account. CloudKit is keyed by the *iCloud*
+/// for a purchase made without a MoYue account. CloudKit is keyed by the *iCloud*
 /// account (Settings → Apple ID → iCloud), which iOS keeps separate from the App
 /// Store account (Settings → Apple ID → Media & Purchases); switching storefronts
 /// to download the app leaves it untouched. `SubscriptionEntitlementCache` cannot

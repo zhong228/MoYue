@@ -82,7 +82,7 @@
 "前往小說章節頁，點擊右下角即可轉碼閱讀" = "Open a novel chapter page, then tap the bottom-right button to start converted reading";
 "加入 TestFlight" = "Join TestFlight";
 "加入 TestFlight 測試版" = "Join the TestFlight beta";
-"加入 TestFlight 測試版，搶先體驗新功能並協助我們改善 Yuedu Reader。名額為永久會員專屬，申請後我們會寄邀請郵件到你填寫的郵箱。" = "Join the TestFlight beta to try new features first and help us improve Yuedu Reader. Seats are exclusive to lifetime members. After you apply, we'll send an invite to the email you enter.";
+"加入 TestFlight 測試版，搶先體驗新功能並協助我們改善 MoYue。名額為永久會員專屬，申請後我們會寄邀請郵件到你填寫的郵箱。" = "Join the TestFlight beta to try new features first and help us improve MoYue. Seats are exclusive to lifetime members. After you apply, we'll send an invite to the email you enter.";
 "加入中…" = "Adding…";
 "加入時間" = "Date Added";
 "加入書架" = "Bookmarked";
@@ -145,7 +145,7 @@
 "已複製" = "Copied";
 "已複製書源 JSON" = "Source JSON copied";
 "已解析 EPUB 結構，點擊下方按鈕匯入" = "EPUB parsed. Tap below to import.";
-"已解鎖 閱讀Pro" = "Yuedu Pro unlocked";
+"已解鎖 閱讀Pro" = "MoYue Pro unlocked";
 "開始使用" = "Get Started";
 "已讀取" = "Read";
 "已讀完" = "Finished";
@@ -405,7 +405,7 @@
 "重新下載" = "Re-download";
 "重試" = "Retry";
 "閱讀亮度" = "Brightness";
-"閱讀" = "Yuedu Reader";
+"閱讀" = "MoYue";
 "閱讀字數" = "Characters Read";
 "閱讀工具" = "Reading Tools";
 "閱讀時長" = "Reading Duration";
@@ -415,7 +415,7 @@
 "閱讀設定" = "Reading Settings";
 "閱讀進度" = "Progress";
 "關於" = "About";
-"關於 Yuedu Reader" = "About Yuedu Reader";
+"關於 MoYue" = "About MoYue";
 "聯絡我們" = "Contact Us";
 "聯絡方式" = "Contact";
 "聯絡方式、版本資訊與政策協議" = "Contact, version, policies, and agreements";
@@ -436,7 +436,7 @@
 "使用者協議與付費服務條款" = "User Agreement and Paid Terms";
 "好" = "OK";
 "已複製 QQ 群號：%@" = "Copied QQ group ID: %@";
-"使用 Yuedu Reader 前，請閱讀並理解以下協議與條款。" = "Before using Yuedu Reader, read and understand the agreements and terms below.";
+"使用 MoYue 前，請閱讀並理解以下協議與條款。" = "Before using MoYue, read and understand the agreements and terms below.";
 "協議文件" = "Agreement Documents";
 "使用規則、第三方內容與責任邊界" = "Usage rules, third-party content, and responsibility boundaries";
 "未來付費功能、訂閱、退款與 Apple 付款規則" = "Future paid features, subscriptions, refunds, and Apple payment rules";
@@ -587,7 +587,7 @@
 "Google 登入失敗" = "Google sign-in failed";
 "Apple 登入失敗" = "Apple sign-in failed";
 "Apple 使用者" = "Apple User";
-"yuedu app 反饋" = "yuedu app Feedback";
+"MoYue app 反饋" = "MoYue app Feedback";
 "已登入帳號" = "Signed in";
 "同步狀態待設定" = "Sync status not configured";
 "尚未登入帳號" = "Not signed in";
@@ -1060,7 +1060,7 @@
 "無法複製 EPUB 檔案：" = "Couldn't copy EPUB file: ";
 "第 %@ 頁，進度 %@，%@" = "Page %@, progress %@, %@";
 
-// MARK: - Yuedu Pro subscription
+// MARK: - MoYue Pro subscription
 "字體導入" = "Custom Fonts";
 "翻頁區塊編輯" = "Page-Turn Zones";
 "排版參數導入" = "Layout Presets";
@@ -1090,11 +1090,11 @@
 "沒有找到可恢復的訂閱" = "No purchases to restore.";
 "感謝你的支持，所有 Pro 功能現在都已啟用" = "Thanks for your support — every Pro feature is now enabled.";
 "最超值" = "Best value";
-"閱讀Pro" = "Yuedu Pro";
+"閱讀Pro" = "MoYue Pro";
 "永久會員" = "Lifetime";
 "月會員" = "Monthly";
-"訂閱 閱讀Pro" = "Subscribe to Yuedu Pro";
-"購買 閱讀Pro" = "Buy Yuedu Pro";
+"訂閱 閱讀Pro" = "Subscribe to MoYue Pro";
+"購買 閱讀Pro" = "Buy MoYue Pro";
 "一次性購買，永久有效" = "One-time purchase, never expires";
 "兌換優惠碼" = "Redeem Offer Code";
 "目前無法開啟優惠碼兌換，請稍後再試" = "Offer code redemption is unavailable right now. Please try again.";
@@ -1526,8 +1526,8 @@
 "使用來源配置前請確認" = "Please Confirm Before Using Source Configurations";
 "source_disclaimer_body_1" = "Only create, import, or use book sources and subscriptions that you have the right to access, parse, and use. Respect each target website's terms of service, robots.txt rules, and applicable copyright requirements.";
 "source_disclaimer_body_2" = "Do not use this feature to bypass logins, paywalls, DRM, CAPTCHAs, geographic restrictions, or other access controls. It must not be used for unauthorized bulk scraping, content copying, or redistribution.";
-"source_disclaimer_body_3" = "Yuedu provides a general-purpose rule-parsing engine only. It does not bundle, provide, recommend, or maintain any third-party book sources or subscriptions. Users are solely responsible for verifying the legality and authorization scope of the configurations and content sources they use.";
-"source_disclaimer_body_4" = "Yuedu reserves the right to restrict or disable configurations that have been clearly notified as infringing, violating terms of service, or constituting abuse.";
+"source_disclaimer_body_3" = "MoYue provides a general-purpose rule-parsing engine only. It does not bundle, provide, recommend, or maintain any third-party book sources or subscriptions. Users are solely responsible for verifying the legality and authorization scope of the configurations and content sources they use.";
+"source_disclaimer_body_4" = "MoYue reserves the right to restrict or disable configurations that have been clearly notified as infringing, violating terms of service, or constituting abuse.";
 "注意事項" = "Notes";
 "繼續" = "Continue";
 
@@ -1594,7 +1594,7 @@
 "選擇購買方式" = "Choose Purchase Method";
 "登入後購買" = "Sign In and Purchase";
 "直接購買" = "Purchase Without Signing In";
-"未登入時，會員只會跟隨本次購買使用的 Apple 帳號。登入後購買可綁定 Yuedu 帳號，切換 App Store 帳號後仍可使用。" = "Without signing in, Pro follows the Apple Account used for this purchase. Sign in first to link Pro to your Yuedu account and keep access after changing App Store accounts.";
+"未登入時，會員只會跟隨本次購買使用的 Apple 帳號。登入後購買可綁定 MoYue 帳號，切換 App Store 帳號後仍可使用。" = "Without signing in, Pro follows the Apple Account used for this purchase. Sign in first to link Pro to your MoYue account and keep access after changing App Store accounts.";
 "請先登入後再綁定會員" = "Sign in before linking Pro";
 "購買成功，但未能綁定帳號，請稍後使用恢復購買重試" = "The purchase succeeded, but account linking failed. Use Restore Purchases later to try again.";
 "無法將購買綁定到此帳號" = "Unable to link the purchase to this account";
@@ -1671,7 +1671,7 @@
 "TestFlight 名額已使用" = "TestFlight slot already used";
 "這個 Pro 帳號已經申請過一個郵箱，不能再邀請第二個。" = "This Pro account has already requested one email and cannot invite a second one.";
 "需要永久會員" = "Lifetime membership required";
-"TestFlight 名額只開放給永久會員。月會員可以在「閱讀Pro」升級為永久會員後申請。" = "TestFlight seats are open to lifetime members only. Monthly members can apply after upgrading to lifetime in Yuedu Pro.";
+"TestFlight 名額只開放給永久會員。月會員可以在「閱讀Pro」升級為永久會員後申請。" = "TestFlight seats are open to lifetime members only. Monthly members can apply after upgrading to lifetime in MoYue Pro.";
 "每個 Pro 帳號只能申請一次；如果尚未收到邀請，請聯絡管理員。" = "Each Pro account can request TestFlight access only once. If you have not received an invite, contact the administrator.";
 "申請已記錄，但邀請尚未完成，請聯絡管理員。" = "The request was recorded, but the invite has not completed. Contact the administrator.";
 "「%@」沒有回應這則段評，可能需要先在書源設定填寫 Token。" = "\"%@\" did not respond to this comment. You may need to enter a token in its book-source settings first.";
@@ -1809,7 +1809,7 @@
 "尚未設定伺服器" = "Server not configured";
 "已設定，尚未同步" = "Configured, not synced yet";
 "已設定" = "Configured";
-"你已經是 閱讀Pro" = "You already have Yuedu Pro";
+"你已經是 閱讀Pro" = "You already have MoYue Pro";
 "所有 Pro 功能都已啟用" = "Every Pro feature is unlocked";
 "目前方案" = "Current plan";
 "升級" = "Upgrade";
@@ -2536,7 +2536,7 @@
 "開啟系統設定" = "Open Settings";
 "附近的 Calibre" = "Nearby Calibre servers";
 "電腦 IP 或主機名稱" = "Computer IP or hostname";
-"電腦與此裝置須連接同一區域網路，並允許悅讀存取本機網路。找不到電腦時，可在下方手動輸入位址。" = "Connect your computer and this device to the same local network and allow Yuedu local network access. If no computer appears, enter its address below.";
+"電腦與此裝置須連接同一區域網路，並允許悅讀存取本機網路。找不到電腦時，可在下方手動輸入位址。" = "Connect your computer and this device to the same local network and allow MoYue local network access. If no computer appears, enter its address below.";
 "Calibre 傳來的書籍格式或大小無效" = "The book format or size sent by Calibre is invalid.";
 "Calibre 傳輸資料格式無效" = "Invalid Calibre transfer data.";
 "Calibre 已連接其他裝置，請先中斷該連線" = "Calibre is connected to another device. Disconnect it first.";
@@ -3288,7 +3288,7 @@
 "輸入分組名稱（留空＝未分組）" = "Enter a group name (blank = ungrouped)";
 "返回" = "Back";
 "連結已儲存" = "Link saved";
-"連結已儲存，下次開啟閱讀時匯入。" = "Link saved. It will be imported the next time you open Yuedu.";
+"連結已儲存，下次開啟閱讀時匯入。" = "Link saved. It will be imported the next time you open MoYue.";
 "輸入驗證碼" = "Enter Verification Code";
 "驗證碼" = "Verification Code";
 "驗證碼圖片" = "Verification code image";
@@ -3355,7 +3355,7 @@
 "切換帳號" = "Switch Account";
 "開啟 App Store 正式版" = "Open App Store Version";
 "TestFlight 使用資格" = "TestFlight Access";
-"請登入持有正式版永久會員的閱讀帳號，以使用測試版。" = "Sign in to the Yuedu account with an active lifetime purchase from the App Store to use the beta.";
+"請登入持有正式版永久會員的閱讀帳號，以使用測試版。" = "Sign in to the MoYue account with an active lifetime purchase from the App Store to use the beta.";
 "此帳號沒有有效的正式版永久會員，已暫停測試版使用資格。若已退款，測試資格會一併取消。" = "This account has no active App Store lifetime membership. Beta access is suspended and is revoked if the purchase is refunded.";
 "目前無法連線驗證測試資格，請確認網路後重試。" = "Beta access could not be verified online. Check your connection and try again.";
 

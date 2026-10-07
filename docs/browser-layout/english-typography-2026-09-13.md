@@ -6,8 +6,8 @@
 
 | Repo | 原始 checkout | 起始 branch / HEAD | 開始時狀態 |
 |---|---|---|---|
-| Reader | `/Users/zhangruilin/Desktop/Yuedu-reader` | main / `f7e472a558ba59dd7a4dd45823bc223b451f76f2` | 已有 AI、Reader、資源與測試修改，全部保留 |
-| YueduCoreText | `/Users/zhangruilin/Desktop/YueduCoreText` | main / `4a49d3183f5f5c0cc44ff3e68c1a01113d255438` | 乾淨，對應 0.4.0 |
+| Reader | `<repo>` | main / `f7e472a558ba59dd7a4dd45823bc223b451f76f2` | 已有 AI、Reader、資源與測試修改，全部保留 |
+| YueduCoreText | `<repo>/YueduCoreText` | main / `4a49d3183f5f5c0cc44ff3e68c1a01113d255438` | 乾淨，對應 0.4.0 |
 
 本次未 commit、push、打 tag 或發布，也沒有修改匯入介面、書架、設定、Lexbor 入口或使用者資料。套件仍為 iOS 17 / Swift tools 6，SwiftSoup 2.13.7。
 

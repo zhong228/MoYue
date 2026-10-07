@@ -1,6 +1,6 @@
 schemaVersion: 1
 sessionDefaults:
-  projectPath: /Users/zhangruilin/Desktop/Yuedu-reader/Yuedu-Reader.xcodeproj
+  projectPath: <repo>/Yuedu-Reader.xcodeproj
   scheme: Yuedu-Reader
   configuration: Debug
   simulatorName: iPhone 17 Pro Max

@@ -7,7 +7,7 @@ import SwiftUI
 ///
 /// Legado (original, legado-E and MD3 alike) hands a changed source's type to the
 /// book: `SearchBook.toBook()` carries the new source's `type`, and the read action
-/// branches on that type. Yuedu has one detail page per kind — `AudiobookDetailView`
+/// branches on that type. MoYue has one detail page per kind — `AudiobookDetailView`
 /// for audio, `OnlineBookView` for everything else — so here the kind picks the
 /// page. Switching an audiobook detail to a text source replaces it with the text
 /// detail, and switching a text detail to an audio source does the reverse; the
