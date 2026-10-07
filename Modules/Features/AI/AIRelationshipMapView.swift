@@ -103,77 +103,8 @@ struct AIRelationshipMapView: View {
 
     private func ring(center: AIRelationshipGraph.Node, neighbors: [AIRelationshipGraph.Neighbor]) -> some View {
         GeometryReader { proxy in
-            mapRingContent(center: center, neighbors: neighbors, size: proxy.size)
+            RelationshipRingView(center: center, neighbors: neighbors, size: proxy.size) { recenter($0) }
         }
-    }
-
-    /// The ring view, extracted as its own builder so the compiler can type-check
-    /// the graph layout independently of `GeometryReader`'s generic content type.
-    @ViewBuilder
-    private func mapRingContent(center: AIRelationshipGraph.Node, neighbors: [AIRelationshipGraph.Neighbor], size: CGSize) -> some View {
-        let middle = CGPoint(x: size.width / 2, y: size.height / 2)
-        let radius = max(0, min(size.width, size.height) / 2 - DSLayout.relationshipNodeInset)
-        let points = neighbors.indices.map { index -> CGPoint in
-            let angle = 2 * Double.pi * Double(index) / Double(max(neighbors.count, 1)) - Double.pi / 2
-            return CGPoint(x: middle.x + radius * cos(angle), y: middle.y + radius * sin(angle))
-        }
-        ZStack {
-            ringLines(middle: middle, points: points)
-            ForEach(Array(neighbors.enumerated()), id: \.element.id) { index, neighbor in
-                ringNode(neighbor, at: points[index])
-            }
-            ringCenterNode(center)
-                .position(middle)
-                .accessibilityAddTraits(.isHeader)
-        }
-    }
-
-    /// The spokes from the centre out to each neighbour.
-    private func ringLines(middle: CGPoint, points: [CGPoint]) -> some View {
-        Path { path in
-            for point in points { path.move(to: middle); path.addLine(to: point) }
-        }
-        .stroke(DSColor.separator, lineWidth: DSLayout.relationshipLineWidth)
-        .accessibilityHidden(true)
-    }
-
-    /// One neighbour: a tappable node whose relations caption sits under its name.
-    private func ringNode(_ neighbor: AIRelationshipGraph.Neighbor, at point: CGPoint) -> some View {
-        Button { recenter(neighbor.node.id) } label: {
-            VStack(spacing: 0) {
-                ringNameNode(neighbor.node.name, emphasized: false)
-                // The relation sits under the name, away from the crowded centre.
-                Text(neighbor.relations[0].text)
-                    .font(DSFont.caption2)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .lineLimit(1)
-                    .frame(maxWidth: DSLayout.relationshipLabelWidth)
-            }
-        }
-        .buttonStyle(.plain)
-        .position(point)
-        .accessibilityLabel(neighbor.node.name)
-        .accessibilityValue(neighbor.relations.map(\.text).joined(separator: "；"))
-        .accessibilityHint(localized("改看這個人物的關係"))
-    }
-
-    /// The centre node is a plain label (it is not tappable).
-    private func ringCenterNode(_ center: AIRelationshipGraph.Node) -> some View {
-        ringNameNode(center.name, emphasized: true)
-    }
-
-    /// Shared capsule label used by both the centre and the ring nodes.
-    private func ringNameNode(_ name: String, emphasized: Bool) -> some View {
-        Text(name)
-            .font(emphasized ? DSFont.headline : DSFont.subheadline)
-            .foregroundStyle(emphasized ? DSColor.textOnAccent : DSColor.textPrimary)
-            .lineLimit(1)
-            .padding(.horizontal, DSSpacing.md)
-            .padding(.vertical, DSSpacing.sm)
-            .background(emphasized ? DSColor.accent : DSColor.surface, in: Capsule())
-            .overlay { Capsule().strokeBorder(DSColor.separator, lineWidth: emphasized ? 0 : DSLayout.relationshipLineWidth) }
-            .frame(minWidth: DSLayout.minimumTapTarget, minHeight: DSLayout.minimumTapTarget)
-            .contentShape(Rectangle())
     }
 
     private func relationRow(_ neighbor: AIRelationshipGraph.Neighbor) -> some View {
@@ -205,6 +136,120 @@ struct AIRelationshipMapView: View {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+}
+
+// MARK: - Relationship ring subviews
+//
+// Each piece of the ring is its own tiny `View` (or a plain value type for the
+// layout math) so the compiler never has to type-check one giant expression.
+
+/// Precomputed geometry for one ring: centre, spoke radius and node positions.
+private struct RelationshipRingLayout {
+    let middle: CGPoint
+    let points: [CGPoint]
+
+    init(size: CGSize, count: Int) {
+        middle = CGPoint(x: size.width / 2, y: size.height / 2)
+        let radius = max(0, min(size.width, size.height) / 2 - DSLayout.relationshipNodeInset)
+        points = (0..<count).map { index -> CGPoint in
+            let angle = 2 * Double.pi * Double(index) / Double(max(count, 1)) - Double.pi / 2
+            return CGPoint(x: middle.x + radius * cos(angle), y: middle.y + radius * sin(angle))
+        }
+    }
+}
+
+/// The whole ring: spokes, one tappable node per neighbour, and the centre label.
+private struct RelationshipRingView: View {
+    let layout: RelationshipRingLayout
+    let neighbors: [AIRelationshipGraph.Neighbor]
+    let centerName: String
+    let onRecenter: (String) -> Void
+
+    init(center: AIRelationshipGraph.Node, neighbors: [AIRelationshipGraph.Neighbor], size: CGSize, onRecenter: @escaping (String) -> Void) {
+        layout = RelationshipRingLayout(size: size, count: neighbors.count)
+        self.neighbors = neighbors
+        centerName = center.name
+        self.onRecenter = onRecenter
+    }
+
+    var body: some View {
+        ZStack {
+            RelationshipRingSpokes(layout: layout)
+            ForEach(Array(neighbors.enumerated()), id: \.element.id) { index, neighbor in
+                RelationshipRingNode(neighbor: neighbor, point: layout.points[index], onRecenter: onRecenter)
+            }
+            RelationshipRingNameLabel(name: centerName, emphasized: true)
+                .position(layout.middle)
+                .accessibilityAddTraits(.isHeader)
+        }
+    }
+}
+
+/// The spokes from the centre out to each neighbour.
+private struct RelationshipRingSpokes: View {
+    let layout: RelationshipRingLayout
+
+    var body: some View {
+        Path { path in
+            for point in layout.points { path.move(to: layout.middle); path.addLine(to: point) }
+        }
+        .stroke(DSColor.separator, lineWidth: DSLayout.relationshipLineWidth)
+        .accessibilityHidden(true)
+    }
+}
+
+/// One neighbour: a tappable node whose relations caption sits under its name.
+private struct RelationshipRingNode: View {
+    let neighbor: AIRelationshipGraph.Neighbor
+    let point: CGPoint
+    let onRecenter: (String) -> Void
+
+    var body: some View {
+        Button { onRecenter(neighbor.node.id) } label: {
+            RelationshipRingNodeLabel(neighbor: neighbor)
+        }
+        .buttonStyle(.plain)
+        .position(point)
+        .accessibilityLabel(neighbor.node.name)
+        .accessibilityValue(neighbor.relations.map(\.text).joined(separator: "；"))
+        .accessibilityHint(localized("改看這個人物的關係"))
+    }
+}
+
+/// The label inside a tappable ring node: name capsule + relations caption.
+private struct RelationshipRingNodeLabel: View {
+    let neighbor: AIRelationshipGraph.Neighbor
+
+    var body: some View {
+        VStack(spacing: 0) {
+            RelationshipRingNameLabel(name: neighbor.node.name, emphasized: false)
+            // The relation sits under the name, away from the crowded centre.
+            Text(neighbor.relations[0].text)
+                .font(DSFont.caption2)
+                .foregroundStyle(DSColor.textSecondary)
+                .lineLimit(1)
+                .frame(maxWidth: DSLayout.relationshipLabelWidth)
+        }
+    }
+}
+
+/// Shared capsule label used by both the centre and the ring nodes.
+private struct RelationshipRingNameLabel: View {
+    let name: String
+    let emphasized: Bool
+
+    var body: some View {
+        Text(name)
+            .font(emphasized ? DSFont.headline : DSFont.subheadline)
+            .foregroundStyle(emphasized ? DSColor.textOnAccent : DSColor.textPrimary)
+            .lineLimit(1)
+            .padding(.horizontal, DSSpacing.md)
+            .padding(.vertical, DSSpacing.sm)
+            .background(emphasized ? DSColor.accent : DSColor.surface, in: Capsule())
+            .overlay { Capsule().strokeBorder(DSColor.separator, lineWidth: emphasized ? 0 : DSLayout.relationshipLineWidth) }
+            .frame(minWidth: DSLayout.minimumTapTarget, minHeight: DSLayout.minimumTapTarget)
+            .contentShape(Rectangle())
     }
 }
 
