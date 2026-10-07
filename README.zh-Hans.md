@@ -1,7 +1,7 @@
-# Yuedu
+# 墨悦 MoYue
 
 <p align="center">
-  <img src="Resources/Assets.xcassets/AppIcon.appiconset/AppIcon_1024_white_no_alpha.png" width="112" alt="Yuedu">
+  <img src="Resources/Assets.xcassets/AppIcon.appiconset/AppIcon_1024_white_no_alpha.png" width="112" alt="墨悦">
 </p>
 
 <p align="center">
@@ -30,7 +30,7 @@
 
 > 获 [iOS Dev Weekly #751](https://iosdevweekly.com/issues/751) 收录 —— [*From WebView to CoreText: Building a Native EPUB Reader for iOS*](https://chang-jui-lin.github.io/Yuedu-reader/2026/05/20/from-webview-to-coretext/)。
 
-Yuedu 是一个专注于高品质本地与开放阅读体验的开源阅读应用。一个 App 涵盖 EPUB3、漫画、有声书、RSS 与开放目录 —— 全程以 CoreText 原生渲染，无 WebView。
+墨悦（MoYue）是一个专注于高品质本地与开放阅读体验的开源阅读应用，基于开源项目 Yuedu 的代码延续开发。一个 App 涵盖 EPUB3、漫画、有声书、RSS 与开放目录 —— 全程以 CoreText 原生渲染，无 WebView。
 
 ## 功能
 
@@ -43,7 +43,7 @@ Yuedu 是一个专注于高品质本地与开放阅读体验的开源阅读应�
 
 ## 为什么用 CoreText，而非 WebView
 
-多数阅读器把内容包进 WebView。Yuedu 每一页都以 CoreText 渲染 —— 换来精准的分页、真正的中日韩竖排、逐帧对齐的语音朗读同步，以及原生文本选择，且保持原生性能。完整来龙去脉见 [*From WebView to CoreText*](https://chang-jui-lin.github.io/Yuedu-reader/2026/05/20/from-webview-to-coretext/)。
+多数阅读器把内容包进 WebView。墨悦每一页都以 CoreText 渲染 —— 换来精准的分页、真正的中日韩竖排、逐帧对齐的语音朗读同步，以及原生文本选择，且保持原生性能。完整来龙去脉见 [*From WebView to CoreText*](https://chang-jui-lin.github.io/Yuedu-reader/2026/05/20/from-webview-to-coretext/)。
 
 ## 架构
 
@@ -64,8 +64,8 @@ Sync (WebDAV / iCloud / OPDS)
 **环境要求：** Xcode 16+ · iOS 18.0+ · Swift 6.0
 
 ```bash
-git clone https://github.com/CHANG-JUI-LIN/Yuedu-reader.git
-cd Yuedu-reader
+git clone https://github.com/zhong228/MoYue.git
+cd MoYue
 open Yuedu-Reader.xcodeproj
 ```
 

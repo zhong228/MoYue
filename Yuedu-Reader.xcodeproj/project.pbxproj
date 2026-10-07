@@ -826,7 +826,7 @@
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "閱讀";
+				INFOPLIST_KEY_CFBundleDisplayName = "墨悦";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to local book libraries, receive books from Calibre, and use local speech services.";
@@ -880,7 +880,7 @@
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "閱讀";
+				INFOPLIST_KEY_CFBundleDisplayName = "墨悦";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to local book libraries, receive books from Calibre, and use local speech services.";

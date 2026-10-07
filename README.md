@@ -1,7 +1,7 @@
-# Yuedu
+# MoYue (墨悦)
 
 <p align="center">
-  <img src="Resources/Assets.xcassets/AppIcon.appiconset/AppIcon_1024_white_no_alpha.png" width="112" alt="Yuedu">
+  <img src="Resources/Assets.xcassets/AppIcon.appiconset/AppIcon_1024_white_no_alpha.png" width="112" alt="MoYue">
 </p>
 
 <p align="center">
@@ -30,7 +30,7 @@
 
 > Featured in [iOS Dev Weekly #751](https://iosdevweekly.com/issues/751) — [*From WebView to CoreText: Building a Native EPUB Reader for iOS*](https://chang-jui-lin.github.io/Yuedu-reader/2026/05/20/from-webview-to-coretext/).
 
-Yuedu is an open-source reading application focused on a high-quality local and open reading experience. One app for EPUB3, comics, audiobooks, RSS, and open catalogs — rendered natively with CoreText, no WebView.
+MoYue (墨悦) is an open-source reading application, continued from the Yuedu open-source project focused on a high-quality local and open reading experience. One app for EPUB3, comics, audiobooks, RSS, and open catalogs — rendered natively with CoreText, no WebView.
 
 ## Features
 
@@ -43,7 +43,7 @@ Yuedu is an open-source reading application focused on a high-quality local and 
 
 ## Why CoreText, not WebView
 
-Most readers wrap content in a WebView. Yuedu renders every page with CoreText, which gives precise pagination, true CJK vertical writing, frame-accurate text-to-speech sync, and native text selection — at native performance. The full story is in [*From WebView to CoreText*](https://chang-jui-lin.github.io/Yuedu-reader/2026/05/20/from-webview-to-coretext/).
+Most readers wrap content in a WebView. MoYue renders every page with CoreText, which gives precise pagination, true CJK vertical writing, frame-accurate text-to-speech sync, and native text selection — at native performance. The full story is in [*From WebView to CoreText*](https://chang-jui-lin.github.io/Yuedu-reader/2026/05/20/from-webview-to-coretext/).
 
 ## Architecture
 
@@ -64,8 +64,8 @@ Sync (WebDAV / iCloud / OPDS)
 **Requirements:** Xcode 16+ · iOS 18.0+ · Swift 6.0
 
 ```bash
-git clone https://github.com/CHANG-JUI-LIN/Yuedu-reader.git
-cd Yuedu-reader
+git clone https://github.com/zhong228/MoYue.git
+cd MoYue
 open Yuedu-Reader.xcodeproj
 ```
 
