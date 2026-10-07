@@ -177,7 +177,7 @@ final class RSSAppNotificationDelegate: NSObject, UIApplicationDelegate, UNUserN
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        FirebaseApp.configure()
+        configureFirebaseIfAvailable()
         // Crash/diagnostics context must come up right after Firebase is configured,
         // so launch-time crashes and MetricKit payloads carry breadcrumbs.
         MetricKitDiagnosticReporter.shared.start()
@@ -187,6 +187,21 @@ final class RSSAppNotificationDelegate: NSObject, UIApplicationDelegate, UNUserN
         RSSBackgroundRefresh.shared.register()
         RSSBackgroundRefresh.shared.schedule()
         return true
+    }
+
+    /// Firebase is optional for this build: it is configured only when a real
+    /// `GoogleService-Info.plist` is present. CI builds ship a placeholder plist
+    /// (keys like `placeholder` in GOOGLE_APP_ID) so the app can be built and
+    /// installed without Firebase credentials; calling `FirebaseApp.configure()`
+    /// with that placeholder throws at launch, so we skip it until the plist is real.
+    private func configureFirebaseIfAvailable() {
+        guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+              let data = FileManager.default.contents(atPath: path),
+              let plist = (try? PropertyListSerialization.propertyList(from: data, options: [], format: nil)) as? [String: Any],
+              let appID = plist["GOOGLE_APP_ID"] as? String,
+              !appID.isEmpty,
+              !appID.contains("placeholder") else { return }
+        FirebaseApp.configure()
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
