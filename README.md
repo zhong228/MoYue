@@ -1,9 +1,8 @@
-# Legacy Yuedu website redirects
+# MoYue (墨悦) — Pages
 
-The product website and Engineering Blog now live at https://yuedureader.com.
+This repository's `gh-pages` branch hosts the project page for **MoYue (墨悦)**.
 
-This branch only maintains the original GitHub Pages entry points. Its static HTML redirects preserve query strings and fragments when JavaScript is available; meta refresh and ordinary links support browsers without JavaScript. GitHub Pages does not support server-side HTTP 301 configuration.
+- Source code: https://github.com/zhong228/MoYue
+- License: MPL-2.0
 
-The historical Atom feed remains valid with stable entry IDs and links to the new host for existing subscribers. It is a compatibility snapshot; new subscribers should use https://yuedureader.com/feed.xml. The original logo is retained for existing image links.
-
-Main website source: https://github.com/CHANG-JUI-LIN/Yuedu-website
+This page is under construction. Please visit the main repository for the latest code and documentation.
