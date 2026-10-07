@@ -103,22 +103,28 @@ struct AIRelationshipMapView: View {
 
     private func ring(center: AIRelationshipGraph.Node, neighbors: [AIRelationshipGraph.Neighbor]) -> some View {
         GeometryReader { proxy in
-            let size = proxy.size
-            let middle = CGPoint(x: size.width / 2, y: size.height / 2)
-            let radius = max(0, min(size.width, size.height) / 2 - DSLayout.relationshipNodeInset)
-            let points = neighbors.indices.map { index -> CGPoint in
-                let angle = 2 * Double.pi * Double(index) / Double(max(neighbors.count, 1)) - Double.pi / 2
-                return CGPoint(x: middle.x + radius * cos(angle), y: middle.y + radius * sin(angle))
+            mapRingContent(center: center, neighbors: neighbors, size: proxy.size)
+        }
+    }
+
+    /// The ring view, extracted as its own builder so the compiler can type-check
+    /// the graph layout independently of `GeometryReader`'s generic content type.
+    @ViewBuilder
+    private func mapRingContent(center: AIRelationshipGraph.Node, neighbors: [AIRelationshipGraph.Neighbor], size: CGSize) -> some View {
+        let middle = CGPoint(x: size.width / 2, y: size.height / 2)
+        let radius = max(0, min(size.width, size.height) / 2 - DSLayout.relationshipNodeInset)
+        let points = neighbors.indices.map { index -> CGPoint in
+            let angle = 2 * Double.pi * Double(index) / Double(max(neighbors.count, 1)) - Double.pi / 2
+            return CGPoint(x: middle.x + radius * cos(angle), y: middle.y + radius * sin(angle))
+        }
+        ZStack {
+            ringLines(middle: middle, points: points)
+            ForEach(Array(neighbors.enumerated()), id: \.element.id) { index, neighbor in
+                ringNode(neighbor, at: points[index])
             }
-            ZStack {
-                ringLines(middle: middle, points: points)
-                ForEach(Array(neighbors.enumerated()), id: \.element.id) { index, neighbor in
-                    ringNode(neighbor, at: points[index])
-                }
-                node(center.name, emphasized: true)
-                    .position(middle)
-                    .accessibilityAddTraits(.isHeader)
-            }
+            ringCenterNode(center)
+                .position(middle)
+                .accessibilityAddTraits(.isHeader)
         }
     }
 
@@ -135,7 +141,7 @@ struct AIRelationshipMapView: View {
     private func ringNode(_ neighbor: AIRelationshipGraph.Neighbor, at point: CGPoint) -> some View {
         Button { recenter(neighbor.node.id) } label: {
             VStack(spacing: 0) {
-                node(neighbor.node.name, emphasized: false)
+                ringNameNode(neighbor.node.name, emphasized: false)
                 // The relation sits under the name, away from the crowded centre.
                 Text(neighbor.relations[0].text)
                     .font(DSFont.caption2)
@@ -151,7 +157,13 @@ struct AIRelationshipMapView: View {
         .accessibilityHint(localized("改看這個人物的關係"))
     }
 
-    private func node(_ name: String, emphasized: Bool) -> some View {
+    /// The centre node is a plain label (it is not tappable).
+    private func ringCenterNode(_ center: AIRelationshipGraph.Node) -> some View {
+        ringNameNode(center.name, emphasized: true)
+    }
+
+    /// Shared capsule label used by both the centre and the ring nodes.
+    private func ringNameNode(_ name: String, emphasized: Bool) -> some View {
         Text(name)
             .font(emphasized ? DSFont.headline : DSFont.subheadline)
             .foregroundStyle(emphasized ? DSColor.textOnAccent : DSColor.textPrimary)
