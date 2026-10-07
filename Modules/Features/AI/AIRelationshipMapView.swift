@@ -111,34 +111,44 @@ struct AIRelationshipMapView: View {
                 return CGPoint(x: middle.x + radius * cos(angle), y: middle.y + radius * sin(angle))
             }
             ZStack {
-                Path { path in
-                    for point in points { path.move(to: middle); path.addLine(to: point) }
-                }
-                .stroke(DSColor.separator, lineWidth: DSLayout.relationshipLineWidth)
-                .accessibilityHidden(true)
+                ringLines(middle: middle, points: points)
                 ForEach(Array(neighbors.enumerated()), id: \.element.id) { index, neighbor in
-                    Button { recenter(neighbor.node.id) } label: {
-                        VStack(spacing: 0) {
-                            node(neighbor.node.name, emphasized: false)
-                            // The relation sits under the name, away from the crowded centre.
-                            Text(neighbor.relations[0].text)
-                                .font(DSFont.caption2)
-                                .foregroundStyle(DSColor.textSecondary)
-                                .lineLimit(1)
-                                .frame(maxWidth: DSLayout.relationshipLabelWidth)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .position(points[index])
-                    .accessibilityLabel(neighbor.node.name)
-                    .accessibilityValue(neighbor.relations.map(\.text).joined(separator: "；"))
-                    .accessibilityHint(localized("改看這個人物的關係"))
+                    ringNode(neighbor, at: points[index])
                 }
                 node(center.name, emphasized: true)
                     .position(middle)
                     .accessibilityAddTraits(.isHeader)
             }
         }
+    }
+
+    /// The spokes from the centre out to each neighbour.
+    private func ringLines(middle: CGPoint, points: [CGPoint]) -> some View {
+        Path { path in
+            for point in points { path.move(to: middle); path.addLine(to: point) }
+        }
+        .stroke(DSColor.separator, lineWidth: DSLayout.relationshipLineWidth)
+        .accessibilityHidden(true)
+    }
+
+    /// One neighbour: a tappable node whose relations caption sits under its name.
+    private func ringNode(_ neighbor: AIRelationshipGraph.Neighbor, at point: CGPoint) -> some View {
+        Button { recenter(neighbor.node.id) } label: {
+            VStack(spacing: 0) {
+                node(neighbor.node.name, emphasized: false)
+                // The relation sits under the name, away from the crowded centre.
+                Text(neighbor.relations[0].text)
+                    .font(DSFont.caption2)
+                    .foregroundStyle(DSColor.textSecondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: DSLayout.relationshipLabelWidth)
+            }
+        }
+        .buttonStyle(.plain)
+        .position(point)
+        .accessibilityLabel(neighbor.node.name)
+        .accessibilityValue(neighbor.relations.map(\.text).joined(separator: "；"))
+        .accessibilityHint(localized("改看這個人物的關係"))
     }
 
     private func node(_ name: String, emphasized: Bool) -> some View {
