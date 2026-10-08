@@ -53,12 +53,16 @@ PLIST
 fi
 
 # 1. Release build without code signing (device generic destination)
+# MARKETING_VERSION is injected from $VERSION so the in-app version always
+# matches the tag/release name passed to this script (root cause of
+# MoYue 1.0.14 showing 1.0.13 in-app: the tag bumped but xcconfig did not).
 xcodebuild \
   -project "$PROJECT" \
   -scheme "$SCHEME" \
   -configuration Release \
   -destination 'generic/platform=iOS' \
   -derivedDataPath build/DerivedData \
+  MARKETING_VERSION="$VERSION" \
   CODE_SIGNING_ALLOWED=NO \
   SWIFT_COMPILATION_MODE=incremental \
   build > build/xcodebuild.log 2>&1 || {
