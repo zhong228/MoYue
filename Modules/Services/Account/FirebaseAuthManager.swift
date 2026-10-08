@@ -47,8 +47,15 @@ final class FirebaseAuthManager: ObservableObject {
     private let gateway = GatewayAuthProvider.shared
     private let gatewayStore = GatewaySessionStore.shared
 
+    /// The Firebase Auth SDK handle; nil when this build skipped Firebase
+    /// configuration (placeholder plist). Direct-route operations must degrade
+    /// through `missingFirebaseUser` instead of crashing inside `Auth.auth()`.
+    private var auth: Auth? {
+        FirebaseAvailability.isConfigured ? Auth.auth() : nil
+    }
+
     private init() {
-        currentUser = Auth.auth().currentUser
+        currentUser = auth?.currentUser
 
         if !GatewayConfiguration.isConfigured, gatewayStore.hasSession {
             // This build has no relay entry point (the normal case until an
@@ -69,28 +76,30 @@ final class FirebaseAuthManager: ObservableObject {
             apply(nil, route: nil)
         }
 
-        authStateHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
-            Task { @MainActor in
-                guard let self else { return }
-                // The Gateway owns the session in this mode. A leftover SDK user
-                // (or an SDK sign-out triggered while adopting the Gateway) must
-                // never overwrite the Gateway account with nil.
-                if self.activeRoute == .gateway {
-                    if user != nil {
-                        self.signSDKOutOfGateway()
+        if let auth {
+            authStateHandle = auth.addStateDidChangeListener { [weak self] _, user in
+                Task { @MainActor in
+                    guard let self else { return }
+                    // The Gateway owns the session in this mode. A leftover SDK user
+                    // (or an SDK sign-out triggered while adopting the Gateway) must
+                    // never overwrite the Gateway account with nil.
+                    if self.activeRoute == .gateway {
+                        if user != nil {
+                            self.signSDKOutOfGateway()
+                        }
+                        return
                     }
-                    return
+                    self.currentUser = user
+                    guard let user else {
+                        self.apply(nil, route: nil)
+                        await SubscriptionStore.shared.authenticationDidChange(isAuthenticated: false)
+                        return
+                    }
+                    self.apply(AccountUser(firebaseUser: user), route: .direct)
+                    AuthRouteMemory.lastSuccessfulRoute = .direct
+                    await SubscriptionStore.shared.authenticationDidChange(isAuthenticated: true)
+                    await FirestoreSyncManager.shared.syncAfterSignIn()
                 }
-                self.currentUser = user
-                guard let user else {
-                    self.apply(nil, route: nil)
-                    await SubscriptionStore.shared.authenticationDidChange(isAuthenticated: false)
-                    return
-                }
-                self.apply(AccountUser(firebaseUser: user), route: .direct)
-                AuthRouteMemory.lastSuccessfulRoute = .direct
-                await SubscriptionStore.shared.authenticationDidChange(isAuthenticated: true)
-                await FirestoreSyncManager.shared.syncAfterSignIn()
             }
         }
     }
@@ -142,7 +151,8 @@ final class FirebaseAuthManager: ObservableObject {
                     rawNonce: nonce,
                     fullName: appleCredential.fullName
                 )
-                let authResult = try await Auth.auth().signIn(with: credential)
+                guard let auth = self.auth else { throw AuthFlowError.missingFirebaseUser }
+                let authResult = try await auth.signIn(with: credential)
                 // Apple only returns the name on the very first authorization; persist it onto
                 // the Firebase profile so it survives future logins.
                 if (authResult.user.displayName ?? "").isEmpty, let fullName = appleCredential.fullName {
@@ -172,7 +182,8 @@ final class FirebaseAuthManager: ObservableObject {
         try await performAccountOperation(operation: .signInWithEmail) { route in
             switch route {
             case .direct:
-                let authResult = try await Auth.auth().signIn(withEmail: email, password: password)
+                guard let auth = self.auth else { throw AuthFlowError.missingFirebaseUser }
+                let authResult = try await auth.signIn(withEmail: email, password: password)
                 return AccountUser(firebaseUser: authResult.user)
             case .gateway:
                 let user = try await self.gateway.signInWithEmail(email: email, password: password)
@@ -188,7 +199,8 @@ final class FirebaseAuthManager: ObservableObject {
         try await performAccountOperation(operation: .signUpWithEmail) { route in
             switch route {
             case .direct:
-                let authResult = try await Auth.auth().createUser(withEmail: email, password: password)
+                guard let auth = self.auth else { throw AuthFlowError.missingFirebaseUser }
+                let authResult = try await auth.createUser(withEmail: email, password: password)
                 return AccountUser(firebaseUser: authResult.user)
             case .gateway:
                 let user = try await self.gateway.signUpWithEmail(email: email, password: password)
@@ -206,7 +218,7 @@ final class FirebaseAuthManager: ObservableObject {
         do {
             switch route {
             case .direct:
-                guard let user = Auth.auth().currentUser else { throw AuthFlowError.missingFirebaseUser }
+                guard let auth = self.auth, let user = auth.currentUser else { throw AuthFlowError.missingFirebaseUser }
                 let tokens = try await requestGoogleIDTokens(presenting: try topViewController())
                 let credential = GoogleAuthProvider.credential(
                     withIDToken: tokens.idToken,
@@ -246,7 +258,7 @@ final class FirebaseAuthManager: ObservableObject {
         do {
             switch route {
             case .direct:
-                guard let user = Auth.auth().currentUser else { throw AuthFlowError.missingFirebaseUser }
+                guard let auth = self.auth, let user = auth.currentUser else { throw AuthFlowError.missingFirebaseUser }
                 let credential = OAuthProvider.appleCredential(
                     withIDToken: idToken,
                     rawNonce: nonce,
@@ -276,7 +288,7 @@ final class FirebaseAuthManager: ObservableObject {
         do {
             switch route {
             case .direct:
-                guard let user = Auth.auth().currentUser else { throw AuthFlowError.missingFirebaseUser }
+                guard let auth = self.auth, let user = auth.currentUser else { throw AuthFlowError.missingFirebaseUser }
                 let credential = EmailAuthProvider.credential(withEmail: email, password: password)
                 try await link(user, with: credential)
             case .gateway:
@@ -324,7 +336,7 @@ final class FirebaseAuthManager: ObservableObject {
         let route = sessionRoute
         switch route {
         case .direct:
-            guard let user = Auth.auth().currentUser else { throw AuthFlowError.missingFirebaseUser }
+            guard let auth = self.auth, let user = auth.currentUser else { throw AuthFlowError.missingFirebaseUser }
             guard user.providerData.count > 1 else { throw AuthFlowError.cannotUnlinkLastProvider }
             let updated = try await user.unlink(fromProvider: providerID)
             currentUser = updated
@@ -367,7 +379,8 @@ final class FirebaseAuthManager: ObservableObject {
         }
         clearPendingSignInCredential()
         FirestoreSyncManager.shared.resetLocalSyncState()
-        let result = try await Auth.auth().signIn(with: credential)
+        guard let auth = self.auth else { throw AuthFlowError.missingFirebaseUser }
+        let result = try await auth.signIn(with: credential)
         return AccountUser(firebaseUser: result.user)
     }
 
@@ -394,7 +407,9 @@ final class FirebaseAuthManager: ObservableObject {
             return
         }
 
-        try Auth.auth().signOut()
+        if let auth = self.auth {
+            try auth.signOut()
+        }
         gatewayStore.clearLocalSession()
         FirestoreSyncManager.shared.resetLocalSyncState()
         apply(nil, route: nil)
@@ -410,7 +425,7 @@ final class FirebaseAuthManager: ObservableObject {
             return
         }
 
-        guard let user = Auth.auth().currentUser else {
+        guard let auth = self.auth, let user = auth.currentUser else {
             throw AuthFlowError.missingFirebaseUser
         }
         let uid = user.uid
@@ -438,7 +453,7 @@ final class FirebaseAuthManager: ObservableObject {
         // user still exists.
         if let appleAuthorizationCode {
             do {
-                try await Auth.auth().revokeToken(withAuthorizationCode: appleAuthorizationCode)
+                try await auth.revokeToken(withAuthorizationCode: appleAuthorizationCode)
             } catch {
                 AppLogger.error("⟐ account-delete apple token revoke failed", error: error, context: ["uid": uid])
             }
@@ -589,7 +604,7 @@ final class FirebaseAuthManager: ObservableObject {
     /// hops to the main actor.
     private func adoptIfDirect(_ user: AccountUser, route: AuthRoute) {
         guard route == .direct else { return }
-        currentUser = Auth.auth().currentUser
+        currentUser = self.auth?.currentUser
         apply(user, route: .direct)
     }
 
@@ -629,8 +644,8 @@ final class FirebaseAuthManager: ObservableObject {
     }
 
     private func signSDKOutOfGateway() {
-        if Auth.auth().currentUser != nil {
-            try? Auth.auth().signOut()
+        if let auth = self.auth, auth.currentUser != nil {
+            try? auth.signOut()
         }
     }
 
@@ -729,7 +744,8 @@ final class FirebaseAuthManager: ObservableObject {
             withIDToken: tokens.idToken,
             accessToken: tokens.accessToken
         )
-        let authResult = try await Auth.auth().signIn(with: credential)
+        guard let auth = self.auth else { throw AuthFlowError.missingFirebaseUser }
+        let authResult = try await auth.signIn(with: credential)
         return AccountUser(firebaseUser: authResult.user)
     }
 
