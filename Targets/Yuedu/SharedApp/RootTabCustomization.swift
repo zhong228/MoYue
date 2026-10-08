@@ -13,7 +13,7 @@ enum RootTabItem: String, CaseIterable, Codable, Hashable, Identifiable {
 
     var titleKey: String {
         switch self {
-        case .bookshelf: return "書架"
+        case .bookshelf: return "書坊"
         case .explore: return "探索"
         case .rss: return "RSS 訂閱"
         case .settings: return "設定"
@@ -23,9 +23,9 @@ enum RootTabItem: String, CaseIterable, Codable, Hashable, Identifiable {
 
     var defaultSystemImage: String {
         switch self {
-        case .bookshelf: return "books.vertical.fill"
-        case .explore: return "safari.fill"
-        case .rss: return "newspaper.fill"
+        case .bookshelf: return "text.book.closed.fill"
+        case .explore: return "sparkles"
+        case .rss: return "dot.radiowaves.left.and.right"
         case .settings: return "gearshape.fill"
         // No filled variant exists for the glass; this is the intended icon.
         case .search: return "magnifyingglass"

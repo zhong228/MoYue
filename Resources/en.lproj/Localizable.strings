@@ -205,9 +205,10 @@
 "書名" = "Title";
 "書名（必填）" = "Title (required)";
 "書架" = "Library";
+"書坊" = "Bookstore";
 "搜尋書架" = "Search Library";
 "書架列表" = "Library List";
-"書架還是空的" = "Library is empty";
+"書坊還是空的" = "Library is empty";
 "書源" = "Book Source";
 "書源 JSON（書源備份 / 分享檔）" = "Book Source JSON (backup / shared file)";
 "書源分組" = "Source Group";
@@ -3140,12 +3141,12 @@
 "查詢中…" = "Looking up…";
 "繼續問 AI" = "Ask AI More";
 
-"AI 整理書架" = "Organize Shelf with AI";
+"AI 整理書坊" = "Organize Shelf with AI";
 "未分組的書" = "Ungrouped Books";
 "全部的書" = "All Books";
 "已分組的書也可能被建議換到別的分組。" = "Books already in a group may be suggested for a different one.";
 "沒有未分組的書" = "No Ungrouped Books";
-"書架上沒有書" = "Your Shelf Is Empty";
+"書坊上沒有書" = "Your Shelf Is Empty";
 "要整理的書" = "Books to Organize";
 "會送出書名、作者，以及線上書已快取的分類、簡介和前幾章標題。" = "Sends titles and authors, plus the cached category, blurb and first chapter titles of online books.";
 "不需要移動" = "Nothing to Move";
@@ -3174,7 +3175,7 @@
 "譯文會刪除，翻譯也會關閉；之後再開啟要重新翻譯。" = "The translations are deleted and translation is turned off. Turning it back on translates again.";
 "整章翻譯" = "Chapter Translation";
 "AI 閱讀助手" = "AI Reading Assistant";
-"問書、整章翻譯、查詞與整理書架" = "Ask about the book, translate chapters, look up words and organize your shelf";
+"問書、整章翻譯、查詞與整理書坊" = "Ask about the book, translate chapters, look up words and organize your shelf";
 "AI 讀懂一本書" = "Understand every book with AI";
 "讀得更舒服" = "Read in comfort";
 "照你的習慣讀" = "Read your way";
@@ -3262,7 +3263,7 @@
 "確定要刪除 %d 本書嗎？" = "Delete %d book(s)?";
 "確定要刪除分組「%1$@」及其中的 %2$d 個書源嗎？" = "Delete the group “%1$@” and the %2$d source(s) in it?";
 "確定要刪除選中的 %d 個書源嗎？" = "Delete the %d selected source(s)?";
-"確定要從書架刪除《%@》嗎？" = "Remove “%@” from your library?";
+"確定要從書坊刪除《%@》嗎？" = "Remove “%@” from your library?";
 "超時 %d" = "%d timed out";
 "選擇來源（%d 個）" = "Choose Source (%d)";
 "%@ 副本" = "%@ copy";

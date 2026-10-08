@@ -438,7 +438,7 @@ struct HomeView: View {
             }
             .themedAppSurface(for: .bookshelf)
             .animation(DSAnimation.standard, value: store.books.isEmpty)
-            .rootTabTitle(localized("書架"), onScroll: .fadesTitle)
+            .rootTabTitle(localized("書坊"), onScroll: .fadesTitle)
             .toolbar { shelfToolbar(addsBooks: true) }
             // In edit mode, hide the app tab bar so the contextual .bottomBar (delete / group / share)
             // takes its place — the system selection pattern used by Photos / Files.
@@ -580,7 +580,7 @@ struct HomeView: View {
                 Button(localized("取消"), role: .cancel) {}
             } message: {
                 if let b = bookToDelete {
-                    Text(String(format: localized("確定要從書架刪除《%@》嗎？"), b.title))
+                    Text(String(format: localized("確定要從書坊刪除《%@》嗎？"), b.title))
                 }
             }
             .alert(localized("確認刪除"), isPresented: $showBulkDeleteAlert) {
@@ -699,7 +699,7 @@ struct HomeView: View {
             }
         } label: {
             // Two `Text`s: the second is the menu row's subtitle.
-            Text(localized("AI 整理書架"))
+            Text(localized("AI 整理書坊"))
             if locked {
                 Text(localized("需要 Pro"))
             }
@@ -959,8 +959,9 @@ struct HomeView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: DSSpacing.sm) {
                     ForEach(pages, id: \.self) { page in
-                        DSChip(
+                        DSGroupSegment(
                             title: page.isEmpty ? localized("全部") : page,
+                            systemImage: page.isEmpty ? "square.grid.2x2" : "folder",
                             isSelected: selectedGroup == page,
                             minWidth: DSLayout.capsuleControlMinWidth
                         ) {
@@ -1030,7 +1031,7 @@ struct HomeView: View {
                     }
                 }
                 .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 0, leading: hInset, bottom: 0, trailing: hInset))
+                .listRowInsets(EdgeInsets(top: 6, leading: hInset, bottom: 6, trailing: hInset))
                 .listRowBackground(Color.clear)
                 .background {
                     // The first row of the page in view measures its scroll for the title's fade.
@@ -1639,11 +1640,19 @@ struct EmptyLibraryView: View {
     var body: some View {
         VStack(spacing: 20) {
             Spacer()
-            Image(systemName: "books.vertical")
-                .font(DSFont.fixed(size: 72))
-                .foregroundColor(DSColor.textSecondary.opacity(0.35))
-            Text(localized("書架還是空的"))
-                .font(DSFont.title2.weight(.semibold))
+            ZStack {
+                Circle()
+                    .fill(DSColor.accent.opacity(0.1))
+                    .frame(width: 132, height: 132)
+                Circle()
+                    .stroke(DSColor.accent.opacity(0.18), lineWidth: 1)
+                    .frame(width: 132, height: 132)
+                Image(systemName: "book.closed.fill")
+                    .font(DSFont.fixed(size: 52))
+                    .foregroundStyle(DSColor.accent)
+            }
+            Text(localized("書坊還是空的"))
+                .font(DSFont.title2.weight(.bold))
                 .foregroundStyle(DSColor.textPrimary)
             Text(localized("匯入 TXT 文件，或是輸入網址\n抓取網頁小說加入書架"))
                 .font(DSFont.subheadline).foregroundColor(DSColor.textSecondary).multilineTextAlignment(.center)
@@ -1685,7 +1694,7 @@ struct BookRow: View {
     var onShowDetail: (() -> Void)? = nil
 
     /// A row's cover. A group's folder in the list takes the same frame.
-    static let coverSize = CGSize(width: 45, height: 65)
+    static let coverSize = CGSize(width: 56, height: 84)
     private let coverW: CGFloat = BookRow.coverSize.width
     private let coverH: CGFloat = BookRow.coverSize.height
     @State private var liveCoverFrame: CGRect = .zero
@@ -1718,37 +1727,36 @@ struct BookRow: View {
     }
 
     private var content: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
-                // In edit mode the row is plain content so the List's native selection circle handles
-                // taps; otherwise it's a button that opens the book.
-                if isEditing {
-                    rowContent
-                } else {
-                    Button(action: openBook) { rowContent }
-                        .buttonStyle(.plain)
+        HStack(alignment: .top, spacing: 12) {
+            // In edit mode the row is plain content so the List's native selection circle handles
+            // taps; otherwise it's a button that opens the book.
+            if isEditing {
+                rowContent
+            } else {
+                Button(action: openBook) { rowContent }
+                    .buttonStyle(.plain)
 
-                    VStack {
-                        Spacer(minLength: 0)
-                        HStack(spacing: 12) {
-                            if book.offlineDownloadState == .downloading {
-                                BookSyncIndicator(progress: offlineDownloadProgress)
-                            }
-                            BookOverflowMenu(
-                                iconSize: 16,
-                                onEdit: onEdit,
-                                onDelete: onDelete,
-                                onShowDetail: onShowDetail
-                            )
+                VStack {
+                    Spacer(minLength: 0)
+                    HStack(spacing: 12) {
+                        if book.offlineDownloadState == .downloading {
+                            BookSyncIndicator(progress: offlineDownloadProgress)
                         }
+                        BookOverflowMenu(
+                            iconSize: 16,
+                            onEdit: onEdit,
+                            onDelete: onDelete,
+                            onShowDetail: onShowDetail
+                        )
                     }
                 }
             }
-            .padding(.vertical, 10)
-
-            Rectangle()
-                .fill(Color(uiColor: .separator))
-                .frame(height: 0.5)
+        }
+        .padding(DSSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous)
+                .fill(DSColor.surface)
         }
         .onChange(of: liveCoverFrame) { _, frame in
             if !frame.isEmpty { onCoverFrameChange?(frame) }
@@ -1756,7 +1764,7 @@ struct BookRow: View {
     }
 
     private var rowContent: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 14) {
             Group {
                 if #available(iOS 18.0, *), let ns = transitionNamespace {
                     bookCover.matchedTransitionSource(id: book.id, in: ns)
@@ -1768,7 +1776,7 @@ struct BookRow: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(book.title)
-                    .font(DSFont.fixed(size: 15, weight: .medium))
+                    .font(DSFont.fixed(size: 16, weight: .semibold))
                     .lineLimit(2)
                     .foregroundStyle(DSColor.textPrimary)
 
@@ -2137,7 +2145,7 @@ private struct BookshelfFolderRow: View {
     var body: some View {
         VStack(spacing: 0) {
             Button(action: onOpen) {
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: 14) {
                     BookshelfFolderCover(books: books, displaySize: BookRow.coverSize)
                         .frame(width: BookRow.coverSize.width, height: BookRow.coverSize.height)
                         .clipShape(RoundedRectangle(cornerRadius: BookshelfCoverStyle.cornerRadius))
@@ -2145,7 +2153,7 @@ private struct BookshelfFolderRow: View {
 
                     VStack(alignment: .leading, spacing: 5) {
                         Text(name)
-                            .font(DSFont.fixed(size: 15, weight: .medium))
+                            .font(DSFont.fixed(size: 16, weight: .semibold))
                             .lineLimit(2)
                             .foregroundStyle(DSColor.textPrimary)
                         Text(BookshelfFolderLabel.count(books.count))
@@ -2166,11 +2174,12 @@ private struct BookshelfFolderRow: View {
             }
             .buttonStyle(.plain)
             .opacity(isSelecting ? DSLayout.bookshelfUnselectedCoverOpacity : 1)
-            .padding(.vertical, 10)
-
-            Rectangle()
-                .fill(Color(uiColor: .separator))
-                .frame(height: 0.5)
+            .padding(DSSpacing.md)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous)
+                .fill(DSColor.surface)
         }
         .disabled(isSelecting)
         .accessibilityElement(children: .ignore)

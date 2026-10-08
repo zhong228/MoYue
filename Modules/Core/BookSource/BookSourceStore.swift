@@ -460,6 +460,72 @@ class BookSourceStore: ObservableObject {
         try importSources(parseForImport(json: json))
     }
 
+    /// Decodes a raw import payload into a JSON string, coping with the payloads real
+    /// book-source galleries actually serve. Foundation's `JSONDecoder` rejects any
+    /// byte-order mark outright — surfacing as "Data corrupted: The given data was not
+    /// valid JSON" — while many static hosts/CDNs prepend a UTF-8 BOM and some older
+    /// Chinese sites still serve UTF-16 or GB18030. The previous
+    /// `String(data:encoding:.utf8) ?? String(data:encoding:.isoLatin1)` chain turned all
+    /// of those perfectly valid sources into that exact error. Every JSON import route
+    /// (network, clipboard, file, deep link, share extension) funnels through this
+    /// decoder so the fix lives in one place.
+    static func jsonText(from data: Data) -> String? {
+        let bytes = [UInt8](data)
+
+        // Explicit BOM → hand the payload to the matching decoder with the BOM stripped.
+        if bytes.starts(with: [0xEF, 0xBB, 0xBF]) {
+            return String(data: data.dropFirst(3), encoding: .utf8)
+        }
+        if bytes.starts(with: [0xFF, 0xFE]) {
+            return String(data: data.dropFirst(2), encoding: .utf16LittleEndian)
+        }
+        if bytes.starts(with: [0xFE, 0xFF]) {
+            return String(data: data.dropFirst(2), encoding: .utf16BigEndian)
+        }
+
+        // BOM-less payload: UTF-8 first — it is the de-facto standard and Swift's UTF-8
+        // decoding is strict, so a payload that survives it genuinely is UTF-8. Then the
+        // legacy GB18030 that older Chinese book-source sites still serve. BOM-less UTF-16
+        // comes last and only when its tell-tale NUL-byte density gives it away — a normal
+        // UTF-8/GB18030 payload would otherwise decode "successfully" as UTF-16 garbage.
+        // `isoLatin1` never fails, so anything survives as text and the JSON parser judges.
+        if let text = String(data: data, encoding: .utf8) {
+            return text
+        }
+        let legacyGB = String.Encoding(
+            rawValue: CFStringConvertEncodingToNSStringEncoding(
+                CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
+        if let text = String(data: data, encoding: legacyGB) {
+            return text
+        }
+        if bytes.count >= 2, bytes.count.isMultiple(of: 2) {
+            let nullHiBytes = stride(from: 0, to: bytes.count - 1, by: 2)
+                .filter { bytes[$0] == 0 }.count
+            if nullHiBytes > bytes.count / 8 {
+                if let text = String(data: data, encoding: .utf16LittleEndian) {
+                    return text
+                }
+                if let text = String(data: data, encoding: .utf16BigEndian) {
+                    return text
+                }
+            }
+        }
+        return String(data: data, encoding: .isoLatin1)
+    }
+
+    /// Strips a leading BOM character (U+FEFF) that a server, editor, or paste source may
+    /// have prepended, plus surrounding whitespace. `JSONDecoder` reports a leading BOM
+    /// as "Data corrupted: The given data was not valid JSON", so this must run before
+    /// any UTF-8 re-encoding of user-supplied strings (clipboard/paste/editor).
+    private static func cleaningJSONText(_ text: String) -> String {
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.unicodeScalars.first == "\u{FEFF}" {
+            trimmed = String(trimmed.unicodeScalars.dropFirst())
+            trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return trimmed
+    }
+
     /// Parses without writing anything, so the import confirmation list can show what a file
     /// holds before the user commits to it. The importers above are this plus a merge — there
     /// is no second decoder for the preview.
@@ -472,8 +538,7 @@ class BookSourceStore: ObservableObject {
             throw ImportError.encryptedFormat(lower.uppercased())
         default:
             // .txt, .json, or unknown → try as Legado JSON
-            guard let text = String(data: data, encoding: .utf8)
-                          ?? String(data: data, encoding: .isoLatin1) else {
+            guard let text = Self.jsonText(from: data) else {
                 throw ImportError.invalidData
             }
             return try parseForImport(json: text)
@@ -481,10 +546,11 @@ class BookSourceStore: ObservableObject {
     }
 
     func parseForImport(json: String) throws -> [BookSource] {
-        guard let data = json.data(using: .utf8) else {
+        let cleaned = Self.cleaningJSONText(json)
+        guard let data = cleaned.data(using: .utf8) else {
             throw ImportError.invalidData
         }
-        if let imported = Self.parseSources(json) {
+        if let imported = Self.parseSources(cleaned) {
             return imported
         }
         // Produce useful diagnostic messages
@@ -510,7 +576,8 @@ class BookSourceStore: ObservableObject {
     /// Single parse path shared by 本地導入 / 粘貼源 / deep links — importers should
     /// never re-implement their own decoder.
     static func parseSources(_ json: String) -> [BookSource]? {
-        guard let data = json.data(using: .utf8) else { return nil }
+        let cleaned = cleaningJSONText(json)
+        guard let data = cleaned.data(using: .utf8) else { return nil }
         let decoder = JSONDecoder()
         if let arr = try? decoder.decode([BookSource].self, from: data) {
             return arr
@@ -669,7 +736,11 @@ class BookSourceStore: ObservableObject {
     /// .yds is a JSON dictionary keyed by source display name.
     /// Each value uses different field names from Legado; convert to BookSource.
     private func parseYDS(_ data: Data) throws -> [BookSource] {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        // YDS is JSON underneath, so it must survive the same BOM/encoding ladder —
+        // `JSONSerialization` rejects a BOM prefix just like `JSONDecoder` does.
+        guard let text = Self.jsonText(from: data),
+              let jsonData = text.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
             throw ImportError.invalidData
         }
         var results: [BookSource] = []

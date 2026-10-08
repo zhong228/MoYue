@@ -337,7 +337,7 @@ extension CustomizationImportOverview {
         if extras.bookshelfGridColumnCount != nil || extras.bookshelfCoverCornerRadius != nil
             || extras.forceDefaultCover != nil {
             items.append(Item(
-                titleKey: "書架",
+                titleKey: "書坊",
                 systemImage: "books.vertical",
                 detail: extras.bookshelfGridColumnCount.map { String(format: localized("%d 欄"), $0) }
             ))

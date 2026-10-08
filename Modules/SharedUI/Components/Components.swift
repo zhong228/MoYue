@@ -305,6 +305,50 @@ struct DSChip: View {
     }
 }
 
+/// A bookshelf group segment: the selectable navigation segment that switches which
+/// shelf page is in view. Taller than `DSChip` and always carrying a glyph, it reads
+/// as a segmented control rather than a filter chip — the shelf's top-level navigation,
+/// not a toolbar. Selected segments fill with the accent; unselected ones sit on the
+/// floating surface like the other controls over the page.
+struct DSGroupSegment: View {
+    let title: String
+    var systemImage: String? = nil
+    var isSelected = false
+    /// See `DSCapsuleLabel.minWidth`.
+    var minWidth: CGFloat? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: DSSpacing.xs) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(DSFont.caption.weight(.semibold))
+                        .accessibilityHidden(true)
+                }
+                Text(title)
+                    .lineLimit(1)
+                    .multilineTextAlignment(.center)
+                    .layoutPriority(1)
+            }
+            .font(DSFont.subheadline.weight(.semibold))
+            .foregroundStyle(isSelected ? DSColor.textOnAccent : DSColor.textPrimary)
+            .padding(.horizontal, DSSpacing.md)
+            .frame(minWidth: minWidth, minHeight: DSLayout.capsuleControlHeight)
+            .background {
+                if isSelected {
+                    Capsule().fill(DSColor.accent)
+                } else {
+                    Capsule().fill(DSColor.surface)
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
 /// Empty state placeholder view.
 struct DSEmptyState: View {
     let icon: String

@@ -20,7 +20,7 @@ enum AppearancePageBackgroundScope: String, CaseIterable, Codable, Identifiable 
     var titleKey: String {
         switch self {
         case .global: return "全局默認"
-        case .bookshelf: return "書架"
+        case .bookshelf: return "書坊"
         case .explore: return "探索"
         case .rss: return "RSS 訂閱"
         case .settings: return "設定"

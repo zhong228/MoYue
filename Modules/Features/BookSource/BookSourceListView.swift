@@ -1075,6 +1075,12 @@ struct BookSourceListView: View {
 
     private var bookSourceImportContentTypes: [UTType] {
         [
+            // `public.item` is the root of every type and keeps every file tappable —
+            // JSON arriving from third-party apps (WeChat/QQ/browsers/email) often
+            // carries a dynamic UTI (dyn.*) or a Shortcuts-card type that even
+            // public.data can grey out in the picker. The parser below validates the
+            // actual content before anything is written, so an accepting picker is safe.
+            .item,
             .json,
             .plainText,
             // Files received from third-party apps (WeChat/QQ/browsers/email) are often
@@ -1246,8 +1252,11 @@ struct BookSourceListView: View {
                     importError = err.localizedDescription
                     return
                 }
-                guard let data, let text = String(data: data, encoding: .utf8)
-                        ?? String(data: data, encoding: .isoLatin1) else {
+                guard let data else {
+                    importError = localized("無法解析伺服器回應")
+                    return
+                }
+                guard let text = BookSourceStore.jsonText(from: data) else {
                     importError = localized("無法解析伺服器回應")
                     return
                 }

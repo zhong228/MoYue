@@ -538,6 +538,70 @@ struct BookSourceStoreTests {
         #expect(!source.hasSameContent(as: edited))
     }
 
+    // MARK: - Import encoding hardening (network / file / clipboard JSON)
+
+    private func singleSourceJSON() -> String {
+        #"[{"bookSourceName":"BOM源","bookSourceUrl":"https://bom.test/x","bookSourceType":0}]"#
+    }
+
+    @Test("UTF-8 BOM payload imports instead of failing with Data corrupted")
+    func utf8BOMDataImports() throws {
+        let store = BookSourceStore(directory: FileManager.default.temporaryDirectory
+            .appendingPathComponent("BookSourceStoreBOM-\(UUID().uuidString)"))
+        let utf8 = Data(singleSourceJSON().utf8)
+        let bommed = Data([0xEF, 0xBB, 0xBF]) + utf8
+
+        let text = try #require(BookSourceStore.jsonText(from: bommed))
+        #expect(text.first != Character("\u{FEFF}"), "UTF-8 BOM must be stripped before decoding")
+        let parsed = try store.parseForImport(data: bommed, fileExtension: "json")
+        #expect(parsed.first?.bookSourceName == "BOM源")
+    }
+
+    @Test("UTF-16LE and UTF-16BE BOM payloads import without data corruption")
+    func utf16BOMDataImports() throws {
+        let store = BookSourceStore(directory: FileManager.default.temporaryDirectory
+            .appendingPathComponent("BookSourceStoreUTF16-\(UUID().uuidString)"))
+        let json = singleSourceJSON()
+
+        for (bom, encoding) in [
+            (Data([0xFF, 0xFE]), String.Encoding.utf16LittleEndian),
+            (Data([0xFE, 0xFF]), String.Encoding.utf16BigEndian),
+        ] {
+            // Re-encode properly so the byte order matches the declared BOM.
+            let payload = bom + (try #require(json.data(using: encoding)))
+            let text = try #require(BookSourceStore.jsonText(from: payload))
+            #expect(text.contains("BOM源"))
+            let parsed = try store.parseForImport(data: payload, fileExtension: "json")
+            #expect(parsed.first?.bookSourceName == "BOM源")
+        }
+    }
+
+    @Test("leading BOM character in pasted / edited JSON is stripped before parsing")
+    func leadingBOMCharacterIsStripped() throws {
+        let json = "\u{FEFF}" + singleSourceJSON()
+        let parsed = try #require(BookSourceStore.parseSources(json))
+        #expect(parsed.first?.bookSourceName == "BOM源")
+    }
+
+    @Test("plain UTF-8 and GB18030 payloads still decode through the shared ladder")
+    func mixedEncodingPayloadsDecode() throws {
+        let store = BookSourceStore(directory: FileManager.default.temporaryDirectory
+            .appendingPathComponent("BookSourceStoreMode-\(UUID().uuidString)"))
+        let json = singleSourceJSON()
+
+        let plain = try #require(BookSourceStore.jsonText(from: Data(json.utf8)))
+        #expect(plain.contains("BOM源"))
+
+        let gbEncoding = String.Encoding(
+            rawValue: CFStringConvertEncodingToNSStringEncoding(
+                CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
+        let gbData = try #require(json.data(using: gbEncoding))
+        let gbText = try #require(BookSourceStore.jsonText(from: gbData))
+        #expect(gbText.contains("BOM源"))
+        let parsed = try store.parseForImport(data: gbData, fileExtension: "json")
+        #expect(parsed.first?.bookSourceName == "BOM源")
+    }
+
     private func sortedJSON(_ sources: [BookSource]) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys

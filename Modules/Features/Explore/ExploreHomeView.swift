@@ -255,7 +255,7 @@ struct ExploreHomeView: View {
         Button { openBrowser(.resume) } label: {
             ExploreEntryLabel(
                 title: localized("瀏覽器"),
-                artwork: .symbol("safari"),
+                artwork: .symbol("globe"),
                 layout: entryLayout
             )
         }

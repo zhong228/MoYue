@@ -123,8 +123,9 @@ private var exploreEntryShape: RoundedRectangle {
 
 // MARK: - Grid tile
 
-/// A tile in 探索's grid, laid out as Apple Music lays out its browse categories: the
-/// glyph in the top trailing corner, the name in bold at the bottom leading corner.
+/// A tile in 探索's grid. The glyph sits centred on the card with the name beneath it,
+/// read top-to-bottom; the layout is deliberately not Apple Music's corner-anchored
+/// browse card, so the page keeps its own identity.
 private struct ExploreTile: View {
     let title: String
     let artwork: ExploreArtwork
@@ -136,17 +137,19 @@ private struct ExploreTile: View {
     var body: some View {
         Color.clear
             .aspectRatio(density.aspectRatio, contentMode: .fit)
-            .overlay(alignment: .topTrailing) {
-                ExploreArtworkView(artwork: artwork, size: density.artworkSize * artworkScale)
-                    .padding(density.padding)
-            }
-            .overlay(alignment: .bottomLeading) {
-                Text(title)
-                    .font(density.titleFont)
-                    .foregroundStyle(DSColor.textPrimary)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(2)
-                    .padding(density.padding)
+            .overlay {
+                VStack(spacing: density == .two ? DSSpacing.sm : DSSpacing.xs) {
+                    Spacer(minLength: 0)
+                    ExploreArtworkView(artwork: artwork, size: density.artworkSize * artworkScale)
+                    Text(title)
+                        .font(density.titleFont)
+                        .foregroundStyle(DSColor.textPrimary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .padding(.horizontal, density.padding)
+                    Spacer(minLength: 0)
+                }
+                .padding(density.padding)
             }
             .interfaceCardSurface(in: exploreEntryShape)
             .contentShape(exploreEntryShape)
@@ -235,7 +238,7 @@ struct ExploreTileButtonStyle: ButtonStyle {
                 columns: Array(repeating: GridItem(.flexible(), spacing: DSSpacing.md), count: density.rawValue),
                 spacing: DSSpacing.md
             ) {
-                ExploreEntryLabel(title: "瀏覽器", artwork: .symbol("safari"), layout: .grid(density))
+                ExploreEntryLabel(title: "瀏覽器", artwork: .symbol("globe"), layout: .grid(density))
                 ExploreEntryLabel(name: "男頻精選", layout: .grid(density))
                 ExploreEntryLabel(title: "书山聚合", artwork: .glyph("📚"), layout: .grid(density))
                 ExploreEntryLabel(title: "番茄小说", artwork: .glyph("番"), layout: .grid(density))
@@ -249,7 +252,7 @@ struct ExploreTileButtonStyle: ButtonStyle {
 #Preview("探索 list") {
     ScrollView {
         LazyVStack(spacing: DSSpacing.md) {
-            ExploreEntryLabel(title: "瀏覽器", artwork: .symbol("safari"), layout: .list)
+            ExploreEntryLabel(title: "瀏覽器", artwork: .symbol("globe"), layout: .list)
             ExploreEntryLabel(name: "男頻精選", layout: .list)
             ExploreEntryLabel(title: "书山聚合", artwork: .glyph("📚"), layout: .list)
             ExploreEntryLabel(title: "番茄小说", artwork: .glyph("番"), layout: .list)

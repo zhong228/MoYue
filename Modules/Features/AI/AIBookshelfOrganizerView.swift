@@ -30,7 +30,7 @@ struct AIBookshelfOrganizerView: View {
         }
         .softScrollEdges()
         .themedAppSurface(for: .settings)
-        .navigationTitle(localized("AI 整理書架"))
+        .navigationTitle(localized("AI 整理書坊"))
         .toolbarTitleDisplayMode(.inline)
         .toolbar {
             if model.phase == .review, let proposal = model.proposal, !proposal.groups.isEmpty {
@@ -61,7 +61,7 @@ struct AIBookshelfOrganizerView: View {
             ContentUnavailableView {
                 UnavailableLabel(localized("需要 Pro"), systemImage: "lock.fill")
             } description: {
-                Text(localized("問書、整章翻譯、查詞與整理書架")).foregroundStyle(DSColor.textSecondary)
+                Text(localized("問書、整章翻譯、查詞與整理書坊")).foregroundStyle(DSColor.textSecondary)
             } actions: {
                 Button(localized("升級")) { showsPaywall = true }
                     .buttonStyle(.borderedProminent)
@@ -95,7 +95,7 @@ struct AIBookshelfOrganizerView: View {
                 .interfaceSectionSurface()
         } else if candidates.isEmpty {
             ContentUnavailableView {
-                UnavailableLabel(scope == .ungrouped ? localized("沒有未分組的書") : localized("書架上沒有書"), systemImage: "books.vertical")
+                UnavailableLabel(scope == .ungrouped ? localized("沒有未分組的書") : localized("書坊上沒有書"), systemImage: "books.vertical")
             }
                 .listRowBackground(Color.clear)
         } else {
