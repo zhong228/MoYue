@@ -1082,7 +1082,7 @@ struct BookSourceListView: View {
             // greys out and makes "unselectable". public.data keeps every file tappable;
             // the parser below validates the actual content before anything is written.
             .data,
-        ] + ["yds", "xbs", "mrs"].compactMap(UTType.init(filenameExtension:))
+        ] + ["yds", "xbs", "mrs"].compactMap { UTType(filenameExtension: $0, conformingTo: .data) }
     }
 
     private func requestBookSourceFileImport() {
