@@ -3545,6 +3545,7 @@
 
 "伺服器回應錯誤（%d）" = "Server responded with status %d";
 "此頁面沒有找到可直接導入的書源 JSON，請在瀏覽器中打開後複製 .json 直鏈再導入（%d）" = "No importable book source JSON was found on this page (status %d). Open it in a browser and copy the direct .json link instead.";
+"此頁面沒有找到可直接導入的書源 JSON，請在瀏覽器中打開後複製 .json 直鏈再導入（%d）%@" = "No importable book source JSON was found on this page (status %d). Open it in a browser and copy the direct .json link instead. %@";
 "此地址返回的不是書源 JSON，請貼上 .json 文件直鏈" = "This address did not return book source JSON. Paste the direct .json file link instead.";
 
 "自由開源 · 純淨的書源閱讀器" = "Free & open source · pure book-source reader";

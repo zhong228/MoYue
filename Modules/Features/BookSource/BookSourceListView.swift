@@ -1248,24 +1248,19 @@ struct BookSourceListView: View {
         fetchBookSourceContent(at: url, followedShareRedirect: false)
     }
 
-    /// Fetches a book-source URL with a browser-grade profile (many sharing sites /
-    /// CDNs and anti-crawler gateways reject the default URLSession User-Agent with a
-    /// plaintext `403` or an HTML interstitial — the old code then failed with a
-    /// confusing `Data corrupted: not valid JSON`, which is exactly the reported bug).
+    /// Fetches a book-source URL the way 閱讀 does: a plain `URLSession` request with
+    /// the system default User-Agent (CFNetwork) and the default 60s timeout. Some
+    /// book-source sharing sites reverse-scan by User-Agent and behave differently
+    /// toward a Safari signature than toward the plain CFNetwork one the reference
+    /// app ships with — overriding it made sites that worked in 閱讀 fail here.
     ///
     /// When the response is an HTML sharing page instead of raw JSON, we try to extract
     /// a direct `.json` link (<a href>, `location.href`, or a bare URL that ends in
     /// `.json`) and fetch that first — no manual copy-paste of the real link needed.
+    /// Failures surface the server response's opening snippet so the user (and later
+    /// diagnostics) can see what the endpoint actually returned.
     private func fetchBookSourceContent(at url: URL, followedShareRedirect: Bool) {
-        var request = URLRequest(url: url, timeoutInterval: 30)
-        request.setValue(
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
-                + "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-            forHTTPHeaderField: "User-Agent"
-        )
-        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
-        request.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
-
+        var request = URLRequest(url: url, timeoutInterval: 60)
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 networkImportLoading = false
@@ -1306,16 +1301,33 @@ struct BookSourceListView: View {
                     fetchBookSourceContent(at: direct, followedShareRedirect: true)
                     return
                 }
+                let snippet = Self.responseSnippet(from: trimmed)
                 if followedShareRedirect {
                     importError = String(
-                        format: localized("此頁面沒有找到可直接導入的書源 JSON，請在瀏覽器中打開後複製 .json 直鏈再導入（%d）"),
-                        http.statusCode
+                        format: localized("此頁面沒有找到可直接導入的書源 JSON，請在瀏覽器中打開後複製 .json 直鏈再導入（%d）%@"),
+                        http.statusCode, snippet
                     )
                 } else {
-                    importError = localized("此地址返回的不是書源 JSON，請貼上 .json 文件直鏈")
+                    importError = localized("此地址返回的不是書源 JSON，請貼上 .json 文件直鏈") + snippet
                 }
             }
         }.resume()
+    }
+
+    /// A short, newline-collapsed excerpt of the response so an import failure shows
+    /// what the endpoint actually sent — HTML page, error document, or login wall.
+    private static func responseSnippet(from text: String) -> String {
+        let collapsed = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let maxLength = 160
+        guard collapsed.count > maxLength else {
+            return collapsed.isEmpty ? "" : "（伺服器回應：\(collapsed)）"
+        }
+        let prefix = collapsed.prefix(maxLength)
+        return "（伺服器回應：\(prefix)…）"
     }
 
     /// Extracts a direct `.json` book-source link from a sharing/redirection page.
