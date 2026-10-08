@@ -483,45 +483,92 @@ class BookSourceStore: ObservableObject {
             return String(data: data.dropFirst(2), encoding: .utf16BigEndian)
         }
 
-        // BOM-less payload: UTF-8 first — it is the de-facto standard and Swift's UTF-8
-        // decoding is strict, so a payload that survives it genuinely is UTF-8. Then the
-        // legacy GB18030 that older Chinese book-source sites still serve. BOM-less UTF-16
-        // comes last and only when its tell-tale NUL-byte density gives it away — a normal
-        // UTF-8/GB18030 payload would otherwise decode "successfully" as UTF-16 garbage.
-        // `isoLatin1` never fails, so anything survives as text and the JSON parser judges.
-        if let text = String(data: data, encoding: .utf8) {
-            return text
-        }
-        let legacyGB = String.Encoding(
-            rawValue: CFStringConvertEncodingToNSStringEncoding(
-                CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
-        if let text = String(data: data, encoding: legacyGB) {
-            return text
-        }
-        if bytes.count >= 2, bytes.count.isMultiple(of: 2) {
-            let nullHiBytes = stride(from: 0, to: bytes.count - 1, by: 2)
+        // BOM-less UTF-16/32 must be decided BEFORE the UTF-8 probe. Valid JSON never
+        // contains a raw NUL byte, so a NUL-dense payload can only be a UTF-16/32
+        // artifact — and ASCII-only UTF-16 otherwise decodes "successfully" as UTF-8,
+        // because NUL is a legal UTF-8 code point. That NUL-laced string is what
+        // surfaced to the user as "Data corrupted: The given data was not valid JSON"
+        // on both network and file imports. LE vs BE is picked by where the NUL bytes
+        // sit, and any candidate decode that does not open with `{`/`[` (e.g. a
+        // wrong-endianness guess producing CJK noise) is rejected.
+        if bytes.count >= 2 {
+            let evenNuls = stride(from: 0, to: bytes.count, by: 2)
                 .filter { bytes[$0] == 0 }.count
-            if nullHiBytes > bytes.count / 8 {
-                if let text = String(data: data, encoding: .utf16LittleEndian) {
-                    return text
-                }
-                if let text = String(data: data, encoding: .utf16BigEndian) {
-                    return text
+            let oddNuls = stride(from: 1, to: bytes.count, by: 2)
+                .filter { bytes[$0] == 0 }.count
+            let threshold = bytes.count / 8
+            if oddNuls > threshold || evenNuls > threshold {
+                let candidates: [String.Encoding] = oddNuls >= evenNuls
+                    ? [.utf16LittleEndian, .utf16BigEndian, .utf32LittleEndian, .utf32BigEndian]
+                    : [.utf16BigEndian, .utf16LittleEndian, .utf32BigEndian, .utf32LittleEndian]
+                for encoding in candidates {
+                    if let text = String(data: data, encoding: encoding),
+                       Self.plausibleJSONText(text) {
+                        return text
+                    }
                 }
             }
         }
+
+        // BOM-less UTF-8 — strict, but a decode full of NUL bytes is not importable
+        // JSON: the structural `{`/`[` is ASCII, so every UTF-16 JSON payload embeds
+        // a NUL right next to its first character. Retry the UTF-16/32 guesses before
+        // concluding the payload is genuinely corrupted.
+        if let text = String(data: data, encoding: .utf8) {
+            if !Self.containsNUL(text) {
+                return text
+            }
+            let candidates: [String.Encoding] = [.utf16LittleEndian, .utf16BigEndian,
+                                                 .utf32LittleEndian, .utf32BigEndian]
+            for encoding in candidates {
+                if let decoded = String(data: data, encoding: encoding),
+                   Self.plausibleJSONText(decoded) {
+                    return decoded
+                }
+            }
+            return nil
+        }
+
+        // BOM-less legacy GB18030 that older Chinese book-source sites still serve.
+        let legacyGB = String.Encoding(
+            rawValue: CFStringConvertEncodingToNSStringEncoding(
+                CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
+        if let text = String(data: data, encoding: legacyGB), !text.isEmpty {
+            return text
+        }
+
+        // `isoLatin1` never fails, so anything survives as text and the JSON parser judges.
         return String(data: data, encoding: .isoLatin1)
+    }
+
+    /// A decoded candidate must be NUL-free and open with a JSON structural token;
+    /// anything else is a wrong-encoding guess (e.g. UTF-16 read as the opposite
+    /// endianness) and should keep the ladder moving.
+    private static func plausibleJSONText(_ text: String) -> Bool {
+        guard !text.isEmpty, !containsNUL(text) else { return false }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("{") || trimmed.hasPrefix("[")
+    }
+
+    private static func containsNUL(_ text: String) -> Bool {
+        text.unicodeScalars.contains("\u{0000}")
     }
 
     /// Strips a leading BOM character (U+FEFF) that a server, editor, or paste source may
     /// have prepended, plus surrounding whitespace. `JSONDecoder` reports a leading BOM
     /// as "Data corrupted: The given data was not valid JSON", so this must run before
-    /// any UTF-8 re-encoding of user-supplied strings (clipboard/paste/editor).
+    /// any UTF-8 re-encoding of user-supplied strings (clipboard/paste/editor). Raw NUL
+    /// code points are likewise illegal in JSON (RFC 8259) — a paste from a mis-decoded
+    /// UTF-16 source carries them in, and stripping them keeps such imports from dying
+    /// with the same data-corrupted error.
     private static func cleaningJSONText(_ text: String) -> String {
         var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.unicodeScalars.first == "\u{FEFF}" {
             trimmed = String(trimmed.unicodeScalars.dropFirst())
             trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if trimmed.unicodeScalars.contains("\u{0000}") {
+            trimmed = String(trimmed.unicodeScalars.filter { $0 != "\u{0000}" })
         }
         return trimmed
     }

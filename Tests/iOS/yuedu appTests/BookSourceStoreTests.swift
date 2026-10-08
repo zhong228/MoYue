@@ -576,6 +576,23 @@ struct BookSourceStoreTests {
         }
     }
 
+    @Test("BOM-less UTF-16 payloads are not misread as NUL-laced UTF-8")
+    func utf16BOMlessDataImports() throws {
+        let store = BookSourceStore(directory: FileManager.default.temporaryDirectory
+            .appendingPathComponent("BookSourceStoreUTF16Bare-\(UUID().uuidString)"))
+        let json = singleSourceJSON()
+
+        for encoding in [String.Encoding.utf16LittleEndian, .utf16BigEndian] {
+            let payload = try #require(json.data(using: encoding))
+            let text = try #require(BookSourceStore.jsonText(from: payload))
+            #expect(!text.unicodeScalars.contains("\u{0000}"),
+                    "BOM-less UTF-16 must not surface NUL bytes")
+            #expect(text.contains("BOM源"))
+            let parsed = try store.parseForImport(data: payload, fileExtension: "json")
+            #expect(parsed.first?.bookSourceName == "BOM源")
+        }
+    }
+
     @Test("leading BOM character in pasted / edited JSON is stripped before parsing")
     func leadingBOMCharacterIsStripped() throws {
         let json = "\u{FEFF}" + singleSourceJSON()
