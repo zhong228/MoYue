@@ -197,7 +197,7 @@ struct AppearanceThemeDarkColors: Hashable {
             backgroundHex: background.rgbHex ?? 0x1C1C1E,
             textHex: text.rgbHex ?? 0xEBEBF0,
             barHex: bar.rgbHex ?? 0x2C2C2E,
-            accentHex: accent.rgbHex ?? 0x0A84FF,
+            accentHex: accent.rgbHex ?? 0x7FC9B4,
             dialogueHex: dialogue.rgbHex ?? 0x2A3A4A
         )
     }
@@ -489,9 +489,9 @@ struct AppearanceThemePreset: Identifiable, Hashable {
     static let classic = AppearanceThemePreset(
         id: classicID, nameKey: "默認",
         displayName: nil,
-        background: hex(0xF4F5F7), text: hex(0x333333),
-        bar: .white, accent: hex(0x007AFF), dialogue: hex(0xD8E9FB),
-        previewBackground: .white,
+        background: hex(0xF7F3EA), text: hex(0x2E2A25),
+        bar: hex(0xFDFBF5), accent: hex(0x2E6659), dialogue: hex(0xDFE9E1),
+        previewBackground: hex(0xFDFBF5),
         relativePreviewImagePath: nil, imagePaths: [],
         requiresPro: false, isImagePreset: false, isCustom: false
     )
@@ -500,60 +500,60 @@ struct AppearanceThemePreset: Identifiable, Hashable {
         [classic] + freeSolidPresets + bundledThemePacks
     }
 
-    /// Low-saturation six-hue palette (blue/orange/green/purple/pink/gold).
-    /// IDs are stable storage keys — do not rename when display names change.
+    /// MoYue's low-saturation ink-paper palette. IDs are stable storage keys —
+    /// do not rename when display names change.
     static let freeSolidPresets: [AppearanceThemePreset] = [
         AppearanceThemePreset(
-            id: "ocean_blue", nameKey: "海霧藍",
+            id: "ocean_blue", nameKey: "黛青",
             displayName: nil,
-            background: hex(0xEAF2FC), text: hex(0x263443),
-            bar: hex(0xDCE9F8), accent: hex(0x3478F6), dialogue: hex(0xD4E4F7),
-            previewBackground: hex(0xDCE9F8),
+            background: hex(0xE8F0EC), text: hex(0x24302B),
+            bar: hex(0xD5E2DA), accent: hex(0x2E6659), dialogue: hex(0xCBDDD2),
+            previewBackground: hex(0xD5E2DA),
             relativePreviewImagePath: nil, imagePaths: [],
             requiresPro: false, isImagePreset: false, isCustom: false
         ),
         AppearanceThemePreset(
-            id: "sunset_orange", nameKey: "暮色橙",
+            id: "sunset_orange", nameKey: "赭石",
             displayName: nil,
-            background: hex(0xFBF0E8), text: hex(0x40312A),
-            bar: hex(0xF5E2D4), accent: hex(0xE8703A), dialogue: hex(0xF4DCCB),
-            previewBackground: hex(0xF5E2D4),
+            background: hex(0xF5EDE2), text: hex(0x3B3327),
+            bar: hex(0xEADDC9), accent: hex(0x9A6636), dialogue: hex(0xE4D6C0),
+            previewBackground: hex(0xEADDC9),
             relativePreviewImagePath: nil, imagePaths: [],
             requiresPro: false, isImagePreset: false, isCustom: false
         ),
         AppearanceThemePreset(
-            id: "forest_green", nameKey: "苔原綠",
+            id: "forest_green", nameKey: "竹青",
             displayName: nil,
-            background: hex(0xEBF4EC), text: hex(0x28382C),
-            bar: hex(0xDCEBDE), accent: hex(0x3E9D63), dialogue: hex(0xD5E8D8),
-            previewBackground: hex(0xDCEBDE),
+            background: hex(0xEAF1E2), text: hex(0x2A3526),
+            bar: hex(0xD8E3C8), accent: hex(0x4E7A3F), dialogue: hex(0xCEDBB8),
+            previewBackground: hex(0xD8E3C8),
             relativePreviewImagePath: nil, imagePaths: [],
             requiresPro: false, isImagePreset: false, isCustom: false
         ),
         AppearanceThemePreset(
-            id: "lavender", nameKey: "薰衣紫",
+            id: "lavender", nameKey: "藕荷",
             displayName: nil,
-            background: hex(0xF3EEFB), text: hex(0x352C43),
-            bar: hex(0xE7DDF6), accent: hex(0x8B5CD6), dialogue: hex(0xE3D8F4),
-            previewBackground: hex(0xE7DDF6),
+            background: hex(0xF1EEF4), text: hex(0x322E3A),
+            bar: hex(0xE2DCE9), accent: hex(0x6E5C8E), dialogue: hex(0xDCD4E6),
+            previewBackground: hex(0xE2DCE9),
             relativePreviewImagePath: nil, imagePaths: [],
             requiresPro: false, isImagePreset: false, isCustom: false
         ),
         AppearanceThemePreset(
-            id: "rose_pink", nameKey: "櫻語粉",
+            id: "rose_pink", nameKey: "緋霞",
             displayName: nil,
-            background: hex(0xFCEFF4), text: hex(0x422D36),
-            bar: hex(0xF6DCE7), accent: hex(0xE05C8A), dialogue: hex(0xF5D5E2),
-            previewBackground: hex(0xF6DCE7),
+            background: hex(0xF8EDEE), text: hex(0x3D2D31),
+            bar: hex(0xEFDADA), accent: hex(0xB05A62), dialogue: hex(0xE9CFD0),
+            previewBackground: hex(0xEFDADA),
             relativePreviewImagePath: nil, imagePaths: [],
             requiresPro: false, isImagePreset: false, isCustom: false
         ),
         AppearanceThemePreset(
-            id: "amber_gold", nameKey: "琥珀金",
+            id: "amber_gold", nameKey: "鎏金",
             displayName: nil,
-            background: hex(0xFAF3E3), text: hex(0x413723),
-            bar: hex(0xF2E6C9), accent: hex(0xD69A2D), dialogue: hex(0xF0E1BD),
-            previewBackground: hex(0xF2E6C9),
+            background: hex(0xF7F2E1), text: hex(0x3C361F),
+            bar: hex(0xEDE3C8), accent: hex(0xA8842E), dialogue: hex(0xE6D9B4),
+            previewBackground: hex(0xEDE3C8),
             relativePreviewImagePath: nil, imagePaths: [],
             requiresPro: false, isImagePreset: false, isCustom: false
         ),

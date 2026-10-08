@@ -1077,10 +1077,12 @@ struct BookSourceListView: View {
         [
             .json,
             .plainText,
-            UTType(filenameExtension: "yds") ?? .data,
-            UTType(filenameExtension: "xbs") ?? .data,
-            UTType(filenameExtension: "mrs") ?? .data,
-        ]
+            // Files received from third-party apps (WeChat/QQ/browsers/email) are often
+            // tagged with a dynamic UTI (dyn.*) instead of public.json, which the picker
+            // greys out and makes "unselectable". public.data keeps every file tappable;
+            // the parser below validates the actual content before anything is written.
+            .data,
+        ] + ["yds", "xbs", "mrs"].compactMap(UTType.init(filenameExtension:))
     }
 
     private func requestBookSourceFileImport() {

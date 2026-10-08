@@ -564,8 +564,8 @@ struct AppearancePageBackgroundLayerView: View {
 #Preview("Gradient slice") {
     AppearancePageBackgroundLayerView(
         slice: AppearancePageBackgroundSlice(
-            primaryHex: 0xEAF2FC,
-            secondaryHex: 0xD5E8D8,
+            primaryHex: 0xE8F0EC,
+            secondaryHex: 0xCBDDD2,
             imageFileName: nil
         )
     )

@@ -1,7 +1,11 @@
 import UIKit
 
 final class InteractionOverlayView: UIView {
-    var fillColor: UIColor = UIColor.systemBlue.withAlphaComponent(0.20) {
+    /// MoYue brand ink-teal, so selection chrome no longer reads as the system blue
+    /// the upstream app wore everywhere.
+    private static let brandTeal = UIColor(red: 0.18, green: 0.40, blue: 0.35, alpha: 1)
+
+    var fillColor: UIColor = InteractionOverlayView.brandTeal.withAlphaComponent(0.20) {
         didSet { setNeedsDisplay() }
     }
 
@@ -16,7 +20,7 @@ final class InteractionOverlayView: UIView {
         didSet { setNeedsDisplay() }
     }
 
-    var handleColor: UIColor = .systemBlue {
+    var handleColor: UIColor = InteractionOverlayView.brandTeal {
         didSet { setNeedsDisplay() }
     }
 

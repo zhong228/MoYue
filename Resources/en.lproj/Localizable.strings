@@ -1117,7 +1117,7 @@
 "圖片主題（Pro）" = "Image Themes (Pro)";
 "外觀" = "Appearance";
 "外觀主題" = "Appearance Themes";
-"琥珀金" = "Amber Gold";
+"鎏金" = "Gilded Gold";
 "新建" = "New";
 "單獨設定深色主題" = "Separate Dark Theme";
 "跟隨外觀主題" = "Follow Appearance Theme";
@@ -1204,11 +1204,11 @@
 "僅支援圖片檔案" = "Only image files are supported";
 "無法讀取圖片檔案" = "Couldn't read the image file";
 "默認" = "Default";
-"海霧藍" = "Mist Blue";
-"暮色橙" = "Dusk Orange";
-"苔原綠" = "Moss Green";
-"薰衣紫" = "Wisteria Purple";
-"櫻語粉" = "Sakura Pink";
+"黛青" = "Ink Teal";
+"赭石" = "Ochre";
+"竹青" = "Bamboo Green";
+"藕荷" = "Lotus Purple";
+"緋霞" = "Rosy Glow";
 "刪除主題" = "Delete Theme";
 "刪除「%@」" = "Delete \"%@\"";
 "刪除後，使用此主題的外觀會回到預設。" = "Any appearance using this theme returns to the default.";
@@ -3536,3 +3536,7 @@
 "三欄卡片，往下捲會一直載入" = "Cards in three columns that keep loading as you scroll";
 
 "TXTEncodingUnsupported" = "Unable to reliably detect the TXT encoding. Save the file as UTF-8 and import it again.";
+"墨悅數據處理與隱私說明" = "MoYue data handling and privacy";
+"使用規則、書源與第三方內容責任" = "Usage rules, book sources and third-party content responsibility";
+"使用書源與第三方來源前，請先閱讀相關條款。" = "Please read the relevant terms before using book sources and third-party sources.";
+"墨悅" = "MoYue";

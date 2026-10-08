@@ -42,7 +42,7 @@ struct ReaderCustomBackgroundEditorView: View {
         self.onRequestPaywall = onRequestPaywall
         _name = State(initialValue: original?.name ?? "")
         _kind = State(initialValue: original?.isImage == true ? .picture : .color)
-        _color = State(initialValue: Color(uiColor: AppearanceThemePreset.hex(original?.colorHex ?? 0xF4F5F7)))
+        _color = State(initialValue: Color(uiColor: AppearanceThemePreset.hex(original?.colorHex ?? 0xF7F3EA)))
         _picture = State(initialValue: original.flatMap { background in
             background.imageFileName.map {
                 ReaderBackgroundPicture(fileName: $0, averageColorHex: background.colorHex, isDark: background.isDark)
@@ -227,7 +227,7 @@ struct ReaderCustomBackgroundEditorView: View {
     }
 
     private var colorHex: UInt32 {
-        UIColor(color).rgbHex ?? 0xF4F5F7
+        UIColor(color).rgbHex ?? 0xF7F3EA
     }
 
     private var isDark: Bool {
@@ -238,7 +238,7 @@ struct ReaderCustomBackgroundEditorView: View {
     }
 
     private var previewPageColor: Color {
-        let hex = kind == .picture ? (picture?.averageColorHex ?? 0xF4F5F7) : colorHex
+        let hex = kind == .picture ? (picture?.averageColorHex ?? 0xF7F3EA) : colorHex
         return Color(uiColor: AppearanceThemePreset.hex(hex))
     }
 

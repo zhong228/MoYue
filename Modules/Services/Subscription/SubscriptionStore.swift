@@ -111,7 +111,13 @@ final class SubscriptionStore: ObservableObject {
     /// switch. See `SubscriptionICloudMirror`.
     @Published private(set) var iCloudIsProActive: Bool = false
     /// `true` while any Pro entitlement is active. Everything gates on this.
-    @Published private(set) var isProActive: Bool = false
+    ///
+    /// MoYue v1.0.10+: all features are free and open, so this is always `true`.
+    /// The entitlement machinery below (StoreKit reads, the iCloud mirror) still
+    /// runs for telemetry and to keep the code path alive, but it can never lock
+    /// a feature — `recomputeEntitlement()` resolves through
+    /// `SubscriptionAccessPolicy.isProActive`, which always grants.
+    @Published private(set) var isProActive: Bool = true
     /// `true` once launch has read every source of Pro (StoreKit, the account, the
     /// iCloud mirror): from then on a false `isProActive` means no Pro, not "not read
     /// yet". `ContentView` shows the Pro look optimistically only before this — it
@@ -193,8 +199,13 @@ final class SubscriptionStore: ObservableObject {
     // MARK: - Feature gating
 
     /// The single entitlement gate. Coarse in v1: all features map to Pro.
+    ///
+    /// MoYue v1.0.10+: every feature is free and unlocked — this always returns
+    /// `true`, so no UI ever shows a Pro lock or opens the paywall, while the
+    /// `isProActive` published state (also always true) keeps theme/Appearance
+    /// lookups on the unlocked branch.
     func hasAccess(_ feature: PremiumFeature) -> Bool {
-        isProActive
+        true
     }
 
     /// What the paywall shows right now: the offer, or its member page and whether

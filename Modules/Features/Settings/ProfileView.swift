@@ -21,12 +21,7 @@ struct SettingsView: View {
     #if DEBUG
     @State private var autoOpenDiagnostics = false
     #endif
-    private let feedbackEmail = "r3212239269@gmail.com"
-    private let officialQQGroupID = "1107613783"
-    private let telegramGroupURL = URL(string: "https://t.me/+ZWmmgMwwJ3JiN2Rl")
-    private let privacyPolicyURL = URL(string: "https://yuedureader.com/privacy")
-    private let userAgreementURL = URL(string: "https://yuedureader.com/terms")
-    private let paidTermsURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")
+    private let feedbackEmail = "172803068@qq.com"
     private let sourceCodeURL = URL(string: "https://github.com/zhong228/MoYue/releases")
 
     private var feedbackMailURL: URL? {
@@ -198,12 +193,7 @@ struct SettingsView: View {
                             AboutSupportView(
                                 appVersion: appVersion,
                                 feedbackEmail: feedbackEmail,
-                                officialQQGroupID: officialQQGroupID,
                                 feedbackMailURL: feedbackMailURL,
-                                telegramGroupURL: telegramGroupURL,
-                                privacyPolicyURL: privacyPolicyURL,
-                                userAgreementURL: userAgreementURL,
-                                paidTermsURL: paidTermsURL,
                                 sourceCodeURL: sourceCodeURL
                             )
                         } label: {
@@ -320,18 +310,10 @@ struct SettingsView: View {
 }
 
 private struct AboutSupportView: View {
-    @EnvironmentObject private var subscriptionStore: SubscriptionStore
     @Environment(\.openURL) private var openURL
-    @ObservedObject private var gs = GlobalSettings.shared
-    @State private var showCopiedQQGroup = false
     let appVersion: String
     let feedbackEmail: String
-    let officialQQGroupID: String
     let feedbackMailURL: URL?
-    let telegramGroupURL: URL?
-    let privacyPolicyURL: URL?
-    let userAgreementURL: URL?
-    let paidTermsURL: URL?
     let sourceCodeURL: URL?
 
     var body: some View {
@@ -345,7 +327,7 @@ private struct AboutSupportView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 4)
 
-                    Text(localized("閱讀"))
+                    Text(localized("墨悅"))
                         .font(DSFont.title3.weight(.semibold))
                         .foregroundStyle(DSColor.textPrimary)
 
@@ -398,68 +380,62 @@ private struct AboutSupportView: View {
                         openURL(url)
                     }
                 }
-
-                actionRow(
-                    icon: "number.circle.fill",
-                    title: localized("官方 QQ 群"),
-                    detail: officialQQGroupID,
-                    trailingIcon: "doc.on.doc"
-                ) {
-                    UIPasteboard.general.string = officialQQGroupID
-                    showCopiedQQGroup = true
-                }
-
-                actionRow(
-                    icon: "paperplane.fill",
-                    title: localized("Telegram 群"),
-                    detail: "t.me",
-                    trailingIcon: "arrow.up.right"
-                ) {
-                    if let url = telegramGroupURL {
-                        openURL(url)
-                    }
-                }
             }
             .interfaceSectionSurface()
 
             Section {
-                actionRow(
-                    icon: "hand.raised.fill",
-                    title: localized("隱私權政策"),
-                    detail: localized("本機資料、同步與第三方來源說明"),
-                    trailingIcon: "arrow.up.right"
-                ) {
-                    if let url = privacyPolicyURL {
-                        openURL(url)
+                NavigationLink {
+                    MoYueLegalDocumentView(document: .privacy)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "hand.raised.fill")
+                            .font(DSFont.fixed(size: 18, weight: .medium))
+                            .frame(width: 28, height: 28)
+                            .foregroundColor(DSColor.textPrimary)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(localized("隱私權政策"))
+                                .foregroundColor(DSColor.textPrimary)
+                            Text(localized("墨悅數據處理與隱私說明"))
+                                .font(DSFont.caption)
+                                .foregroundColor(DSColor.textSecondary)
+                                .lineLimit(2)
+                        }
+                        Spacer(minLength: 12)
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(DSColor.textSecondary.opacity(0.6))
                     }
                 }
+                .foregroundColor(DSColor.textPrimary)
 
-                actionRow(
-                    icon: "doc.text.fill",
-                    title: localized("使用者協議"),
-                    detail: localized("使用規則、第三方內容與責任邊界"),
-                    trailingIcon: "arrow.up.right"
-                ) {
-                    if let url = userAgreementURL {
-                        openURL(url)
+                NavigationLink {
+                    MoYueLegalDocumentView(document: .userAgreement)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "doc.text.fill")
+                            .font(DSFont.fixed(size: 18, weight: .medium))
+                            .frame(width: 28, height: 28)
+                            .foregroundColor(DSColor.textPrimary)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(localized("使用者協議"))
+                                .foregroundColor(DSColor.textPrimary)
+                            Text(localized("使用規則、書源與第三方內容責任"))
+                                .font(DSFont.caption)
+                                .foregroundColor(DSColor.textSecondary)
+                                .lineLimit(2)
+                        }
+                        Spacer(minLength: 12)
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(DSColor.textSecondary.opacity(0.6))
                     }
                 }
-
-                actionRow(
-                    icon: "creditcard.fill",
-                    title: localized("付費服務條款"),
-                    detail: localized("未來付費功能、訂閱、退款與 Apple 付款規則"),
-                    trailingIcon: "arrow.up.right"
-                ) {
-                    if let url = paidTermsURL {
-                        openURL(url)
-                    }
-                }
+                .foregroundColor(DSColor.textPrimary)
             } header: {
                 Text(localized("政策與協議"))
                     .foregroundStyle(DSColor.textSecondary)
             } footer: {
-                Text(localized("使用書源、第三方服務與未來付費功能前，請先閱讀相關條款。"))
+                Text(localized("使用書源與第三方來源前，請先閱讀相關條款。"))
                     .dsSectionFooter()
             }
             .interfaceSectionSurface()
@@ -468,11 +444,6 @@ private struct AboutSupportView: View {
         .navigationTitle(localized("關於 MoYue"))
         .toolbarTitleDisplayMode(.inline)
         .themedAppSurface(for: .settings)
-        .alert(localized("已複製"), isPresented: $showCopiedQQGroup) {
-            Button(localized("好"), role: .cancel) {}
-        } message: {
-            Text(String(format: localized("已複製 QQ 群號：%@"), officialQQGroupID))
-        }
     }
 
     private func actionRow(

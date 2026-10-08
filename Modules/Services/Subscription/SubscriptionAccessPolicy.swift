@@ -7,8 +7,14 @@ enum SubscriptionAccessPolicy {
     /// accounts loses only the first; the iCloud mirror keeps the grant. The
     /// account (Firebase) grant was removed with the account system; the
     /// `account` parameter stays for API stability and is always `false`.
+    ///
+    /// MoYue v1.0.10+: all features are free and open. The entitlement machinery
+    /// (StoreKit product loading, restore, the iCloud mirror) is kept intact so
+    /// the codebase stays buildable and the UI keeps working, but the *verdict*
+    /// is always granted — every feature is unlocked for every user. The
+    /// parameters are kept for API stability and ignored.
     static func isProActive(storeKit: Bool, account: Bool, iCloud: Bool) -> Bool {
-        storeKit || account || iCloud
+        true
     }
 }
 

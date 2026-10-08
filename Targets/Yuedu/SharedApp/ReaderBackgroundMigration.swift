@@ -184,7 +184,7 @@ enum ReaderBackgroundMigration {
                     isDark: picture.isDark
                 ))
             case .color:
-                let colorHex = legacy.colorHex ?? 0xF4F5F7
+                let colorHex = legacy.colorHex ?? 0xF7F3EA
                 if let existing = backgrounds.first(where: { !$0.isImage && $0.colorHex == colorHex }) {
                     return existing.id
                 }

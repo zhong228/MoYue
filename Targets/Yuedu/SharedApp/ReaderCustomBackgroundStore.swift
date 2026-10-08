@@ -75,7 +75,7 @@ extension GlobalSettings {
         let bar: UIColor = background.isImage
             ? (background.isDark ? AppearanceThemePreset.hex(0x1A1A1A) : .white)
             : page
-        let accent = AppearanceThemePreset.hex(background.isDark ? 0x0A84FF : 0x007AFF)
+        let accent = AppearanceThemePreset.hex(background.isDark ? 0x7FC9B4 : 0x2E6659)
         var preset = AppearanceThemePreset(
             id: "reader_background_\(background.id.uuidString)",
             nameKey: "自定義",
@@ -275,7 +275,7 @@ extension GlobalSettings {
                 return nil
             }
         case .color:
-            let colorHex = legacy.colorHex ?? 0xF4F5F7
+            let colorHex = legacy.colorHex ?? 0xF7F3EA
             background = ReaderCustomBackground(
                 name: name,
                 colorHex: colorHex,
