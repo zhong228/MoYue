@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// Whether this build may touch CloudKit at all.
@@ -47,23 +46,28 @@ enum CloudKitAvailability {
     /// iCloud container entitlement and CloudKit *will* `os_crash` on container
     /// creation no matter what the iCloud token says.
     private static var isRunningInsideLiveContainer: Bool {
-        // LiveContainer installs the app as
+        // LiveContainer installs the app as a copy under the *data* container:
         //   <DataContainer>/Documents/Applications/<bundleID>_<hash>.app
-        // (crash-report evidence: .../Documents/Applications/com.zhangruilin.yuedureader_813124420.app).
+        // (direct evidence from the user's crash report:
+        //  .../Documents/Applications/com.zhangruilin.yuedureader_813124420.app).
         // A signed install always lives under /var/containers/Bundle/Application/
         // (or the simulator's data dir), never under a data container's
-        // Documents/Applications.
+        // Documents/Applications — so this path alone identifies the host.
         let mainBundlePath = Bundle.main.bundlePath
         if mainBundlePath.contains("/Documents/Applications/") { return true }
 
-        // LiveContainer injects its loader dylib into every spawned process;
-        // a regular install never loads anything named TweakLoader/LiveContainer.
-        for index in 0..<_dyld_image_count() {
-            guard let imageName = _dyld_get_image_name(index) else { continue }
-            let path = String(cString: imageName)
-            if path.contains("TweakLoader") || path.contains("LiveContainer") {
-                return true
-            }
+        // Older LiveContainer versions that do not swap `Bundle.main`: the main
+        // bundle still points into the host's own container, whose path always
+        // contains the LiveContainer app name (crash-report evidence:
+        // .../LiveContainer.app/PlugIns/LiveProcess.appex). A plain install can
+        // never have "LiveContainer.app" in its main bundle path.
+        if mainBundlePath.contains("/LiveContainer.app/") { return true }
+
+        // LiveContainer injects its loader dylib via DYLD_INSERT_LIBRARIES
+        // (TweakLoader.dylib). Exposed on iOS; a silent no-op elsewhere.
+        if let injected = ProcessInfo.processInfo.environment["DYLD_INSERT_LIBRARIES"],
+           injected.contains("TweakLoader") {
+            return true
         }
         return false
     }
