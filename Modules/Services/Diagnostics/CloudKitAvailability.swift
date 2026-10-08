@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 /// Whether this build may touch CloudKit at all.
 ///
@@ -16,14 +15,22 @@ import Security
 /// Xcode / TestFlight / App Store keep the real entitlement and CloudKit works
 /// unchanged.
 enum CloudKitAvailability {
-    /// True only when the running process is entitled to use our iCloud container.
+    /// True when this process may touch CloudKit safely.
+    ///
+    /// iOS exposes no public API to read the running process's own entitlement
+    /// (`SecTask*` is macOS-only, which does not compile on iOS), so we
+    /// approximate with the iCloud identity token: it is non-`nil` only in a
+    /// process that is entitled for iCloud **and** has the user signed in. That
+    /// is deliberately conservative:
+    ///
+    /// - LiveContainer (unsigned, no entitlement) → always `nil` → CloudKit
+    ///   never constructed → no `os_crash`, which is exactly the crash being
+    ///   fixed.
+    /// - A signed build with the user signed out of iCloud → `nil` → CloudKit
+    ///   work is skipped until sign-in, when it becomes available again; a
+    ///   `CKContainer` would not have crashed there, it would just report
+    ///   `.noAccount`, so skipping is functionally equivalent without the risk.
     static var isAvailable: Bool {
-        guard let task = SecTaskCreateFromSelf(nil) else { return false }
-        guard let identifiers = SecTaskCopyValueForEntitlement(
-            task,
-            "com.apple.developer.icloud-container-identifiers" as CFString,
-            nil
-        ) as? [String] else { return false }
-        return identifiers.contains(ICloudSyncManager.containerIdentifier)
+        FileManager.default.ubiquityIdentityToken != nil
     }
 }
