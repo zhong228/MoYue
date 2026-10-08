@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 private enum BookSourceImportPresentationRoute: Hashable {
     /// 手動新增 — an empty source in the editor. Sequenced with the imports because it is now
@@ -328,11 +327,15 @@ struct BookSourceListView: View {
                     importSheet
                 }
             }
-            .fileImporter(
-                isPresented: $showFirstLevelImportFile,
-                allowedContentTypes: bookSourceImportContentTypes,
-                onCompletion: handleBookSourceImportFile
-            )
+            .sheet(isPresented: $showFirstLevelImportFile) {
+                DocumentPicker(
+                    onPick: { url in
+                        showFirstLevelImportFile = false
+                        handleBookSourceImportFile(.success(url))
+                    },
+                    onCancel: { showFirstLevelImportFile = false }
+                )
+            }
             .sheet(
                 isPresented: $showNetworkImport,
                 onDismiss: presentQueuedImportReview
@@ -1066,29 +1069,15 @@ struct BookSourceListView: View {
                 }
             }
         }
-        .fileImporter(
-            isPresented: $showImportFile,
-            allowedContentTypes: bookSourceImportContentTypes,
-            onCompletion: handleBookSourceImportFile
-        )
-    }
-
-    private var bookSourceImportContentTypes: [UTType] {
-        [
-            // `public.item` is the root of every type and keeps every file tappable —
-            // JSON arriving from third-party apps (WeChat/QQ/browsers/email) often
-            // carries a dynamic UTI (dyn.*) or a Shortcuts-card type that even
-            // public.data can grey out in the picker. The parser below validates the
-            // actual content before anything is written, so an accepting picker is safe.
-            .item,
-            .json,
-            .plainText,
-            // Files received from third-party apps (WeChat/QQ/browsers/email) are often
-            // tagged with a dynamic UTI (dyn.*) instead of public.json, which the picker
-            // greys out and makes "unselectable". public.data keeps every file tappable;
-            // the parser below validates the actual content before anything is written.
-            .data,
-        ] + ["yds", "xbs", "mrs"].compactMap { UTType(filenameExtension: $0, conformingTo: .data) }
+        .sheet(isPresented: $showImportFile) {
+            DocumentPicker(
+                onPick: { url in
+                    showImportFile = false
+                    handleBookSourceImportFile(.success(url))
+                },
+                onCancel: { showImportFile = false }
+            )
+        }
     }
 
     private func requestBookSourceFileImport() {
