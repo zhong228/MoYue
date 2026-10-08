@@ -1,8 +1,6 @@
 import YueduCoreText
 import Combine
-import FirebaseAuth
 import Foundation
-import GoogleSignIn
 import SwiftUI
 import UIKit
 
@@ -654,47 +652,7 @@ class GlobalSettings: ObservableObject {
         )
     }
 
-    // MARK: - Account State
-
-    @Published var isLoggedIn: Bool {
-        didSet { UserDefaults.standard.set(isLoggedIn, forKey: "yd_account_logged_in") }
-    }
-    @Published var accountDisplayName: String {
-        didSet { UserDefaults.standard.set(accountDisplayName, forKey: "yd_account_display_name") }
-    }
-    @Published var accountEmail: String {
-        didSet { UserDefaults.standard.set(accountEmail, forKey: "yd_account_email") }
-    }
-    @Published var accountProvider: String {
-        didSet { UserDefaults.standard.set(accountProvider, forKey: "yd_account_provider") }
-    }
-    @Published var accountUserIdentifier: String {
-        didSet { UserDefaults.standard.set(accountUserIdentifier, forKey: "yd_account_user_identifier") }
-    }
-    @Published var accountPhotoURL: String {
-        didSet { UserDefaults.standard.set(accountPhotoURL, forKey: "yd_account_photo_url") }
-    }
-
-    /// Subtitle shown under the account name. Prefers a real email, otherwise falls
-    /// back to a provider description so we never display an opaque identifier.
-    var accountSubtitle: String {
-        guard isLoggedIn else { return localized("登入後可同步進度") }
-        if !accountEmail.isEmpty { return accountEmail }
-        switch accountProvider {
-        case "Apple": return localized("透過 Apple 登入")
-        case "Google": return localized("透過 Google 登入")
-        default: return localized("已登入")
-        }
-    }
-    @Published var accountAvatarData: Data? {
-        didSet {
-            if let accountAvatarData {
-                UserDefaults.standard.set(accountAvatarData, forKey: "yd_account_avatar_data")
-            } else {
-                UserDefaults.standard.removeObject(forKey: "yd_account_avatar_data")
-            }
-        }
-    }
+    // MARK: - Reader Text
 
     @Published var textConversion: TextConversion {
         didSet { UserDefaults.standard.set(textConversion.rawValue, forKey: "yd_text_conv") }
@@ -1843,13 +1801,6 @@ class GlobalSettings: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "yd_app_lang")
         // Before anything below reads the stores it rewrites.
         ReaderBackgroundMigration.runIfNeeded()
-        isLoggedIn = UserDefaults.standard.bool(forKey: "yd_account_logged_in")
-        accountDisplayName = UserDefaults.standard.string(forKey: "yd_account_display_name") ?? ""
-        accountEmail = UserDefaults.standard.string(forKey: "yd_account_email") ?? ""
-        accountProvider = UserDefaults.standard.string(forKey: "yd_account_provider") ?? ""
-        accountUserIdentifier = UserDefaults.standard.string(forKey: "yd_account_user_identifier") ?? ""
-        accountPhotoURL = UserDefaults.standard.string(forKey: "yd_account_photo_url") ?? ""
-        accountAvatarData = UserDefaults.standard.data(forKey: "yd_account_avatar_data")
         let rawConv = UserDefaults.standard.string(forKey: "yd_text_conv") ?? ""
         textConversion = TextConversion(rawValue: rawConv) ?? .original
         readerFontBold = UserDefaults.standard.bool(forKey: "yd_reader_font_bold")
@@ -3652,120 +3603,6 @@ class GlobalSettings: ObservableObject {
         if titleStyleChanged {
             ReaderConfig.shared.chapterTitleStyle = titleStyle
         }
-    }
-
-    func signIn(displayName: String, email: String, provider: String, userIdentifier: String = "") {
-        let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedIdentifier = userIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        accountDisplayName = trimmedName.isEmpty ? trimmedEmail : trimmedName
-        accountEmail = trimmedEmail
-        accountProvider = provider
-        accountUserIdentifier = trimmedIdentifier
-        isLoggedIn = true
-    }
-
-    @MainActor
-    func applyFirebaseUser(_ user: User?, providerOverride: String? = nil) {
-        guard let user else {
-            clearAccountState()
-            return
-        }
-        applyAccountUser(AccountUser(firebaseUser: user), providerOverride: providerOverride)
-    }
-
-    /// Single entry point for both auth routes. Keeping the mapping here means
-    /// the Gateway path and the SDK path cannot drift in what the UI shows.
-    @MainActor
-    func applyAccountUser(_ user: AccountUser?, providerOverride: String? = nil) {
-        guard let user else {
-            clearAccountState()
-            return
-        }
-        let email = user.email
-        let displayName = user.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Auth snapshots contain the provider's name, not necessarily the edited
-        // profile name. Refreshing credentials must not undo a local rename.
-        let name = AccountDisplayNameEdits().pendingName(for: user.uid)
-            ?? (accountUserIdentifier == user.uid && !accountDisplayName.isEmpty
-                ? accountDisplayName
-                : (!displayName.isEmpty ? displayName : (email.isEmpty ? localized("已登入") : email)))
-        if accountDisplayName != name { accountDisplayName = name }
-        accountEmail = email
-        accountProvider = providerOverride ?? user.providerDisplayName
-        accountUserIdentifier = user.uid
-        if !(user.photoURL ?? "").isEmpty {
-            accountPhotoURL = user.photoURL ?? accountPhotoURL
-        }
-        isLoggedIn = true
-    }
-
-    @MainActor
-    func applyFirebaseProfile(_ profile: UserProfile, preservingDisplayName: Bool = false) {
-        guard accountUserIdentifier.isEmpty || accountUserIdentifier == profile.uid else { return }
-        var updates = SettingsUpdateBatch(self, reason: "firebaseProfile")
-        defer { updates.finish() }
-        if !preservingDisplayName {
-            let name = AccountDisplayNameEdits().pendingName(for: profile.uid) ?? profile.displayName
-            updates.set(\.accountDisplayName, name, field: "accountDisplayName")
-        }
-        updates.set(\.accountEmail, profile.email, field: "accountEmail")
-        updates.set(\.accountProvider, profile.provider, field: "accountProvider")
-        updates.set(\.accountUserIdentifier, profile.uid, field: "accountUserIdentifier")
-        updates.set(\.accountPhotoURL, profile.photoURL ?? "", field: "accountPhotoURL")
-        updates.set(\.isLoggedIn, true, field: "isLoggedIn")
-        profile.preferences.apply(to: self)
-    }
-
-    func updateAccountAvatar(data: Data?) {
-        accountAvatarData = data
-    }
-
-    func updateAccountDisplayName(_ name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != accountDisplayName else { return }
-        AccountDisplayNameEdits().save(trimmed, for: accountUserIdentifier)
-        accountDisplayName = trimmed
-    }
-
-    func signOut(
-        revokeGoogleAccess: Bool = false,
-        completion: ((Error?) -> Void)? = nil
-    ) {
-        let provider = accountProvider
-
-        guard provider == "Google" else {
-            clearAccountState()
-            completion?(nil)
-            return
-        }
-
-        if revokeGoogleAccess {
-            GIDSignIn.sharedInstance.disconnect { [weak self] error in
-                if error != nil {
-                    GIDSignIn.sharedInstance.signOut()
-                }
-                DispatchQueue.main.async {
-                    self?.clearAccountState()
-                    completion?(error)
-                }
-            }
-            return
-        }
-
-        GIDSignIn.sharedInstance.signOut()
-        clearAccountState()
-        completion?(nil)
-    }
-
-    func clearAccountState() {
-        isLoggedIn = false
-        accountDisplayName = ""
-        accountEmail = ""
-        accountProvider = ""
-        accountUserIdentifier = ""
-        accountPhotoURL = ""
-        accountAvatarData = nil
     }
 }
 

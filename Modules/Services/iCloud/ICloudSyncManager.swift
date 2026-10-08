@@ -220,8 +220,12 @@ final class ICloudSyncManager: ObservableObject {
         static let updatedAt = "updatedAt"
     }
 
-    private let container: CKContainer
-    private let database: CKDatabase
+    /// `nil` without the iCloud container entitlement. CloudKit's own `os_crash`
+    /// killed the app the moment an unsigned process (LiveContainer) built a
+    /// `CKContainer`, so the nil container is the "CloudKit off" state: every
+    /// entry point guards it and degrades instead of touching CloudKit.
+    private let container: CKContainer?
+    private let database: CKDatabase?
 
     private static var deviceId: String {
         if let id = UserDefaults.standard.string(forKey: deviceIdKey) { return id }
@@ -230,9 +234,17 @@ final class ICloudSyncManager: ObservableObject {
         return id
     }
 
-    private init(container: CKContainer = CKContainer(identifier: ICloudSyncManager.containerIdentifier)) {
-        self.container = container
-        database = container.privateCloudDatabase
+    private init() {
+        // Guarded: constructing a CKContainer without the entitlement is exactly
+        // the os_crash that made earlier builds die on launch inside CloudKit.
+        if CloudKitAvailability.isAvailable {
+            let container = CKContainer(identifier: ICloudSyncManager.containerIdentifier)
+            self.container = container
+            database = container.privateCloudDatabase
+        } else {
+            container = nil
+            database = nil
+        }
         lastSyncDate = UserDefaults.standard.object(forKey: Self.lastSyncKey) as? Date
     }
 
@@ -1114,9 +1126,17 @@ final class ICloudSyncManager: ObservableObject {
         try await downloadMissingBookFiles()
 
         // Reload the in-memory stores from the just-restored files so the bookshelf
-        // and sources update live. This also keeps Firestore (account sync) from
-        // re-deleting the restored data via stale tombstones on the next launch.
-        await FirestoreSyncManager.shared.adoptRestoredLocalData()
+        // and sources update live. The account (Firestore) sync side that used to
+        // re-push restored data after this was removed with the account system.
+        if let store = boundBookStore {
+            await MainActor.run {
+                store.reloadFromDisk()
+            }
+        }
+        await MainActor.run {
+            BookSourceStore.shared.reloadFromDisk()
+            ReplaceRuleStore.shared.reloadFromDisk()
+        }
 
         await MainActor.run {
             lastSyncDate = Date()
@@ -1132,7 +1152,8 @@ final class ICloudSyncManager: ObservableObject {
     }
 
     private func fetchAccountStatus() async -> CKAccountStatus {
-        await withCheckedContinuation { continuation in
+        guard let container else { return .couldNotDetermine }
+        return await withCheckedContinuation { continuation in
             container.accountStatus { status, _ in
                 continuation.resume(returning: status)
             }
@@ -1417,7 +1438,8 @@ final class ICloudSyncManager: ObservableObject {
     }
 
     private func fetchRecord(_ recordID: CKRecord.ID) async throws -> CKRecord {
-        try await withCheckedThrowingContinuation { continuation in
+        guard let database else { throw ICloudSyncError.accountUnavailable(.couldNotDetermine) }
+        return try await withCheckedThrowingContinuation { continuation in
             database.fetch(withRecordID: recordID) { record, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -1436,7 +1458,8 @@ final class ICloudSyncManager: ObservableObject {
     /// behind, the asset with it, so a blob of any size costs one small round trip. Nil when
     /// there is no such record.
     private func fetchRecordChangeTag(_ recordID: CKRecord.ID) async throws -> String? {
-        try await withCheckedThrowingContinuation { continuation in
+        guard let database else { throw ICloudSyncError.accountUnavailable(.couldNotDetermine) }
+        return try await withCheckedThrowingContinuation { continuation in
             let operation = CKFetchRecordsOperation(recordIDs: [recordID])
             operation.desiredKeys = []
             // Both blocks run on the operation's own serial queue: the record's result
@@ -1473,7 +1496,8 @@ final class ICloudSyncManager: ObservableObject {
     }
 
     private func deleteRecord(_ recordID: CKRecord.ID) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        guard let database else { throw ICloudSyncError.accountUnavailable(.couldNotDetermine) }
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             database.delete(withRecordID: recordID) { _, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -1485,7 +1509,8 @@ final class ICloudSyncManager: ObservableObject {
     }
 
     private func saveRecord(_ record: CKRecord) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        guard let database else { throw ICloudSyncError.accountUnavailable(.couldNotDetermine) }
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             database.save(record) { _, error in
                 if let error {
                     continuation.resume(throwing: error)

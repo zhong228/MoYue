@@ -189,14 +189,6 @@
 		<dict>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>com.googleusercontent.apps.540650701012-8q81u29qbeodaa4gmr0sui7rg1gnivhb</string>
-			</array>
-		</dict>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
 			<key>CFBundleURLName</key>
 			<string>com.yuedu.booksource.import</string>
 			<key>CFBundleURLSchemes</key>
@@ -215,10 +207,6 @@
 			</array>
 		</dict>
 	</array>
-	<key>GIDClientID</key>
-	<string>540650701012-8q81u29qbeodaa4gmr0sui7rg1gnivhb.apps.googleusercontent.com</string>
-	<key>GatewayBaseURL</key>
-	<string>$(GATEWAY_BASE_URL)</string>
 	<key>GitCommitSHA</key>
 	<string>$(GIT_COMMIT_SHA)</string>
 	<key>NSAppTransportSecurity</key>

@@ -59,15 +59,6 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
                 Form {
-                    Section {
-                        NavigationLink(destination: UserDetailView()) {
-                            AccountRowContent()
-                        }
-                        .accessibilityIdentifier("settings_account_row")
-                        // The first row measures the form's scroll for the title's fade.
-                        .rootTabTitleScrollAnchor()
-                    }
-                    .interfaceSectionSurface()
                     // ── App Language ──
                     Section {
                         DSSettingsRow(
@@ -79,6 +70,7 @@ struct SettingsView: View {
                                 }
                             }
                         )
+                        .rootTabTitleScrollAnchor()
                     } header: {
                         Text(localized("App 語言"))
                             .foregroundStyle(DSColor.textSecondary)
@@ -319,28 +311,10 @@ struct SettingsView: View {
         !ReaderPremiumVisibilityPolicy(isProActive: subscriptionStore.isProActive).allowsAI
     }
 
-    /// Says whether AI is usable at a glance. A reader who has not set it up should not have
-    /// to open the screen to find that out.
+/// Says whether AI is usable at a glance. A reader who has not set it up should not have
+    /// to open the screen to find out that.
     private var aiAssistantDetail: String {
         AIProviderStore.shared.hasConfiguredProfile ? localized("已啟用") : localized("未設定")
-    }
-
-    @ViewBuilder func AccountRowContent() -> some View {
-        HStack(spacing: 15) {
-            AccountAvatarView(size: 50)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(gs.isLoggedIn ? (gs.accountDisplayName.isEmpty ? localized("已登入") : gs.accountDisplayName) : localized("尚未登入"))
-                    .font(DSFont.headline)
-                    .foregroundStyle(DSColor.textPrimary)
-                Text(gs.accountSubtitle)
-                    .font(DSFont.caption).foregroundStyle(DSColor.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
-            Spacer()
-        }
     }
 
 }
@@ -398,25 +372,6 @@ private struct AboutSupportView: View {
                 }
             }
             .interfaceSectionSurface()
-
-            if gs.isLoggedIn && subscriptionStore.accountIsProActive {
-                Section(header: Text(localized("加入測試")).foregroundStyle(DSColor.textSecondary)) {
-                    NavigationLink {
-                        TestFlightApplyView()
-                    } label: {
-                        HStack {
-                            Label(localized("加入 TestFlight 測試版"), systemImage: "testtube.2")
-                                .foregroundColor(DSColor.textPrimary)
-                                .labelStyle(IconConsistentLabelStyle())
-                            Spacer(minLength: 12)
-                            Text(localized("測試版"))
-                                .font(DSFont.caption)
-                                .foregroundColor(DSColor.textSecondary)
-                        }
-                    }
-                }
-                .interfaceSectionSurface()
-            }
 
             Section(header: Text(localized("開放原始碼")).foregroundStyle(DSColor.textSecondary)) {
                 actionRow(

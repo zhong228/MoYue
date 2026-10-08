@@ -35,23 +35,6 @@ final class ReaderSettingsPublicationTests: XCTestCase {
         withExtendedLifetime((settingsToken, configToken)) {}
     }
 
-    func testIdenticalProfileAndBubbleSyncPublishNothing() {
-        let settings = GlobalSettings.shared
-        let wasLoggedIn = settings.isLoggedIn
-        defer { settings.isLoggedIn = wasLoggedIn }
-        let profile = UserProfile(uid: settings.accountUserIdentifier,
-            displayName: settings.accountDisplayName, email: settings.accountEmail,
-            provider: settings.accountProvider, photoURL: settings.accountPhotoURL)
-        settings.applyFirebaseProfile(profile)
-        settings.applyCommentBubbleSync(styles: settings.commentBubbleCustomStyles)
-        var publications = 0
-        let token = settings.objectWillChange.sink { publications += 1 }
-        settings.applyFirebaseProfile(profile)
-        settings.applyCommentBubbleSync(styles: settings.commentBubbleCustomStyles)
-        XCTAssertEqual(publications, 0)
-        withExtendedLifetime(token) {}
-    }
-
     func testRemoteChangeSupersedesPendingLocalWritebackWithoutEcho() {
         let settings = GlobalSettings.shared
         let original = ReaderPreferences.current()

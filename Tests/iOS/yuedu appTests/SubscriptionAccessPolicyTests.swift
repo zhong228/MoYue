@@ -38,12 +38,6 @@ struct SubscriptionAccessPolicyTests {
         #expect(SubscriptionICloudMirrorPolicy.action(ownedCount: 1, revokedCount: 1) == .store)
     }
 
-    @Test("guest purchases require a choice while signed-in purchases continue")
-    func purchasePromptPolicy() {
-        #expect(SubscriptionAccessPolicy.purchaseAction(isAuthenticated: false) == .promptGuest)
-        #expect(SubscriptionAccessPolicy.purchaseAction(isAuthenticated: true) == .purchaseForAccount)
-    }
-
     @Test("cached monthly entitlement expires offline")
     func cachedEntitlementExpiry() {
         let now = Date(timeIntervalSince1970: 1_000)
@@ -59,16 +53,6 @@ struct SubscriptionAccessPolicyTests {
         #expect(!CachedSubscriptionEntitlement(isProActive: false, expiresAt: nil).isActive(at: now))
     }
 
-    @Test("missing entitlement document keeps the cached value")
-    func missingEntitlementDocumentKeepsCachedValue() {
-        #expect(!SubscriptionEntitlementRefreshPolicy.shouldApplyServerValue(documentExists: false))
-    }
-
-    @Test("existing entitlement document is authoritative over the cache")
-    func existingEntitlementDocumentIsAuthoritative() {
-        #expect(SubscriptionEntitlementRefreshPolicy.shouldApplyServerValue(documentExists: true))
-    }
-
     private static let lifetimeID = "com.zhangruilin.yuedureader.pro.lifetime"
     private static let monthlyID = "com.zhangruilin.yuedureader.pro.monthly"
 
@@ -82,43 +66,6 @@ struct SubscriptionAccessPolicyTests {
             monthlyProductID: Self.monthlyID,
             isProActive: isProActive
         )
-    }
-
-    private func testFlightEligibility(
-        isProActive: Bool,
-        productIDs: [String]?
-    ) -> TestFlightEligibility {
-        TestFlightAccessPolicy.eligibility(
-            isProActive: isProActive,
-            productIDs: productIDs,
-            lifetimeProductID: Self.lifetimeID
-        )
-    }
-
-    @Test("only a lifetime purchase can claim a TestFlight seat")
-    func testFlightNeedsLifetime() {
-        #expect(testFlightEligibility(isProActive: true, productIDs: [Self.lifetimeID]) == .eligible)
-        #expect(
-            testFlightEligibility(isProActive: true, productIDs: [Self.monthlyID, Self.lifetimeID])
-                == .eligible
-        )
-        // Pro, but on a plan that could cancel after one month and keep a seat
-        // that has no revocation path.
-        #expect(
-            testFlightEligibility(isProActive: true, productIDs: [Self.monthlyID])
-                == .requiresLifetime
-        )
-        #expect(testFlightEligibility(isProActive: false, productIDs: []) == .requiresLifetime)
-    }
-
-    @Test("an unknown plan defers to the server instead of blocking")
-    func testFlightUnknownPlanDefersToServer() {
-        // nil means this device never saw the backend name the products — an
-        // entitlement cached before product IDs were recorded, or an offline
-        // launch. Rendering "requires lifetime" here would lock out a real
-        // lifetime buyer, so the form shows and the callable decides.
-        #expect(testFlightEligibility(isProActive: true, productIDs: nil) == .undetermined)
-        #expect(testFlightEligibility(isProActive: false, productIDs: nil) == .undetermined)
     }
 
     @Test("a lifetime owner is never shown the purchase options again")
@@ -193,45 +140,6 @@ struct SubscriptionAccessPolicyTests {
             subscriptionManagement(purchased: [Self.monthlyID, Self.lifetimeID])
                 == .monthlyAlongsideLifetime
         )
-    }
-
-    @Test("verified cache restores account access before the network answers")
-    func cachedEntitlementSeedsColdLaunch() {
-        #expect(SubscriptionEntitlementSeedPolicy.shouldSeed(current: false, cached: true))
-    }
-
-    @Test("seeding never revokes and never runs without a verified cache")
-    func seedingIsOneDirectional() {
-        // No cache, or a cache the backend last verified as inactive: leave the
-        // cold-launch `false` alone rather than inventing access.
-        #expect(!SubscriptionEntitlementSeedPolicy.shouldSeed(current: false, cached: nil))
-        #expect(!SubscriptionEntitlementSeedPolicy.shouldSeed(current: false, cached: false))
-        // Already active: a stale cached `false` must not pull down a fresher
-        // live `true`. Only a real server response revokes.
-        #expect(!SubscriptionEntitlementSeedPolicy.shouldSeed(current: true, cached: false))
-        #expect(!SubscriptionEntitlementSeedPolicy.shouldSeed(current: true, cached: nil))
-        #expect(!SubscriptionEntitlementSeedPolicy.shouldSeed(current: true, cached: true))
-    }
-
-    @Test("an unreachable backend keeps the deferred binding retryable")
-    func unreachableBackendStaysRetryable() {
-        // 14 unavailable / 4 deadlineExceeded is what a purchase made without a
-        // VPN hits. These must retry, or the deferred binding never completes.
-        #expect(SubscriptionBindRetryPolicy.shouldRetry(isFunctionsError: true, code: 14))
-        #expect(SubscriptionBindRetryPolicy.shouldRetry(isFunctionsError: true, code: 4))
-        // Not a Functions status at all (URLSession, decoding): treat as temporary.
-        #expect(SubscriptionBindRetryPolicy.shouldRetry(isFunctionsError: false, code: 6))
-    }
-
-    @Test("a permanently rejected binding is not retried")
-    func permanentRejectionStopsRetrying() {
-        // 6 alreadyExists: the transaction belongs to another account. Retrying
-        // would re-post the same error on every foreground.
-        #expect(!SubscriptionBindRetryPolicy.shouldRetry(isFunctionsError: true, code: 6))
-        #expect(!SubscriptionBindRetryPolicy.shouldRetry(isFunctionsError: true, code: 9))
-        #expect(!SubscriptionBindRetryPolicy.shouldRetry(isFunctionsError: true, code: 3))
-        #expect(!SubscriptionBindRetryPolicy.shouldRetry(isFunctionsError: true, code: 7))
-        #expect(!SubscriptionBindRetryPolicy.shouldRetry(isFunctionsError: true, code: 16))
     }
 
     @Test("complete product cache reloads after the App Store storefront changes")

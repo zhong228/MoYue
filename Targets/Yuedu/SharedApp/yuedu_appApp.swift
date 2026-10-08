@@ -1,6 +1,5 @@
 import YueduCoreText
 import SwiftUI
-import GoogleSignIn
 
 @main
 struct yuedu_appApp: App {
@@ -103,7 +102,7 @@ struct yuedu_appApp: App {
     /// down naturally instead of fighting a separate `isPresented` flag.
     private var bookSourceImportSheetBinding: Binding<Bool> {
         Binding(
-            get: { TestFlightAccessController.shared.state.allowsUse && bookSourceDeepLinkHandler.phase != .idle },
+            get: { bookSourceDeepLinkHandler.phase != .idle },
             set: { presented in
                 if !presented, bookSourceDeepLinkHandler.phase != .idle {
                     bookSourceDeepLinkHandler.finish()
@@ -137,22 +136,14 @@ struct yuedu_appApp: App {
                 #endif
                 .onOpenURL { incomingURL in
                     if incomingURL.isFileURL {
-                        guard TestFlightAccessController.shared.state.allowsUse else { return }
                         let importer = SharedImportQueueDrainer.shared
                         // A cold-launch URL may arrive before onAppear binds stores.
                         importer.bind(bookStore: bookStore)
                         Task { await importer.openFile(incomingURL) }
                         return
                     }
-                    // Google Sign-In OAuth callback: hand off first so a Google
-                    // sign-in round-trip completes. `handle(_:)` returns false
-                    // for non-Google URLs, in which case we route to book-source
-                    // import. Routing one concern per URL keeps a deep link from
-                    // accidentally invoking both handlers.
-                    if GIDSignIn.sharedInstance.handle(incomingURL) {
-                        return
-                    }
-                    guard TestFlightAccessController.shared.state.allowsUse else { return }
+                    // Routes any non-file URL to book-source import. (The Google
+                    // Sign-In OAuth callback branch was removed with the account system.)
                     bookSourceDeepLinkHandler.handle(url: incomingURL)
                 }
                 .sheet(isPresented: bookSourceImportSheetBinding) {
@@ -168,13 +159,11 @@ struct yuedu_appApp: App {
                             .appendingPathComponent("discover_cache")
                         try? FileManager.default.removeItem(at: dir)
                     }
-                    // Bind the book store before the auth listener fires, so the
-                    // first post-launch sync (triggered by the listener) sees it.
-                    FirestoreSyncManager.shared.bind(bookStore: bookStore)
+                    // Bind the book store before the first iCloud sync so the
+                    // launch merge sees the live shelf.
                     ICloudSyncManager.shared.bind(bookStore: bookStore)
                     SharedImportQueueDrainer.shared.bind(bookStore: bookStore)
                     WebDAVManager.shared.bind(bookStore: bookStore)
-                    _ = FirebaseAuthManager.shared
                     Task {
                         await AppDependencies.live.offlineDownloadManager
                             .reconcileInterruptedDownloads(store: bookStore)

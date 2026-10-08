@@ -21,10 +21,6 @@ struct PaywallView: View {
     var highlightedFeature: PremiumFeature?
 
     @State private var selectedProduct: SubscriptionStore.ProProduct = .lifetime
-    @State private var pendingProduct: Product?
-    @State private var showGuestPurchaseAlert = false
-    @State private var showLogin = false
-    @State private var purchaseAfterLogin = false
     /// Pro unlocked while this sheet was open — a purchase, an Ask to Buy approval, an
     /// offer code, a restore — so the member page is the thank-you, celebrating.
     @State private var justUnlocked = false
@@ -95,25 +91,6 @@ struct PaywallView: View {
                     upgradedFromMonthly = true
                     justUnlocked = true
                 }
-            }
-            .alert(localized("選擇購買方式"), isPresented: $showGuestPurchaseAlert) {
-                Button(localized("登入後購買")) {
-                    purchaseAfterLogin = true
-                    showLogin = true
-                }
-                Button(localized("直接購買")) {
-                    purchaseAfterLogin = false
-                    purchasePendingProductForGuest()
-                }
-                Button(localized("取消"), role: .cancel) {
-                    pendingProduct = nil
-                    purchaseAfterLogin = false
-                }
-            } message: {
-                Text(localized("未登入時，會員只會跟隨本次購買使用的 Apple 帳號。登入後購買可綁定 MoYue 帳號，切換 App Store 帳號後仍可使用。"))
-            }
-            .sheet(isPresented: $showLogin, onDismiss: purchasePendingProductAfterLogin) {
-                LoginView()
             }
         }
     }
@@ -316,33 +293,11 @@ struct PaywallView: View {
         beginPurchase(product)
     }
 
+    /// Purchases directly through StoreKit. (The "登录后购买" account-bound path
+    /// was removed with the account system — Pro follows the Apple Account, and
+    /// the iCloud mirror still carries it across App Store account switches.)
     private func beginPurchase(_ product: Product) {
-        switch SubscriptionAccessPolicy.purchaseAction(
-            isAuthenticated: FirebaseAuthManager.shared.isAuthenticated
-        ) {
-        case .promptGuest:
-            pendingProduct = product
-            showGuestPurchaseAlert = true
-        case .purchaseForAccount:
-            Task { await store.purchaseForSignedInAccount(product) }
-        }
-    }
-
-    private func purchasePendingProductForGuest() {
-        guard let product = pendingProduct else { return }
-        pendingProduct = nil
         Task { await store.purchaseAsGuest(product) }
-    }
-
-    private func purchasePendingProductAfterLogin() {
-        defer {
-            purchaseAfterLogin = false
-            pendingProduct = nil
-        }
-        guard purchaseAfterLogin,
-              FirebaseAuthManager.shared.isAuthenticated,
-              let product = pendingProduct else { return }
-        Task { await store.purchaseForSignedInAccount(product) }
     }
 
     // MARK: - Restore & terms

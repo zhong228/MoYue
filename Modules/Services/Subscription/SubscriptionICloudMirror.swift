@@ -53,17 +53,31 @@ final class SubscriptionICloudMirror {
         "pro_entitlement" + SubscriptionRuntimeEnvironment.storageSuffix
     }
 
-    private let container: CKContainer
-    private let database: CKDatabase
+    /// `nil` when this process lacks the iCloud container entitlement (unsigned /
+    /// LiveContainer installs): CloudKit `os_crash`es on container creation there,
+    /// so the mirror must not touch CloudKit at all in that case. `load()` then
+    /// returns nil ("nothing to say") and `store()` becomes a no-op, which is the
+    /// correct degradation — the mirror is a convenience, never the entitlement.
+    private let container: CKContainer?
+    private let database: CKDatabase?
     /// Last value written, so repeated refreshes that re-read the same StoreKit
     /// state don't spend a CloudKit write every time.
     private var lastWritten: CachedSubscriptionEntitlement?
 
-    private init(
-        container: CKContainer = CKContainer(identifier: ICloudSyncManager.containerIdentifier)
-    ) {
-        self.container = container
-        database = container.privateCloudDatabase
+    private init() {
+        // Guarded: constructing a CKContainer without the entitlement is exactly
+        // the os_crash that made earlier builds die on launch inside CloudKit.
+        if CloudKitAvailability.isAvailable {
+            let container = CKContainer(identifier: ICloudSyncManager.containerIdentifier)
+            self.container = container
+            database = container.privateCloudDatabase
+        } else {
+            container = nil
+            database = nil
+            subscriptionICloudLog.error(
+                "iCloud mirror disabled: CloudKit entitlement missing for this build"
+            )
+        }
     }
 
     private var recordID: CKRecord.ID {
@@ -153,7 +167,8 @@ final class SubscriptionICloudMirror {
     /// reachable and still had nothing", which is the evidence for whether users
     /// switch only the App Store account or the whole Apple ID.
     func accountStatusDescription() async -> String {
-        await withCheckedContinuation { continuation in
+        guard let container else { return "unavailable" }
+        return await withCheckedContinuation { continuation in
             container.accountStatus { status, _ in
                 let text: String
                 switch status {
@@ -180,7 +195,8 @@ final class SubscriptionICloudMirror {
     }
 
     private func isAvailable() async -> Bool {
-        await withCheckedContinuation { continuation in
+        guard let container else { return false }
+        return await withCheckedContinuation { continuation in
             container.accountStatus { status, _ in
                 continuation.resume(returning: status == .available)
             }
@@ -188,7 +204,8 @@ final class SubscriptionICloudMirror {
     }
 
     private func fetchRecord(_ recordID: CKRecord.ID) async throws -> CKRecord {
-        try await withCheckedThrowingContinuation { continuation in
+        guard let database else { throw ICloudSyncError.accountUnavailable(.couldNotDetermine) }
+        return try await withCheckedThrowingContinuation { continuation in
             database.fetch(withRecordID: recordID) { record, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -204,7 +221,8 @@ final class SubscriptionICloudMirror {
     }
 
     private func saveRecord(_ record: CKRecord) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        guard let database else { throw ICloudSyncError.accountUnavailable(.couldNotDetermine) }
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             database.save(record) { _, error in
                 if let error {
                     continuation.resume(throwing: error)
