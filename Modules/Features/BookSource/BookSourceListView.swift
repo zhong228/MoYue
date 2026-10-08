@@ -1245,11 +1245,41 @@ struct BookSourceListView: View {
             return
         }
         networkImportLoading = true
-        URLSession.shared.dataTask(with: url) { data, _, error in
+        fetchBookSourceContent(at: url, followedShareRedirect: false)
+    }
+
+    /// Fetches a book-source URL with a browser-grade profile (many sharing sites /
+    /// CDNs and anti-crawler gateways reject the default URLSession User-Agent with a
+    /// plaintext `403` or an HTML interstitial — the old code then failed with a
+    /// confusing `Data corrupted: not valid JSON`, which is exactly the reported bug).
+    ///
+    /// When the response is an HTML sharing page instead of raw JSON, we try to extract
+    /// a direct `.json` link (<a href>, `location.href`, or a bare URL that ends in
+    /// `.json`) and fetch that first — no manual copy-paste of the real link needed.
+    private func fetchBookSourceContent(at url: URL, followedShareRedirect: Bool) {
+        var request = URLRequest(url: url, timeoutInterval: 30)
+        request.setValue(
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
+                + "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+            forHTTPHeaderField: "User-Agent"
+        )
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        request.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 networkImportLoading = false
                 if let err = error {
                     importError = err.localizedDescription
+                    return
+                }
+                guard let http = response as? HTTPURLResponse else {
+                    importError = localized("無法解析伺服器回應")
+                    return
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    importError = String(format: localized("伺服器回應錯誤（%d）"),
+                                         http.statusCode)
                     return
                 }
                 guard let data else {
@@ -1260,11 +1290,56 @@ struct BookSourceListView: View {
                     importError = localized("無法解析伺服器回應")
                     return
                 }
-                importURLString = ""
-                // `queueImportReview` closes this sheet and sequences the review list.
-                doImport(text)
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Direct JSON — the happy path.
+                if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") {
+                    importURLString = ""
+                    doImport(text)
+                    return
+                }
+                // HTML sharing page: try to recover the direct .json link. Only one
+                // hop is allowed so a malicious loop cannot spin the request forever.
+                if !followedShareRedirect,
+                   let direct = Self.extractJSONLink(fromHTML: text) {
+                    importError = nil
+                    networkImportLoading = true
+                    fetchBookSourceContent(at: direct, followedShareRedirect: true)
+                    return
+                }
+                if followedShareRedirect {
+                    importError = String(
+                        format: localized("此頁面沒有找到可直接導入的書源 JSON，請在瀏覽器中打開後複製 .json 直鏈再導入（%d）"),
+                        http.statusCode
+                    )
+                } else {
+                    importError = localized("此地址返回的不是書源 JSON，請貼上 .json 文件直鏈")
+                }
             }
         }.resume()
+    }
+
+    /// Extracts a direct `.json` book-source link from a sharing/redirection page.
+    /// Tries, in order: any URL ending in `.json`; `location.href` / `window.location`;
+    /// an `<a href>` whose text mentions 「下載/下載書源/書源」; captures inside a
+    /// `<textarea>` or `<pre>` that look like a URL. Returns `nil` if the page offers
+    /// no JSON link.
+    static func extractJSONLink(fromHTML html: String) -> URL? {
+        let patterns = [
+            // Direct .json URL anywhere in the page (most sharing sites embed it).
+            #"https?://[^\s"'\\)<>]+?\.json(?:[?#][^\s"'\\)<>]*)?(?:\s|"|'|\)|<|$)"#,
+            // location.href / window.location assignments.
+            #"(?:location\.href|window\.location(?:\.href)?)\s*=\s*['"](https?://[^'"]+)['"]"#,
+            // <a href> pointing at a JSON-ish download URL.
+            #"<a[^>]+href\s*=\s*['"]([^'"]+\.json[^'"]*)['"]"#
+        ]
+        for pattern in patterns {
+            if let range = html.range(of: pattern, options: .regularExpression),
+               let candidate = URL(string: String(html[range])),
+               candidate.scheme == "http" || candidate.scheme == "https" {
+                return candidate
+            }
+        }
+        return nil
     }
 
     /// 粘貼源: imports the clipboard's book-source JSON (or fetches it when the

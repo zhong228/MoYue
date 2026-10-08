@@ -21,7 +21,7 @@
 		<key>NSExtensionAttributes</key>
 		<dict>
 			<key>NSExtensionActivationRule</key>
-			<string>extensionItems.@count == 1 AND SUBQUERY(extensionItems, $item, $item.attachments.@count == 1 AND SUBQUERY($item.attachments, $attachment, ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url" AND NOT (ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.file-url")).@count == 1).@count == 1</string>
+			<string>extensionItems.@count == 1 AND SUBQUERY(extensionItems, $item, $item.attachments.@count == 1 AND SUBQUERY($item.attachments, $attachment, (ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url" AND NOT (ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.file-url")) OR (ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.json") OR (ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text") OR (ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.text") OR (ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.content") OR (ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.data")).@count == 1).@count == 1</string>
 		</dict>
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.share-services</string>

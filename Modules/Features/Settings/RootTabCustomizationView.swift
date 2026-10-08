@@ -53,8 +53,7 @@ struct RootTabCustomizationView: View {
             ForEach(RootTabItem.allCases) { tab in
                 if tab.isAlwaysVisible {
                     HStack {
-                        Label(localized(tab.titleKey), systemImage: tab.defaultSystemImage)
-                            .labelStyle(IconConsistentLabelStyle())
+                        SettingsRowLabel(localized(tab.titleKey), systemImage: tab.defaultSystemImage)
                         Spacer(minLength: DSSpacing.md)
                         Text(localized("固定顯示"))
                             .font(DSFont.caption)
@@ -62,8 +61,7 @@ struct RootTabCustomizationView: View {
                     }
                 } else {
                     Toggle(isOn: visibleBinding(for: tab)) {
-                        Label(localized(tab.titleKey), systemImage: tab.defaultSystemImage)
-                            .labelStyle(IconConsistentLabelStyle())
+                        SettingsRowLabel(localized(tab.titleKey), systemImage: tab.defaultSystemImage)
                     }
                     .disabled(!canCustomize)
                 }

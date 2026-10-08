@@ -1611,6 +1611,7 @@
 "自動適配淺色和深色。選好後可繼續微調。" = "Adapts to light and dark automatically. You can fine-tune after choosing.";
 "調好後點「存為我的預設」保存" = "Tune a style, then tap \"Save as My Preset\".";
 "切換淺色／深色查看對應外觀的模板。" = "Switch between light and dark to preview each template variant.";
+"我的頁面" = "My Pages";
 "我的預設" = "My Presets";
 "標題已隱藏" = "Title hidden";
 "淺色" = "Light";
@@ -3541,3 +3542,11 @@
 "使用規則、書源與第三方內容責任" = "Usage rules, book sources and third-party content responsibility";
 "使用書源與第三方來源前，請先閱讀相關條款。" = "Please read the relevant terms before using book sources and third-party sources.";
 "墨悅" = "MoYue";
+
+"伺服器回應錯誤（%d）" = "Server responded with status %d";
+"此頁面沒有找到可直接導入的書源 JSON，請在瀏覽器中打開後複製 .json 直鏈再導入（%d）" = "No importable book source JSON was found on this page (status %d). Open it in a browser and copy the direct .json link instead.";
+"此地址返回的不是書源 JSON，請貼上 .json 文件直鏈" = "This address did not return book source JSON. Paste the direct .json file link instead.";
+
+"自由開源 · 純淨的書源閱讀器" = "Free & open source · pure book-source reader";
+"版本 %@" = "Version %@";
+"篇未讀" = "unread";

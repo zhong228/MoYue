@@ -1,6 +1,12 @@
+"無法讀取分享內容" = "Unable to read the shared content";
+"無法識別分享內容的類型，請分享 .json 書源文件或書源鏈接" = "Unsupported share type. Share a .json book source file or a book source link.";
 "無法讀取分享連結" = "Unable to read the shared link";
 "無法儲存分享連結" = "Unable to save the shared link";
-"連結已儲存，下次開啟閱讀時匯入。" = "Link saved. It will be imported the next time you open MoYue.";
-"連結已儲存" = "Link saved";
+"連結已儲存，下次開啟墨悅時匯入。" = "Link saved. It will be imported the next time you open MoYue.";
+"無法讀取書源文件" = "Unable to read the book source file";
+"書源文件為空" = "The book source file is empty";
+"無法儲存書源文件" = "Unable to save the book source file";
+"書源已儲存，下次開啟墨悅時匯入。" = "Book source saved. It will be imported the next time you open MoYue.";
+"匯入成功" = "Saved";
 "匯入失敗" = "Import failed";
 "關閉" = "Close";

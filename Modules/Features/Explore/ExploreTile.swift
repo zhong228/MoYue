@@ -123,9 +123,10 @@ private var exploreEntryShape: RoundedRectangle {
 
 // MARK: - Grid tile
 
-/// A tile in 探索's grid. The glyph sits centred on the card with the name beneath it,
-/// read top-to-bottom; the layout is deliberately not Apple Music's corner-anchored
-/// browse card, so the page keeps its own identity.
+/// A tile in 探索's grid — 墨悦's coloured story card, not 閱讀's white box: the
+/// glyph floats on a stable brand gradient and the name reads white beneath it.
+/// The gradient is assigned from the title, so the same entry always wears the same
+/// colour while neighbours stay distinct.
 private struct ExploreTile: View {
     let title: String
     let artwork: ExploreArtwork
@@ -133,6 +134,8 @@ private struct ExploreTile: View {
 
     /// Each density's glyph size, scaled with Dynamic Type.
     @ScaledMetric(relativeTo: .largeTitle) private var artworkScale: CGFloat = 1
+
+    private var gradient: [Color] { DSBrandGradient.tint(for: title) }
 
     var body: some View {
         Color.clear
@@ -143,15 +146,23 @@ private struct ExploreTile: View {
                     ExploreArtworkView(artwork: artwork, size: density.artworkSize * artworkScale)
                     Text(title)
                         .font(density.titleFont)
-                        .foregroundStyle(DSColor.textPrimary)
+                        .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
+                        .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 1)
                         .padding(.horizontal, density.padding)
                     Spacer(minLength: 0)
                 }
                 .padding(density.padding)
             }
-            .interfaceCardSurface(in: exploreEntryShape)
+            .background {
+                LinearGradient(
+                    colors: gradient,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+            .clipShape(exploreEntryShape)
             .contentShape(exploreEntryShape)
             .contentShape(.contextMenuPreview, exploreEntryShape)
     }
@@ -159,8 +170,9 @@ private struct ExploreTile: View {
 
 // MARK: - List card
 
-/// An 探索 entry in the list layout: a long card of its own — glyph, name, chevron —
-/// apart from its neighbours rather than a row of a grouped list.
+/// An 探索 entry in the list layout: a long card of its own — glyph badge, name,
+/// chevron — apart from its neighbours rather than a row of a grouped list. The
+/// badge keeps the tile's gradient so grid and list read as one family.
 private struct ExploreRow: View {
     let title: String
     let artwork: ExploreArtwork
@@ -170,7 +182,7 @@ private struct ExploreRow: View {
 
     var body: some View {
         HStack(spacing: DSSpacing.md) {
-            ExploreArtworkView(artwork: artwork, size: artworkSize)
+            ExploreArtworkBadge(artwork: artwork, size: artworkSize)
                 .frame(width: artworkSide, height: artworkSide)
             Text(title)
                 .font(DSFont.headline)
@@ -193,9 +205,10 @@ private struct ExploreRow: View {
 
 // MARK: - Artwork
 
-/// The entry's picture. 瀏覽器's and 我的發現's symbols take the theme's tint; a source's
-/// emoji keeps its own colours, and the first character standing in for one is grey, so
-/// the page's colour comes from the sources' own emoji.
+/// The entry's picture on a coloured tile — white symbol / raw emoji, both legible
+/// on the gradient. A source's emoji keeps its own colours; the first character
+/// standing in for one is white on the tile, so the page's colour comes from the
+/// gradient behind it.
 private struct ExploreArtworkView: View {
     let artwork: ExploreArtwork
     let size: CGFloat
@@ -205,14 +218,46 @@ private struct ExploreArtworkView: View {
         case .symbol(let name):
             Image(systemName: name)
                 .font(DSFont.fixed(size: size, weight: .semibold))
-                .foregroundStyle(.tint)
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
                 .accessibilityHidden(true)
         case .glyph(let glyph):
             Text(glyph)
                 .font(DSFont.fixed(size: size, weight: .bold))
-                .foregroundStyle(DSColor.textSecondary)
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
                 .accessibilityHidden(true)
         }
+    }
+}
+
+/// The list row's badge: the same coloured square the grid tile's gradient comes
+/// from, glyph on top — grid and list feel like one page.
+private struct ExploreArtworkBadge: View {
+    let artwork: ExploreArtwork
+    let size: CGFloat
+
+    @ScaledMetric(relativeTo: .title2) private var badgeSide = DSLayout.exploreRowArtworkSide
+
+    private var gradient: [Color] {
+        switch artwork {
+        case .symbol(let name): DSBrandGradient.tint(for: name)
+        case .glyph(let glyph): DSBrandGradient.tint(for: glyph)
+        }
+    }
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: gradient,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .frame(width: badgeSide, height: badgeSide)
+            .overlay { ExploreArtworkView(artwork: artwork, size: size) }
+            .accessibilityHidden(true)
     }
 }
 

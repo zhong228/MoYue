@@ -112,15 +112,31 @@ struct ExploreHomeView: View {
                 VStack(alignment: .leading, spacing: DSSpacing.xl) {
                     // A search looks through the sources alone.
                     if !isFilteringSources {
-                        entries {
-                            browserEntry
-                            ForEach(pageStore.pages) { page in
-                                NavigationLink(value: ExploreNavigationRoute.customPage(id: page.id)) {
-                                    ExploreEntryLabel(name: page.name, layout: entryLayout)
+                        VStack(alignment: .leading, spacing: DSSpacing.md) {
+                            HStack(spacing: DSSpacing.sm) {
+                                DSIconBadge(
+                                    systemImage: "square.grid.2x2.fill",
+                                    gradient: DSBrandGradient.tint(for: "my-pages"),
+                                    side: 28,
+                                    iconSize: 15
+                                )
+                                Text(localized("我的頁面"))
+                                    .font(DSFont.title2.weight(.bold))
+                                    .foregroundStyle(DSColor.textPrimary)
+                                    .accessibilityAddTraits(.isHeader)
+                            }
+                            .padding(.horizontal, 4)
+
+                            entries {
+                                browserEntry
+                                ForEach(pageStore.pages) { page in
+                                    NavigationLink(value: ExploreNavigationRoute.customPage(id: page.id)) {
+                                        ExploreEntryLabel(name: page.name, layout: entryLayout)
+                                    }
+                                    .buttonStyle(ExploreTileButtonStyle())
+                                    .accessibilityLabel(page.name)
+                                    .contextMenu { pageActions(page) }
                                 }
-                                .buttonStyle(ExploreTileButtonStyle())
-                                .accessibilityLabel(page.name)
-                                .contextMenu { pageActions(page) }
                             }
                         }
                         .confirmationDialog(
@@ -296,10 +312,33 @@ struct ExploreHomeView: View {
     private var sourcesBlock: some View {
         if exploreSources.isEmpty || !visibleSources.isEmpty {
             VStack(alignment: .leading, spacing: DSSpacing.md) {
-                Text(group ?? localized("書源"))
-                    .font(DSFont.title2.weight(.bold))
-                    .foregroundStyle(DSColor.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
+                let sectionTitle = group ?? localized("書源")
+                HStack(spacing: DSSpacing.sm) {
+                    DSIconBadge(
+                        systemImage: "books.vertical.fill",
+                        gradient: DSBrandGradient.tint(for: sectionTitle),
+                        side: 28,
+                        iconSize: 15
+                    )
+                    Text(sectionTitle)
+                        .font(DSFont.title2.weight(.bold))
+                        .foregroundStyle(DSColor.textPrimary)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer()
+                    if !visibleSources.isEmpty {
+                        Text(visibleSources.count.formatted())
+                            .font(DSFont.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 3)
+                            .background {
+                                Capsule()
+                                    .fill(DSBrandGradient.tint(for: sectionTitle).first ?? DSColor.accent)
+                            }
+                            .accessibilityLabel(String(format: localized("%d 個書源"), visibleSources.count))
+                    }
+                }
+                .padding(.horizontal, 4)
                 if exploreSources.isEmpty {
                     VStack(alignment: .leading, spacing: DSSpacing.md) {
                         Text(localized("尚未啟用支援發現的書源"))

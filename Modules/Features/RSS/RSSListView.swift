@@ -311,6 +311,7 @@ struct RSSListView: View {
 
     private var smartFeedsSection: some View {
         RSSHomeSection(
+            icon: "text.book.closed.fill",
             title: localized("訂閱"),
             unreadCount: 0,
             isExpanded: $smartFeedsExpanded
@@ -342,6 +343,7 @@ struct RSSListView: View {
 
     private var localFeedsSection: some View {
         RSSHomeSection(
+            icon: "externaldrive.fill",
             title: localized("本機"),
             unreadCount: store.totalUnreadCount(),
             isExpanded: $localFeedsExpanded
@@ -824,17 +826,21 @@ private struct RSSHomeCard<Content: View>: View {
 
 private struct RSSHomeSection<Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The section's leading badge — 墨悦 colours the 訂閱/本機 heads as rows are.
+    var icon: String? = nil
     let title: String
     let unreadCount: Int
     @Binding var isExpanded: Bool
     let content: Content
 
     init(
+        icon: String? = nil,
         title: String,
         unreadCount: Int,
         isExpanded: Binding<Bool>,
         @ViewBuilder content: () -> Content
     ) {
+        self.icon = icon
         self.title = title
         self.unreadCount = unreadCount
         self._isExpanded = isExpanded
@@ -848,7 +854,15 @@ private struct RSSHomeSection<Content: View>: View {
                     isExpanded.toggle()
                 }
             } label: {
-                HStack {
+                HStack(spacing: DSSpacing.sm) {
+                    if let icon {
+                        DSIconBadge(
+                            systemImage: icon,
+                            gradient: DSBrandGradient.tint(for: icon),
+                            side: 28,
+                            iconSize: 15
+                        )
+                    }
                     Text(title)
                         .font(DSFont.title3.weight(.bold))
                         .foregroundStyle(DSColor.textPrimary)
@@ -858,7 +872,14 @@ private struct RSSHomeSection<Content: View>: View {
                     if !isExpanded && unreadCount > 0 {
                         Text(unreadCount.formatted())
                             .font(DSFont.subheadline.weight(.semibold))
-                            .foregroundStyle(DSColor.textSecondary)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 3)
+                            .background {
+                                Capsule()
+                                    .fill(DSBrandGradient.tint(for: title).first ?? DSColor.accent)
+                            }
+                            .accessibilityHint(localized("篇未讀"))
                     }
 
                     Image(systemName: "chevron.down")
@@ -870,6 +891,7 @@ private struct RSSHomeSection<Content: View>: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
 
             if isExpanded {
                 RSSHomeCard {
@@ -1204,10 +1226,12 @@ private struct RSSMainFeedFolderRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "folder")
-                .font(DSFont.fixed(size: 20, weight: .semibold))
-                .foregroundStyle(DSColor.accent)
-                .frame(width: 32, height: 32)
+            DSIconBadge(
+                systemImage: "folder.fill",
+                gradient: DSBrandGradient.tint(for: title),
+                side: 32,
+                iconSize: 18
+            )
 
             Text(title)
                 .font(DSFont.body)
@@ -1254,8 +1278,15 @@ private struct RSSMainFeedRow: View {
 
             if unreadCount > 0 {
                 Text(unreadCount.formatted())
-                    .font(DSFont.body)
-                    .foregroundStyle(DSColor.textSecondary)
+                    .font(DSFont.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background {
+                        Capsule()
+                            .fill(DSBrandGradient.tint(for: title).first ?? DSColor.accent)
+                    }
+                    .accessibilityHint(localized("篇未讀"))
             }
         }
         .padding(.leading, 24 + indent)
@@ -1271,11 +1302,13 @@ private struct RSSMainFeedRow: View {
         case .source(let source):
             RSSFaviconView(source: source, size: 26)
                 .frame(width: 32, height: 32)
-        case .system(let imageName, let tint):
-            Image(systemName: imageName)
-                .font(DSFont.fixed(size: 24, weight: .regular))
-                .foregroundStyle(tint)
-                .frame(width: 32, height: 32)
+        case .system(let imageName, _):
+            DSIconBadge(
+                systemImage: imageName,
+                gradient: DSBrandGradient.tint(for: imageName),
+                side: 32,
+                iconSize: 18
+            )
         }
     }
 }

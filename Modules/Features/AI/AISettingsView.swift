@@ -332,8 +332,7 @@ struct AISettingsView: View {
                         serviceRow(profile)
                     }
                     Button { openEditor(nil) } label: {
-                        Label(localized("新增 AI 服務"), systemImage: "plus")
-                            .labelStyle(IconConsistentLabelStyle())
+                        SettingsRowLabel(localized("新增 AI 服務"), systemImage: "plus", role: .action)
                     }
                 } header: { Text(localized("AI 服務")).foregroundStyle(DSColor.textSecondary) }
                 footer: { Text(localized("API Key 只保存在本機，各服務分開儲存。費用由服務商收取。")).dsSectionFooter() }
@@ -343,9 +342,7 @@ struct AISettingsView: View {
                         LabeledContent {
                             if !prompts.prompts.isEmpty { Text("\(prompts.prompts.count)").foregroundStyle(DSColor.textSecondary) }
                         } label: {
-                            Label(localized("自訂提示詞"), systemImage: "text.badge.plus")
-                                .foregroundStyle(DSColor.textPrimary)
-                                .labelStyle(IconConsistentLabelStyle())
+                            SettingsRowLabel(localized("自訂提示詞"), systemImage: "text.badge.plus")
                         }
                     }
                 }
@@ -384,19 +381,19 @@ struct AISettingsView: View {
         let isDefault = profile.id == activeID
         return Button { openEditor(profile) } label: {
             HStack(spacing: DSSpacing.sm) {
-                Label {
-                    VStack(alignment: .leading, spacing: DSSpacing.xs) {
-                        Text(profile.name)
-                            .foregroundStyle(DSColor.textPrimary)
-                        Text(profile.configuration.defaultModel)
-                            .font(DSFont.footnote)
-                            .foregroundStyle(DSColor.textSecondary)
-                    }
-                } icon: {
-                    Image(systemName: profile.configuration.preset.symbol)
+                DSIconBadge(
+                    systemImage: profile.configuration.preset.symbol,
+                    gradient: DSBrandGradient.tint(for: profile.configuration.preset.symbol),
+                    side: 30,
+                    iconSize: 16
+                )
+                VStack(alignment: .leading, spacing: DSSpacing.xs) {
+                    Text(profile.name)
+                        .foregroundStyle(DSColor.textPrimary)
+                    Text(profile.configuration.defaultModel)
+                        .font(DSFont.footnote)
+                        .foregroundStyle(DSColor.textSecondary)
                 }
-                .foregroundStyle(DSColor.textPrimary)
-                .labelStyle(IconConsistentLabelStyle())
                 Spacer(minLength: DSSpacing.sm)
                 if isDefault {
                     Text(localized("預設"))

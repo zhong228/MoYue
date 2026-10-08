@@ -24,19 +24,13 @@ struct AIBookCharactersView: View {
         List {
             Section {
                 NavigationLink { AICharacterMemoryView(adapter: adapter, onOpenCitation: onOpenCitation) } label: {
-                    Label(localized("整理已讀人物"), systemImage: "wand.and.stars")
-                        .foregroundStyle(DSColor.textPrimary)
-                        .labelStyle(IconConsistentLabelStyle())
+                    SettingsRowLabel(localized("整理已讀人物"), systemImage: "wand.and.stars")
                 }
                 NavigationLink { AIRelationshipMapView(adapter: adapter, onOpenCitation: onOpenCitation) } label: {
-                    Label(localized("人物關係圖"), systemImage: "point.3.connected.trianglepath.dotted")
-                        .foregroundStyle(DSColor.textPrimary)
-                        .labelStyle(IconConsistentLabelStyle())
+                    SettingsRowLabel(localized("人物關係圖"), systemImage: "point.3.connected.trianglepath.dotted")
                 }
                 NavigationLink { AICharacterListView(bookID: adapter.chunkBookID, adapter: adapter, progress: progress) } label: {
-                    Label(localized("人物卡與朗讀別稱"), systemImage: "person.text.rectangle")
-                        .foregroundStyle(DSColor.textPrimary)
-                        .labelStyle(IconConsistentLabelStyle())
+                    SettingsRowLabel(localized("人物卡與朗讀別稱"), systemImage: "person.text.rectangle")
                 }
             }
             .interfaceSectionSurface()

@@ -30,6 +30,8 @@ struct DSSearchBar: View {
 }
 
 /// Settings navigation row with icon, title, optional detail, and chevron.
+/// The icon wears 墨悦's coloured badge (`DSIconBadge`) so 設定 and everything it
+/// opens read as one brand instead of 閱讀's flat grey symbols.
 struct DSSettingsRow: View {
     let icon: String
     let title: String
@@ -41,15 +43,19 @@ struct DSSettingsRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack {
-                Label(title, systemImage: icon)
+            HStack(spacing: DSSpacing.md) {
+                DSIconBadge(systemImage: icon,
+                            gradient: DSBrandGradient.tint(for: icon))
+                Text(title)
+                    .font(DSFont.body)
                     .foregroundColor(DSColor.textPrimary)
-                    .labelStyle(IconConsistentLabelStyle())
-                Spacer()
+                    .lineLimit(2)
+                Spacer(minLength: DSSpacing.sm)
                 if let detail {
                     Text(detail)
                         .font(DSFont.caption)
                         .foregroundColor(DSColor.textSecondary)
+                        .lineLimit(1)
                 }
                 if isLocked {
                     Image(systemName: "lock.fill")
@@ -58,11 +64,14 @@ struct DSSettingsRow: View {
                         .accessibilityHidden(true)
                 } else {
                     Image(systemName: "chevron.right")
-                        .font(DSFont.caption)
-                        .foregroundColor(DSColor.textSecondary)
+                        .font(DSFont.caption.weight(.semibold))
+                        .foregroundColor(DSColor.textTertiary)
+                        .accessibilityHidden(true)
                 }
             }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 }
 

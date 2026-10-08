@@ -54,6 +54,13 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
                 Form {
+                    // ── 墨悦 Brand header ──
+                    Section {
+                        MoYueBrandHeaderCard(appVersion: appVersion)
+                            .rootTabTitleScrollAnchor()
+                    }
+                    .interfaceSectionSurface()
+
                     // ── App Language ──
                     Section {
                         DSSettingsRow(
@@ -76,18 +83,12 @@ struct SettingsView: View {
                     .interfaceSectionSurface()
 
                     Section(header: Text(localized("外觀")).foregroundStyle(DSColor.textSecondary)) {
-                        NavigationLink {
+                        DSSettingsNavRow(
+                            icon: "paintpalette.fill",
+                            title: localized("外觀主題"),
+                            value: appearanceThemeName
+                        ) {
                             AppearanceThemeView()
-                        } label: {
-                            HStack {
-                                Label(localized("外觀主題"), systemImage: "paintpalette.fill")
-                                    .foregroundColor(DSColor.textPrimary)
-                                    .labelStyle(IconConsistentLabelStyle())
-                                Spacer(minLength: 12)
-                                Text(appearanceThemeName)
-                                    .font(DSFont.caption)
-                                    .foregroundColor(DSColor.textSecondary)
-                            }
                         }
                     }
                     .interfaceSectionSurface()
@@ -177,35 +178,28 @@ struct SettingsView: View {
 
                     // ── Advanced ──
                     Section(header: Text(localized("進階")).foregroundStyle(DSColor.textSecondary)) {
-                        NavigationLink {
+                        DSSettingsNavRow(
+                            icon: "stethoscope",
+                            title: localized("診斷與回報")
+                        ) {
                             DiagnosticsView()
-                        } label: {
-                            Label(localized("診斷與回報"), systemImage: "stethoscope")
-                                .foregroundColor(DSColor.textPrimary)
-                                .labelStyle(IconConsistentLabelStyle())
                         }
                     }
                     .interfaceSectionSurface()
 
                     // ── About ──
                     Section(header: Text(localized("關於")).foregroundStyle(DSColor.textSecondary)) {
-                        NavigationLink {
+                        DSSettingsNavRow(
+                            icon: "info.circle.fill",
+                            title: localized("關於 MoYue"),
+                            value: appVersion
+                        ) {
                             AboutSupportView(
                                 appVersion: appVersion,
                                 feedbackEmail: feedbackEmail,
                                 feedbackMailURL: feedbackMailURL,
                                 sourceCodeURL: sourceCodeURL
                             )
-                        } label: {
-                            HStack {
-                                Label(localized("關於 MoYue"), systemImage: "info.circle.fill")
-                                    .foregroundColor(DSColor.textPrimary)
-                                    .labelStyle(IconConsistentLabelStyle())
-                                Spacer(minLength: 12)
-                                Text(appVersion)
-                                    .font(DSFont.caption)
-                                    .foregroundColor(DSColor.textSecondary)
-                            }
                         }
                     }
                     .interfaceSectionSurface()
@@ -309,6 +303,43 @@ struct SettingsView: View {
 
 }
 
+/// 墨悦's brand card, first row of 設定: the app icon, name, a one-line promise and
+/// the build. A visual identity 閱讀 never had — the page can no longer be mistaken
+/// for the upstream app's settings from its first row.
+private struct MoYueBrandHeaderCard: View {
+    let appVersion: String
+
+    var body: some View {
+        HStack(spacing: DSSpacing.md) {
+            Image("MoYueLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 58, height: 58)
+                .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous))
+                .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 3)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: DSSpacing.xs) {
+                Text(localized("墨悅"))
+                    .font(DSFont.title3.weight(.bold))
+                    .foregroundStyle(DSColor.textPrimary)
+                Text(localized("自由開源 · 純淨的書源閱讀器"))
+                    .font(DSFont.footnote)
+                    .foregroundStyle(DSColor.textSecondary)
+                    .lineLimit(2)
+                Text(String(format: localized("版本 %@"), appVersion))
+                    .font(DSFont.caption2)
+                    .foregroundStyle(DSColor.textTertiary)
+                    .monospacedDigit()
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, DSSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 private struct AboutSupportView: View {
     @Environment(\.openURL) private var openURL
     let appVersion: String
@@ -344,9 +375,7 @@ private struct AboutSupportView: View {
 
             Section(header: Text(localized("版本資訊")).foregroundStyle(DSColor.textSecondary)) {
                 HStack {
-                    Label(localized("版本"), systemImage: "number")
-                        .foregroundColor(DSColor.textPrimary)
-                        .labelStyle(IconConsistentLabelStyle())
+                    SettingsRowLabel(localized("版本"), systemImage: "number")
                     Spacer(minLength: 12)
                     Text(appVersion)
                         .font(DSFont.caption)
@@ -388,10 +417,12 @@ private struct AboutSupportView: View {
                     MoYueLegalDocumentView(document: .privacy)
                 } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: "hand.raised.fill")
-                            .font(DSFont.fixed(size: 18, weight: .medium))
-                            .frame(width: 28, height: 28)
-                            .foregroundColor(DSColor.textPrimary)
+                        DSIconBadge(
+                            systemImage: "hand.raised.fill",
+                            gradient: DSBrandGradient.tint(for: "hand.raised.fill"),
+                            side: 30,
+                            iconSize: 16
+                        )
                         VStack(alignment: .leading, spacing: 3) {
                             Text(localized("隱私權政策"))
                                 .foregroundColor(DSColor.textPrimary)
@@ -412,10 +443,12 @@ private struct AboutSupportView: View {
                     MoYueLegalDocumentView(document: .userAgreement)
                 } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: "doc.text.fill")
-                            .font(DSFont.fixed(size: 18, weight: .medium))
-                            .frame(width: 28, height: 28)
-                            .foregroundColor(DSColor.textPrimary)
+                        DSIconBadge(
+                            systemImage: "doc.text.fill",
+                            gradient: DSBrandGradient.tint(for: "doc.text.fill"),
+                            side: 30,
+                            iconSize: 16
+                        )
                         VStack(alignment: .leading, spacing: 3) {
                             Text(localized("使用者協議"))
                                 .foregroundColor(DSColor.textPrimary)

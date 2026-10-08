@@ -1,5 +1,49 @@
 import SwiftUI
 
+/// A NavigationLink whose label is a 墨悦 settings row — the same coloured badge,
+/// title, trailing value and chevron as `DSSettingsRow`, for rows that push a page
+/// rather than open a sheet. `SettingsView` uses it for 外觀主題 / 診斷與回報 / 關於.
+struct DSSettingsNavRow<Destination: View>: View {
+    let icon: String
+    let title: String
+    var value: String? = nil
+    let destination: Destination
+
+    init(icon: String, title: String, value: String? = nil,
+         @ViewBuilder destination: () -> Destination) {
+        self.icon = icon
+        self.title = title
+        self.value = value
+        self.destination = destination()
+    }
+
+    var body: some View {
+        NavigationLink(destination: destination) {
+            HStack(spacing: DSSpacing.md) {
+                DSIconBadge(systemImage: icon,
+                            gradient: DSBrandGradient.tint(for: icon))
+                Text(title)
+                    .font(DSFont.body)
+                    .foregroundColor(DSColor.textPrimary)
+                    .lineLimit(2)
+                Spacer(minLength: DSSpacing.sm)
+                if let value {
+                    Text(value)
+                        .font(DSFont.caption)
+                        .foregroundColor(DSColor.textSecondary)
+                        .lineLimit(1)
+                }
+                Image(systemName: "chevron.right")
+                    .font(DSFont.caption.weight(.semibold))
+                    .foregroundColor(DSColor.textTertiary)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 /// The rows settings screens are built from — 設定, 閱讀設定, 外觀主題, 主題自訂 — so every
 /// row of every kind wears the same symbol at the same size, in the same colour, with its
 /// title on the same line. Each wraps a native control; these only fix the label.
@@ -27,9 +71,32 @@ struct SettingsRowLabel: View {
     }
 
     var body: some View {
-        Label(title, systemImage: systemImage)
-            .labelStyle(IconConsistentLabelStyle(themesIcon: role == .standard))
-            .foregroundStyle(foreground)
+        HStack(spacing: DSSpacing.sm) {
+            iconBadge
+            Text(title)
+                .foregroundStyle(foreground)
+        }
+    }
+
+    @ViewBuilder
+    private var iconBadge: some View {
+        switch role {
+        case .standard:
+            DSIconBadge(
+                systemImage: systemImage,
+                gradient: DSBrandGradient.tint(for: systemImage)
+            )
+        case .action:
+            DSIconBadge(
+                systemImage: systemImage,
+                gradient: [Color.accentColor, Color.accentColor.opacity(0.72)]
+            )
+        case .destructive:
+            DSIconBadge(
+                systemImage: systemImage,
+                gradient: [DSColor.destructive, DSColor.destructive.opacity(0.72)]
+            )
+        }
     }
 
     private var foreground: AnyShapeStyle {
