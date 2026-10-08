@@ -18,6 +18,8 @@ struct DSSettingsNavRow<Destination: View>: View {
     }
 
     var body: some View {
+        // A NavigationLink on a Form/List row already draws the system disclosure
+        // indicator; the label must not add its own chevron or the row shows two ">".
         NavigationLink(destination: destination) {
             HStack(spacing: DSSpacing.md) {
                 DSIconBadge(systemImage: icon,
@@ -33,10 +35,6 @@ struct DSSettingsNavRow<Destination: View>: View {
                         .foregroundColor(DSColor.textSecondary)
                         .lineLimit(1)
                 }
-                Image(systemName: "chevron.right")
-                    .font(DSFont.caption.weight(.semibold))
-                    .foregroundColor(DSColor.textTertiary)
-                    .accessibilityHidden(true)
             }
             .contentShape(Rectangle())
         }
