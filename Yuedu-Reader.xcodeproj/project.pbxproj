@@ -13,6 +13,8 @@
 		3021769152B9F41FC1F2CBA5 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 489E6E08B47AA3AC9F140CAD /* SwiftSoup */; };
 		3B275A36815844CE9EBD5086 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = E661223F57364063B509666C /* GoogleService-Info.plist */; };
 		460274852F710D7500486947 /* ReadiumAdapterLCPSQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 460274842F710D7500486947 /* ReadiumAdapterLCPSQLite */; };
+		463C854D2FA4F48E008F9AD7 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 463C854C2FA4F48E008F9AD7 /* GoogleSignIn */; };
+		463C854F2FA4F493008F9AD7 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 463C854E2FA4F493008F9AD7 /* GoogleSignInSwift */; };
 		46A6AB632FCD4ED60071B397 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 46A6AB622FCD4ED60071B397 /* FirebaseAnalytics */; };
 		46A6AB652FCD4ED60071B397 /* FirebaseAnalyticsCore in Frameworks */ = {isa = PBXBuildFile; productRef = 46A6AB642FCD4ED60071B397 /* FirebaseAnalyticsCore */; };
 		46A6AB672FCD4ED60071B397 /* FirebaseAnalyticsIdentitySupport in Frameworks */ = {isa = PBXBuildFile; productRef = 46A6AB662FCD4ED60071B397 /* FirebaseAnalyticsIdentitySupport */; };
@@ -183,6 +185,7 @@
 				46A6AB632FCD4ED60071B397 /* FirebaseAnalytics in Frameworks */,
 				54FF42D1FA99075B5C91D59B /* ReadiumShared in Frameworks */,
 				46A6AB712FCD4ED60071B397 /* FirebaseCore in Frameworks */,
+				463C854F2FA4F493008F9AD7 /* GoogleSignInSwift in Frameworks */,
 				46A6AB892FCD4ED60071B397 /* FirebaseRemoteConfig in Frameworks */,
 				46A6AB772FCD4ED60071B397 /* FirebaseFirestore in Frameworks */,
 				46A6AB652FCD4ED60071B397 /* FirebaseAnalyticsCore in Frameworks */,
@@ -199,6 +202,7 @@
 				46A6AB732FCD4ED60071B397 /* FirebaseCrashlytics in Frameworks */,
 				46A6AB692FCD4ED60071B397 /* FirebaseAppCheck in Frameworks */,
 				46A6AB852FCD4ED60071B397 /* FirebaseMessaging in Frameworks */,
+				463C854D2FA4F48E008F9AD7 /* GoogleSignIn in Frameworks */,
 				46A6AB832FCD4ED60071B397 /* FirebaseMLModelDownloader in Frameworks */,
 				6B865095660449D830AF13C4 /* iosMath in Frameworks */,
 				BA0DC69BDD8FFF2AE7B103A0 /* YueduCoreTextTypography in Frameworks */,
@@ -338,6 +342,8 @@
 				460274842F710D7500486947 /* ReadiumAdapterLCPSQLite */,
 				54FF42D2FA99075B5C91D59B /* ReadiumShared */,
 				54FF42D4FA99075B5C91D59B /* ReadiumStreamer */,
+				463C854C2FA4F48E008F9AD7 /* GoogleSignIn */,
+				463C854E2FA4F493008F9AD7 /* GoogleSignInSwift */,
 				46A6AB622FCD4ED60071B397 /* FirebaseAnalytics */,
 				46A6AB642FCD4ED60071B397 /* FirebaseAnalyticsCore */,
 				46A6AB662FCD4ED60071B397 /* FirebaseAnalyticsIdentitySupport */,
@@ -482,6 +488,7 @@
 				AAAA1111AAAA1111AAAA0003 /* XCRemoteSwiftPackageReference "Nuke" */,
 				8A11B0E12F9A1C7300A1B001 /* XCRemoteSwiftPackageReference "Fuzi" */,
 				460274812F710D7500486947 /* XCRemoteSwiftPackageReference "swift-toolkit" */,
+				463C854A2FA4F38E008F9AD7 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 				46A6AB5D2FCD4ED60071B397 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				4F766A6C466F0B91C61C6FB1 /* XCRemoteSwiftPackageReference "iosMath" */,
 				4503FB56A177080D0D9E31E4 /* XCRemoteSwiftPackageReference "YueduCoreText" */,
@@ -715,6 +722,7 @@
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GATEWAY_BASE_URL = "https://gateway.yuedureader.com";
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -782,6 +790,7 @@
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GATEWAY_BASE_URL = "https://gateway.yuedureader.com";
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -1176,6 +1185,14 @@
 				minimumVersion = 3.8.0;
 			};
 		};
+		463C854A2FA4F38E008F9AD7 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 10.0.0;
+			};
+		};
 		46935AA62F52E48600662F9D /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/readium/ZIPFoundation.git";
@@ -1241,6 +1258,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 460274812F710D7500486947 /* XCRemoteSwiftPackageReference "swift-toolkit" */;
 			productName = ReadiumAdapterLCPSQLite;
+		};
+		463C854C2FA4F48E008F9AD7 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 463C854A2FA4F38E008F9AD7 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		463C854E2FA4F493008F9AD7 /* GoogleSignInSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 463C854A2FA4F38E008F9AD7 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignInSwift;
 		};
 		46A6AB622FCD4ED60071B397 /* FirebaseAnalytics */ = {
 			isa = XCSwiftPackageProductDependency;
