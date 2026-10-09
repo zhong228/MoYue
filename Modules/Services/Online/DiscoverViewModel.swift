@@ -633,15 +633,37 @@ final class DiscoverViewModel: ObservableObject {
         isPumpingSections = true
         sections[index].phase = .loading
         let raw = sections[index].item.raw
+        // The pump is sequential by design — one fetch at a time keeps each
+        // source's JS runtime / shared login state deterministic (see loadSection).
+        // A single hanging section must not stall every section behind it, so each
+        // fetch gets the same fail-fast budget as search (see
+        // SearchAggregator.searchTimeout): 12s for plain sources, 30s for JS
+        // aggregators. Timeout surfaces as a retry-able failure, queue continues.
+        let timeout = SearchAggregator.searchTimeout(for: source, normal: 12, aggregate: 30)
         Task { [weak self] in
             var loaded: [OnlineBook] = []
             var displays: [DiscoverBookDisplay] = []
             var reason: String?
             var ok = false
             do {
-                loaded = try await BookSourceFetcher.shared.discoverBooks(from: raw, page: 1, in: source)
+                loaded = try await withThrowingTaskGroup(of: [OnlineBook].self) { group in
+                    group.addTask {
+                        try await BookSourceFetcher.shared.discoverBooks(from: raw, page: 1, in: source)
+                    }
+                    group.addTask {
+                        try await Task.sleep(nanoseconds: timeout * 1_000_000_000)
+                        throw SectionLoadTimeoutError()
+                    }
+                    guard let result = try await group.next() else {
+                        throw CancellationError()
+                    }
+                    group.cancelAll()
+                    return result
+                }
                 displays = await Self.makeDisplays(loaded, source: source)
                 ok = true
+            } catch is SectionLoadTimeoutError {
+                reason = "載入逾時"
             } catch {
                 reason = (error as NSError).localizedDescription
             }
@@ -1072,3 +1094,10 @@ final class DiscoverViewModel: ObservableObject {
         runtimeStore.setSourceVariableJSON(json, for: source.bookSourceUrl)
     }
 }
+
+// MARK: - Section Load Timeout
+
+/// Fail-fast marker for a discover section that exceeded its load budget.
+/// Kept distinct from `SearchTimeoutError` (private to SearchAggregator) so the
+/// serial pump can show a retry-able failure instead of stalling the queue.
+private struct SectionLoadTimeoutError: Error {}

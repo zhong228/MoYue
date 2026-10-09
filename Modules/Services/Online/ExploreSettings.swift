@@ -36,7 +36,7 @@ enum ExploreSettings {
     static let defaultShelfBookCount = 0
     /// Categories queued after the one coming into view; 0, as before, queues none.
     static let preloadCountOptions = [0, 1, 2, 3, 5]
-    static let defaultPreloadCount = 0
+    static let defaultPreloadCount = 2
     /// 封面並發數 (`BookCoverLoader.downloadLimitKey`); 0, as before, sets no limit.
     static let coverDownloadLimitOptions = [2, 4, 6, 8, 0]
 
