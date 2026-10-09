@@ -35,7 +35,12 @@ struct SettingsView: View {
     }
 
     private var appLanguageFooter: String {
-        let appName = Bundle.main.infoDictionary?["CFBundleName"] as? String ?? "App"
+        // The footer points at the app's row in iOS Settings, which is titled by
+        // CFBundleDisplayName (墨悦) — not by CFBundleName, which trails the Xcode
+        // product name (YueduReader) and would leak the upstream brand into the UI.
+        let appName = Bundle.main.localizedInfoDictionary?["CFBundleDisplayName"] as? String
+            ?? Bundle.main.infoDictionary?["CFBundleDisplayName"] as? String
+            ?? "MoYue"
         let template = localized("跟隨系統語言。可在「設定 → %@ → 語言」單獨設定")
         return String(format: template, appName)
     }
