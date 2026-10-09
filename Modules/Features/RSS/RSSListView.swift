@@ -3,30 +3,17 @@ import UniformTypeIdentifiers
 import UIKit
 
 private enum RSSAddPresentationRoute: Hashable {
-    case addSource
-    case addFolder
-    case importOPML
     case importJSON
-    case refresh
+    case importFileJSON
 }
 
 enum RSSHomeActionRoute: Hashable, CaseIterable {
-    case markAllRead
-    case toggleHideRead
-    case organize
-    case exportOPML
     case exportJSON
     case settings
 }
 
-private enum RSSOPMLDeferredImport {
-    case file(Result<[URL], Error>)
-    case data(Data)
-}
-
 struct RSSListView: View {
     @StateObject private var store = RSSStore.shared
-    @ObservedObject private var gs = GlobalSettings.shared
 
     @AppStorage("rss_main_feed_hide_read_feeds") private var hideReadFeeds = false
     @AppStorage("rss_main_feed_smart_feeds_expanded") private var smartFeedsExpanded = true
@@ -34,32 +21,23 @@ struct RSSListView: View {
 
     @State private var expandedFolderIDs: Set<String> = []
     @State private var didSeedExpandedFolders = false
-    @State private var showAddSheet = false
-    @State private var showAddFolderSheet = false
-    @State private var showOPMLImportSheet = false
-    @State private var showOPMLExporter = false
     @State private var showJSONImporter = false
     @State private var showJSONExporter = false
     @State private var showJSONURLSheet = false
     @State private var importMessage = ""
     @State private var showImportResult = false
-    @State private var didBackfillSourceMetadata = false
     @State private var safariURL: URL?
     @State private var sourceToEdit: RSSSource?
     @State private var folderToRename: RSSFolder?
     @State private var sourceForInfo: RSSSource?
     @State private var deleteTarget: RSSDeleteTarget?
-    @State private var isRefreshingAll = false
-    @State private var refreshProgress = RSSRefreshProgress()
     @State private var showSettings = false
-    @State private var showOrganize = false
     @State private var showLegacyAddChooser = false
     @State private var legacyAddSequence =
         DismissalSequencedPresentation<RSSAddPresentationRoute>()
     @State private var showLegacyTopActionChooser = false
     @State private var legacyTopActionSequence =
         DismissalSequencedPresentation<RSSHomeActionRoute>()
-    @State private var pendingOPMLImport: RSSOPMLDeferredImport?
 
     private var folders: [RSSFolder] {
         store.orderedFolders()
@@ -94,7 +72,7 @@ struct RSSListView: View {
                 .softScrollEdges()
                 .scrollIndicators(.visible)
             }
-            .rootTabTitle(localized("RSS 訂閱"), onScroll: .minimizesBar)
+            .rootTabTitle(localized("訂閱源"), onScroll: .minimizesBar)
             .pageBackgroundToolbar(for: .rss)
             .toolbar {
                 // Two separate glass pills. A ToolbarSpacer (iOS 26+) breaks the
@@ -114,47 +92,23 @@ struct RSSListView: View {
                     rssTopToolbarControl
                 }
             }
-            .refreshable {
-                await refreshAllSources()
-            }
-            .safeAreaInset(edge: .bottom) {
-                if isRefreshingAll {
-                    RSSRefreshProgressBar(progress: refreshProgress)
-                }
-            }
             .sheet(
                 isPresented: $showLegacyAddChooser,
                 onDismiss: presentLegacyAddActionAfterChooserDismissal
             ) {
                 AdaptiveSheetContainer(maxWidth: DSLayout.readableCompactWidth) {
                     DismissalSequencedActionChooser(
-                        title: localized("新增或匯入"),
+                        title: localized("匯入"),
                         actions: [
                             DismissalSequencedAction(
-                                route: .addSource,
-                                title: localized("新增 RSS 訂閱"),
-                                systemImage: "plus"
-                            ),
-                            DismissalSequencedAction(
-                                route: .addFolder,
-                                title: localized("新增資料夾"),
-                                systemImage: "folder.badge.plus"
-                            ),
-                            DismissalSequencedAction(
-                                route: .importOPML,
-                                title: localized("匯入 OPML"),
-                                systemImage: "square.and.arrow.down"
-                            ),
-                            DismissalSequencedAction(
                                 route: .importJSON,
-                                title: localized("匯入 Legado JSON"),
-                                systemImage: "doc.badge.plus"
+                                title: localized("從網址匯入 Legado JSON"),
+                                systemImage: "link.badge.plus"
                             ),
                             DismissalSequencedAction(
-                                route: .refresh,
-                                title: localized("刷新全部訂閱"),
-                                systemImage: "arrow.clockwise",
-                                isEnabled: !isRefreshingAll && !store.sources.isEmpty
+                                route: .importFileJSON,
+                                title: localized("從文件匯入 Legado JSON"),
+                                systemImage: "doc.badge.plus"
                             ),
                         ],
                         onSelect: { legacyAddSequence.select($0) }
@@ -169,33 +123,6 @@ struct RSSListView: View {
                     DismissalSequencedActionChooser(
                         title: localized("更多"),
                         actions: [
-                            DismissalSequencedAction(
-                                route: .markAllRead,
-                                title: localized("標記全部已讀"),
-                                systemImage: "checkmark.circle",
-                                isEnabled: store.totalUnreadCount() > 0
-                            ),
-                            DismissalSequencedAction(
-                                route: .toggleHideRead,
-                                title: hideReadFeeds
-                                    ? localized("顯示已讀訂閱")
-                                    : localized("隱藏已讀訂閱"),
-                                systemImage: hideReadFeeds
-                                    ? "line.3.horizontal.decrease.circle.fill"
-                                    : "line.3.horizontal.decrease.circle"
-                            ),
-                            DismissalSequencedAction(
-                                route: .organize,
-                                title: localized("整理訂閱"),
-                                systemImage: "arrow.up.arrow.down",
-                                isEnabled: !store.sources.isEmpty
-                            ),
-                            DismissalSequencedAction(
-                                route: .exportOPML,
-                                title: localized("匯出 OPML"),
-                                systemImage: "square.and.arrow.up",
-                                isEnabled: !store.sources.isEmpty
-                            ),
                             DismissalSequencedAction(
                                 route: .exportJSON,
                                 title: localized("匯出 Legado JSON"),
@@ -212,58 +139,9 @@ struct RSSListView: View {
                     )
                 }
             }
-            .sheet(isPresented: $showAddSheet) {
-                AddRSSSourceSheet(
-                    isPresented: $showAddSheet,
-                    store: store,
-                    gs: gs,
-                    folders: folders
-                )
-            }
-            .sheet(isPresented: $showAddFolderSheet) {
-                AddRSSFolderSheet(isPresented: $showAddFolderSheet, store: store)
-            }
             .sheet(isPresented: $showJSONURLSheet) {
                 ImportLegadoJSONURLSheet(isPresented: $showJSONURLSheet, store: store)
             }
-            .sheet(
-                isPresented: $showOPMLImportSheet,
-                onDismiss: presentPendingOPMLImportAfterSheetDismissal
-            ) {
-                RSSOPMLImportSheet(
-                    isPresented: $showOPMLImportSheet,
-                    onFileCompletion: { result in
-                        pendingOPMLImport = .file(result)
-                        showOPMLImportSheet = false
-                    },
-                    onDataImport: { data in
-                        pendingOPMLImport = .data(data)
-                        showOPMLImportSheet = false
-                    }
-                )
-            }
-            .sheet(item: $safariURL) { url in
-                SafariView(url: url)
-                    .ignoresSafeArea()
-            }
-            .sheet(item: $sourceToEdit) { source in
-                EditRSSSourceSheet(source: source, store: store)
-            }
-            .sheet(isPresented: $showOrganize) {
-                RSSOrganizeSheet(store: store)
-            }
-            .sheet(item: $folderToRename) { folder in
-                RenameRSSFolderSheet(folder: folder, store: store)
-            }
-            .sheet(item: $sourceForInfo) { source in
-                RSSSourceInfoSheet(source: source, store: store)
-            }
-            .fileExporter(
-                isPresented: $showOPMLExporter,
-                document: RSSOPMLDocument(sources: store.sources.sorted(by: { $0.sortOrder < $1.sortOrder })),
-                contentType: .xml,
-                defaultFilename: "yuedu-rss.opml"
-            ) { _ in }
             .fileImporter(
                 isPresented: $showJSONImporter,
                 allowedContentTypes: [.json, .data],
@@ -279,7 +157,7 @@ struct RSSListView: View {
             .sheet(isPresented: $showSettings) {
                 RSSSettingsContentView(isPresented: $showSettings)
             }
-            .alert(localized("RSS 訂閱"), isPresented: $showImportResult) {
+            .alert(localized("訂閱源"), isPresented: $showImportResult) {
                 Button(localized("確定"), role: .cancel) {}
             } message: {
                 Text(importMessage)
@@ -301,7 +179,6 @@ struct RSSListView: View {
             }
             .task {
                 seedExpandedFoldersIfNeeded()
-                await backfillMissingSourceMetadata()
             }
             .onChange(of: store.folders) { _, _ in
                 seedExpandedFoldersIfNeeded()
@@ -556,44 +433,6 @@ struct RSSListView: View {
         store.source(id: id)
     }
 
-    @MainActor
-    private func backfillMissingSourceMetadata() async {
-        guard !didBackfillSourceMetadata else { return }
-        didBackfillSourceMetadata = true
-
-        let candidates = store.sources.filter { source in
-            !source.isLegadoRuleBased && (
-                source.homepageURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false ||
-                source.faviconURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
-            )
-        }
-
-        for source in candidates {
-            let fetcher = RSSFetcher()
-            await fetcher.fetchItems(from: source, metadata: store.feedMetadata(for: source.id))
-            guard let response = fetcher.response else { continue }
-            store.applyResolvedFeedURL(fetcher.resolvedFeedURL, homepageURL: fetcher.resolvedHomepageURL, to: source.id)
-            store.applyFeedResponse(response, for: source.id)
-        }
-    }
-
-    @MainActor
-    private func refreshAllSources() async {
-        guard !isRefreshingAll else { return }
-        let sources = store.sources.filter(\.enabled)
-        guard !sources.isEmpty else { return }
-
-        isRefreshingAll = true
-        refreshProgress = RSSRefreshProgress(completed: 0, total: sources.count)
-        defer {
-            isRefreshingAll = false
-        }
-
-        await RSSFeedRefreshService.refreshAll(store: store) { completed, total in
-            refreshProgress = RSSRefreshProgress(completed: completed, total: total)
-        }
-    }
-
     private func importLegadoJSON(_ result: Result<[URL], Error>) {
         do {
             guard let url = try result.get().first else { return }
@@ -609,57 +448,9 @@ struct RSSListView: View {
             let addedSources = store.addSourcesReturningAdded(sources)
             importMessage = String(format: localized("已匯入 %d 個訂閱源"), addedSources.count)
             showImportResult = true
-            Task { await refreshImportedSources(addedSources) }
         } catch {
             importMessage = String(format: localized("Legado JSON 匯入失敗：%@"), error.localizedDescription)
             showImportResult = true
-        }
-    }
-
-    private func importOPML(_ result: Result<[URL], Error>) {
-        do {
-            guard let url = try result.get().first else { return }
-            let shouldStopAccessing = url.startAccessingSecurityScopedResource()
-            defer {
-                if shouldStopAccessing {
-                    url.stopAccessingSecurityScopedResource()
-                }
-            }
-
-            let data = try Data(contentsOf: url)
-            importOPMLData(data)
-        } catch {
-            importMessage = String(format: localized("OPML 匯入失敗：%@"), error.localizedDescription)
-            showImportResult = true
-        }
-    }
-
-    private func importOPMLData(_ data: Data) {
-        do {
-            let sources = try RSSOPMLParser.parse(data: data)
-            let addedSources = store.addSourcesReturningAdded(sources)
-            importMessage = String(format: localized("已匯入 %d 個訂閱源"), addedSources.count)
-            showImportResult = true
-            Task { await refreshImportedSources(addedSources) }
-        } catch {
-            importMessage = String(format: localized("OPML 匯入失敗：%@"), error.localizedDescription)
-            showImportResult = true
-        }
-    }
-
-    @MainActor
-    private func refreshImportedSources(_ sources: [RSSSource]) async {
-        for source in sources where source.enabled {
-            let fetcher = RSSFetcher()
-            await fetcher.fetchItems(from: source, metadata: nil)
-            guard fetcher.error == nil else { continue }
-
-            store.applyResolvedFeedURL(fetcher.resolvedFeedURL, homepageURL: fetcher.resolvedHomepageURL, to: source.id)
-            if let response = fetcher.response {
-                store.applyFeedResponse(response, for: source.id)
-            } else {
-                store.mergeFetchedItems(fetcher.items, for: source.id)
-            }
         }
     }
 
@@ -681,15 +472,9 @@ struct RSSListView: View {
             } label: {
                 Image(systemName: "plus")
             }
-            .accessibilityLabel(localized("新增或匯入"))
+            .accessibilityLabel(localized("匯入"))
         } else {
             RSSHomeAddMenu(
-                isRefreshingAll: isRefreshingAll,
-                hasSources: !store.sources.isEmpty,
-                onAddSource: { showAddSheet = true },
-                onAddFolder: { showAddFolderSheet = true },
-                onRefresh: { Task { await refreshAllSources() } },
-                onImportOPML: { showOPMLImportSheet = true },
                 onImportJSON: { showJSONImporter = true }
             )
         }
@@ -707,13 +492,7 @@ struct RSSListView: View {
             .accessibilityLabel(localized("更多"))
         } else {
             RSSHomeTopMenu(
-                hideReadFeeds: hideReadFeeds,
                 hasSources: !store.sources.isEmpty,
-                hasUnreadArticles: store.totalUnreadCount() > 0,
-                onToggleHideRead: { hideReadFeeds.toggle() },
-                onMarkAllRead: { store.markAllRead() },
-                onOrganize: { showOrganize = true },
-                onExportOPML: { showOPMLExporter = true },
                 onExportJSON: { showJSONExporter = true },
                 onSettings: { showSettings = true }
             )
@@ -725,16 +504,10 @@ struct RSSListView: View {
             return
         }
         switch route {
-        case .addSource:
-            showAddSheet = true
-        case .addFolder:
-            showAddFolderSheet = true
-        case .importOPML:
-            showOPMLImportSheet = true
         case .importJSON:
+            showJSONURLSheet = true
+        case .importFileJSON:
             showJSONImporter = true
-        case .refresh:
-            Task { await refreshAllSources() }
         }
     }
 
@@ -743,14 +516,6 @@ struct RSSListView: View {
             return
         }
         switch route {
-        case .markAllRead:
-            store.markAllRead()
-        case .toggleHideRead:
-            hideReadFeeds.toggle()
-        case .organize:
-            showOrganize = true
-        case .exportOPML:
-            showOPMLExporter = true
         case .exportJSON:
             showJSONExporter = true
         case .settings:
@@ -758,21 +523,6 @@ struct RSSListView: View {
         }
     }
 
-    private func presentPendingOPMLImportAfterSheetDismissal() {
-        guard let pendingOPMLImport else { return }
-        self.pendingOPMLImport = nil
-        switch pendingOPMLImport {
-        case .file(let result):
-            importOPML(result)
-        case .data(let data):
-            importOPMLData(data)
-        }
-    }
-}
-
-private struct RSSRefreshProgress: Equatable {
-    var completed: Int = 0
-    var total: Int = 0
 }
 
 private enum RSSDeleteTarget: Identifiable {
@@ -912,102 +662,29 @@ private struct RSSHomeDivider: View {
 }
 
 private struct RSSHomeAddMenu: View {
-    let isRefreshingAll: Bool
-    let hasSources: Bool
-    let onAddSource: () -> Void
-    let onAddFolder: () -> Void
-    let onRefresh: () -> Void
-    let onImportOPML: () -> Void
     let onImportJSON: () -> Void
 
     var body: some View {
         Menu {
             Button {
-                onAddSource()
-            } label: {
-                Label(localized("新增 RSS 訂閱"), systemImage: "plus")
-            }
-
-            Button {
-                onAddFolder()
-            } label: {
-                Label(localized("新增資料夾"), systemImage: "folder.badge.plus")
-            }
-
-            Divider()
-
-            Button {
-                onImportOPML()
-            } label: {
-                Label(localized("匯入 OPML"), systemImage: "square.and.arrow.down")
-            }
-
-            Button {
                 onImportJSON()
             } label: {
                 Label(localized("匯入 Legado JSON"), systemImage: "doc.badge.plus")
             }
-
-            Divider()
-
-            Button {
-                onRefresh()
-            } label: {
-                Label(localized("刷新全部訂閱"), systemImage: "arrow.clockwise")
-            }
-            .disabled(isRefreshingAll || !hasSources)
         } label: {
             Image(systemName: "plus")
         }
-        .accessibilityLabel(localized("新增或匯入"))
+        .accessibilityLabel(localized("匯入"))
     }
 }
 
 private struct RSSHomeTopMenu: View {
-    let hideReadFeeds: Bool
     let hasSources: Bool
-    let hasUnreadArticles: Bool
-    let onToggleHideRead: () -> Void
-    let onMarkAllRead: () -> Void
-    let onOrganize: () -> Void
-    let onExportOPML: () -> Void
     let onExportJSON: () -> Void
     let onSettings: () -> Void
 
     var body: some View {
         Menu {
-            Button {
-                onMarkAllRead()
-            } label: {
-                Label(localized("標記全部已讀"), systemImage: "checkmark.circle")
-            }
-            .disabled(!hasUnreadArticles)
-
-            Button {
-                onToggleHideRead()
-            } label: {
-                Label(
-                    hideReadFeeds ? localized("顯示已讀訂閱") : localized("隱藏已讀訂閱"),
-                    systemImage: hideReadFeeds ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"
-                )
-            }
-
-            Button {
-                onOrganize()
-            } label: {
-                Label(localized("整理訂閱"), systemImage: "arrow.up.arrow.down")
-            }
-            .disabled(!hasSources)
-
-            Divider()
-
-            Button {
-                onExportOPML()
-            } label: {
-                Label(localized("匯出 OPML"), systemImage: "square.and.arrow.up")
-            }
-            .disabled(!hasSources)
-
             Button {
                 onExportJSON()
             } label: {
@@ -1047,122 +724,6 @@ private struct RSSSettingsContentView: View {
                     .accessibilityLabel(localized("完成"))
                 }
             }
-    }
-}
-
-private struct RSSOPMLImportSheet: View {
-    @Binding var isPresented: Bool
-    let onFileCompletion: (Result<[URL], Error>) -> Void
-    let onDataImport: (Data) -> Void
-
-    @State private var showFileImporter = false
-    @State private var urlString = ""
-    @State private var isLoading = false
-    @State private var message = ""
-    @State private var showMessage = false
-
-    private var opmlContentTypes: [UTType] {
-        var contentTypes: [UTType] = []
-        if let opmlByExtension = UTType(filenameExtension: "opml") {
-            contentTypes.append(opmlByExtension)
-        }
-        if let registeredOPML = UTType("org.opml.opml") {
-            contentTypes.append(registeredOPML)
-        }
-        contentTypes.append(.xml)
-        return contentTypes
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section(header: Text(localized("OPML 網址")).foregroundStyle(DSColor.textSecondary)) {
-                    TextField("https://example.com/subscriptions.opml", text: $urlString)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-
-                    Button {
-                        Task { await importFromURL() }
-                    } label: {
-                        Label(localized("從網址匯入 OPML"), systemImage: "link.badge.plus")
-                    }
-                    .disabled(urlString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
-                }
-                .interfaceSectionSurface()
-
-                Section(header: Text(localized("本機文件")).foregroundStyle(DSColor.textSecondary)) {
-                    Button {
-                        showFileImporter = true
-                    } label: {
-                        Label(localized("選取 OPML 文件"), systemImage: "doc.badge.plus")
-                    }
-                }
-                .interfaceSectionSurface()
-
-            }
-            .softScrollEdges()
-                .navigationTitle(localized("匯入 OPML"))
-                .toolbarTitleDisplayMode(.inline)
-                .themedAppSurface(for: .rss)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            isPresented = false
-                        } label: {
-                            Image(systemName: "xmark")
-                        }
-                    }
-                }
-                .alert(localized("匯入 OPML"), isPresented: $showMessage) {
-                    Button(localized("確定"), role: .cancel) {}
-                } message: {
-                    Text(message)
-                }
-            .disabled(isLoading)
-            .overlay {
-                if isLoading {
-                    ProgressView(localized("匯入中，請稍候…"))
-                        .padding()
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-            }
-            .fileImporter(
-                isPresented: $showFileImporter,
-                allowedContentTypes: opmlContentTypes,
-                allowsMultipleSelection: false
-            ) { result in
-                onFileCompletion(result)
-            }
-        }
-    }
-
-    @MainActor
-    private func importFromURL() async {
-        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed),
-              let scheme = url.scheme?.lowercased(),
-              ["http", "https"].contains(scheme) else {
-            message = "❌ \(localized("RSS URL 無效"))"
-            showMessage = true
-            return
-        }
-
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            if let httpResponse = response as? HTTPURLResponse,
-               !(200...299).contains(httpResponse.statusCode) {
-                throw URLError(.badServerResponse)
-            }
-
-            onDataImport(data)
-        } catch {
-            message = "❌ \(String(format: localized("OPML 匯入失敗：%@"), error.localizedDescription))"
-            showMessage = true
-        }
     }
 }
 
@@ -1313,24 +874,6 @@ private struct RSSMainFeedRow: View {
     }
 }
 
-private struct RSSRefreshProgressBar: View {
-    let progress: RSSRefreshProgress
-
-    var body: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-            Text(String(format: localized("已刷新 %d / %d"), progress.completed, progress.total))
-                .font(DSFont.footnote)
-                .foregroundStyle(DSColor.textSecondary)
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.bar)
-    }
-}
-
 // MARK: - JSON Document
 
 struct RSSJSONDocument: FileDocument {
@@ -1371,6 +914,27 @@ private struct ImportLegadoJSONURLSheet: View {
                         .keyboardType(.URL)
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
+                }
+                .interfaceSectionSurface()
+
+                Section(header: Text(localized("常用訂閱源倉庫")).foregroundStyle(DSColor.textSecondary)) {
+                    Button {
+                        urlString = "https://www.yckceo.com/yuedu/rss/json/id/193.json"
+                    } label: {
+                        HStack {
+                            Image(systemName: "building.columns")
+                            VStack(alignment: .leading) {
+                                Text(localized("源倉庫（官方純淨）"))
+                                    .font(DSFont.body)
+                                Text("yckceo.com")
+                                    .font(DSFont.caption)
+                                    .foregroundStyle(DSColor.textSecondary)
+                            }
+                            Spacer()
+                            Image(systemName: "arrow.right.circle.fill")
+                                .foregroundStyle(DSColor.accent)
+                        }
+                    }
                 }
                 .interfaceSectionSurface()
 
@@ -1418,7 +982,7 @@ private struct ImportLegadoJSONURLSheet: View {
     private func importFromURL() async {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let url = URL(string: trimmed) else {
-            message = "❌ \(localized("RSS URL 無效"))"
+            message = "❌ \(localized("訂閱源網址無效"))"
             showMessage = true
             return
         }
@@ -1435,130 +999,6 @@ private struct ImportLegadoJSONURLSheet: View {
         } catch {
             message = "❌ \(String(format: localized("Legado JSON 匯入失敗：%@"), error.localizedDescription))"
             showMessage = true
-        }
-    }
-}
-
-// MARK: - Add Source Sheet
-
-private struct AddRSSSourceSheet: View {
-    private static let rootFolderID = "__rss_root_folder__"
-
-    @Binding var isPresented: Bool
-    @ObservedObject var store: RSSStore
-    @ObservedObject var gs: GlobalSettings
-    let folders: [RSSFolder]
-
-    @State private var name = ""
-    @State private var url = ""
-    @State private var selectedFolderID = Self.rootFolderID
-    @State private var isLoading = false
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section(header: Text(localized("來源名稱（選填）")).foregroundStyle(DSColor.textSecondary)) {
-                    TextField(localized("留空將自動從 RSS 抓取"), text: $name)
-                }
-                .interfaceSectionSurface()
-                Section(header: Text(localized("RSS 網址")).foregroundStyle(DSColor.textSecondary)) {
-                    TextField("https://", text: $url)
-                        .keyboardType(.URL)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                }
-                .interfaceSectionSurface()
-                Section(header: Text(localized("資料夾")).foregroundStyle(DSColor.textSecondary)) {
-                    Picker(localized("資料夾"), selection: $selectedFolderID) {
-                        Text(localized("無資料夾")).tag(Self.rootFolderID)
-                        ForEach(folders) { folder in
-                            Text(folder.name).tag(folder.id)
-                        }
-                    }
-                }
-                .interfaceSectionSurface()
-            }
-            .softScrollEdges()
-            .navigationTitle(localized("新增 RSS 訂閱"))
-            .toolbarTitleDisplayMode(.inline)
-            .themedAppSurface(for: .rss)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        isPresented = false
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await addSource() }
-                    } label: {
-                        Image(systemName: "checkmark")
-                    }
-                    .disabled(url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
-                }
-            }
-            .overlay {
-                if isLoading {
-                    ProgressView(localized("正在抓取 RSS 資訊…"))
-                        .padding()
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-            }
-        }
-    }
-
-    @MainActor
-    private func addSource() async {
-        let trimmedURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedURL.isEmpty else { return }
-
-        isLoading = true
-        defer { isLoading = false }
-
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        var finalName = trimmedName
-
-        if finalName.isEmpty {
-            let tempSource = RSSSource(name: "Temp", url: trimmedURL, sortOrder: 0)
-            let fetcher = RSSFetcher()
-            await fetcher.fetchItems(from: tempSource, metadata: nil)
-
-            if case let .updated(_, _, feedInfo) = fetcher.response, let feedTitle = feedInfo?.title, !feedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                finalName = feedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            } else if let firstItemTitle = fetcher.items.first?.title, !firstItemTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                finalName = firstItemTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            } else if let host = URL(string: trimmedURL)?.host {
-                finalName = host
-            } else {
-                finalName = "RSS Source"
-            }
-        }
-
-        let folder = folders.first { $0.id == selectedFolderID }
-        let source = RSSSource(
-            name: finalName,
-            url: trimmedURL,
-            sortOrder: store.nextSourceSortOrder(in: folder),
-            sourceGroup: folder?.name
-        )
-        store.addSource(source)
-        await refreshInitialArticles(for: source)
-        isPresented = false
-    }
-
-    @MainActor
-    private func refreshInitialArticles(for source: RSSSource) async {
-        let fetcher = RSSFetcher()
-        await fetcher.fetchItems(from: source, metadata: nil)
-        guard fetcher.error == nil else { return }
-
-        store.applyResolvedFeedURL(fetcher.resolvedFeedURL, homepageURL: fetcher.resolvedHomepageURL, to: source.id)
-        if let response = fetcher.response {
-            store.applyFeedResponse(response, for: source.id)
-        } else {
-            store.mergeFetchedItems(fetcher.items, for: source.id)
         }
     }
 }
@@ -1670,7 +1110,7 @@ private struct RSSSourceInfoSheet: View {
             Form {
                 Section(header: Text(localized("基本資訊")).foregroundStyle(DSColor.textSecondary)) {
                     ThemedLabeledContent(localized("來源名稱"), value: currentSource.name)
-                    ThemedLabeledContent(localized("RSS 網址"), value: currentSource.url)
+                    ThemedLabeledContent(localized("訂閱源網址"), value: currentSource.url)
                     if let homepageURL = currentSource.homepageURL, !homepageURL.isEmpty {
                         ThemedLabeledContent(localized("首頁"), value: homepageURL)
                     }
