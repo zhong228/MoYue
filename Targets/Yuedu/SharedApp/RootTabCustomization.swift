@@ -15,7 +15,7 @@ enum RootTabItem: String, CaseIterable, Codable, Hashable, Identifiable {
         switch self {
         case .bookshelf: return "書坊"
         case .explore: return "探索"
-        case .rss: return "訂閱源"
+        case .rss: return "订阅"
         case .settings: return "設定"
         case .search: return "搜索"
         }

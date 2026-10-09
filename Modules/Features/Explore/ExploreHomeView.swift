@@ -3,17 +3,7 @@ import SwiftUI
 
 // MARK: - Explore Home
 
-/// The landing screen of the 探索 (Explore) tab, a grid of tiles as Apple Music lays out
-/// its browse categories, or a list of cards: 瀏覽器 opens the in-app browser as it was
-/// left, each of the reader's custom pages gathers categories of any sources in the
-/// layouts they chose (＋ names a new one; a long press renames or deletes it), and each
-/// explore source opens its whole discover page. A long press on a source offers the
-/// actions an explore page typically does. The browser opens full screen, as the reader does. The search field narrows
-/// the sources by name or group, in the page's own layout; books are
-/// searched from the 搜索 tab.
-///
-/// On iOS 27 the bar, title and buttons together, slides away as the page scrolls and
-/// the search field rises to the top in its place, as in Apple Music (`.minimizesBar`).
+/// The landing screen of the 探索 (Explore) tab, redesigned in Apple Books Store style.
 struct ExploreHomeView: View {
     @EnvironmentObject private var store: BookStore
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -81,8 +71,6 @@ struct ExploreHomeView: View {
         Self.sources(exploreSources, inGroup: group, matching: trimmedQuery)
     }
 
-    /// The sources in `group` (all of them when `nil`) whose name or group holds
-    /// `query` — Legado's explore search (`BookSourceDao.flowExplore(key)`).
     static func sources(_ sources: [BookSource], inGroup group: String?, matching query: String) -> [BookSource] {
         sources.filter { source in
             if let group, !groupNames(of: source).contains(group) { return false }
@@ -110,78 +98,15 @@ struct ExploreHomeView: View {
         NavigationStack(path: $navigation.path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: DSSpacing.xl) {
-                    // A search looks through the sources alone.
                     if !isFilteringSources {
-                        VStack(alignment: .leading, spacing: DSSpacing.md) {
-                            HStack(spacing: DSSpacing.sm) {
-                                DSIconBadge(
-                                    systemImage: "square.grid.2x2.fill",
-                                    gradient: DSBrandGradient.tint(for: "my-pages"),
-                                    side: 28,
-                                    iconSize: 15
-                                )
-                                Text(localized("我的頁面"))
-                                    .font(DSFont.title2.weight(.bold))
-                                    .foregroundStyle(DSColor.textPrimary)
-                                    .accessibilityAddTraits(.isHeader)
-                            }
-                            .padding(.horizontal, 4)
-
-                            entries {
-                                browserEntry
-                                ForEach(pageStore.pages) { page in
-                                    NavigationLink(value: ExploreNavigationRoute.customPage(id: page.id)) {
-                                        ExploreEntryLabel(name: page.name, layout: entryLayout)
-                                    }
-                                    .buttonStyle(ExploreTileButtonStyle())
-                                    .accessibilityLabel(page.name)
-                                    .contextMenu { pageActions(page) }
-                                }
-                            }
-                        }
-                        .confirmationDialog(
-                            String(format: localized("刪除「%@」？"), pagePendingDeletion?.name ?? ""),
-                            isPresented: Binding(
-                                get: { pagePendingDeletion != nil },
-                                set: { if !$0 { pagePendingDeletion = nil } }
-                            ),
-                            titleVisibility: .visible,
-                            presenting: pagePendingDeletion
-                        ) { page in
-                            Button(localized("刪除"), role: .destructive) { deletePage(page) }
-                            Button(localized("取消"), role: .cancel) {}
-                        } message: { _ in
-                            Text(localized("頁面裡的元件會一起刪除。"))
-                        }
+                        heroBanner
+                        quickAccessSection
                     }
-                    sourcesBlock
+                    sourcesSection
                 }
-                .alert(
-                    pageNamePrompt?.title ?? "",
-                    isPresented: Binding(
-                        get: { pageNamePrompt != nil },
-                        set: { if !$0 { pageNamePrompt = nil } }
-                    ),
-                    presenting: pageNamePrompt
-                ) { prompt in
-                    TextField(localized("名稱"), text: $pageName)
-                    switch prompt {
-                    case .create:
-                        Button(localized("新建")) { pageStore.createPage(named: pageName) }
-                    case .rename(let page):
-                        Button(localized("確定")) { pageStore.renamePage(id: page.id, to: pageName) }
-                    }
-                    Button(localized("取消"), role: .cancel) {}
-                }
-                // The page's full width even when a search finds no source: while the
-                // search is active the scroll view takes its content's width, and an
-                // empty stack left the page background and 「沒有結果」 a 32pt strip
-                // (iOS 27 simulator).
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, DSSpacing.lg)
                 .padding(.vertical, DSSpacing.sm)
-                .animation(reduceMotion ? nil : DSAnimation.standard, value: entryLayout)
-                .rootTabTitleScrollAnchor()
             }
             .overlay {
                 if isFilteringSources && !exploreSources.isEmpty && visibleSources.isEmpty {
@@ -230,9 +155,6 @@ struct ExploreHomeView: View {
                 applyLandingIfNeeded()
             }
             .sheet(isPresented: $showSourceManager) {
-                // BookSourceListView already provides its own NavigationStack; wrapping
-                // it in another NavigationStack stacks two nav bars (duplicate title on
-                // iOS 18). Present it directly, matching SettingsView.
                 BookSourceListView()
             }
             .bookSourceActionSheets(sheet: $sourceActionSheet, pendingDeletion: $sourcePendingDeletion)
@@ -243,46 +165,222 @@ struct ExploreHomeView: View {
                 .environmentObject(store)
             }
             .navigationDestination(for: ExploreNavigationRoute.self, destination: destination)
-        }
-    }
-
-    // MARK: Entries
-
-    /// Entries laid out as the page is: tiles so many to a row, or cards one under another.
-    @ViewBuilder
-    private func entries<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        switch entryLayout {
-        case .grid(let density):
-            LazyVGrid(
-                columns: Array(
-                    repeating: GridItem(.flexible(), spacing: DSSpacing.md),
-                    count: density.rawValue
+            .alert(
+                pageNamePrompt?.title ?? "",
+                isPresented: Binding(
+                    get: { pageNamePrompt != nil },
+                    set: { if !$0 { pageNamePrompt = nil } }
                 ),
-                spacing: DSSpacing.md,
-                content: content
-            )
-        case .list:
-            LazyVStack(spacing: DSSpacing.md, content: content)
+                presenting: pageNamePrompt
+            ) { prompt in
+                TextField(localized("名稱"), text: $pageName)
+                switch prompt {
+                case .create:
+                    Button(localized("新建")) { pageStore.createPage(named: pageName) }
+                case .rename(let page):
+                    Button(localized("確定")) { pageStore.renamePage(id: page.id, to: pageName) }
+                }
+                Button(localized("取消"), role: .cancel) {}
+            }
+            .confirmationDialog(
+                String(format: localized("刪除「%@」？"), pagePendingDeletion?.name ?? ""),
+                isPresented: Binding(
+                    get: { pagePendingDeletion != nil },
+                    set: { if !$0 { pagePendingDeletion = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: pagePendingDeletion
+            ) { page in
+                Button(localized("刪除"), role: .destructive) { deletePage(page) }
+                Button(localized("取消"), role: .cancel) {}
+            } message: { _ in
+                Text(localized("頁面裡的元件會一起刪除。"))
+            }
         }
     }
 
-    /// The browser as it was left — its page, or its start page when no page is open.
-    private var browserEntry: some View {
-        Button { openBrowser(.resume) } label: {
-            ExploreEntryLabel(
-                title: localized("瀏覽器"),
-                artwork: .symbol("globe"),
-                layout: entryLayout
-            )
+    // MARK: - Hero Banner
+
+    private var heroBanner: some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: DSRadius.xl)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.purple.opacity(0.8), Color.blue.opacity(0.6)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            VStack(alignment: .leading, spacing: DSSpacing.md) {
+                Text(localized("发现好书"))
+                    .font(DSFont.title.weight(.bold))
+                    .foregroundStyle(.white)
+                Text(localized("探索无尽阅读世界"))
+                    .font(DSFont.subheadline)
+                    .foregroundStyle(.white.opacity(0.9))
+                HStack(spacing: DSSpacing.md) {
+                    Button { openBrowser(.resume) } label: {
+                        Text(localized("打开浏览器"))
+                            .font(DSFont.callout.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, DSSpacing.md)
+                            .padding(.vertical, DSSpacing.sm)
+                            .background {
+                                RoundedRectangle(cornerRadius: DSRadius.md)
+                                    .fill(.white.opacity(0.25))
+                            }
+                    }
+                    Button(action: openSourceManager) {
+                        Text(localized("添加书源"))
+                            .font(DSFont.callout.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, DSSpacing.md)
+                            .padding(.vertical, DSSpacing.sm)
+                            .background {
+                                RoundedRectangle(cornerRadius: DSRadius.md)
+                                    .fill(.white.opacity(0.25))
+                            }
+                    }
+                }
+            }
+            .padding(DSSpacing.lg)
         }
-        .buttonStyle(ExploreTileButtonStyle())
+        .frame(height: 200)
     }
+
+    // MARK: - Quick Access
+
+    private var quickAccessSection: some View {
+        VStack(alignment: .leading, spacing: DSSpacing.md) {
+            Text(localized("快捷入口"))
+                .font(DSFont.title2.weight(.bold))
+                .foregroundStyle(DSColor.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: DSSpacing.md) {
+                    QuickAccessCard(
+                        icon: "globe",
+                        title: localized("浏览器"),
+                        subtitle: localized("继续浏览"),
+                        color: .blue,
+                        action: { openBrowser(.resume) }
+                    )
+                    ForEach(pageStore.pages) { page in
+                        NavigationLink(value: ExploreNavigationRoute.customPage(id: page.id)) {
+                            QuickAccessCard(
+                                icon: "doc.text",
+                                title: page.name,
+                                subtitle: localized("自定义页面"),
+                                color: .orange,
+                                action: { }
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .contextMenu { pageActions(page) }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Sources Section
+
+    private var sourcesSection: some View {
+        Group {
+            if isFilteringSources {
+                searchResultsView
+            } else if exploreSources.isEmpty {
+                emptyStateView
+            } else {
+                VStack(alignment: .leading, spacing: DSSpacing.xl) {
+                    let topSources = Array(visibleSources.prefix(6))
+                    if !topSources.isEmpty {
+                        sourceCarouselSection(
+                            title: localized("为你推荐"),
+                            sources: topSources,
+                            showRanking: true
+                        )
+                    }
+                    if visibleSources.count > 6 {
+                        let remaining = Array(visibleSources.dropFirst(6))
+                        let grouped = Dictionary(grouping: remaining) { source in
+                            Self.groupNames(of: source).first ?? localized("其他")
+                        }
+                        ForEach(grouped.keys.sorted(), id: \.self) { groupName in
+                            if let groupSources = grouped[groupName] {
+                                sourceCarouselSection(
+                                    title: groupName,
+                                    sources: groupSources,
+                                    showRanking: false
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func sourceCarouselSection(title: String, sources: [BookSource], showRanking: Bool) -> some View {
+        VStack(alignment: .leading, spacing: DSSpacing.md) {
+            HStack {
+                Text(title)
+                    .font(DSFont.title2.weight(.bold))
+                    .foregroundStyle(DSColor.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                if sources.count > 5 {
+                    Button(action: {}) {
+                        Text(localized("查看全部"))
+                            .font(DSFont.callout.weight(.semibold))
+                            .foregroundStyle(DSColor.accent)
+                    }
+                }
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: DSSpacing.md) {
+                    ForEach(Array(sources.enumerated()), id: \.element.id) { index, source in
+                        NavigationLink(value: ExploreNavigationRoute.source(sourceURL: source.bookSourceUrl)) {
+                            SourceCard(
+                                source: source,
+                                rank: showRanking && index < 3 ? index + 1 : nil
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .contextMenu { sourceActions(source) }
+                    }
+                }
+            }
+        }
+    }
+
+    private var searchResultsView: some View {
+        LazyVStack(spacing: DSSpacing.md) {
+            ForEach(visibleSources) { source in
+                NavigationLink(value: ExploreNavigationRoute.source(sourceURL: source.bookSourceUrl)) {
+                    SearchResultRow(source: source)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .contextMenu { sourceActions(source) }
+            }
+        }
+    }
+
+    private var emptyStateView: some View {
+        ContentUnavailableView {
+            UnavailableLabel(localized("尚未啟用支援發現的書源"), systemImage: "books.vertical")
+        } actions: {
+            Button(localized("前往書源管理"), action: openSourceManager)
+                .buttonStyle(.borderedProminent)
+        }
+    }
+
+    // MARK: - Actions
 
     private func openBrowser(_ entry: BrowserEntry) {
         browserPresentation = BrowserPresentation(entry: entry)
     }
 
-    /// A custom page's long-press actions.
     @ViewBuilder
     private func pageActions(_ page: CustomExplorePage) -> some View {
         Button {
@@ -306,70 +404,6 @@ struct ExploreHomeView: View {
         pageStore.deletePage(id: page.id)
     }
 
-    /// The sources, or how to add some. A search that finds none leaves this out for
-    /// the search's own empty state.
-    @ViewBuilder
-    private var sourcesBlock: some View {
-        if exploreSources.isEmpty || !visibleSources.isEmpty {
-            VStack(alignment: .leading, spacing: DSSpacing.md) {
-                let sectionTitle = group ?? localized("書源")
-                HStack(spacing: DSSpacing.sm) {
-                    DSIconBadge(
-                        systemImage: "books.vertical.fill",
-                        gradient: DSBrandGradient.tint(for: sectionTitle),
-                        side: 32,
-                        iconSize: 16
-                    )
-                    Text(sectionTitle)
-                        .font(DSFont.title2.weight(.heavy))
-                        .foregroundStyle(DSBrandGradient.tint(for: sectionTitle).first ?? DSColor.accent)
-                        .accessibilityAddTraits(.isHeader)
-                    Spacer()
-                    if !visibleSources.isEmpty {
-                        HStack(spacing: 4) {
-                            Image(systemName: "doc.on.doc")
-                                .font(.system(size: 10, weight: .bold))
-                            Text(visibleSources.count.formatted())
-                                .font(DSFont.subheadline.weight(.semibold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background {
-                            Capsule()
-                                .fill(DSBrandGradient.tint(for: sectionTitle).first ?? DSColor.accent)
-                        }
-                        .accessibilityLabel(String(format: localized("%d 個書源"), visibleSources.count))
-                    }
-                }
-                .padding(.horizontal, 4)
-                if exploreSources.isEmpty {
-                    VStack(alignment: .leading, spacing: DSSpacing.md) {
-                        Text(localized("尚未啟用支援發現的書源"))
-                            .font(DSFont.subheadline)
-                            .foregroundStyle(DSColor.textSecondary)
-                        Button(localized("前往書源管理"), action: openSourceManager)
-                            .buttonStyle(.borderedProminent)
-                    }
-                } else {
-                    entries {
-                        ForEach(visibleSources) { source in
-                            NavigationLink(value: ExploreNavigationRoute.source(sourceURL: source.bookSourceUrl)) {
-                                ExploreEntryLabel(source: source, layout: entryLayout)
-                            }
-                            .buttonStyle(ExploreTileButtonStyle())
-                            .accessibilityLabel(source.bookSourceName)
-                            .accessibilityIdentifier("explore.source.\(source.bookSourceName)")
-                            .contextMenu { sourceActions(source) }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Long-press actions on an explore source. 刷新 lives on the source's own
-    /// page, where pulling down reloads it.
     private func sourceActions(_ source: BookSource) -> some View {
         BookSourceActionMenuItems(
             source: source,
@@ -445,7 +479,7 @@ struct ExploreHomeView: View {
         }
     }
 
-    // MARK: Destinations
+    // MARK: - Destinations
 
     @ViewBuilder
     private func destination(_ route: ExploreNavigationRoute) -> some View {
@@ -501,6 +535,151 @@ struct ExploreHomeView: View {
         } else {
             showSourceManager = true
         }
+    }
+}
+
+// MARK: - QuickAccessCard
+
+struct QuickAccessCard: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    let color: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: DSSpacing.sm) {
+                Image(systemName: icon)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(color)
+                Spacer()
+                Text(title)
+                    .font(DSFont.callout.weight(.semibold))
+                    .foregroundStyle(DSColor.textPrimary)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(DSFont.caption)
+                    .foregroundStyle(DSColor.textSecondary)
+                    .lineLimit(1)
+            }
+            .padding(DSSpacing.md)
+            .frame(width: 140, height: 100)
+            .background(DSColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg))
+            .shadow(color: DSColor.shadow, radius: 4, x: 0, y: 2)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - SourceCard
+
+struct SourceCard: View {
+    let source: BookSource
+    let rank: Int?
+
+    private var gradientColors: [Color] {
+        let hash = abs(source.bookSourceName.hashValue)
+        let palette = DSColor.coverGradients
+        return palette[hash % palette.count]
+    }
+
+    private var rankColor: Color {
+        switch rank {
+        case 1: return DSColor.rankFirst
+        case 2: return DSColor.rankSecond
+        case 3: return DSColor.rankThird
+        default: return DSColor.neutralControlFill
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DSSpacing.sm) {
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: DSRadius.lg)
+                    .fill(
+                        LinearGradient(
+                            colors: gradientColors,
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(height: 200)
+                Image(systemName: "book.closed")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let rank {
+                    Text("\(rank)")
+                        .font(DSFont.callout.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 28, height: 28)
+                        .background(rankColor)
+                        .clipShape(Circle())
+                        .padding(DSSpacing.sm)
+                }
+            }
+            Text(source.bookSourceName)
+                .font(DSFont.callout.weight(.semibold))
+                .foregroundStyle(DSColor.textPrimary)
+                .lineLimit(2)
+            if !source.bookSourceGroup.isEmpty {
+                Text(source.bookSourceGroup)
+                    .font(DSFont.caption)
+                    .foregroundStyle(DSColor.textSecondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(width: 160)
+    }
+}
+
+// MARK: - SearchResultRow
+
+struct SearchResultRow: View {
+    let source: BookSource
+
+    private var gradientColors: [Color] {
+        let hash = abs(source.bookSourceName.hashValue)
+        let palette = DSColor.coverGradients
+        return palette[hash % palette.count]
+    }
+
+    var body: some View {
+        HStack(spacing: DSSpacing.md) {
+            RoundedRectangle(cornerRadius: DSRadius.md)
+                .fill(
+                    LinearGradient(
+                        colors: gradientColors,
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 52, height: 78)
+                .overlay {
+                    Image(systemName: "book.closed")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+            VStack(alignment: .leading, spacing: DSSpacing.xs) {
+                Text(source.bookSourceName)
+                    .font(DSFont.body.weight(.semibold))
+                    .foregroundStyle(DSColor.textPrimary)
+                if !source.bookSourceGroup.isEmpty {
+                    Text(source.bookSourceGroup)
+                        .font(DSFont.caption)
+                        .foregroundStyle(DSColor.textSecondary)
+                }
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(DSColor.textTertiary)
+        }
+        .padding(DSSpacing.md)
+        .background(DSColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg))
     }
 }
 
