@@ -8,8 +8,8 @@ import SwiftUI
 /// left, each of the reader's custom pages gathers categories of any sources in the
 /// layouts they chose (＋ names a new one; a long press renames or deletes it), and each
 /// explore source opens its whole discover page. A long press on a source offers the
-/// actions Legado's explore page does. The browser opens full screen, as the reader does. The search field narrows
-/// the sources as Legado's explore search does, in the page's own layout; books are
+/// actions an explore page typically does. The browser opens full screen, as the reader does. The search field narrows
+/// the sources by name or group, in the page's own layout; books are
 /// searched from the 搜索 tab.
 ///
 /// On iOS 27 the bar, title and buttons together, slides away as the page scrolls and
@@ -317,25 +317,29 @@ struct ExploreHomeView: View {
                     DSIconBadge(
                         systemImage: "books.vertical.fill",
                         gradient: DSBrandGradient.tint(for: sectionTitle),
-                        side: 28,
-                        iconSize: 15
+                        side: 32,
+                        iconSize: 16
                     )
                     Text(sectionTitle)
-                        .font(DSFont.title2.weight(.bold))
-                        .foregroundStyle(DSColor.textPrimary)
+                        .font(DSFont.title2.weight(.heavy))
+                        .foregroundStyle(DSBrandGradient.tint(for: sectionTitle).first ?? DSColor.accent)
                         .accessibilityAddTraits(.isHeader)
                     Spacer()
                     if !visibleSources.isEmpty {
-                        Text(visibleSources.count.formatted())
-                            .font(DSFont.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 3)
-                            .background {
-                                Capsule()
-                                    .fill(DSBrandGradient.tint(for: sectionTitle).first ?? DSColor.accent)
-                            }
-                            .accessibilityLabel(String(format: localized("%d 個書源"), visibleSources.count))
+                        HStack(spacing: 4) {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 10, weight: .bold))
+                            Text(visibleSources.count.formatted())
+                                .font(DSFont.subheadline.weight(.semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background {
+                            Capsule()
+                                .fill(DSBrandGradient.tint(for: sectionTitle).first ?? DSColor.accent)
+                        }
+                        .accessibilityLabel(String(format: localized("%d 個書源"), visibleSources.count))
                     }
                 }
                 .padding(.horizontal, 4)
@@ -364,7 +368,7 @@ struct ExploreHomeView: View {
         }
     }
 
-    /// Legado's long-press actions on an explore source. 刷新 lives on the source's own
+    /// Long-press actions on an explore source. 刷新 lives on the source's own
     /// page, where pulling down reloads it.
     private func sourceActions(_ source: BookSource) -> some View {
         BookSourceActionMenuItems(
@@ -382,7 +386,7 @@ struct ExploreHomeView: View {
         )
     }
 
-    /// Legado's explore page narrows its list to one group from its menu.
+    /// Group filter menu using a modern capsule/chip style.
     private var groupMenu: some View {
         Menu {
             Picker(localized("分組"), selection: $group) {
@@ -392,11 +396,26 @@ struct ExploreHomeView: View {
                 }
             }
         } label: {
-            Image(
-                systemName: group == nil
-                    ? "line.3.horizontal.decrease.circle"
-                    : "line.3.horizontal.decrease.circle.fill"
-            )
+            HStack(spacing: 4) {
+                Image(systemName: "tag.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                if let group {
+                    Text(group)
+                        .font(.system(size: 13, weight: .medium))
+                } else {
+                    Text(localized("全部"))
+                        .font(.system(size: 13, weight: .medium))
+                }
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background {
+                Capsule()
+                    .fill(DSBrandGradient.tint(for: "explore-filter").first ?? DSColor.accent)
+            }
             .accessibilityHidden(true)
         }
         .accessibilityLabel(localized("分組"))

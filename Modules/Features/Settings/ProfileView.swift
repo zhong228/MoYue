@@ -58,16 +58,22 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-                Form {
-                    // ── 墨悦 Brand header ──
-                    Section {
-                        MoYueBrandHeaderCard(appVersion: appVersion)
-                            .rootTabTitleScrollAnchor()
-                    }
-                    .interfaceSectionSurface()
+            ScrollView {
+                VStack(spacing: DSSpacing.xl) {
+                    // ── Brand Header ──
+                    MoYueBrandHeaderCard(appVersion: appVersion)
+                        .rootTabTitleScrollAnchor()
+                        .padding(.vertical, DSSpacing.lg)
+                        .padding(.horizontal, DSSpacing.md)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: DSRadius.card, style: .continuous)
+                                .fill(DSColor.cardBackground)
+                        )
+                        .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 3)
 
                     // ── App Language ──
-                    Section {
+                    SettingsCard(title: localized("App 語言")) {
                         DSSettingsRow(
                             icon: "globe",
                             title: localized("語言"),
@@ -78,16 +84,17 @@ struct SettingsView: View {
                             }
                         )
                         .rootTabTitleScrollAnchor()
-                    } header: {
-                        Text(localized("App 語言"))
-                            .foregroundStyle(DSColor.textSecondary)
-                    } footer: {
-                        Text(appLanguageFooter)
-                            .dsSectionFooter()
-                    }
-                    .interfaceSectionSurface()
 
-                    Section(header: Text(localized("外觀")).foregroundStyle(DSColor.textSecondary)) {
+                        Text(appLanguageFooter)
+                            .font(DSFont.caption)
+                            .foregroundStyle(DSColor.textSecondary)
+                            .padding(.horizontal, DSSpacing.md)
+                            .padding(.top, DSSpacing.sm)
+                            .padding(.bottom, DSSpacing.sm)
+                    }
+
+                    // ── Appearance ──
+                    SettingsCard(title: localized("外觀")) {
                         DSSettingsNavRow(
                             icon: "paintpalette.fill",
                             title: localized("外觀主題"),
@@ -96,17 +103,19 @@ struct SettingsView: View {
                             AppearanceThemeView()
                         }
                     }
-                    .interfaceSectionSurface()
 
                     // 書架顯示 (每列欄數, 預設封面) lives in 外觀主題's 介面 since 2026-09-29.
 
                     // ── Book Source Management ──
-                    Section(header: Text(localized("書源管理")).foregroundStyle(DSColor.textSecondary)) {
+                    SettingsCard(title: localized("書源管理")) {
                         DSSettingsRow(
                             icon: "books.vertical.fill",
                             title: localized("管理書源"),
                             action: { showSourceList = true }
                         )
+
+                        Divider()
+                            .padding(.leading, DSSpacing.md)
 
                         DSSettingsRow(
                             icon: "arrow.down.circle.fill",
@@ -115,6 +124,8 @@ struct SettingsView: View {
                             action: { showDownloadManager = true }
                         )
 
+                        Divider()
+                            .padding(.leading, DSSpacing.md)
 
                         DSSettingsRow(
                             icon: "network",
@@ -122,20 +133,22 @@ struct SettingsView: View {
                             action: { showNetworkSettings = true }
                         )
                     }
-                    .interfaceSectionSurface()
 
                     // ── Reading Tools ──
-                    Section(header: Text(localized("閱讀工具")).foregroundStyle(DSColor.textSecondary)) {
+                    SettingsCard(title: localized("閱讀工具")) {
                         DSSettingsRow(
                             icon: "waveform",
                             title: localized("語音朗讀設定"),
                             action: { showTTSSettings = true }
                         )
 
+                        Divider()
+                            .padding(.leading, DSSpacing.md)
+
                         DSSettingsRow(
                             icon: "sparkles",
                             // Named for what it is — the reader's panel is also called
-                            // 「AI 助手」, and someone looking for 人物卡 went here first.
+                            // 「AI 助手", and someone looking for 人物卡 went here first.
                             title: localized("AI 助手設定"),
                             detail: isAILocked ? localized("需要 Pro") : aiAssistantDetail,
                             isLocked: isAILocked,
@@ -143,18 +156,19 @@ struct SettingsView: View {
                                 if isAILocked { showAIPaywall = true } else { showAISettings = true }
                             }
                         )
-                        
+
+                        Divider()
+                            .padding(.leading, DSSpacing.md)
+
                         DSSettingsRow(
                             icon: "text.magnifyingglass",
                             title: localized("替換規則"),
                             action: { showReplaceRules = true }
                         )
-
                     }
-                    .interfaceSectionSurface()
 
                     // ── Data Management ──
-                    Section(header: Text(localized("資料管理")).foregroundStyle(DSColor.textSecondary)) {
+                    SettingsCard(title: localized("資料管理")) {
                         DSSettingsRow(
                             icon: "arrow.triangle.2.circlepath.icloud",
                             title: localized("備份與同步"),
@@ -162,27 +176,36 @@ struct SettingsView: View {
                             action: { showBackupSync = true }
                         )
 
+                        Divider()
+                            .padding(.leading, DSSpacing.md)
+
                         DSSettingsRow(
                             icon: "externaldrive.fill",
                             title: localized("快取管理"),
                             action: { showCacheManagement = true }
                         )
 
+                        Divider()
+                            .padding(.leading, DSSpacing.md)
+
                         DSSettingsRow(
                             icon: "wifi",
                             title: localized("局域網服務"),
                             action: { showLanServer = true }
                         )
+
+                        Divider()
+                            .padding(.leading, DSSpacing.md)
+
                         DSSettingsRow(
                             icon: "arrow.down.doc.fill",
                             title: localized("Legado 資料遷移"),
                             action: { showLegadoMigration = true }
                         )
                     }
-                    .interfaceSectionSurface()
 
                     // ── Advanced ──
-                    Section(header: Text(localized("進階")).foregroundStyle(DSColor.textSecondary)) {
+                    SettingsCard(title: localized("進階")) {
                         DSSettingsNavRow(
                             icon: "stethoscope",
                             title: localized("診斷與回報")
@@ -190,10 +213,9 @@ struct SettingsView: View {
                             DiagnosticsView()
                         }
                     }
-                    .interfaceSectionSurface()
 
                     // ── About ──
-                    Section(header: Text(localized("關於")).foregroundStyle(DSColor.textSecondary)) {
+                    SettingsCard(title: localized("關於")) {
                         DSSettingsNavRow(
                             icon: "info.circle.fill",
                             title: localized("關於 MoYue"),
@@ -207,8 +229,10 @@ struct SettingsView: View {
                             )
                         }
                     }
-                    .interfaceSectionSurface()
                 }
+                .padding(.horizontal, DSSpacing.lg)
+                .padding(.vertical, DSSpacing.md)
+            }
             .softScrollEdges()
             .themedAppSurface(for: .settings)
             .rootTabTitle(localized("設定"), onScroll: .minimizesBar)
@@ -300,12 +324,37 @@ struct SettingsView: View {
         !ReaderPremiumVisibilityPolicy(isProActive: subscriptionStore.isProActive).allowsAI
     }
 
-/// Says whether AI is usable at a glance. A reader who has not set it up should not have
+    /// Says whether AI is usable at a glance. A reader who has not set it up should not have
     /// to open the screen to find out that.
     private var aiAssistantDetail: String {
         AIProviderStore.shared.hasConfiguredProfile ? localized("已啟用") : localized("未設定")
     }
+}
 
+// MARK: - Card Components
+
+/// A grouped settings card with an inline title and a rounded content surface.
+/// Replaces the standard Form + Section layout with a modern card-based presentation.
+struct SettingsCard: View {
+    let title: String
+    @ViewBuilder let content: any View
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(DSFont.caption.weight(.semibold))
+                .foregroundStyle(DSColor.textSecondary)
+                .padding(.horizontal, DSSpacing.md)
+                .padding(.bottom, DSSpacing.sm)
+
+            VStack(spacing: 0) {
+                content
+            }
+            .background(DSColor.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: DSRadius.card, style: .continuous))
+            .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 2)
+        }
+    }
 }
 
 /// 墨悦's brand card, first row of 設定: the app icon, name, a one-line promise and
