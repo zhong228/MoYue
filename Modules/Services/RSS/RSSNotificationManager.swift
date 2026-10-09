@@ -182,10 +182,8 @@ final class RSSAppNotificationDelegate: NSObject, UIApplicationDelegate, UNUserN
         // so launch-time crashes and MetricKit payloads carry breadcrumbs.
         MetricKitDiagnosticReporter.shared.start()
         CrashContext.breadcrumb("app launch (build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"))")
-        UNUserNotificationCenter.current().delegate = self
-        RSSNotificationManager.shared.start()
-        RSSBackgroundRefresh.shared.register()
-        RSSBackgroundRefresh.shared.schedule()
+        // RSS subscription features removed; keep delegate stub for
+        // UIApplicationDelegateAdaptor wiring in yuedu_appApp.swift.
         return true
     }
 

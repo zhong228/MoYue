@@ -174,6 +174,18 @@ final class RSSStore: ObservableObject {
         sources(inFolderNamed: folder.name)
     }
 
+    func moveSource(_ sourceID: String, after targetID: String) {
+        guard let sourceIndex = sources.firstIndex(where: { $0.id == sourceID }),
+              let targetIndex = sources.firstIndex(where: { $0.id == targetID }) else { return }
+        let source = sources.remove(at: sourceIndex)
+        let insertIndex = targetIndex > sourceIndex ? targetIndex : targetIndex + 1
+        sources.insert(source, at: insertIndex)
+        for (sortOrder, source) in sources.enumerated() {
+            sources[sortOrder].sortOrder = sortOrder
+        }
+        save()
+    }
+
     func moveSources(inFolderNamed folderName: String?, fromOffsets sourceOffsets: IndexSet, toOffset destination: Int) {
         var ordered = sources(inFolderNamed: normalizedFolderName(folderName))
         ordered.move(fromOffsets: sourceOffsets, toOffset: destination)

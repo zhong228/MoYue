@@ -13,10 +13,10 @@ enum RootTabItem: String, CaseIterable, Codable, Hashable, Identifiable {
 
     var titleKey: String {
         switch self {
-        case .bookshelf: return "書坊"
-        case .explore: return "探索"
+        case .bookshelf: return "书坊"
+        case .explore: return "发现"
         case .rss: return "订阅"
-        case .settings: return "設定"
+        case .settings: return "设定"
         case .search: return "搜索"
         }
     }

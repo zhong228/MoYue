@@ -34,7 +34,6 @@ struct RSSListView: View {
     @State private var folderToRename: RSSFolder?
     @State private var sourceForInfo: RSSSource?
     @State private var deleteTarget: RSSDeleteTarget?
-    @State private var selectedSourceForGrid: RSSSource? = nil
     @State private var showSettings = false
     @State private var showLegacyTopActionChooser = false
     @State private var legacyTopActionSequence =
@@ -130,22 +129,9 @@ struct RSSListView: View {
                 contentType: .json,
                 defaultFilename: "yuedu-rss-legado.json"
             ) { _ in }
-            .sheet(item: $selectedSourceForGrid) { source in
-                NavigationStack {
-                    RSSFeedView(source: source)
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button {
-                                    selectedSourceForGrid = nil
-                                } label: {
-                                    Image(systemName: "xmark")
-                                }
-                            }
-                        }
-                }
-            }
             .sheet(isPresented: $showSettings) {
-                RSSSettingsContentView(isPresented: $showSettings)
+                Text(localized("订阅源管理"))
+                    .padding()
             }
             .alert(localized("订阅源"), isPresented: $showImportResult) {
                 Button(localized("確定"), role: .cancel) {}
@@ -183,23 +169,38 @@ struct RSSListView: View {
             alignment: .leading,
             spacing: DSSpacing.lg
         ) {
-            ForEach(store.sources) { source in
-                Button {
-                    selectedSourceForGrid = source
-                } label: {
-                    VStack(spacing: DSSpacing.sm) {
-                        RSSFaviconView(source: source, size: 48)
-                        Text(source.name)
-                            .font(DSFont.footnote.weight(.medium))
-                            .foregroundStyle(DSColor.textPrimary)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, DSSpacing.md)
+            ForEach(store.sources, id: \.id) { source in
+                VStack(spacing: DSSpacing.sm) {
+                    RSSFaviconView(source: source, size: 48)
+                    Text(source.name)
+                        .font(DSFont.footnote.weight(.medium))
+                        .foregroundStyle(DSColor.textPrimary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, DSSpacing.md)
+                .contentShape(Rectangle())
+                .contextMenu {
+                    Button(role: .destructive) {
+                        deleteTarget = .source(source)
+                    } label: {
+                        Label(localized("删除"), systemImage: "trash")
+                    }
+                    Menu {
+                        let targets = store.sources.filter { $0.id != source.id }
+                        ForEach(targets, id: \.id) { target in
+                            Button {
+                                store.moveSource(source.id, after: target.id)
+                            } label: {
+                                Text(target.name)
+                            }
+                        }
+                    } label: {
+                        Label(localized("移动位置"), systemImage: "arrow.up.arrow.down")
+                    }
+                }
             }
         }
     }

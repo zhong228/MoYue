@@ -128,16 +128,6 @@ struct ExploreHomeView: View {
                     ToolbarItem(placement: .topBarTrailing) { groupMenu }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        pageName = ""
-                        pageNamePrompt = .create
-                    } label: {
-                        Image(systemName: "plus")
-                            .accessibilityHidden(true)
-                    }
-                    .accessibilityLabel(localized("新增自訂頁"))
-                }
-                ToolbarItem(placement: .topBarTrailing) {
                     Button { showsSettings = true } label: {
                         Image(systemName: "gearshape")
                             .accessibilityHidden(true)
@@ -251,7 +241,7 @@ struct ExploreHomeView: View {
 
     private var quickAccessSection: some View {
         VStack(alignment: .leading, spacing: DSSpacing.md) {
-            Text(localized("快捷入口"))
+            Text(localized("推荐"))
                 .font(DSFont.title2.weight(.bold))
                 .foregroundStyle(DSColor.textPrimary)
                 .accessibilityAddTraits(.isHeader)
@@ -518,21 +508,8 @@ struct ExploreHomeView: View {
     /// opens nothing.
     private func applyLandingIfNeeded() {
         guard !appliedLanding, navigation.path.isEmpty else { return }
-        switch ExploreLanding(rawValue: landing) {
-        case .off:
-            appliedLanding = true
-        case .customPage(let id):
-            appliedLanding = true
-            if pageStore.page(id: id) != nil {
-                navigation.push(.customPage(id: id))
-            }
-        case .source(let url):
-            guard !exploreSources.isEmpty else { return }
-            appliedLanding = true
-            if exploreSources.contains(where: { $0.bookSourceUrl == url }) {
-                navigation.push(.source(sourceURL: url))
-            }
-        }
+        // Landing disabled: stay on unified explore page.
+        appliedLanding = true
     }
 
     // MARK: - Destinations
