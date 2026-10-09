@@ -7,6 +7,8 @@ cd "$PROJECT_DIR"
 PROJECT="Yuedu-Reader.xcodeproj"
 SCHEME="Yuedu-Reader"
 VERSION="${1:-1.0.0}"
+# Build number derived from the last segment of VERSION (e.g. "1.0.16" -> 16)
+BUILD_NUMBER="${VERSION##*.}"
 
 echo "Building $SCHEME (unsigned) for iOS device, version $VERSION ..."
 mkdir -p build
@@ -63,6 +65,7 @@ xcodebuild \
   -destination 'generic/platform=iOS' \
   -derivedDataPath build/DerivedData \
   MARKETING_VERSION="$VERSION" \
+  CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
   CODE_SIGNING_ALLOWED=NO \
   SWIFT_COMPILATION_MODE=incremental \
   build > build/xcodebuild.log 2>&1 || {
