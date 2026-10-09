@@ -106,68 +106,36 @@ struct FileImportTab: View {
             .padding()
         }
         .softScrollEdges()
-        .fileImporter(isPresented: $showFilePicker,
-                      allowedContentTypes: LocalBookImportService.supportedContentTypes,
-                      allowsMultipleSelection: true) { result in
-            switch result {
-            case .success(let urls):
-                guard !urls.isEmpty else { return }
-                isLoading = true
-                errorMsg = nil
-                completedCount = 0
-                totalCount = urls.count
-                importTask = Task { @MainActor in
-                    defer { isLoading = false }
-                    do {
-                        let imported = try await LocalBookImportService.importBooks(at: urls, store: store) { index, filename in
-                            completedCount = index
-                            currentFile = filename
+        .sheet(isPresented: $showFilePicker) {
+            UIDocumentPickerBridge(
+                onPick: { urls in
+                    guard !urls.isEmpty else { return }
+                    isLoading = true
+                    errorMsg = nil
+                    completedCount = 0
+                    totalCount = urls.count
+                    importTask = Task { @MainActor in
+                        defer { isLoading = false }
+                        do {
+                            let imported = try await LocalBookImportService.importBooks(at: urls, store: store) { index, filename in
+                                completedCount = index
+                                currentFile = filename
+                            }
+                            completedCount = urls.count
+                            if imported.failures.isEmpty { onDismiss() }
+                            else { errorMsg = imported.failures.joined(separator: "\n") }
+                        } catch is CancellationError {
+                        } catch {
+                            errorMsg = error.localizedDescription
                         }
-                        completedCount = urls.count
-                        if imported.failures.isEmpty { onDismiss() }
-                        else { errorMsg = imported.failures.joined(separator: "\n") }
-                    } catch is CancellationError {
-                        // Completed imports remain on the shelf; no staged files
-                        // or uncommitted confirmation state outlive this view.
-                    } catch {
-                        errorMsg = error.localizedDescription
                     }
-                }
-            case .failure(let error):
-                errorMsg = error.localizedDescription
-            }
+                },
+                onCancel: { }
+            )
         }
         .interactiveDismissDisabled(isLoading)
         .onDisappear { importTask?.cancel() }
     }
-
-    static func stagedCopy(of url: URL) throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-
-        let name = url.lastPathComponent
-        let destination = directory.appendingPathComponent(
-            name.isEmpty ? UUID().uuidString : name
-        )
-        try FileManager.default.copyItem(at: url, to: destination)
-        return destination
-    }
-
-    /// Remove a staged file together with the directory created to hold it.
-    ///
-    /// Deleting a parent directory is only safe for a URL this type staged, so the
-    /// shape is verified rather than assumed: one UUID-named directory directly
-    /// inside the temp directory. Anything else deletes just the file.
-    static func removeStagedFile(at url: URL) {
-        let directory = url.deletingLastPathComponent()
-        let isStagingDirectory = UUID(uuidString: directory.lastPathComponent) != nil
-            && directory.deletingLastPathComponent().standardizedFileURL
-                == FileManager.default.temporaryDirectory.standardizedFileURL
-
-        try? FileManager.default.removeItem(at: isStagingDirectory ? directory : url)
-    }
-
 }
 
 // MARK: - URL Import Tab

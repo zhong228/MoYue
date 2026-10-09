@@ -58,8 +58,30 @@ final class ShareViewController: UIViewController {
                     self.finish(success: false, message: error.localizedDescription)
                     return
                 }
-                guard let url = item as? URL,
-                      ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+                guard let url = item as? URL else {
+                    self.finish(success: false, message: localized("無法讀取分享連結"))
+                    return
+                }
+                // Some third-party apps share local files via public.url with a
+                // file:// scheme instead of public.file-url. Treat them as file
+                // payloads so the importer classifies them correctly.
+                if url.isFileURL {
+                    do {
+                        let scoped = url.startAccessingSecurityScopedResource()
+                        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                        let data = try Data(contentsOf: url)
+                        guard !data.isEmpty else {
+                            self.finish(success: false, message: localized("分享檔案為空"))
+                            return
+                        }
+                        let name = provider.suggestedName ?? url.lastPathComponent
+                        try self.enqueueFile(data: data, suggestedName: name, typeIdentifier: UTType.data.identifier)
+                    } catch {
+                        self.finish(success: false, message: error.localizedDescription)
+                    }
+                    return
+                }
+                guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
                     self.finish(success: false, message: localized("無法讀取分享連結"))
                     return
                 }
