@@ -689,6 +689,8 @@
 "網站拒絕存取全文。你仍可開啟原始網頁閱讀。" = "The website refused access to the full article. You can still open the original page.";
 "分享" = "Share";
 "匯入 Legado JSON" = "Import Legado JSON";
+"網路匯入 Legado JSON" = "Import Legado JSON from URL";
+"本機匯入 Legado JSON" = "Import Legado JSON from File";
 "匯出 Legado JSON" = "Export Legado JSON";
 "Legado JSON 匯入失敗：%@" = "Legado JSON import failed: %@";
 "無效的 Legado 訂閱源格式" = "Invalid Legado subscription format";
@@ -728,6 +730,7 @@
 "無資料夾" = "No Folder";
 "確定要刪除「%@」訂閱源嗎？" = "Are you sure you want to delete the “%@” feed?";
 "確定要刪除「%@」資料夾以及其中的訂閱源嗎？" = "Are you sure you want to delete the “%@” folder and its feeds?";
+"訂閱源網址" = "Feed URL";
 "複製訂閱 URL" = "Copy Feed URL";
 "複製首頁 URL" = "Copy Home Page URL";
 "資料夾" = "Folder";
@@ -3551,3 +3554,14 @@
 "自由開源 · 純淨的書源閱讀器" = "Free & open source · pure book-source reader";
 "版本 %@" = "Version %@";
 "篇未讀" = "unread";
+"删除" = "Delete";
+"移动位置" = "Move";
+"刪除订阅源" = "Delete Feed";
+"確定要刪除「%@」订阅源嗎？" = "Delete “%@” feed?";
+"個订阅源" = "feeds";
+"已匯入 %d 個订阅源" = "Imported %d feeds";
+"常用订阅源倉庫" = "Popular Feed Repositories";
+"源倉庫（官方純淨）" = "Feed Repository (Official)";
+"订阅源網址無效" = "Invalid feed URL";
+"订阅源管理" = "Feed Management";
+"订阅源" = "Feed";

@@ -14,6 +14,11 @@ enum ExploreSettings {
     static let sourcePageLayoutKey = "explore.sourcePageLayout"
     static let landingKey = "explore.landing"
 
+    // MARK: 探索首頁
+
+    /// 发现页选中书源的 bookSourceUrl，关闭 App 再打开仍保持选中。
+    static let selectedSourceURLKey = "explore.selectedSourceURL"
+
     // MARK: 榜單
 
     static let rankedKeywordsKey = "explore.rankedKeywords"

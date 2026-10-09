@@ -646,9 +646,9 @@ final class DiscoverViewModel: ObservableObject {
         // source's JS runtime / shared login state deterministic (see loadSection).
         // A single hanging section must not stall every section behind it, so each
         // fetch gets the same fail-fast budget as search (see
-        // SearchAggregator.searchTimeout): 12s for plain sources, 30s for JS
+        // SearchAggregator.searchTimeout): 10s for plain sources, 30s for JS
         // aggregators. Timeout surfaces as a retry-able failure, queue continues.
-        let timeout = SearchAggregator.searchTimeout(for: source, normal: 12, aggregate: 30)
+        let timeout = SearchAggregator.searchTimeout(for: source, normal: 10, aggregate: 30)
         Task { [weak self] in
             var loaded: [OnlineBook] = []
             var displays: [DiscoverBookDisplay] = []

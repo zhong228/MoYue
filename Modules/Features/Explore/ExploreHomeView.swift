@@ -6,11 +6,7 @@ import SwiftUI
 /// The landing screen of the 探索 (Explore) tab, redesigned in Apple Books Store style.
 struct ExploreHomeView: View {
     @EnvironmentObject private var store: BookStore
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var sourceStore = BookSourceStore.shared
-    @AppStorage(ExploreSettings.showsGridKey) private var showsGrid = true
-    @AppStorage(ExploreSettings.gridColumnCountKey) private var gridColumnCount = ExploreGridDensity.default.rawValue
     @AppStorage(ExploreSettings.landingKey) private var landing = ExploreLanding.off.rawValue
     /// The browser's page and history, kept by `BrowserView` across visits.
     @ObservedObject var browser: BrowserState
@@ -31,8 +27,10 @@ struct ExploreHomeView: View {
     @State private var pageNamePrompt: PageNamePrompt?
     @State private var pageName = ""
     @State private var pagePendingDeletion: CustomExplorePage?
-    /// Currently selected source for the unified discover page (T3).
+    /// Currently selected source for the unified discover page.
     @State private var selectedSource: BookSource?
+    /// 发现页选中书源的 URL，持久化后关闭 App 再打开仍保持选中（`ExploreSettings.selectedSourceURLKey`）。
+    @AppStorage(ExploreSettings.selectedSourceURLKey) private var selectedSourceURL = ""
     @StateObject private var discoverVM = DiscoverViewModel()
 
     private struct BrowserPresentation: Identifiable {
@@ -90,13 +88,6 @@ struct ExploreHomeView: View {
             .filter { !$0.isEmpty }
     }
 
-    /// The grid the reader chose, or the list. At accessibility text sizes a tile cannot
-    /// hold its name, so the page is the list whatever the setting.
-    private var entryLayout: ExploreEntryLabel.Layout {
-        guard showsGrid, !dynamicTypeSize.isAccessibilitySize else { return .list }
-        return .grid(.fitting(gridColumnCount, dynamicTypeSize: dynamicTypeSize))
-    }
-
     var body: some View {
         NavigationStack(path: $navigation.path) {
             ScrollView {
@@ -147,6 +138,7 @@ struct ExploreHomeView: View {
             .onReceive(sourceStore.$sources) { _ in
                 exploreSources = DiscoverViewModel.exploreSources(in: sourceStore)
                 if let group, !groups.contains(group) { self.group = nil }
+                restorePersistedSourceIfNeeded()
                 applyLandingIfNeeded()
             }
             .sheet(isPresented: $showSourceManager) {
@@ -265,77 +257,6 @@ struct ExploreHomeView: View {
         }
     }
 
-    // MARK: - Sources Section
-
-    private var sourcesSection: some View {
-        Group {
-            if isFilteringSources {
-                searchResultsView
-            } else if exploreSources.isEmpty {
-                emptyStateView
-            } else {
-                VStack(alignment: .leading, spacing: DSSpacing.xl) {
-                    let topSources = Array(visibleSources.prefix(6))
-                    if !topSources.isEmpty {
-                        sourceCarouselSection(
-                            title: localized("为你推荐"),
-                            sources: topSources,
-                            showRanking: true
-                        )
-                    }
-                    if visibleSources.count > 6 {
-                        let remaining = Array(visibleSources.dropFirst(6))
-                        let grouped = Dictionary(grouping: remaining) { source in
-                            Self.groupNames(of: source).first ?? localized("其他")
-                        }
-                        ForEach(grouped.keys.sorted(), id: \.self) { groupName in
-                            if let groupSources = grouped[groupName] {
-                                sourceCarouselSection(
-                                    title: groupName,
-                                    sources: groupSources,
-                                    showRanking: false
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func sourceCarouselSection(title: String, sources: [BookSource], showRanking: Bool) -> some View {
-        VStack(alignment: .leading, spacing: DSSpacing.md) {
-            HStack {
-                Text(title)
-                    .font(DSFont.title2.weight(.bold))
-                    .foregroundStyle(DSColor.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer()
-                if sources.count > 5 {
-                    Button(action: {}) {
-                        Text(localized("查看全部"))
-                            .font(DSFont.callout.weight(.semibold))
-                            .foregroundStyle(DSColor.accent)
-                    }
-                }
-            }
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: DSSpacing.md) {
-                    ForEach(Array(sources.enumerated()), id: \.element.id) { index, source in
-                        NavigationLink(value: ExploreNavigationRoute.source(sourceURL: source.bookSourceUrl)) {
-                            SourceCard(
-                                source: source,
-                                rank: showRanking && index < 3 ? index + 1 : nil
-                            )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        .contextMenu { sourceActions(source) }
-                    }
-                }
-            }
-        }
-    }
-
     private var searchResultsView: some View {
         LazyVStack(spacing: DSSpacing.md) {
             ForEach(visibleSources) { source in
@@ -345,15 +266,6 @@ struct ExploreHomeView: View {
                 .buttonStyle(PlainButtonStyle())
                 .contextMenu { sourceActions(source) }
             }
-        }
-    }
-
-    private var emptyStateView: some View {
-        ContentUnavailableView {
-            UnavailableLabel(localized("尚未啟用支援發現的書源"), systemImage: "books.vertical")
-        } actions: {
-            Button(localized("添加书源")) { showSourceManager = true }
-                .buttonStyle(.borderedProminent)
         }
     }
 
@@ -370,7 +282,9 @@ struct ExploreHomeView: View {
                     Button {
                         withAnimation(.easeInOut(duration: 0.25)) {
                             selectedSource = source
+                            selectedSourceURL = source.bookSourceUrl
                             discoverVM.selectSource(source)
+                            discoverVM.reload()
                         }
                     } label: {
                         HStack {
@@ -512,6 +426,22 @@ struct ExploreHomeView: View {
         appliedLanding = true
     }
 
+    /// 恢复上次选中的发现页书源：关闭 App 再打开仍保持选中。
+    ///
+    /// 只在还没有选中书源时恢复（本次会话的显式选择优先于持久化值）。持久化指向的
+    /// 书源被禁用或删除后，清空持久化值，避免下一次启动反复尝试恢复一个不存在的源。
+    private func restorePersistedSourceIfNeeded() {
+        guard selectedSource == nil, !selectedSourceURL.isEmpty,
+              !exploreSources.isEmpty else { return }
+        if let source = exploreSources.first(where: { $0.bookSourceUrl == selectedSourceURL }) {
+            selectedSource = source
+            discoverVM.selectSource(source)
+            discoverVM.reload()
+        } else {
+            selectedSourceURL = ""
+        }
+    }
+
     // MARK: - Destinations
 
     @ViewBuilder
@@ -559,16 +489,6 @@ struct ExploreHomeView: View {
             UnavailableLabel(localized("書源已被刪除"), systemImage: "books.vertical")
         }
     }
-
-    /// 書源管理: pushed before iOS 18 so its importers have a first-level presenter,
-    /// a sheet afterwards (`BookSourceManagementPresentationPolicy`).
-    private func openSourceManager() {
-        if BookSourceManagementPresentationPolicy.prefersNavigationDestination {
-            navigation.push(.sourceManager)
-        } else {
-            showSourceManager = true
-        }
-    }
 }
 
 // MARK: - QuickAccessCard
@@ -603,68 +523,6 @@ struct QuickAccessCard: View {
             .shadow(color: DSColor.shadow, radius: 4, x: 0, y: 2)
         }
         .buttonStyle(PlainButtonStyle())
-    }
-}
-
-// MARK: - SourceCard
-
-struct SourceCard: View {
-    let source: BookSource
-    let rank: Int?
-
-    private var gradientColors: [Color] {
-        let hash = abs(source.bookSourceName.hashValue)
-        let palette = DSColor.coverGradients
-        return palette[hash % palette.count]
-    }
-
-    private var rankColor: Color {
-        switch rank {
-        case 1: return DSColor.rankFirst
-        case 2: return DSColor.rankSecond
-        case 3: return DSColor.rankThird
-        default: return DSColor.neutralControlFill
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.sm) {
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: DSRadius.lg)
-                    .fill(
-                        LinearGradient(
-                            colors: gradientColors,
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(height: 200)
-                Image(systemName: "book.closed")
-                    .font(.system(size: 40))
-                    .foregroundStyle(.white.opacity(0.8))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if let rank {
-                    Text("\(rank)")
-                        .font(DSFont.callout.weight(.bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 28, height: 28)
-                        .background(rankColor)
-                        .clipShape(Circle())
-                        .padding(DSSpacing.sm)
-                }
-            }
-            Text(source.bookSourceName)
-                .font(DSFont.callout.weight(.semibold))
-                .foregroundStyle(DSColor.textPrimary)
-                .lineLimit(2)
-            if !source.bookSourceGroup.isEmpty {
-                Text(source.bookSourceGroup)
-                    .font(DSFont.caption)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .lineLimit(1)
-            }
-        }
-        .frame(width: 160)
     }
 }
 

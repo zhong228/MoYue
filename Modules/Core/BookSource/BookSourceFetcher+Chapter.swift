@@ -145,7 +145,7 @@ extension BookSourceFetcher {
                             url: targetURL,
                             headers: requestHeadersSnapshot,
                             jsAfterLoad: source.ruleContent.webJs,
-                            timeout: 25,
+                            timeout: 20,
                             jsWait: effectiveWebViewDelay ?? AppConfig.webViewExplicitJSWait
                         )
                     } else {

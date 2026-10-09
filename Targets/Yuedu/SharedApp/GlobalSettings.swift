@@ -2244,9 +2244,11 @@ class GlobalSettings: ObservableObject {
 
         // MD3 defaults to 16. Current upstream Legado defaults to 32, while its
         // fixed CPU dispatcher is capped at 9; our URLSession work is asynchronous
-        // and uses this value as the actual in-flight source bound.
+        // and uses this value as the actual in-flight source bound. Searches fan
+        // out over *different* hosts, so the per-host ceiling (16) never binds it;
+        // 24 is a conservative middle ground that shortens large-pack searches.
         searchConcurrency =
-            (UserDefaults.standard.object(forKey: "yd_search_concurrency") as? Int) ?? 16
+            (UserDefaults.standard.object(forKey: "yd_search_concurrency") as? Int) ?? 24
         searchAutoPauseCount =
             (UserDefaults.standard.object(forKey: "yd_search_auto_pause_count") as? Int) ?? 0
         searchCacheDays =

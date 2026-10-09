@@ -18,6 +18,13 @@ final class DiscoverKindsCache {
         var timestamp: Date
     }
 
+    /// Freshness window for the parsed category list. The list is stable for a
+    /// given (rule, discover variables) key, but the site still evolves; Legado's
+    /// `exploreKinds` keeps far longer, yet a stale list surfaces as "发现页分类
+    /// 一直是这样" with no way to notice — pull-to-refresh bypasses the cache, but
+    /// cold-branding the entry for an hour is the same budget as `SearchResultCache`.
+    private static let entryTTL: TimeInterval = 3600
+
     private let queue = DispatchQueue(label: "com.yuedu.discoverKindsCache")
 
     private lazy var directory: URL = {
@@ -35,7 +42,8 @@ final class DiscoverKindsCache {
         queue.sync {
             guard let data = try? Data(contentsOf: fileURL(forKey: key)),
                   let entry = try? JSONDecoder().decode(Entry.self, from: data),
-                  !entry.items.isEmpty
+                  !entry.items.isEmpty,
+                  Date().timeIntervalSince(entry.timestamp) < Self.entryTTL
             else { return nil }
             return entry.items
         }

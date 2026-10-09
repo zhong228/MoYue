@@ -404,7 +404,7 @@ class SearchAggregator: ObservableObject {
     /// Timeout seconds per book source. Kept tight so dead/unreachable hosts
     /// free their concurrency slot quickly (fail-fast) instead of stalling the
     /// whole search; repeat offenders are then skipped via `SourceHealthStore`.
-    private let perSourceTimeout: UInt64 = 12
+    private let perSourceTimeout: UInt64 = 10
 
     /// Longer budget for JS-driven (`<js>`/`@js:`) search sources. Aggregate
     /// sources (光遇/大灰狼…) fan out to dozens of sub-sites server-side and take
