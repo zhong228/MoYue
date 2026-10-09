@@ -49,6 +49,10 @@ Storage (Local-first)
 Sync (WebDAV / iCloud / OPDS)
 ```
 
+## Download
+
+**Latest release:** [MoYue v1.0.22](https://github.com/zhong228/MoYue/releases/tag/v1.0.22)
+
 ## Build
 
 **Requirements:** Xcode 16+ · iOS 18.0+ · Swift 6.0
