@@ -67,8 +67,8 @@ struct SettingsView: View {
                         .padding(.horizontal, DSSpacing.md)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(
-                            RoundedRectangle(cornerRadius: DSRadius.card, style: .continuous)
-                                .fill(DSColor.cardBackground)
+                            RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous)
+                                .fill(DSColor.surface)
                         )
                         .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 3)
 
@@ -335,9 +335,9 @@ struct SettingsView: View {
 
 /// A grouped settings card with an inline title and a rounded content surface.
 /// Replaces the standard Form + Section layout with a modern card-based presentation.
-struct SettingsCard: View {
+struct SettingsCard<V: View>: View {
     let title: String
-    @ViewBuilder let content: any View
+    @ViewBuilder let content: V
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -347,12 +347,10 @@ struct SettingsCard: View {
                 .padding(.horizontal, DSSpacing.md)
                 .padding(.bottom, DSSpacing.sm)
 
-            VStack(spacing: 0) {
-                content
-            }
-            .background(DSColor.cardBackground)
-            .clipShape(RoundedRectangle(cornerRadius: DSRadius.card, style: .continuous))
-            .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 2)
+            content
+                .background(DSColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous))
+                .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 2)
         }
     }
 }
