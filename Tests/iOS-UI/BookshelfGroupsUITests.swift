@@ -1,7 +1,7 @@
 import XCTest
 
-/// 書架分組：左右滑在「全部」和各分組之間翻頁，分組列跟著選中；點分組翻到那一頁；一個字的
-/// 分組名也不會讓膠囊窄過 44pt。「全部」把每個分組收成一個資料夾，點了推入那個分組的頁面。
+/// 書架分組：一個原生功能表選「全部」或各分組，選中的分組在同一頁展示它的書——不再有
+/// 閱讀式的橫滑翻頁和分組膠囊列。「全部」把每個分組收成一個資料夾，點了推入那個分組的頁面。
 ///
 /// Needs at least one group on the simulator's shelf; it does not create any.
 final class BookshelfGroupsUITests: XCTestCase {
@@ -10,57 +10,43 @@ final class BookshelfGroupsUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    // MARK: - Group bar
+    // MARK: - Group menu
 
+    /// The group menu offers 全部 first, then every group, and selecting one switches the shelf.
     @MainActor
-    func testSwipingPagesBetweenGroups() throws {
+    func testMenuSelectsTheShownGroup() throws {
         for isGrid in [false, true] {
             let app = launchShelf(grid: isGrid)
-            let chips = groupChips(in: app)
-            let all = chips.element(boundBy: 0)
-            let firstGroup = chips.element(boundBy: 1)
-            XCTAssertTrue(all.isSelected, "the shelf opens on 全部")
+            let menu = groupMenu(in: app)
+            let names = groupNames(in: app)
 
-            shelf(in: app, grid: isGrid).swipeLeft()
-            XCTAssertTrue(waitUntil(firstGroup, isSelected: true), "a swipe to the left pages to the first group")
-            XCTAssertFalse(all.isSelected)
-            assertOnePageInView(in: app, grid: isGrid)
-            attachScreenshot(of: app, named: "Swiped to the first group, grid \(isGrid)")
+            menu.tap()
+            let lastOption = menuOption(app, title: names.last ?? "")
+            XCTAssertTrue(lastOption.waitForExistence(timeout: 5), app.debugDescription)
+            lastOption.tap()
 
-            shelf(in: app, grid: isGrid).swipeRight()
-            XCTAssertTrue(waitUntil(all, isSelected: true), "a swipe to the right pages back to 全部")
-            XCTAssertFalse(firstGroup.isSelected)
+            XCTAssertTrue(waitUntil(menu, showsValue: names.last ?? ""), "the menu names the chosen group")
+            XCTAssertFalse(waitUntil(menu, showsValue: "全部"), "no longer 全部")
+            attachScreenshot(of: app, named: "Menu selected the last group, grid \(isGrid)")
+
+            menu.tap()
+            let allOption = menuOption(app, title: "全部")
+            XCTAssertTrue(allOption.waitForExistence(timeout: 5), app.debugDescription)
+            allOption.tap()
+            XCTAssertTrue(waitUntil(menu, showsValue: "全部"), "back to 全部")
             app.terminate()
         }
     }
 
-    /// The last group is pages away from 全部: a tap goes straight there, without stopping
-    /// on a page in between.
+    /// 全部 alone takes no group bar away from the books: the menu is the only switch.
     @MainActor
-    func testTappingAGroupPagesToIt() throws {
+    func testMenuIsTheOnlyGroupSwitcher() throws {
         let app = launchShelf(grid: false)
-        let chips = groupChips(in: app)
-        let lastGroup = chips.element(boundBy: chips.count - 1)
-        lastGroup.tap()
-        XCTAssertTrue(waitUntil(lastGroup, isSelected: true), "a tapped group is the page in view")
-        XCTAssertFalse(chips.element(boundBy: 0).isSelected)
-        for index in 1..<(chips.count - 1) {
-            XCTAssertFalse(chips.element(boundBy: index).isSelected, "the page stopped on the way at group \(index)")
-        }
-        assertOnePageInView(in: app, grid: false)
-        attachScreenshot(of: app, named: "Tapped the last group")
-    }
-
-    @MainActor
-    func testGroupChipsKeepTheirMinimumWidth() throws {
-        let app = launchShelf(grid: false)
-        let chips = groupChips(in: app)
-        for index in 0..<chips.count {
-            let chip = chips.element(boundBy: index)
-            XCTAssertGreaterThanOrEqual(chip.frame.width, 44, "\(chip.label) is narrower than 44pt")
-            XCTAssertGreaterThanOrEqual(chip.frame.width, chip.frame.height, "\(chip.label) is narrower than it is tall")
-        }
-        attachScreenshot(of: app, named: "Group bar")
+        let menu = groupMenu(in: app)
+        XCTAssertEqual(app.buttons.matching(identifier: "home_group_chip").count, 0,
+                       "the胶囊 chip row is gone — MoYue does not page groups like 閱讀")
+        attachScreenshot(of: app, named: "Single group menu")
+        XCTAssertTrue(menu.isHittable)
     }
 
     // MARK: - Folders
@@ -70,16 +56,15 @@ final class BookshelfGroupsUITests: XCTestCase {
     func testAllFoldsEachGroupIntoOneFolder() throws {
         for isGrid in [false, true] {
             let app = launchShelf(grid: isGrid)
-            let chips = groupChips(in: app)
+            let names = groupNames(in: app)
             let shelf = shelf(in: app, grid: isGrid)
             let folders = shelf.descendants(matching: .any).matching(identifier: "home_group_folder")
             XCTAssertTrue(folders.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
-            for index in 1..<chips.count {
-                let group = chips.element(boundBy: index).label
-                let folder = folders.matching(NSPredicate(format: "label BEGINSWITH %@", group + "，")).firstMatch
-                XCTAssertTrue(folder.exists, "全部 has no folder for \(group): \(app.debugDescription)")
+            for name in names {
+                let folder = folders.matching(NSPredicate(format: "label BEGINSWITH %@", name + "，")).firstMatch
+                XCTAssertTrue(folder.exists, "全部 has no folder for \(name): \(app.debugDescription)")
             }
-            XCTAssertEqual(folders.count, chips.count - 1, "one folder per group")
+            XCTAssertEqual(folders.count, names.count, "one folder per group")
             attachScreenshot(of: app, named: "全部 with folders, grid \(isGrid)")
             app.terminate()
         }
@@ -91,7 +76,7 @@ final class BookshelfGroupsUITests: XCTestCase {
     func testFolderPushesItsGroupsPage() throws {
         for isGrid in [false, true] {
             let app = launchShelf(grid: isGrid)
-            _ = groupChips(in: app)
+            _ = groupMenu(in: app)
             let folder = shelf(in: app, grid: isGrid)
                 .descendants(matching: .any).matching(identifier: "home_group_folder").firstMatch
             XCTAssertTrue(folder.waitForExistence(timeout: 10), app.debugDescription)
@@ -112,7 +97,7 @@ final class BookshelfGroupsUITests: XCTestCase {
 
             app.navigationBars[group].buttons.element(boundBy: 0).tap()
             XCTAssertTrue(shelf(in: app, grid: isGrid).waitForExistence(timeout: 10), "back is 全部")
-            XCTAssertTrue(groupChips(in: app).element(boundBy: 0).isSelected)
+            XCTAssertTrue(waitUntil(groupMenu(in: app), showsValue: "全部"))
             app.terminate()
         }
     }
@@ -135,13 +120,33 @@ final class BookshelfGroupsUITests: XCTestCase {
         return app
     }
 
-    /// 全部 and then each group, in the bar's order.
+    /// The single native group menu on the shelf, e.g. `全部 ▾`.
     @MainActor
-    private func groupChips(in app: XCUIApplication) -> XCUIElementQuery {
-        let chips = app.buttons.matching(identifier: "home_group_chip")
-        XCTAssertTrue(chips.firstMatch.waitForExistence(timeout: 20), app.debugDescription)
-        XCTAssertGreaterThanOrEqual(chips.count, 2, "the shelf needs at least one group")
-        return chips
+    private func groupMenu(in app: XCUIApplication) -> XCUIElement {
+        let menu = app.buttons["home_group_menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 20), app.debugDescription)
+        return menu
+    }
+
+    /// The shelf's group names, 全部 excluded: every group the shelf can select. 全部
+    /// folds each group into one folder, whose label starts with the group's name —
+    /// read from 全部's folders, so the test never pokes at the menu's internal layout.
+    @MainActor
+    private func groupNames(in app: XCUIApplication) -> [String] {
+        let shelf = shelf(in: app, grid: false)
+        let folders = shelf.descendants(matching: .any).matching(identifier: "home_group_folder")
+        XCTAssertTrue(folders.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
+        let names = folders.allElementsBoundByIndex.compactMap { folder -> String? in
+            folder.label.components(separatedBy: "，").first
+        }
+        XCTAssertGreaterThanOrEqual(names.count, 1, "the shelf needs at least one group")
+        return names
+    }
+
+    /// One option of the open group menu, matched by its label.
+    @MainActor
+    private func menuOption(_ app: XCUIApplication, title: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
     }
 
     @MainActor
@@ -151,17 +156,10 @@ final class BookshelfGroupsUITests: XCTestCase {
         return shelf
     }
 
-    /// VoiceOver reads one page: the others are hidden from it.
     @MainActor
-    private func assertOnePageInView(in app: XCUIApplication, grid: Bool) {
-        let pages = app.descendants(matching: .any).matching(identifier: grid ? "home_book_grid" : "home_book_list")
-        XCTAssertEqual(pages.count, 1, app.debugDescription)
-    }
-
-    @MainActor
-    private func waitUntil(_ element: XCUIElement, isSelected: Bool) -> Bool {
+    private func waitUntil(_ element: XCUIElement, showsValue value: String) -> Bool {
         let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "isSelected == %@", NSNumber(value: isSelected)),
+            predicate: NSPredicate(format: "value == %@", value),
             object: element
         )
         return XCTWaiter().wait(for: [expectation], timeout: 5) == .completed

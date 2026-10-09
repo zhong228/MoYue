@@ -4,8 +4,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 // MARK: - Bookshelf Home
-/// A place on the shelf that lists books: 全部 or a group's page, which the shelf swipes
-/// between, or a group opened from its folder on 全部.
+/// A place on the shelf that lists books: 全部 or a group's selected page, or a group
+/// opened from its folder on 全部. The menu-visible groups switch in place — nothing pages.
 private enum ShelfPage: Hashable {
     case all
     case group(String)
@@ -16,7 +16,7 @@ private enum ShelfPage: Hashable {
         self = group.isEmpty ? .all : .group(group)
     }
 
-    /// One of the pages the shelf swipes between, not a folder's page pushed over it.
+    /// A folder's page is pushed over the shelf; the menu's pages are the shelf itself.
     var isOnPager: Bool {
         if case .folder = self { false } else { true }
     }
@@ -850,80 +850,69 @@ struct HomeView: View {
 
     // MARK: - Group Pages
 
-    /// The shelf as pages — 全部, then each group — that the reader swipes between, as
-    /// legado's bookshelf pages through its groups; the group bar names the page in view.
-    ///
-    /// From iOS 26 the group bar is a safe-area bar: it and the navigation bar are one
-    /// surface that the pages scroll on under, with one soft edge behind both. The system
-    /// draws that edge for the pager, the outermost scroll view, so the pager carries
-    /// `softScrollEdges()`; left to the system the edge is hard — a lighter band ending in
-    /// a hairline under the group bar (iOS 27 simulator), the line the bar used to show
-    /// under the navigation bar when it was a scroll view of its own above the shelf.
-    /// Earlier systems draw no edge and no line, so there the bar stays above the pages,
-    /// which stop under it.
+    /// The shelf in MoYue's own shape: one scrolling page of books under a single native
+    /// group menu — no 閱讀-style chip row, no horizontal paging between groups.
+    /// `pages` is `[""] + groups` in the group bar's order; `""` is 全部.
     @ViewBuilder
     private func groupedShelf(pages: [String]) -> some View {
-        let showsGroupBar = pages.count > 1
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            shelfPager(pages: pages)
-                .safeAreaBar(edge: .top, spacing: 0) {
-                    if showsGroupBar {
-                        groupFilterBar(pages: pages)
+        VStack(spacing: 0) {
+            if pages.count > 1 {
+                groupSwitcher(pages: pages)
+            }
+            // The selected group is the one page on screen. There is nothing off
+            // screen to hide from VoiceOver or to keep a scroll position for.
+            shelfContent(ShelfPage(pagerGroup: selectedGroup), isInView: true)
+        }
+    }
+
+    /// The single control that picks the group the shelf shows. 閱讀 spreads the groups
+    /// in a row of chips and pages between them; MoYue folds the same choice into one
+    /// native menu, taking the whole shelf width for the books.
+    private func groupSwitcher(pages: [String]) -> some View {
+        HStack(spacing: DSSpacing.md) {
+            Menu {
+                ForEach(pages, id: \.self) { page in
+                    Button {
+                        withAnimation(reduceMotion ? nil : DSAnimation.standard) {
+                            selectedGroup = page
+                        }
+                    } label: {
+                        if selectedGroup == page {
+                            Label(page.isEmpty ? localized("全部") : page,
+                                  systemImage: "checkmark")
+                        } else {
+                            Text(page.isEmpty ? localized("全部") : page)
+                        }
                     }
                 }
-        } else {
-            VStack(spacing: 0) {
-                if showsGroupBar {
-                    groupFilterBar(pages: pages)
+            } label: {
+                HStack(spacing: DSSpacing.xs) {
+                    Image(systemName: selectedGroup.isEmpty ? "square.grid.2x2" : "folder")
+                        .font(DSFont.caption.weight(.semibold))
+                        .accessibilityHidden(true)
+                    Text(selectedGroup.isEmpty ? localized("全部") : selectedGroup)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(DSFont.caption2.weight(.semibold))
+                        .foregroundStyle(DSColor.textSecondary)
+                        .accessibilityHidden(true)
                 }
-                shelfPager(pages: pages)
+                .font(DSFont.subheadline.weight(.semibold))
+                .foregroundStyle(DSColor.textPrimary)
+                .padding(.horizontal, DSSpacing.md)
+                .frame(minHeight: DSLayout.capsuleControlHeight)
+                .background { Capsule().fill(DSColor.surface) }
+                .contentShape(Capsule())
             }
-        }
-        #else
-        VStack(spacing: 0) {
-            if showsGroupBar {
-                groupFilterBar(pages: pages)
-            }
-            shelfPager(pages: pages)
-        }
-        #endif
-    }
+            .accessibilityIdentifier("home_group_menu")
+            .accessibilityLabel(localized("分組"))
+            .accessibilityValue(selectedGroup.isEmpty ? localized("全部") : selectedGroup)
 
-    /// `selectedGroup` is the page in view: a chip tapped pages to its group, and a page
-    /// swiped past halfway selects its chip.
-    private func shelfPager(pages: [String]) -> some View {
-        ScrollView(.horizontal) {
-            LazyHStack(spacing: 0) {
-                ForEach(pages, id: \.self) { group in
-                    let isInView = group == selectedGroup
-                    shelfContent(ShelfPage(pagerGroup: group), isInView: isInView)
-                        // VoiceOver reads the page in view and moves between pages with the
-                        // group bar, instead of walking out of one group's books into the next.
-                        .accessibilityHidden(!isInView)
-                        .containerRelativeFrame(.horizontal)
-                }
-            }
-            .scrollTargetLayout()
+            Spacer(minLength: 0)
         }
-        .scrollTargetBehavior(.paging)
-        .scrollPosition(id: pageInView, anchor: .center)
-        .scrollIndicators(.hidden)
-        // 全部 alone, with no group yet, does not page at all.
-        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-        // The edge under the bars is drawn for this scroll view, not the pages' own (see
-        // `groupedShelf`). Hiding it here hides theirs too — the setting reaches every
-        // scroll view inside — and the books then show through the bars unblurred.
-        .softScrollEdges()
-    }
-
-    private var pageInView: Binding<String?> {
-        Binding(
-            get: { selectedGroup },
-            set: { page in
-                if let page { selectedGroup = page }
-            }
-        )
+        .padding(.horizontal, DSSpacing.lg)
+        .padding(.vertical, 6)
     }
 
     /// One page as the shelf shows it, in a list or a grid. `isInView`: the page on screen,
@@ -952,36 +941,6 @@ struct HomeView: View {
         .toolbar { shelfToolbar(addsBooks: false) }
         .hidesRootTabBar(editMode == .active)
     }
-
-    // MARK: - Group Filter Bar
-    private func groupFilterBar(pages: [String]) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: DSSpacing.sm) {
-                    ForEach(pages, id: \.self) { page in
-                        DSGroupSegment(
-                            title: page.isEmpty ? localized("全部") : page,
-                            systemImage: page.isEmpty ? "square.grid.2x2" : "folder",
-                            isSelected: selectedGroup == page,
-                            minWidth: DSLayout.capsuleControlMinWidth
-                        ) {
-                            withAnimation(reduceMotion ? nil : DSAnimation.standard) { selectedGroup = page }
-                        }
-                        .accessibilityIdentifier("home_group_chip")
-                        .id(page)
-                    }
-                }
-                .padding(.horizontal, DSSpacing.lg).padding(.vertical, 6)
-            }
-            // A group swiped to brings its chip into view when the groups overflow the bar.
-            .onChange(of: selectedGroup) { _, page in
-                withAnimation(reduceMotion ? nil : DSAnimation.standard) {
-                    proxy.scrollTo(page, anchor: .center)
-                }
-            }
-        }
-    }
-
 
     // MARK: - Book List
     private func bookList(entries: [ShelfEntry], page: ShelfPage, isInView: Bool) -> some View {
@@ -1063,8 +1022,8 @@ struct HomeView: View {
         }
     }
 
-    /// The page in view answers to `home_book_list` / `home_book_grid`, a group's page pushed
-    /// from its folder to `home_folder_list` / `home_folder_grid`.
+    /// The shelf answers to `home_book_list` / `home_book_grid`; a group opened from its
+    /// folder to `home_folder_list` / `home_folder_grid`.
     private func shelfAccessibilityIdentifier(for page: ShelfPage, isInView: Bool, grid: Bool) -> String {
         let kind = grid ? "grid" : "list"
         if !page.isOnPager { return "home_folder_\(kind)" }
