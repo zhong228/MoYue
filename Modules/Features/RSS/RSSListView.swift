@@ -8,6 +8,8 @@ private enum RSSAddPresentationRoute: Hashable {
 }
 
 enum RSSHomeActionRoute: Hashable, CaseIterable {
+    case importURL
+    case importLocal
     case exportJSON
     case settings
 }
@@ -22,6 +24,7 @@ struct RSSListView: View {
     @State private var expandedFolderIDs: Set<String> = []
     @State private var didSeedExpandedFolders = false
     @State private var showJSONImporter = false
+    @State private var showDocumentPicker = false
     @State private var showJSONExporter = false
     @State private var showJSONURLSheet = false
     @State private var importMessage = ""
@@ -31,10 +34,8 @@ struct RSSListView: View {
     @State private var folderToRename: RSSFolder?
     @State private var sourceForInfo: RSSSource?
     @State private var deleteTarget: RSSDeleteTarget?
+    @State private var selectedSourceForGrid: RSSSource? = nil
     @State private var showSettings = false
-    @State private var showLegacyAddChooser = false
-    @State private var legacyAddSequence =
-        DismissalSequencedPresentation<RSSAddPresentationRoute>()
     @State private var showLegacyTopActionChooser = false
     @State private var legacyTopActionSequence =
         DismissalSequencedPresentation<RSSHomeActionRoute>()
@@ -61,9 +62,7 @@ struct RSSListView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
-                        importSection
-                        smartFeedsSection
-                        localFeedsSection
+                        sourcesGridSection
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
@@ -76,44 +75,8 @@ struct RSSListView: View {
             .rootTabTitle(localized("订阅源"), onScroll: .minimizesBar)
             .pageBackgroundToolbar(for: .rss)
             .toolbar {
-                // Two separate glass pills. A ToolbarSpacer (iOS 26+) breaks the
-                // auto-merge so the add (+) and options (…) menus sit in their own
-                // glass instead of fusing into one.
-                ToolbarItem(placement: .topBarTrailing) {
-                    rssAddToolbarControl
-                }
-
-                #if compiler(>=6.2)
-                if #available(iOS 26.0, *) {
-                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
-                }
-                #endif
-
                 ToolbarItem(placement: .topBarTrailing) {
                     rssTopToolbarControl
-                }
-            }
-            .sheet(
-                isPresented: $showLegacyAddChooser,
-                onDismiss: presentLegacyAddActionAfterChooserDismissal
-            ) {
-                AdaptiveSheetContainer(maxWidth: DSLayout.readableCompactWidth) {
-                    DismissalSequencedActionChooser(
-                        title: localized("匯入"),
-                        actions: [
-                            DismissalSequencedAction(
-                                route: .importJSON,
-                                title: localized("從網址匯入 Legado JSON"),
-                                systemImage: "link.badge.plus"
-                            ),
-                            DismissalSequencedAction(
-                                route: .importFileJSON,
-                                title: localized("從文件匯入 Legado JSON"),
-                                systemImage: "doc.badge.plus"
-                            ),
-                        ],
-                        onSelect: { legacyAddSequence.select($0) }
-                    )
                 }
             }
             .sheet(
@@ -124,6 +87,16 @@ struct RSSListView: View {
                     DismissalSequencedActionChooser(
                         title: localized("更多"),
                         actions: [
+                            DismissalSequencedAction(
+                                route: .importURL,
+                                title: localized("網路匯入 Legado JSON"),
+                                systemImage: "link.badge.plus"
+                            ),
+                            DismissalSequencedAction(
+                                route: .importLocal,
+                                title: localized("本機匯入 Legado JSON"),
+                                systemImage: "doc.badge.plus"
+                            ),
                             DismissalSequencedAction(
                                 route: .exportJSON,
                                 title: localized("匯出 Legado JSON"),
@@ -143,18 +116,34 @@ struct RSSListView: View {
             .sheet(isPresented: $showJSONURLSheet) {
                 ImportLegadoJSONURLSheet(isPresented: $showJSONURLSheet, store: store)
             }
-            .fileImporter(
-                isPresented: $showJSONImporter,
-                allowedContentTypes: [.json, .data],
-                allowsMultipleSelection: false,
-                onCompletion: importLegadoJSON
-            )
+            .sheet(isPresented: $showDocumentPicker) {
+                DocumentPicker { url in
+                    importLegadoJSON(url)
+                    showDocumentPicker = false
+                } onCancel: {
+                    showDocumentPicker = false
+                }
+            }
             .fileExporter(
                 isPresented: $showJSONExporter,
                 document: RSSJSONDocument(sources: store.sources.sorted(by: { $0.sortOrder < $1.sortOrder })),
                 contentType: .json,
                 defaultFilename: "yuedu-rss-legado.json"
             ) { _ in }
+            .sheet(item: $selectedSourceForGrid) { source in
+                NavigationStack {
+                    RSSFeedView(source: source)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button {
+                                    selectedSourceForGrid = nil
+                                } label: {
+                                    Image(systemName: "xmark")
+                                }
+                            }
+                        }
+                }
+            }
             .sheet(isPresented: $showSettings) {
                 RSSSettingsContentView(isPresented: $showSettings)
             }
@@ -187,138 +176,30 @@ struct RSSListView: View {
         }
     }
 
-    // MARK: - Import Section
-    private var importSection: some View {
-        VStack(alignment: .leading, spacing: DSSpacing.md) {
-            HStack(spacing: DSSpacing.sm) {
-                DSIconBadge(
-                    systemImage: "square.and.arrow.down",
-                    gradient: DSBrandGradient.tint(for: "import"),
-                    side: 28,
-                    iconSize: 15
-                )
-                Text(localized("订阅源导入"))
-                    .font(DSFont.title3.weight(.bold))
-                    .foregroundStyle(DSColor.textPrimary)
-                Spacer()
-            }
-            .padding(.horizontal, 4)
-
-            HStack(spacing: DSSpacing.md) {
+    // MARK: - Sources Grid
+    private var sourcesGridSection: some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 100, maximum: 120), spacing: DSSpacing.md)],
+            alignment: .leading,
+            spacing: DSSpacing.lg
+        ) {
+            ForEach(store.sources) { source in
                 Button {
-                    showJSONURLSheet = true
+                    selectedSourceForGrid = source
                 } label: {
                     VStack(spacing: DSSpacing.sm) {
-                        Image(systemName: "link.badge.plus")
-                            .font(DSFont.title2)
-                            .foregroundColor(DSColor.accent)
-                        Text(localized("网络导入"))
-                            .font(DSFont.subheadline.weight(.semibold))
-                            .foregroundColor(DSColor.textPrimary)
-                        Text(localized("从网址导入订阅源"))
-                            .font(DSFont.caption)
-                            .foregroundColor(DSColor.textSecondary)
+                        RSSFaviconView(source: source, size: 48)
+                        Text(source.name)
+                            .font(DSFont.footnote.weight(.medium))
+                            .foregroundStyle(DSColor.textPrimary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(DSSpacing.lg)
-                    .background(DSColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous))
+                    .padding(.vertical, DSSpacing.md)
                 }
                 .buttonStyle(.plain)
-
-                Button {
-                    showJSONImporter = true
-                } label: {
-                    VStack(spacing: DSSpacing.sm) {
-                        Image(systemName: "doc.badge.plus")
-                            .font(DSFont.title2)
-                            .foregroundColor(DSColor.accent)
-                        Text(localized("本地导入"))
-                            .font(DSFont.subheadline.weight(.semibold))
-                            .foregroundColor(DSColor.textPrimary)
-                        Text(localized("选择 JSON 文件"))
-                            .font(DSFont.caption)
-                            .foregroundColor(DSColor.textSecondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(DSSpacing.lg)
-                    .background(DSColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private var smartFeedsSection: some View {
-        RSSHomeSection(
-            icon: "text.book.closed.fill",
-            title: localized("订阅"),
-            unreadCount: 0,
-            isExpanded: $smartFeedsExpanded
-        ) {
-            ForEach(RSSSmartFeedKind.allCases) { smartFeed in
-                NavigationLink(destination: RSSSmartFeedView(kind: smartFeed)) {
-                    RSSMainFeedRow(
-                        title: smartFeed.title,
-                        unreadCount: store.unreadCount(for: smartFeed),
-                        icon: .system(smartFeed.systemImage, tint: smartFeed.tintColor)
-                    )
-                }
-                .buttonStyle(.plain)
-                .contextMenu {
-                    if store.unreadCount(for: smartFeed) > 0 {
-                        Button {
-                            store.markAllRead(smartFeed: smartFeed)
-                        } label: {
-                            Label(localized("標記全部已讀"), systemImage: "checkmark.circle")
-                        }
-                    }
-                }
-                .overlay(alignment: .bottom) {
-                    RSSHomeDivider()
-                }
-            }
-        }
-    }
-
-    private var localFeedsSection: some View {
-        RSSHomeSection(
-            icon: "externaldrive.fill",
-            title: localized("本機"),
-            unreadCount: store.totalUnreadCount(),
-            isExpanded: $localFeedsExpanded
-        ) {
-            if hideReadFeeds && visibleFolders.isEmpty && rootSources.isEmpty && !store.sources.isEmpty {
-                Text(localized("沒有未讀订阅"))
-                    .font(DSFont.body)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 26)
-                    .padding(.vertical, 14)
-            }
-
-            ForEach(visibleFolders) { folder in
-                folderRow(folder)
-                    .overlay(alignment: .bottom) {
-                        RSSHomeDivider()
-                    }
-
-                if expandedFolderIDs.contains(folder.id) {
-                    ForEach(visibleSources(store.sources(in: folder))) { source in
-                        sourceRow(source, indent: 36)
-                            .overlay(alignment: .bottom) {
-                                RSSHomeDivider()
-                            }
-                    }
-                }
-            }
-
-            ForEach(rootSources) { source in
-                sourceRow(source, indent: 0)
-                    .overlay(alignment: .bottom) {
-                        RSSHomeDivider()
-                    }
             }
         }
     }
@@ -497,16 +378,10 @@ struct RSSListView: View {
         store.source(id: id)
     }
 
-    private func importLegadoJSON(_ result: Result<[URL], Error>) {
+    private func importLegadoJSON(_ url: URL) {
         do {
-            guard let url = try result.get().first else { return }
-            let shouldStopAccessing = url.startAccessingSecurityScopedResource()
-            defer {
-                if shouldStopAccessing {
-                    url.stopAccessingSecurityScopedResource()
-                }
-            }
-
+            // DocumentPicker uses asCopy:true so URL is already a plain local
+            // file (not security-scoped); no startAccessingSecurityScopedResource needed.
             let data = try Data(contentsOf: url)
             let sources = try LegadoSourceJSONParser.parse(data: data)
             let addedSources = store.addSourcesReturningAdded(sources)
@@ -528,23 +403,6 @@ struct RSSListView: View {
     }
 
     @ViewBuilder
-    private var rssAddToolbarControl: some View {
-        if MenuModalPresentationPolicy.requiresDismissalSequencedChooser {
-            Button {
-                legacyAddSequence.cancel()
-                showLegacyAddChooser = true
-            } label: {
-                Image(systemName: "plus")
-            }
-            .accessibilityLabel(localized("匯入"))
-        } else {
-            RSSHomeAddMenu(
-                onImportJSON: { showJSONImporter = true }
-            )
-        }
-    }
-
-    @ViewBuilder
     private var rssTopToolbarControl: some View {
         if MenuModalPresentationPolicy.requiresDismissalSequencedChooser {
             Button {
@@ -557,21 +415,11 @@ struct RSSListView: View {
         } else {
             RSSHomeTopMenu(
                 hasSources: !store.sources.isEmpty,
+                onImportURL: { showJSONURLSheet = true },
+                onImportLocal: { showDocumentPicker = true },
                 onExportJSON: { showJSONExporter = true },
                 onSettings: { showSettings = true }
             )
-        }
-    }
-
-    private func presentLegacyAddActionAfterChooserDismissal() {
-        guard let route = legacyAddSequence.consumeAfterDismissal() else {
-            return
-        }
-        switch route {
-        case .importJSON:
-            showJSONURLSheet = true
-        case .importFileJSON:
-            showJSONImporter = true
         }
     }
 
@@ -580,6 +428,10 @@ struct RSSListView: View {
             return
         }
         switch route {
+        case .importURL:
+            showJSONURLSheet = true
+        case .importLocal:
+            showDocumentPicker = true
         case .exportJSON:
             showJSONExporter = true
         case .settings:
@@ -744,11 +596,27 @@ private struct RSSHomeAddMenu: View {
 
 private struct RSSHomeTopMenu: View {
     let hasSources: Bool
+    let onImportURL: () -> Void
+    let onImportLocal: () -> Void
     let onExportJSON: () -> Void
     let onSettings: () -> Void
 
     var body: some View {
         Menu {
+            Button {
+                onImportURL()
+            } label: {
+                Label(localized("網路匯入 Legado JSON"), systemImage: "link.badge.plus")
+            }
+
+            Button {
+                onImportLocal()
+            } label: {
+                Label(localized("本機匯入 Legado JSON"), systemImage: "doc.badge.plus")
+            }
+
+            Divider()
+
             Button {
                 onExportJSON()
             } label: {

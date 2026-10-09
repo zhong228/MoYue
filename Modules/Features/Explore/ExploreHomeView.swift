@@ -31,6 +31,9 @@ struct ExploreHomeView: View {
     @State private var pageNamePrompt: PageNamePrompt?
     @State private var pageName = ""
     @State private var pagePendingDeletion: CustomExplorePage?
+    /// Currently selected source for the unified discover page (T3).
+    @State private var selectedSource: BookSource?
+    @StateObject private var discoverVM = DiscoverViewModel()
 
     private struct BrowserPresentation: Identifiable {
         let id = UUID()
@@ -98,11 +101,13 @@ struct ExploreHomeView: View {
         NavigationStack(path: $navigation.path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: DSSpacing.xl) {
-                    if !isFilteringSources {
-                        heroBanner
-                        quickAccessSection
-                    }
-                    sourcesSection
+                if !isFilteringSources {
+                    heroBanner
+                    quickAccessSection
+                    selectedSourceDiscoverSection
+                } else {
+                    searchResultsView
+                }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, DSSpacing.lg)
@@ -117,7 +122,7 @@ struct ExploreHomeView: View {
             .scrollDismissesKeyboard(.immediately)
             .background(PageBackgroundView(scope: .explore).ignoresSafeArea())
             .pageBackgroundToolbar(for: .explore)
-            .rootTabTitle(localized("探索"), onScroll: .minimizesBar)
+            .rootTabTitle(localized("发现"), onScroll: .minimizesBar)
             .toolbar {
                 if groups.count > 1 {
                     ToolbarItem(placement: .topBarTrailing) { groupMenu }
@@ -143,7 +148,7 @@ struct ExploreHomeView: View {
             .searchable(
                 text: $query,
                 placement: .navigationBarDrawer(displayMode: .always),
-                prompt: localized("搜索書源")
+                prompt: localized("搜索")
             )
             .sheet(isPresented: $showsSettings) {
                 ExploreSettingsSheet(sources: exploreSources)
@@ -211,41 +216,35 @@ struct ExploreHomeView: View {
                         endPoint: .bottomTrailing
                     )
                 )
-            VStack(alignment: .leading, spacing: DSSpacing.md) {
+            VStack(alignment: .leading, spacing: DSSpacing.sm) {
                 Text(localized("发现好书"))
-                    .font(DSFont.title.weight(.bold))
+                    .font(DSFont.title2.weight(.bold))
                     .foregroundStyle(.white)
                 Text(localized("探索无尽阅读世界"))
-                    .font(DSFont.subheadline)
+                    .font(DSFont.callout)
                     .foregroundStyle(.white.opacity(0.9))
-                HStack(spacing: DSSpacing.md) {
+                HStack(spacing: DSSpacing.sm) {
+                    sourceSelectorMenu
                     Button { openBrowser(.resume) } label: {
-                        Text(localized("打开浏览器"))
-                            .font(DSFont.callout.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, DSSpacing.md)
-                            .padding(.vertical, DSSpacing.sm)
-                            .background {
-                                RoundedRectangle(cornerRadius: DSRadius.md)
-                                    .fill(.white.opacity(0.25))
-                            }
-                    }
-                    Button(action: openSourceManager) {
-                        Text(localized("添加书源"))
-                            .font(DSFont.callout.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, DSSpacing.md)
-                            .padding(.vertical, DSSpacing.sm)
-                            .background {
-                                RoundedRectangle(cornerRadius: DSRadius.md)
-                                    .fill(.white.opacity(0.25))
-                            }
+                        HStack(spacing: DSSpacing.xs) {
+                            Image(systemName: "safari")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text(localized("打开浏览器"))
+                                .font(DSFont.footnote.weight(.semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, DSSpacing.md)
+                        .padding(.vertical, DSSpacing.xs)
+                        .background {
+                            RoundedRectangle(cornerRadius: DSRadius.md)
+                                .fill(.white.opacity(0.25))
+                        }
                     }
                 }
             }
-            .padding(DSSpacing.lg)
+            .padding(DSSpacing.md)
         }
-        .frame(height: 200)
+        .frame(height: 140)
     }
 
     // MARK: - Quick Access
@@ -258,13 +257,6 @@ struct ExploreHomeView: View {
                 .accessibilityAddTraits(.isHeader)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: DSSpacing.md) {
-                    QuickAccessCard(
-                        icon: "globe",
-                        title: localized("浏览器"),
-                        subtitle: localized("继续浏览"),
-                        color: .blue,
-                        action: { openBrowser(.resume) }
-                    )
                     ForEach(pageStore.pages) { page in
                         NavigationLink(value: ExploreNavigationRoute.customPage(id: page.id)) {
                             QuickAccessCard(
@@ -370,8 +362,72 @@ struct ExploreHomeView: View {
         ContentUnavailableView {
             UnavailableLabel(localized("尚未啟用支援發現的書源"), systemImage: "books.vertical")
         } actions: {
-            Button(localized("前往書源管理"), action: openSourceManager)
+            Button(localized("添加书源")) { showSourceManager = true }
                 .buttonStyle(.borderedProminent)
+        }
+    }
+
+    // MARK: - Source Selector Menu (embedded in hero banner)
+
+    private var sourceSelectorMenu: some View {
+        Menu {
+            if exploreSources.isEmpty {
+                Button { showSourceManager = true } label: {
+                    Label(localized("前往书源管理添加"), systemImage: "plus.circle")
+                }
+            } else {
+                ForEach(exploreSources) { source in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            selectedSource = source
+                            discoverVM.selectSource(source)
+                        }
+                    } label: {
+                        HStack {
+                            Text(source.bookSourceName)
+                            if selectedSource?.id == source.id {
+                                Spacer()
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: DSSpacing.xs) {
+                Image(systemName: "books.vertical")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(selectedSource?.bookSourceName ?? localized("选择书源"))
+                    .font(DSFont.footnote.weight(.semibold))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, DSSpacing.md)
+            .padding(.vertical, DSSpacing.xs)
+            .background {
+                RoundedRectangle(cornerRadius: DSRadius.md)
+                    .fill(.white.opacity(0.25))
+            }
+        }
+    }
+
+    // MARK: - Discover content (selected source's discover page)
+
+    private var selectedSourceDiscoverSection: some View {
+        Group {
+            if let selectedSource {
+                DiscoverShowcaseView(
+                    discover: discoverVM,
+                    onOpenPage: { address in openBrowser(.open(address)) },
+                    embedsScrollView: false
+                )
+            } else if !exploreSources.isEmpty {
+                ContentUnavailableView {
+                    Label(localized("请选择上方书源"), systemImage: "arrow.up.circle")
+                }
+            }
         }
     }
 

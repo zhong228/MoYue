@@ -161,7 +161,7 @@ final class DiscoverViewModel: ObservableObject {
     private let sourceStore = BookSourceStore.shared
     private let runtimeStore = BookSourceRuntimeStateStore.shared
     /// The page's source, looked up again after an edit gives it a new session.
-    private let sourceURL: String
+    private var sourceURL: String?
     /// Runtime-variable keys this source's own filters target (learned from every
     /// healthy explore load, plus whatever the user picks). App-private bookkeeping,
     /// deliberately outside the source variable JSON so nothing the source's JS reads
@@ -186,6 +186,15 @@ final class DiscoverViewModel: ObservableObject {
     var hasExploreSource: Bool { selectedSource != nil }
 
     init(source: BookSource) {
+        sourceURL = source.bookSourceUrl
+        exploreSources = [source]
+        selectedSourceId = source.id
+        loadCategorySelection()
+    }
+
+    init() { }
+
+    func selectSource(_ source: BookSource) {
         sourceURL = source.bookSourceUrl
         exploreSources = [source]
         selectedSourceId = source.id

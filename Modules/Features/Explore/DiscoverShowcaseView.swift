@@ -12,6 +12,10 @@ struct DiscoverShowcaseView: View {
     @ObservedObject var discover: DiscoverViewModel
     /// Opens a category that is a web page rather than a book list.
     var onOpenPage: ((String) -> Void)?
+    /// When true (default), the view owns its own ScrollView so it works standalone.
+    /// When false, only the inner LazyVStack is returned for embedding inside another
+    /// ScrollView (e.g. ExploreHomeView's unified scroll surface).
+    var embedsScrollView: Bool = true
 
     /// Which categories are charts follows these words; read so a change redraws.
     @AppStorage(ExploreSettings.rankedKeywordsKey)
@@ -22,49 +26,57 @@ struct DiscoverShowcaseView: View {
         discover.pageItems
     }
 
-    var body: some View {
-        let _ = rankedKeywords
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: DSSpacing.xl) {
-                if !discover.filters.isEmpty || (onOpenPage != nil && !pageItems.isEmpty) {
-                    DiscoverControlsRow(
-                        discover: discover,
-                        pageItems: onOpenPage == nil ? [] : pageItems,
-                        onOpenPage: { onOpenPage?($0) }
-                    )
-                }
-                if discover.isLoadingItems && discover.sections.isEmpty {
-                    loadingState
-                } else if discover.sections.isEmpty {
-                    DiscoverEmptyState(discover: discover)
-                } else {
-                    ForEach(discover.sections) { section in
-                        if section.style == .ranked {
-                            if section.id == firstRankedSectionId {
-                                DiscoverRankedSectionsCarousel(
-                                    sections: rankedSections,
-                                    source: discover.selectedSource,
-                                    onAppearLoad: { discover.loadSection($0) },
-                                    onRetry: { discover.retrySection($0) }
-                                )
-                            }
-                        } else {
-                            DiscoverSectionView(
-                                section: section,
+    private var content: some View {
+        LazyVStack(alignment: .leading, spacing: DSSpacing.xl) {
+            if !discover.filters.isEmpty || (onOpenPage != nil && !pageItems.isEmpty) {
+                DiscoverControlsRow(
+                    discover: discover,
+                    pageItems: onOpenPage == nil ? [] : pageItems,
+                    onOpenPage: { onOpenPage?($0) }
+                )
+            }
+            if discover.isLoadingItems && discover.sections.isEmpty {
+                loadingState
+            } else if discover.sections.isEmpty {
+                DiscoverEmptyState(discover: discover)
+            } else {
+                ForEach(discover.sections) { section in
+                    if section.style == .ranked {
+                        if section.id == firstRankedSectionId {
+                            DiscoverRankedSectionsCarousel(
+                                sections: rankedSections,
                                 source: discover.selectedSource,
-                                onAppearLoad: { discover.loadSection(section.id) },
-                                onRetry: { discover.retrySection(section.id) }
+                                onAppearLoad: { discover.loadSection($0) },
+                                onRetry: { discover.retrySection($0) }
                             )
                         }
+                    } else {
+                        DiscoverSectionView(
+                            section: section,
+                            source: discover.selectedSource,
+                            onAppearLoad: { discover.loadSection(section.id) },
+                            onRetry: { discover.retrySection(section.id) }
+                        )
                     }
                 }
             }
-            .padding(.vertical, DSSpacing.lg)
-            .padding(.bottom, 120)
         }
-        .softScrollEdges()
-        .scrollDismissesKeyboard(.immediately)
-        .refreshable { discover.reload(forceRefresh: true) }
+        .padding(.vertical, DSSpacing.lg)
+        .padding(.bottom, 120)
+    }
+
+    var body: some View {
+        let _ = rankedKeywords
+        if embedsScrollView {
+            ScrollView {
+                content
+            }
+            .softScrollEdges()
+            .scrollDismissesKeyboard(.immediately)
+            .refreshable { discover.reload(forceRefresh: true) }
+        } else {
+            content
+        }
     }
 
     private var loadingState: some View {
