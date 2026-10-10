@@ -4,7 +4,7 @@ import SwiftUI
 struct BookshelfScrapeView: View {
     @EnvironmentObject var store: BookStore
 
-    private enum Phase {
+    private enum Phase: Equatable {
         case idle
         case scraping(progress: String)
         case finished(success: Int, failed: Int)
