@@ -3565,3 +3565,14 @@
 "订阅源網址無效" = "Invalid feed URL";
 "订阅源管理" = "Feed Management";
 "订阅源" = "Feed";
+
+"全部订阅源" = "All Feeds";
+"未读订阅" = "Unread Feeds";
+"已读订阅" = "Read Feeds";
+"收藏订阅" = "Favorite Feeds";
+"刷新所有订阅" = "Refresh All Feeds";
+"一键全部已读" = "Mark All as Read";
+"订阅筛选" = "Filter Feeds";
+"管理订阅源" = "Manage Feeds";
+"还没有订阅源" = "No Feeds Yet";
+"没有符合条件的订阅源" = "No Matching Feeds";

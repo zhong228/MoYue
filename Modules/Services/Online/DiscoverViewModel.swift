@@ -490,7 +490,19 @@ final class DiscoverViewModel: ObservableObject {
     /// Shared tail of `reload()` for both the cache-hit and network paths.
     private func applyDiscoverItems(_ raw: [ModernParserBridge.DiscoverItem]) {
         rawItems = raw
-        filters = Self.extractFilters(from: raw)
+        // Keep the values the user picked for each filter (e.g. the 线路 select)
+        // across reloads, instead of silently resetting them to the source's
+        // defaults every time the filter list is re-derived from a fresh payload.
+        let preferred: [String: String] = Dictionary(
+            uniqueKeysWithValues: filters.map { ($0.paramKey, $0.selected) }
+        )
+        filters = Self.extractFilters(from: raw).map { filter in
+            guard let chosen = preferred[filter.paramKey],
+                  filter.options.contains(chosen) else { return filter }
+            var restored = filter
+            restored.selected = chosen
+            return restored
+        }
         // Learn which runtime variables this source's filters target, so a later
         // degraded load can reset exactly those and nothing else.
         if let source = selectedSource, !filters.isEmpty {

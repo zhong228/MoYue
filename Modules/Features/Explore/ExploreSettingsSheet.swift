@@ -9,9 +9,6 @@ struct ExploreSettingsSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage(ExploreSettings.showsGridKey) private var showsGrid = true
-    @AppStorage(ExploreSettings.gridColumnCountKey)
-    private var gridColumnCount = ExploreGridDensity.default.rawValue
     @AppStorage(ExploreSettings.sourcePageLayoutKey)
     private var sourcePageLayout = ExploreSourcePageLayout.default
     @AppStorage(ExploreSettings.landingKey) private var landing = ExploreLanding.off.rawValue
@@ -34,7 +31,6 @@ struct ExploreSettingsSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                exploreSection
                 layoutSection
                 landingSection
                 // How the charts and shelves fill and load matters only to the magazine
@@ -63,27 +59,6 @@ struct ExploreSettingsSheet: View {
     }
 
     // MARK: Sections
-
-    private var exploreSection: some View {
-        Section {
-            Toggle(isOn: $showsGrid) {
-                SettingsRowLabel(localized("格狀"), systemImage: "square.grid.2x2")
-            }
-            Picker(selection: $gridColumnCount) {
-                ForEach(ExploreGridDensity.allCases) { density in
-                    Text(String(format: localized("%d 欄"), density.rawValue))
-                        .tag(density.rawValue)
-                }
-            } label: {
-                SettingsRowLabel(localized("每列欄數"), systemImage: "rectangle.split.3x1")
-            }
-            .pickerStyle(.menu)
-            .disabled(!showsGrid)
-        } header: {
-            sectionHeader(localized("探索頁"))
-        }
-        .interfaceSectionSurface()
-    }
 
     private var layoutSection: some View {
         Section {

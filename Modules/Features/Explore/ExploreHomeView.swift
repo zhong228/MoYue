@@ -8,6 +8,10 @@ struct ExploreHomeView: View {
     @EnvironmentObject private var store: BookStore
     @ObservedObject private var sourceStore = BookSourceStore.shared
     @AppStorage(ExploreSettings.landingKey) private var landing = ExploreLanding.off.rawValue
+    /// 書源頁佈局: the selected source's discover page on 探索 mirrors the same layout
+    /// the source's own page uses (探索設定 › 書源頁佈局).
+    @AppStorage(ExploreSettings.sourcePageLayoutKey)
+    private var sourcePageLayout = ExploreSourcePageLayout.default
     /// The browser's page and history, kept by `BrowserView` across visits.
     @ObservedObject var browser: BrowserState
 
@@ -224,9 +228,10 @@ struct ExploreHomeView: View {
                     }
                 }
             }
-            .padding(DSSpacing.md)
+            .padding(.horizontal, DSSpacing.md)
+            .padding(.vertical, DSSpacing.sm)
         }
-        .frame(height: 140)
+        .frame(height: 112)
     }
 
     // MARK: - Quick Access
@@ -322,11 +327,20 @@ struct ExploreHomeView: View {
     private var selectedSourceDiscoverSection: some View {
         Group {
             if let selectedSource {
-                DiscoverShowcaseView(
-                    discover: discoverVM,
-                    onOpenPage: { address in openBrowser(.open(address)) },
-                    embedsScrollView: false
-                )
+                switch sourcePageLayout {
+                case .magazine:
+                    DiscoverShowcaseView(
+                        discover: discoverVM,
+                        onOpenPage: { address in openBrowser(.open(address)) },
+                        embedsScrollView: false
+                    )
+                case .list:
+                    DiscoverListLayoutView(
+                        discover: discoverVM,
+                        onOpenPage: { address in openBrowser(.open(address)) },
+                        embedsScrollView: false
+                    )
+                }
             } else if !exploreSources.isEmpty {
                 ContentUnavailableView {
                     Label(localized("请选择上方书源"), systemImage: "arrow.up.circle")

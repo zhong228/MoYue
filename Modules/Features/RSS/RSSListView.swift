@@ -9,6 +9,41 @@ enum RSSHomeActionRoute: Hashable, CaseIterable {
     case settings
 }
 
+enum RSSSourceFilter: String, CaseIterable, Identifiable {
+    case all
+    case unread
+    case read
+    case favorite
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all:
+            return localized("全部订阅源")
+        case .unread:
+            return localized("未读订阅")
+        case .read:
+            return localized("已读订阅")
+        case .favorite:
+            return localized("收藏订阅")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .all:
+            return "tray.full"
+        case .unread:
+            return "circle.fill"
+        case .read:
+            return "checkmark.circle"
+        case .favorite:
+            return "star.fill"
+        }
+    }
+}
+
 struct RSSListView: View {
     @StateObject private var store = RSSStore.shared
 
@@ -23,6 +58,8 @@ struct RSSListView: View {
     @State private var sourceInfoToShow: RSSSource?
     @State private var legacyTopActionSequence =
         DismissalSequencedPresentation<RSSHomeActionRoute>()
+    @State private var sourceFilter: RSSSourceFilter = .all
+    @State private var isRefreshingAll = false
 
     var body: some View {
         NavigationStack {
@@ -32,7 +69,11 @@ struct RSSListView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
-                        sourcesGridSection
+                        if filteredSources.isEmpty {
+                            sourcesEmptyState
+                        } else {
+                            sourcesGridSection
+                        }
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
@@ -45,6 +86,9 @@ struct RSSListView: View {
             .rootTabTitle(localized("订阅源"), onScroll: .minimizesBar)
             .pageBackgroundToolbar(for: .rss)
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    rssFilterMenu
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     rssTopToolbarControl
                 }
@@ -73,11 +117,11 @@ struct RSSListView: View {
                                 systemImage: "doc.badge.arrow.up",
                                 isEnabled: !store.sources.isEmpty
                             ),
-                            DismissalSequencedAction(
-                                route: .settings,
-                                title: localized("設定"),
-                                systemImage: "gearshape"
-                            ),
+            DismissalSequencedAction(
+                route: .settings,
+                title: localized("管理订阅源"),
+                systemImage: "gearshape"
+            ),
                         ],
                         onSelect: { legacyTopActionSequence.select($0) }
                     )
@@ -101,8 +145,7 @@ struct RSSListView: View {
                 defaultFilename: "yuedu-rss-legado.json"
             ) { _ in }
             .sheet(isPresented: $showSettings) {
-                Text(localized("订阅源管理"))
-                    .padding()
+                RSSOrganizeSheet(store: store)
             }
             .sheet(item: $sourceInfoToShow) { source in
                 RSSSourceInfoSheet(source: source, store: store)
@@ -131,13 +174,42 @@ struct RSSListView: View {
     }
 
     // MARK: - Sources Grid
+
+    private var sourcesEmptyState: some View {
+        VStack(spacing: DSSpacing.md) {
+            Image(systemName: sourceFilter.systemImage)
+                .font(.system(size: 40))
+                .foregroundStyle(DSColor.textSecondary)
+            Text(sourceFilter == .all ? localized("还没有订阅源") : localized("没有符合条件的订阅源"))
+                .font(DSFont.footnote)
+                .foregroundStyle(DSColor.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 80)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var filteredSources: [RSSSource] {
+        switch sourceFilter {
+        case .all:
+            return store.sources
+        case .unread:
+            return store.sources.filter { store.unreadCount(for: $0.id) > 0 }
+        case .read:
+            return store.sources.filter { store.articles(for: $0.id).allSatisfy(\.isRead) && !store.articles(for: $0.id).isEmpty }
+        case .favorite:
+            return store.sources.filter { store.articles(for: $0.id).contains(where: \.isFavorite) }
+        }
+    }
+
     private var sourcesGridSection: some View {
         LazyVGrid(
             columns: [GridItem(.adaptive(minimum: 100, maximum: 120), spacing: DSSpacing.md)],
             alignment: .leading,
             spacing: DSSpacing.lg
         ) {
-            ForEach(store.sources, id: \.id) { source in
+            ForEach(filteredSources, id: \.id) { source in
                 NavigationLink {
                     RSSFeedView(source: source)
                 } label: {
@@ -253,6 +325,50 @@ struct RSSListView: View {
         }
     }
 
+    @ViewBuilder
+    private var rssFilterMenu: some View {
+        Menu {
+            Picker("", selection: $sourceFilter) {
+                ForEach(RSSSourceFilter.allCases) { filter in
+                    Label(filter.title, systemImage: filter.systemImage)
+                        .tag(filter)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+
+            Divider()
+
+            Button {
+                Task { await refreshAllSources() }
+            } label: {
+                Label(localized("刷新所有订阅"), systemImage: "arrow.clockwise")
+            }
+            .disabled(isRefreshingAll || store.sources.isEmpty)
+
+            Button {
+                store.markAllRead(sourceID: nil, isRead: true)
+            } label: {
+                Label(localized("一键全部已读"), systemImage: "checkmark.circle")
+            }
+            .disabled(store.totalUnreadCount() == 0)
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(DSFont.toolbarIcon)
+        }
+        .accessibilityLabel(localized("订阅筛选"))
+        .foregroundColor(DSColor.textPrimary)
+        .id("\(Locale.autoupdatingCurrent.identifier)_rss_source_filter_\(sourceFilter.rawValue)")
+    }
+
+    @MainActor
+    private func refreshAllSources() async {
+        guard !store.sources.isEmpty else { return }
+        isRefreshingAll = true
+        defer { isRefreshingAll = false }
+        await RSSFeedRefreshService.refreshAll()
+    }
+
 }
 
 private enum RSSDeleteTarget: Identifiable {
@@ -316,7 +432,7 @@ private struct RSSHomeTopMenu: View {
             Button {
                 onSettings()
             } label: {
-                Label(localized("設定"), systemImage: "gearshape")
+                Label(localized("管理订阅源"), systemImage: "gearshape")
             }
         } label: {
             Image(systemName: "ellipsis")

@@ -274,6 +274,10 @@ private struct RSSArticleWebReaderView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        // Allow videos to autoplay/load inline without requiring user gesture
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        configuration.allowsPictureInPictureMediaPlayback = true
         configuration.userContentController.add(context.coordinator, name: "scrollPosition")
 
         let webView = WKWebView(frame: .zero, configuration: configuration)

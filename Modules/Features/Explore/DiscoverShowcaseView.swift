@@ -652,6 +652,10 @@ struct DiscoverCategoryBookList: View {
     let source: BookSource
     /// Pull to refresh, where the page around the list offers it.
     var onRefresh: (() -> Void)?
+    /// When true (default), the list owns its ScrollView. When false, only the inner
+    /// LazyVStack is returned for embedding inside another ScrollView (e.g. the list
+    /// layout on 探索's unified page), so the books feed the page's own scrolling.
+    var embedsScrollView: Bool = true
 
     @State private var books: [DiscoverBookDisplay]
     @State private var nextPage: Int
@@ -662,58 +666,64 @@ struct DiscoverCategoryBookList: View {
     init(
         section: DiscoverShowcaseSection,
         source: BookSource,
-        onRefresh: (() -> Void)? = nil
+        onRefresh: (() -> Void)? = nil,
+        embedsScrollView: Bool = true
     ) {
         self.section = section
         self.source = source
         self.onRefresh = onRefresh
+        self.embedsScrollView = embedsScrollView
         _books = State(initialValue: section.books)
         _nextPage = State(initialValue: section.books.isEmpty ? 1 : 2)
     }
 
     var body: some View {
-        let list = ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(Array(books.enumerated()), id: \.element.id) { index, display in
-                    if index > 0 {
-                        Divider()
-                            .padding(.leading, DSLayout.discoverRowCoverWidth + DSSpacing.md)
+        let rows = LazyVStack(spacing: 0) {
+            ForEach(Array(books.enumerated()), id: \.element.id) { index, display in
+                if index > 0 {
+                    Divider()
+                        .padding(.leading, DSLayout.discoverRowCoverWidth + DSSpacing.md)
+                }
+                NavigationLink(value: ExploreNavigationRoute.book(display.book)) {
+                    DiscoverBookRow(
+                        rank: section.style == .ranked ? index + 1 : nil,
+                        display: display,
+                        section: section,
+                        showsIntro: true
+                    )
+                }
+                .buttonStyle(.plain)
+                .onAppear {
+                    if index >= books.count - 5 {
+                        loadMoreIfNeeded()
                     }
-                    NavigationLink(value: ExploreNavigationRoute.book(display.book)) {
-                        DiscoverBookRow(
-                            rank: section.style == .ranked ? index + 1 : nil,
-                            display: display,
-                            section: section,
-                            showsIntro: true
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .onAppear {
-                        if index >= books.count - 5 {
-                            loadMoreIfNeeded()
+                }
+            }
+
+            loadMoreFooter
+        }
+        .padding(.horizontal, DSSpacing.lg)
+        .padding(.vertical, DSSpacing.sm)
+
+        if embedsScrollView {
+            let list = ScrollView { rows }
+                .overlay {
+                    if books.isEmpty, !hasMorePages, !isLoadingMore, loadMoreErrorReason == nil {
+                        ContentUnavailableView {
+                            UnavailableLabel(localized("暫無發現內容"), systemImage: "books.vertical")
                         }
                     }
                 }
+                .softScrollEdges()
+                .scrollDismissesKeyboard(.immediately)
 
-                loadMoreFooter
+            if let onRefresh {
+                list.refreshable { onRefresh() }
+            } else {
+                list
             }
-            .padding(.horizontal, DSSpacing.lg)
-            .padding(.vertical, DSSpacing.sm)
-        }
-        .overlay {
-            if books.isEmpty, !hasMorePages, !isLoadingMore, loadMoreErrorReason == nil {
-                ContentUnavailableView {
-                    UnavailableLabel(localized("暫無發現內容"), systemImage: "books.vertical")
-                }
-            }
-        }
-        .softScrollEdges()
-        .scrollDismissesKeyboard(.immediately)
-
-        if let onRefresh {
-            list.refreshable { onRefresh() }
         } else {
-            list
+            rows
         }
     }
 
@@ -802,6 +812,10 @@ struct DiscoverListLayoutView: View {
     @ObservedObject var discover: DiscoverViewModel
     /// Opens a category that is a web page rather than a book list.
     var onOpenPage: ((String) -> Void)?
+    /// When true (default), the empty state owns its ScrollView. When false, the
+    /// whole layout feeds the surrounding ScrollView (探索's unified page), and the
+    /// books list is embedded without its own scrolling as well.
+    var embedsScrollView: Bool = true
 
     /// The chosen category, by the key that survives a reload; the first until one is chosen.
     @State private var selectedKey: String?
@@ -828,21 +842,33 @@ struct DiscoverListLayoutView: View {
                 categoryChips
             }
             if discover.isLoadingItems && discover.sections.isEmpty {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if embedsScrollView {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, DSSpacing.xl)
+                }
             } else if let section = selectedSection, let source = discover.selectedSource {
                 DiscoverCategoryBookList(
                     section: section,
                     source: source,
-                    onRefresh: { discover.reload(forceRefresh: true) }
+                    onRefresh: { discover.reload(forceRefresh: true) },
+                    embedsScrollView: embedsScrollView
                 )
                 // A reload rebuilds the sections; their books start again from page one.
                 .id(section.id)
             } else {
-                ScrollView {
-                    DiscoverEmptyState(discover: discover)
+                let empty = DiscoverEmptyState(discover: discover)
+                if embedsScrollView {
+                    ScrollView {
+                        empty
+                    }
+                    .refreshable { discover.reload(forceRefresh: true) }
+                } else {
+                    empty
                 }
-                .refreshable { discover.reload(forceRefresh: true) }
             }
         }
     }

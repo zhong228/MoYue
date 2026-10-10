@@ -4,11 +4,6 @@ import Foundation
 /// the views read them with `@AppStorage`, and discover loading reads them here, off the
 /// main actor where it has to.
 enum ExploreSettings {
-    // MARK: 探索頁
-
-    static let showsGridKey = "explore.showsGrid"
-    static let gridColumnCountKey = "explore.gridColumnCount"
-
     // MARK: 書源頁
 
     static let sourcePageLayoutKey = "explore.sourcePageLayout"
