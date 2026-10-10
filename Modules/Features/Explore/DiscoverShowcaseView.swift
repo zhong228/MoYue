@@ -860,6 +860,17 @@ struct DiscoverListLayoutView: View {
         // page's own LazyVStack and every book row stays genuinely lazy. When the
         // layout owns its page, the rows scroll inside
         // DiscoverCategoryBookList's own ScrollView, exactly as before.
+        layoutRoot
+            .onChange(of: selectedKey) { _, newKey in
+                selectSection(matching: newKey)
+            }
+            .onChange(of: discover.sections) { _, newSections in
+                handleSectionsChange(newSections)
+            }
+    }
+
+    @ViewBuilder
+    private var layoutRoot: some View {
         if embedsScrollView {
             VStack(spacing: 0) {
                 layoutContent
@@ -867,16 +878,18 @@ struct DiscoverListLayoutView: View {
         } else {
             layoutContent
         }
-        .onChange(of: selectedKey) { _, newKey in
-            selectedSection = discover.sections.first { $0.item.stableKey == newKey } ?? discover.sections.first
-        }
-        .onChange(of: discover.sections) { _, newSections in
-            if let key = selectedKey {
-                selectedSection = newSections.first { $0.item.stableKey == key } ?? newSections.first
-            } else {
-                selectedSection = newSections.first
-                selectedKey = newSections.first?.item.stableKey
-            }
+    }
+
+    private func selectSection(matching key: String?) {
+        selectedSection = discover.sections.first { $0.item.stableKey == key } ?? discover.sections.first
+    }
+
+    private func handleSectionsChange(_ newSections: [DiscoverShowcaseSection]) {
+        if let key = selectedKey {
+            selectedSection = newSections.first { $0.item.stableKey == key } ?? newSections.first
+        } else {
+            selectedSection = newSections.first
+            selectedKey = newSections.first?.item.stableKey
         }
     }
 
