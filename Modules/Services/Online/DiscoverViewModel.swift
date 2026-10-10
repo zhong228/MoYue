@@ -712,7 +712,7 @@ final class DiscoverViewModel: ObservableObject {
                 }
                 self.sections[idx] = updated
                 if ok {
-                    self.prefetchCovers(loaded, source: source)
+                    Self.prefetchCovers(loaded, source: source)
                 }
             }
             self.isPumpingSections = false
@@ -756,7 +756,7 @@ final class DiscoverViewModel: ObservableObject {
     /// Warm the cover cache for a freshly loaded section so its cards paint right away
     /// instead of each fetching lazily on appear (covers used to trickle in until you
     /// opened 查看全部 — which warmed the cache as a side effect — and came back).
-    private func prefetchCovers(_ books: [OnlineBook], source: BookSource) {
+    static func prefetchCovers(_ books: [OnlineBook], source: BookSource) {
         let headers = BookCoverLoader.headers(
             sourceBaseURL: source.bookSourceUrl,
             sourceHeaders: source.parsedHeaders

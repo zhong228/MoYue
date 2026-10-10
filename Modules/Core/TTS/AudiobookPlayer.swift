@@ -1132,6 +1132,44 @@ final class AudiobookPlayer: NSObject, ObservableObject {
                 self?.neighborFailed(index, error: failure, book: book, store: store)
             }
         )
+        // Beyond the ±1 resolve window, warm the chapters two and three ahead (and back)
+        // the way the reader does (mirroring `prefetchAround`, one step further out so the
+        // look-ahead keeps its one-at-a-time slot). Fetching the page under `.prefetch`
+        // means a later chapter change finds the chapter cached, and `audio` resolves the
+        // link from that cache — turning the long jump into a near-instant start.
+        warmAudioChapterPages(center: center, book: book, store: store)
+    }
+
+    /// Prefetches the chapter *pages* around `center`, leaving ±1 to the link look-ahead:
+    /// N+2/N+3 at `.prefetch`, N-2/N-3 at `.background`. Only online books need this;
+    /// direct-audio TOC chapters (whose links are already playable) skip the page fetch
+    /// entirely, and volume headings have no audio, so neither is warmed here.
+    private func warmAudioChapterPages(center: Int, book: ReadingBook, store: BookStore) {
+        guard book.isOnline, chapterIndex == center,
+              let refs = book.onlineChapters, !refs.isEmpty else { return }
+        let last = refs.count - 1
+
+        func needsWarm(_ idx: Int) -> Bool {
+            guard idx >= 0, idx <= last else { return false }
+            let ref = refs[idx]
+            return !ref.shouldRenderAsVolumeSeparator
+                && !OnlineChapterAudioProvider.isDirectAudioURL(ref.url)
+        }
+
+        let forward = [center + 2, center + 3].filter(needsWarm)
+        let backward = [center - 2, center - 3].filter(needsWarm)
+
+        Task { [weak self] in
+            guard let self, self.chapterIndex == center else { return }
+            if !forward.isEmpty {
+                await ChapterFetchManager.shared.prefetchChapters(
+                    book: book, indices: forward, priority: .prefetch, store: store)
+            }
+            if !backward.isEmpty {
+                await ChapterFetchManager.shared.prefetchChapters(
+                    book: book, indices: backward, priority: .background, store: store)
+            }
+        }
     }
 
     private func neighborResolved(_ index: Int, audio: ChapterAudio, center: Int) {

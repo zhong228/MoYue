@@ -53,12 +53,32 @@ protocol ChapterAudioProvider: AnyObject {
 
 @MainActor
 final class OnlineChapterAudioProvider: ChapterAudioProvider {
+    /// Direct TOC links that failed to play once are remembered by "bookId#chapterIndex",
+    /// so the fast path does not hand the same expired link to the player again; the
+    /// chapter falls back to the page-fetch path, which can produce a fresh link.
+    private var failedDirectChapters: Set<String> = []
+
     func audio(
         for book: ReadingBook,
         chapterIndex: Int,
         priority: ChapterFetchPriority,
         store: BookStore
     ) async throws -> ChapterAudio {
+        // Fast path: when the TOC entry itself already points at a playable audio file,
+        // there is no chapter page to fetch and parse — the per-chapter fetch is the slow
+        // part of loading an online audiobook. Play the link straight away.
+        if let refs = book.onlineChapters, refs.indices.contains(chapterIndex) {
+            let ref = refs[chapterIndex]
+            if Self.isDirectAudioURL(ref.url),
+               !failedDirectChapters.contains(Self.failureKey(book: book, chapter: chapterIndex)) {
+                let sanitized = RuleEngine.sanitizeExtractedURL(ref.url)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if let url = URL(string: sanitized) {
+                    return ChapterAudio(url: url, headers: sourceHeaders(for: book))
+                }
+            }
+        }
+
         // Cache first, like every online chapter: the cached content is this chapter's
         // resolved link (legado keeps it in `BookChapter.resourceUrl`).
         let package = try await ChapterFetchManager.shared.fetchChapter(
@@ -86,10 +106,48 @@ final class OnlineChapterAudioProvider: ChapterAudioProvider {
     }
 
     /// The same two steps the reader's refetch takes: the cached chapter file, and the
-    /// shelf record's pointer to it.
+    /// shelf record's pointer to it. A direct TOC link is also marked failed here — both
+    /// the retry path and the look-ahead path call this when a resolved link does not
+    /// play, and retrying an expired time-signed URL would only fail again.
     func discardResolvedAudio(for book: ReadingBook, chapterIndex: Int, store: BookStore) {
+        if let refs = book.onlineChapters, refs.indices.contains(chapterIndex),
+           Self.isDirectAudioURL(refs[chapterIndex].url) {
+            failedDirectChapters.insert(Self.failureKey(book: book, chapter: chapterIndex))
+        }
         BookSourceFetcher.shared.clearChapterCache(bookId: book.id, chapterIndex: chapterIndex)
         store.clearCachedChapter(bookId: book.id, chapterIndex: chapterIndex)
+    }
+
+    /// Whether a TOC link is already a playable audio stream — stricter than the page
+    /// content heuristic (`DirectChapterAudioResolver`), because here we judge the raw
+    /// link before any page is fetched: it has to be http(s) with a real audio file
+    /// extension, or carry an audio MIME in its query (e.g. 番茄 `mime_type=audio_mpeg`).
+    /// Page URLs are otherwise never mistaken for streams.
+    static func isDirectAudioURL(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https"
+        else {
+            return false
+        }
+
+        if Self.audioExtensions.contains(url.pathExtension.lowercased()) {
+            return true
+        }
+
+        let lowered = trimmed.lowercased()
+        return lowered.contains("mime=audio")
+            || lowered.contains("mime_type=audio")
+            || lowered.contains("content-type=audio")
+    }
+
+    private static let audioExtensions: Set<String> = [
+        "aac", "aiff", "aif", "flac", "m4a", "m4b", "mp3", "oga", "ogg", "opus", "wav"
+    ]
+
+    private static func failureKey(book: ReadingBook, chapter: Int) -> String {
+        "\(book.id.uuidString)#\(chapter)"
     }
 
     private func sourceHeaders(for book: ReadingBook) -> [String: String] {

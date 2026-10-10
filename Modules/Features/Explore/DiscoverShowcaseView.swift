@@ -805,6 +805,7 @@ struct DiscoverCategoryBookList: View {
             hasMorePages = false
         } else {
             books.append(contentsOf: additional)
+            DiscoverViewModel.prefetchCovers(additional.map(\.book), source: source)
             nextPage = page + 1
             hasMorePages = true
         }
