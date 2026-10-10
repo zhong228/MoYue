@@ -609,7 +609,10 @@ final class CustomHTTPProvider: TTSAudioProvider {
     }
 
     private func fetchAudioData(request: URLRequest, source: ImportedTTSSource?) async throws -> Data {
-        let (data, response) = try await URLSession.shared.data(for: request)
+        // MediaSession (16/host) instead of URLSession.shared (6/host): three segments
+        // preload in parallel while one plays, and on a cold link six sockets wasn't
+        // enough — segments queued on connections and playback stalled on "加载慢".
+        let (data, response) = try await MediaSession.dataWithRetry(for: request)
         let responseContentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
         if let http = response as? HTTPURLResponse {
             let contentType = responseContentType

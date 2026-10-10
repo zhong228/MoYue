@@ -800,7 +800,7 @@ struct TTSSettingsView: View {
         defer { isImportingSources = false }
 
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await MediaSession.shared.data(from: url)
             if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                 sourceImportMessage = String(format: localized("載入失敗：HTTP %d"), http.statusCode)
                 return

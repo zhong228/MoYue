@@ -231,7 +231,7 @@ final class SharedImportQueueDrainer: ObservableObject {
         payloadDirectoryURL: URL? = SharedImportQueueDrainer.defaultPayloadDirectoryURL(),
         importData: ((Data) throws -> Int)? = nil,
         fetchURL: @escaping (URL) async throws -> Data = {
-            try await URLSession.shared.data(from: $0).0
+            try await MediaSession.shared.data(from: $0).0
         },
         importBookFile: ((URL) async throws -> Int)? = nil,
         importOPMLData: @escaping (Data) throws -> Int = { data in

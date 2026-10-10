@@ -78,7 +78,10 @@ protocol OfflineImageDownloading: Sendable {
 
 struct URLSessionOfflineImageDownloader: OfflineImageDownloading {
     func response(for request: URLRequest) async throws -> OfflineImageResponse {
-        let (data, response) = try await URLSession.shared.data(for: request)
+        // MediaSession (16/host) + retry: offline batching sends an entire manga volume to
+        // the same CDN at once; URLSession.shared's 6/host cap stalled later pages and
+        // blew the "离線下載失敗" path on transient timeouts.
+        let (data, response) = try await MediaSession.dataWithRetry(for: request)
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
         return OfflineImageResponse(
             data: data,

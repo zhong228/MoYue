@@ -2538,6 +2538,9 @@ class ModernParserBridge {
         }
 
         let (data, response): (Data, URLResponse)
+        // Captured outside the @Sendable task-group body below, the same way
+        // `wireJSEngine` does it above.
+        let requestSession = self.requestSession
         do {
             // Honor the source's `concurrentRate` budget (per-source anti-ban
             // throttle) around the actual network round-trip only.
@@ -2546,7 +2549,12 @@ class ModernParserBridge {
                     of: (Data, URLResponse).self
                 ) { group in
                     group.addTask {
-                        try await URLSession.shared.data(for: request)
+                        // `requestSession` (LegadoJSBridge.requestSession, 16/host)
+                        // rather than URLSession.shared (6/host): this is the JS rule's
+                        // own fetch endpoint — the same one the engine's ajaxAll fan-out
+                        // uses — and the shared pool re-caps it at 6 sockets per host,
+                        // which serialized 16-wide chapter/review fan-out into batches.
+                        try await requestSession.data(for: request)
                     }
                     group.addTask {
                         try await Task.sleep(nanoseconds: 30_000_000_000)

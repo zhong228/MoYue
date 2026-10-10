@@ -252,7 +252,7 @@ enum LegadoRSSScraper {
 
         let (data, response): (Data, URLResponse)
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await MediaSession.dataWithRetry(for: request)
         } catch {
             if isATSBlocked(error) {
                 throw ScraperError.atsBlocked
@@ -322,7 +322,7 @@ enum LegadoRSSScraper {
         jsEngine.networkHandler = { request in
             let semaphore = DispatchSemaphore(value: 0)
             var result: LegadoHTTPResult?
-            let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            let task = MediaSession.shared.dataTask(with: request) { data, response, _ in
                 result = LegadoHTTPResult.make(request: request, data: data, response: response)
                 semaphore.signal()
             }

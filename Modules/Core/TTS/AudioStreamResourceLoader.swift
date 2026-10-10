@@ -107,7 +107,7 @@ final class AudioStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         }
 
         let key = ObjectIdentifier(loadingRequest)
-        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        let task = MediaSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
             self.queue.async { self.tasks[key] = nil }
 

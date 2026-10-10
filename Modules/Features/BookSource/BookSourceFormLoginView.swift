@@ -865,7 +865,7 @@ struct BookSourceFormLoginView: View {
             let semaphore = DispatchSemaphore(value: 0)
             var body = ""
             var statusCode: Int?
-            URLSession.shared.dataTask(with: request) { data, response, _ in
+            MediaSession.shared.dataTask(with: request) { data, response, _ in
                 statusCode = (response as? HTTPURLResponse)?.statusCode
                 if let data {
                     body = String(data: data, encoding: .utf8) ?? ""

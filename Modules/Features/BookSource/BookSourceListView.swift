@@ -1249,7 +1249,7 @@ struct BookSourceListView: View {
     /// diagnostics) can see what the endpoint actually returned.
     private func fetchBookSourceContent(at url: URL, followedShareRedirect: Bool) {
         var request = URLRequest(url: url, timeoutInterval: 60)
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        MediaSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 networkImportLoading = false
                 if let err = error {

@@ -233,7 +233,13 @@ enum OnlineImageLoader {
         guard let url = URL(string: urlString) else { return nil }
         // CRITICAL: the renderer loads images SEQUENTIALLY (await per node), so a single hung
         // remote image (段評 avatar/emoji, 版权页 photo) blocks the whole chapter → "infinite
-        // loading". `URLSession.shared.data(from:)` inherits the 60s default; cap it hard.
+        // loading". Cap the request hard (10s) instead of inheriting a long default.
+        //
+        // The session matters too: this used to be `URLSession.shared` (iOS hard-caps it at
+        // 6 connections/host), so a chapter with many remote images queued behind half a dozen
+        // sockets and most of them blew the 10s cap → "插图加载失败". MediaSession keeps the
+        // 16/host budget the crawler path already had, so wide chapters fan out instead of
+        // serializing on sockets; the 10s request cap still bounds the sequential renderer.
         var request = URLRequest(url: url, cachePolicy: cachePolicy, timeoutInterval: 10)
         request.setValue(
             "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15",
@@ -250,7 +256,7 @@ enum OnlineImageLoader {
             "url": String(urlString.prefix(90)),
             "srcHeaders": headers.count
         ])
-        guard let (data, response) = try? await URLSession.shared.data(for: request), !data.isEmpty else {
+        guard let (data, response) = try? await MediaSession.shared.data(for: request), !data.isEmpty else {
             AppLogger.render("⟐ imgLoad http FAIL", context: [
                 "url": String(urlString.prefix(90)),
                 "ms": Int(Date().timeIntervalSince(started) * 1000)

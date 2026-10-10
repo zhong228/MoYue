@@ -62,7 +62,9 @@ final class ComicReaderView: UIImageView {
         contentMode = .scaleAspectFit
         clipsToBounds = true
         Task {
-            guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
+            // MediaSession (16/host): a manga page loads many images to the same CDN;
+            // URLSession.shared's 6/host cap made most of them wait on sockets.
+            guard let (data, _) = try? await MediaSession.dataWithRetry(for: URLRequest(url: url)) else { return }
             guard let image = UIImage(data: data) else { return }
             await MainActor.run {
                 self.image = image

@@ -558,7 +558,7 @@ private struct ImportLegadoJSONURLSheet: View {
         defer { isLoading = false }
 
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await MediaSession.shared.data(from: url)
             let sources = try LegadoSourceJSONParser.parse(data: data)
             let addedCount = store.addSources(sources)
             message = "\(localized("成功匯入")) \(addedCount) \(localized("個订阅源"))"

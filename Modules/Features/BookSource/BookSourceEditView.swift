@@ -345,7 +345,7 @@ struct BookSourceEditView: View {
             return
         }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await MediaSession.shared.data(from: url)
             guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1),
                   let parsed = BookSourceStore.parseSources(text),
                   let first = parsed.first else {

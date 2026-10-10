@@ -374,7 +374,7 @@ final class LoginManager {
 
         let (_, response): (Data, URLResponse)
         do {
-            (_, response) = try await URLSession.shared.data(for: request)
+            (_, response) = try await MediaSession.shared.data(for: request)
         } catch {
             throw LoginError.networkError(error)
         }

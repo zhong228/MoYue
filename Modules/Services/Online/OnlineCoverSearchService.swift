@@ -92,7 +92,7 @@ enum OnlineCoverSearchService {
         request.setValue(BookCoverLoader.defaultUserAgent, forHTTPHeaderField: "User-Agent")
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await MediaSession.dataWithRetry(for: request)
             if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                 AppLogger.network(
                     "[CoverSearch] \(provider.displayName) HTTP \(http.statusCode)"
