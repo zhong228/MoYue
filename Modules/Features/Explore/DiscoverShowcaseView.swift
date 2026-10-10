@@ -849,24 +849,27 @@ struct DiscoverListLayoutView: View {
     }
 
     var body: some View {
-        Group {
-            if embedsScrollView {
-                vstackContent
-            } else {
-                LazyVStack(spacing: 0) {
-                    vstackContent
+        listContainer
+            .onChange(of: selectedKey) { _, newKey in
+                selectedSection = discover.sections.first { $0.item.stableKey == newKey } ?? discover.sections.first
+            }
+            .onChange(of: discover.sections) { _, newSections in
+                if let key = selectedKey {
+                    selectedSection = newSections.first { $0.item.stableKey == key } ?? newSections.first
+                } else {
+                    selectedSection = newSections.first
+                    selectedKey = newSections.first?.item.stableKey
                 }
             }
-        }
-        .onChange(of: selectedKey) { _, newKey in
-            selectedSection = discover.sections.first { $0.item.stableKey == newKey } ?? discover.sections.first
-        }
-        .onChange(of: discover.sections) { _, newSections in
-            if let key = selectedKey {
-                selectedSection = newSections.first { $0.item.stableKey == key } ?? newSections.first
-            } else {
-                selectedSection = newSections.first
-                selectedKey = newSections.first?.item.stableKey
+    }
+
+    @ViewBuilder
+    private var listContainer: some View {
+        if embedsScrollView {
+            vstackContent
+        } else {
+            LazyVStack(spacing: 0) {
+                vstackContent
             }
         }
     }
