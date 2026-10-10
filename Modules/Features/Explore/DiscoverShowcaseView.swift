@@ -831,7 +831,7 @@ struct DiscoverListLayoutView: View {
     @State private var selectedKey: String?
     @State private var selectedSection: DiscoverShowcaseSection?
 
-    private var selectedSectionID: String? {
+    private var selectedSectionID: UUID? {
         selectedSection?.id
     }
 
