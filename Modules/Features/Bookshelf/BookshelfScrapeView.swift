@@ -107,7 +107,7 @@ struct BookshelfScrapeView: View {
                 Button(localized("取消")) {
                     scrapeTask?.cancel()
                 }
-                .disabled(if: phase == .idle)
+                .disabled(phase == .idle)
             }
         }
         .onDisappear {
