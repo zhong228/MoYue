@@ -62,6 +62,25 @@ struct ExploreHomeView: View {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Filter a source list by optional folder and free-text query; used by the
+    /// custom-explore component picker's source chooser (not by this page's field,
+    /// which is global book search since v1.0.25).
+    static func sources(_ sources: [BookSource], inGroup group: String?, matching query: String) -> [BookSource] {
+        sources.filter { source in
+            if let group, !groupNames(of: source).contains(group) { return false }
+            return query.isEmpty
+                || source.bookSourceName.localizedStandardContains(query)
+                || source.bookSourceGroup.localizedStandardContains(query)
+        }
+    }
+
+    private static func groupNames(of source: BookSource) -> [String] {
+        source.bookSourceGroup
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
     /// The field is global book search now — submitting it pushes the same
     /// `SearchView` the bookshelf's 搜索書籍 opens, carrying the typed words
     /// (v1.0.24 feedback). It no longer filters the source list.
