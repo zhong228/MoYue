@@ -493,7 +493,7 @@ enum RSSArticleExtractor {
 
 enum RSSArticleHTMLSanitizer {
     static let noiseSelector = [
-        "script", "style", "noscript", "svg", "iframe", "object", "embed",
+        "script", "style", "noscript", "svg", "object", "embed",
         "nav", "header", "aside", "address", "time", "form", "button", "input",
         ".ad", ".ads", ".advert", ".advertisement",
         "[class*=advert]", "[id*=advert]", "[data-ad]", "[data-ad-unit]"
@@ -549,19 +549,34 @@ enum RSSArticleHTMLSanitizer {
                     "article", "section", "div", "footer",
                     "p", "a", "img", "figure", "figcaption", "blockquote",
                     "h2", "h3", "ul", "ol", "li", "pre", "code",
-                    "strong", "em", "b", "i", "span", "small", "sup", "sub", "br", "hr"
+                    "strong", "em", "b", "i", "span", "small", "sup", "sub", "br", "hr",
+                    // Media tags: pages embed clips as <video>/<audio> (often with
+                    // <source> fallbacks and <track> captions) or as <iframe> (YouTube,
+                    // Bilibili, Vimeo …). Keeping them is what makes article media
+                    // actually playable in the reader (v1.0.26 feedback).
+                    "video", "audio", "source", "track", "iframe"
                 )
                 .addAttributes("a", "href", "title")
                 .addAttributes("img", "src", "alt", "title", "width", "height")
                 .addAttributes("blockquote", "cite")
+                .addAttributes("video", "src", "poster", "width", "height", "controls", "autoplay", "loop", "muted", "playsinline", "preload")
+                .addAttributes("audio", "src", "controls", "autoplay", "loop", "muted", "preload")
+                .addAttributes("source", "src", "type", "media")
+                .addAttributes("track", "src", "kind", "srclang", "label")
+                .addAttributes("iframe", "src", "title", "width", "height", "allow", "allowfullscreen", "frameborder", "loading", "referrerpolicy")
                 .addProtocols("a", "href", "http", "https", "mailto", "tel")
                 .addProtocols("img", "src", "http", "https")
+                .addProtocols("video", "src", "http", "https")
+                .addProtocols("audio", "src", "http", "https")
+                .addProtocols("source", "src", "http", "https")
+                .addProtocols("track", "src", "http", "https")
+                .addProtocols("iframe", "src", "http", "https")
                 .addProtocols("blockquote", "cite", "http", "https")
             let cleaned = try SwiftSoup.clean(denoised, baseURL?.absoluteString ?? "", whitelist) ?? ""
             return removeAdMarkers(fromHTML: cleaned)
                 .replacingOccurrences(of: #"(?i)<p>\s*</p>"#, with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-                .upgradingHTTPURLsInHTML()
+                .upgradingHTTPHrefsInHTML()
         } catch {
             return paragraphsHTML(from: RSSContentSanitizer.cleanText(trimmed))
         }
@@ -690,7 +705,8 @@ enum RSSArticleHTMLSanitizer {
     ]
 
     private static let blockTags: Set<String> = [
-        "p", "h2", "h3", "ul", "ol", "li", "blockquote", "figure", "figcaption", "pre", "hr", "img"
+        "p", "h2", "h3", "ul", "ol", "li", "blockquote", "figure", "figcaption", "pre", "hr", "img",
+        "video", "audio", "iframe"
     ]
 
     private static let containerTags: Set<String> = ["article", "section", "div", "footer"]

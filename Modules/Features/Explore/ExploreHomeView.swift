@@ -93,7 +93,13 @@ struct ExploreHomeView: View {
     var body: some View {
         NavigationStack(path: $navigation.path) {
             ScrollView {
-                VStack(alignment: .leading, spacing: DSSpacing.xl) {
+                // Lazy, not eager: the page's sections (hero banner, quick access and
+                // the source's discover feed) are realized as they scroll into view,
+                // and the list layout's book rows become direct lazy children of this
+                // stack — nesting them under an eager VStack materialized every row
+                // (and every remote cover) at once, which is what made the list layout
+                // jank no matter how the rows inside were declared (v1.0.25 feedback).
+                LazyVStack(alignment: .leading, spacing: DSSpacing.xl) {
                     heroBanner
                     quickAccessSection
                     selectedSourceDiscoverSection

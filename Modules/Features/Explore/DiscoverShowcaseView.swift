@@ -652,9 +652,9 @@ struct DiscoverCategoryBookList: View {
     let source: BookSource
     /// Pull to refresh, where the page around the list offers it.
     var onRefresh: (() -> Void)?
-    /// When true (default), the list owns its ScrollView. When false, only the inner
-    /// LazyVStack is returned for embedding inside another ScrollView (e.g. the list
-    /// layout on 探索's unified page), so the books feed the page's own scrolling.
+    /// When true (default), the list owns its ScrollView. When false, the rows are
+    /// returned flat — no container of their own — for embedding in the unified
+    /// page's LazyVStack, so the page's own scrolling realizes them lazily.
     var embedsScrollView: Bool = true
 
     @State private var books: [DiscoverBookDisplay]
@@ -678,57 +678,23 @@ struct DiscoverCategoryBookList: View {
     }
 
     var body: some View {
-        let bookRows = ForEach(Array(books.enumerated()), id: \.element.id) { index, display in
-            if index > 0 {
-                Divider()
-                    .padding(.leading, DSLayout.discoverRowCoverWidth + DSSpacing.md)
-            }
-            NavigationLink(value: ExploreNavigationRoute.book(display.book)) {
-                DiscoverBookRow(
-                    rank: section.style == .ranked ? index + 1 : nil,
-                    display: display,
-                    section: section,
-                    showsIntro: true
-                )
-            }
-            .buttonStyle(.plain)
-            .onAppear {
-                if index >= books.count - 5 {
-                    loadMoreIfNeeded()
-                }
-            }
-        }
-
-        let rows: some View = Group {
-            if embedsScrollView {
-                LazyVStack(spacing: 0) {
-                    bookRows
-                    loadMoreFooter
-                }
-            } else {
-                // Lazy, not eager: the list layout embeds this in 探索's unified ScrollView,
-                // and an eager VStack instantiates every row (and every remote cover) at once,
-                // which is what made the list layout jank when scrolling (v1.0.24 feedback).
-                LazyVStack(spacing: 0) {
-                    bookRows
-                    loadMoreFooter
-                }
-            }
-        }
-        .padding(.horizontal, DSSpacing.lg)
-        .padding(.vertical, DSSpacing.sm)
-
         if embedsScrollView {
-            let list = ScrollView { rows }
-                .overlay {
-                    if books.isEmpty, !hasMorePages, !isLoadingMore, loadMoreErrorReason == nil {
-                        ContentUnavailableView {
-                            UnavailableLabel(localized("暫無發現內容"), systemImage: "books.vertical")
-                        }
+            let list = ScrollView {
+                LazyVStack(spacing: 0) {
+                    bookRows
+                    loadMoreFooter
+                        .padding(.bottom, DSSpacing.sm)
+                }
+            }
+            .overlay {
+                if books.isEmpty, !hasMorePages, !isLoadingMore, loadMoreErrorReason == nil {
+                    ContentUnavailableView {
+                        UnavailableLabel(localized("暫無發現內容"), systemImage: "books.vertical")
                     }
                 }
-                .softScrollEdges()
-                .scrollDismissesKeyboard(.immediately)
+            }
+            .softScrollEdges()
+            .scrollDismissesKeyboard(.immediately)
 
             if let onRefresh {
                 list.refreshable { onRefresh() }
@@ -736,7 +702,43 @@ struct DiscoverCategoryBookList: View {
                 list
             }
         } else {
-            rows
+            // Flat, not wrapped: the list layout embeds this in the unified page's own
+            // LazyVStack. Returning the rows and the load-more footer directly makes
+            // them direct lazy children of that stack — only the visible rows (and
+            // their covers) get realized as the page scrolls. Wrapping them in another
+            // LazyVStack (as v1.0.25 did) bought nothing: an eager intermediate
+            // container still forced every row, and every remote cover, to be
+            // instantiated up front, which is where the list-layout jank came from.
+            bookRows
+            loadMoreFooter
+                .padding(.bottom, DSSpacing.sm)
+        }
+    }
+
+    private var bookRows: some View {
+        ForEach(Array(books.enumerated()), id: \.element.id) { index, display in
+            Group {
+                if index > 0 {
+                    Divider()
+                        .padding(.leading, DSLayout.discoverRowCoverWidth + DSSpacing.md)
+                }
+                NavigationLink(value: ExploreNavigationRoute.book(display.book)) {
+                    DiscoverBookRow(
+                        rank: section.style == .ranked ? index + 1 : nil,
+                        display: display,
+                        section: section,
+                        showsIntro: true
+                    )
+                }
+                .buttonStyle(.plain)
+                .onAppear {
+                    if index >= books.count - 5 {
+                        loadMoreIfNeeded()
+                    }
+                }
+            }
+            .padding(.horizontal, DSSpacing.lg)
+            .padding(.top, index == 0 ? DSSpacing.sm : 0)
         }
     }
 
@@ -852,47 +854,46 @@ struct DiscoverListLayoutView: View {
     }
 
     var body: some View {
-        listContainer
-            .onChange(of: selectedKey) { _, newKey in
-                selectedSection = discover.sections.first { $0.item.stableKey == newKey } ?? discover.sections.first
-            }
-            .onChange(of: discover.sections) { _, newSections in
-                if let key = selectedKey {
-                    selectedSection = newSections.first { $0.item.stableKey == key } ?? newSections.first
-                } else {
-                    selectedSection = newSections.first
-                    selectedKey = newSections.first?.item.stableKey
-                }
-            }
-    }
-
-    @ViewBuilder
-    private var listContainer: some View {
+        // No eager intermediate stack: `layoutContent` emits the pieces (controls,
+        // chips, the book list) directly, so when this layout feeds the unified
+        // page (`embedsScrollView == false`) they become direct children of the
+        // page's own LazyVStack and every book row stays genuinely lazy. When the
+        // layout owns its page, the rows scroll inside
+        // DiscoverCategoryBookList's own ScrollView, exactly as before.
         if embedsScrollView {
-            vstackContent
+            VStack(spacing: 0) {
+                layoutContent
+            }
         } else {
-            LazyVStack(spacing: 0) {
-                vstackContent
+            layoutContent
+        }
+        .onChange(of: selectedKey) { _, newKey in
+            selectedSection = discover.sections.first { $0.item.stableKey == newKey } ?? discover.sections.first
+        }
+        .onChange(of: discover.sections) { _, newSections in
+            if let key = selectedKey {
+                selectedSection = newSections.first { $0.item.stableKey == key } ?? newSections.first
+            } else {
+                selectedSection = newSections.first
+                selectedKey = newSections.first?.item.stableKey
             }
         }
     }
 
     @ViewBuilder
-    private var vstackContent: some View {
-        VStack(spacing: 0) {
-            if !discover.filters.isEmpty || !pageItems.isEmpty {
-                DiscoverControlsRow(
-                    discover: discover,
-                    pageItems: pageItems,
-                    onOpenPage: { onOpenPage?($0) }
-                )
-                .padding(.top, DSSpacing.sm)
-            }
-            if !discover.sections.isEmpty {
-                categoryChips
-            }
-            contentArea
+    private var layoutContent: some View {
+        if !discover.filters.isEmpty || !pageItems.isEmpty {
+            DiscoverControlsRow(
+                discover: discover,
+                pageItems: pageItems,
+                onOpenPage: { onOpenPage?($0) }
+            )
+            .padding(.top, DSSpacing.sm)
         }
+        if !discover.sections.isEmpty {
+            categoryChips
+        }
+        contentArea
     }
 
     @ViewBuilder

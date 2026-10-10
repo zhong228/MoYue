@@ -16,9 +16,14 @@ extension String {
         URL(string: self)?.upgradedToHTTPS()
     }
 
-    func upgradingHTTPURLsInHTML() -> String {
+    /// Upgrade only navigational `href` attributes to https. Media `src`
+    /// attributes (img/video/audio/source/iframe) are intentionally left on
+    /// their original scheme: many RSS sites still serve covers and clips over
+    /// plain http, and rewriting `src` to https made those assets fail to load
+    /// (ATS allows arbitrary loads in this app, so http media works fine).
+    func upgradingHTTPHrefsInHTML() -> String {
         replacingOccurrences(
-            of: #"((?:src|href)\s*=\s*")http://"#,
+            of: #"((?:href)\s*=\s*")http://"#,
             with: "$1https://",
             options: .regularExpression
         )

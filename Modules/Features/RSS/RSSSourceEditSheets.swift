@@ -233,6 +233,15 @@ struct RSSOrganizeSheet: View {
                         .onMove { offsets, destination in
                             store.moveFolders(fromOffsets: offsets, toOffset: destination)
                         }
+                        .onDelete { offsets in
+                            // Deleting a folder only removes the grouping; the feeds
+                            // inside it fall back to 未分類 instead of being dropped
+                            // (v1.0.26 feedback).
+                            let deleted = offsets.compactMap { folders.indices.contains($0) ? folders[$0] : nil }
+                            for folder in deleted {
+                                store.removeFolder(folder, deleteSources: false)
+                            }
+                        }
                     }
                 }
 
