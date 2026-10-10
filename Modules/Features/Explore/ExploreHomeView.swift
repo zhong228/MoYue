@@ -16,7 +16,6 @@ struct ExploreHomeView: View {
 
     @State private var query = ""
     @State private var exploreSources: [BookSource] = []
-    @State private var group: String?
     @State private var showSourceManager = false
     @State private var navigation = ExploreNavigationPath()
     @State private var sourceActionSheet: BookSourceActionSheet?
@@ -59,56 +58,30 @@ struct ExploreHomeView: View {
         }
     }
 
-    private var groups: [String] {
-        Array(Set(exploreSources.flatMap(Self.groupNames))).sorted()
-    }
-
     private var trimmedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var isFilteringSources: Bool { !trimmedQuery.isEmpty }
-
-    private var visibleSources: [BookSource] {
-        Self.sources(exploreSources, inGroup: group, matching: trimmedQuery)
-    }
-
-    static func sources(_ sources: [BookSource], inGroup group: String?, matching query: String) -> [BookSource] {
-        sources.filter { source in
-            if let group, !groupNames(of: source).contains(group) { return false }
-            return query.isEmpty
-                || source.bookSourceName.localizedStandardContains(query)
-                || source.bookSourceGroup.localizedStandardContains(query)
-        }
-    }
-
-    private static func groupNames(of source: BookSource) -> [String] {
-        source.bookSourceGroup
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+    /// The field is global book search now — submitting it pushes the same
+    /// `SearchView` the bookshelf's 搜索書籍 opens, carrying the typed words
+    /// (v1.0.24 feedback). It no longer filters the source list.
+    private func submitGlobalSearch() {
+        let searchText = trimmedQuery
+        query = ""
+        navigation.push(.globalSearch(initialQuery: searchText))
     }
 
     var body: some View {
         NavigationStack(path: $navigation.path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: DSSpacing.xl) {
-                if !isFilteringSources {
                     heroBanner
                     quickAccessSection
                     selectedSourceDiscoverSection
-                } else {
-                    searchResultsView
-                }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, DSSpacing.lg)
                 .padding(.vertical, DSSpacing.sm)
-            }
-            .overlay {
-                if isFilteringSources && !exploreSources.isEmpty && visibleSources.isEmpty {
-                    ContentUnavailableView.search(text: trimmedQuery)
-                }
             }
             .rootTabSearchScrollEdges()
             .scrollDismissesKeyboard(.immediately)
@@ -116,9 +89,6 @@ struct ExploreHomeView: View {
             .pageBackgroundToolbar(for: .explore)
             .rootTabTitle(localized("发现"), onScroll: .minimizesBar)
             .toolbar {
-                if groups.count > 1 {
-                    ToolbarItem(placement: .topBarTrailing) { groupMenu }
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showsSettings = true } label: {
                         Image(systemName: "gearshape")
@@ -130,14 +100,14 @@ struct ExploreHomeView: View {
             .searchable(
                 text: $query,
                 placement: .navigationBarDrawer(displayMode: .always),
-                prompt: localized("搜索")
+                prompt: localized("搜索書籍")
             )
+            .onSubmit(of: .search) { submitGlobalSearch() }
             .sheet(isPresented: $showsSettings) {
                 ExploreSettingsSheet()
             }
             .onReceive(sourceStore.$sources) { _ in
                 exploreSources = DiscoverViewModel.exploreSources(in: sourceStore)
-                if let group, !groups.contains(group) { self.group = nil }
                 restorePersistedSourceIfNeeded()
             }
             .sheet(isPresented: $showSourceManager) {
@@ -257,18 +227,6 @@ struct ExploreHomeView: View {
         }
     }
 
-    private var searchResultsView: some View {
-        LazyVStack(spacing: DSSpacing.md) {
-            ForEach(visibleSources) { source in
-                NavigationLink(value: ExploreNavigationRoute.source(sourceURL: source.bookSourceUrl)) {
-                    SearchResultRow(source: source)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .contextMenu { sourceActions(source) }
-            }
-        }
-    }
-
     // MARK: - Source Selector Menu (embedded in hero banner)
 
     private var sourceSelectorMenu: some View {
@@ -370,58 +328,6 @@ struct ExploreHomeView: View {
         pageStore.deletePage(id: page.id)
     }
 
-    private func sourceActions(_ source: BookSource) -> some View {
-        BookSourceActionMenuItems(
-            source: source,
-            onEdit: { sourceActionSheet = .edit(source) },
-            onPinToTop: {
-                BookSourceStore.shared.pinToTop(id: source.id)
-                UIAccessibility.post(notification: .announcement, argument: localized("已置頂"))
-            },
-            onLogin: { sourceActionSheet = .login(source) },
-            onSearch: { navigation.push(.searchInSource(sourceURL: source.bookSourceUrl)) },
-            onRefresh: nil,
-            onSetVariable: { sourceActionSheet = .variable(source) },
-            onDelete: { sourcePendingDeletion = source }
-        )
-    }
-
-    /// Group filter menu using a modern capsule/chip style.
-    private var groupMenu: some View {
-        Menu {
-            Picker(localized("分組"), selection: $group) {
-                Text(localized("全部")).tag(String?.none)
-                ForEach(groups, id: \.self) { name in
-                    Text(name).tag(Optional(name))
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "tag.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                if let group {
-                    Text(group)
-                        .font(.system(size: 13, weight: .medium))
-                } else {
-                    Text(localized("全部"))
-                        .font(.system(size: 13, weight: .medium))
-                }
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background {
-                Capsule()
-                    .fill(DSBrandGradient.tint(for: "explore-filter").first ?? DSColor.accent)
-            }
-            .accessibilityHidden(true)
-        }
-        .accessibilityLabel(localized("分組"))
-        .accessibilityValue(group ?? localized("全部"))
-    }
-
     /// 恢复上次选中的发现页书源：关闭 App 再打开仍保持选中。
     ///
     /// 只在还没有选中书源时恢复（本次会话的显式选择优先于持久化值）。持久化指向的
@@ -475,6 +381,9 @@ struct ExploreHomeView: View {
                 mode: .custom, selectedSourceURLs: [sourceURL]
             ))
             .environmentObject(store)
+        case .globalSearch(let initialQuery):
+            SearchView(initialQuery: initialQuery)
+                .environmentObject(store)
         case .sourceManager:
             BookSourceListView(embedsNavigationStack: false)
         }
@@ -519,54 +428,6 @@ struct QuickAccessCard: View {
             .shadow(color: DSColor.shadow, radius: 4, x: 0, y: 2)
         }
         .buttonStyle(PlainButtonStyle())
-    }
-}
-
-// MARK: - SearchResultRow
-
-struct SearchResultRow: View {
-    let source: BookSource
-
-    private var gradientColors: [Color] {
-        let hash = abs(source.bookSourceName.hashValue)
-        let palette = DSColor.coverGradients
-        return palette[hash % palette.count]
-    }
-
-    var body: some View {
-        HStack(spacing: DSSpacing.md) {
-            RoundedRectangle(cornerRadius: DSRadius.md)
-                .fill(
-                    LinearGradient(
-                        colors: gradientColors,
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 52, height: 78)
-                .overlay {
-                    Image(systemName: "book.closed")
-                        .font(.system(size: 24))
-                        .foregroundStyle(.white.opacity(0.8))
-                }
-            VStack(alignment: .leading, spacing: DSSpacing.xs) {
-                Text(source.bookSourceName)
-                    .font(DSFont.body.weight(.semibold))
-                    .foregroundStyle(DSColor.textPrimary)
-                if !source.bookSourceGroup.isEmpty {
-                    Text(source.bookSourceGroup)
-                        .font(DSFont.caption)
-                        .foregroundStyle(DSColor.textSecondary)
-                }
-            }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(DSColor.textTertiary)
-        }
-        .padding(DSSpacing.md)
-        .background(DSColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg))
     }
 }
 

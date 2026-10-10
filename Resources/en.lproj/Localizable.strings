@@ -3580,6 +3580,8 @@
 "失效" = "Invalid";
 "確定要刪除 %d 個訂閱源嗎？" = "Delete %d feed(s)?";
 "請輸入資料夾名稱" = "Enter a folder name";
+"檢測完成：%d 個訂閱源失效" = "Check Complete: %d invalid feed(s)";
+"檢測完成，所有訂閱源均有效" = "Check Complete, all feeds are valid";
 
 "刮削書坊封面" = "Scrape Cover Art";
 "掃描無封面書籍並自動搜尋封面" = "Scan coverless books and search for covers automatically";

@@ -280,7 +280,12 @@ struct RSSOrganizeSheet: View {
                                 editMode = (editMode == .active) ? .inactive : .active
                             }
                         } label: {
-                            Image(systemName: editMode == .active ? "xmark" : "checklist")
+                            if editMode == .active {
+                                Text(localized("完成"))
+                                    .fontWeight(.medium)
+                            } else {
+                                Image(systemName: "checklist")
+                            }
                         }
                         Button {
                             dismiss()
@@ -341,6 +346,18 @@ struct RSSFolderSourcesView: View {
     @State private var checkingInvalid = false
     @State private var invalidSourceIDs = Set<String>()
     @State private var checkProgress: (current: Int, total: Int)?
+    @State private var checkResultMessage = ""
+    @State private var showCheckResult = false
+
+    /// Short-timeout session for the offline/broken-source check so a hanging
+    /// feed does not stall the whole batch for the default 60s.
+    private static let invalidCheckSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 8
+        config.timeoutIntervalForResource = 15
+        config.waitsForConnectivity = false
+        return URLSession(configuration: config)
+    }()
 
     private var sources: [RSSSource] {
         if let folder { return store.sources(in: folder) }
@@ -381,7 +398,12 @@ struct RSSFolderSourcesView: View {
                                 editMode = (editMode == .active) ? .inactive : .active
                             }
                         } label: {
-                            Image(systemName: editMode == .active ? "xmark" : "checklist")
+                            if editMode == .active {
+                                Text(localized("完成"))
+                                    .fontWeight(.medium)
+                            } else {
+                                Image(systemName: "checklist")
+                            }
                         }
                     }
                     Button {
@@ -422,6 +444,11 @@ struct RSSFolderSourcesView: View {
             Button(localized("取消"), role: .cancel) {}
         } message: {
             Text(String(format: localized("確定要刪除 %d 個訂閱源嗎？"), selectedSourceIDs.count))
+        }
+        .alert(localized("檢測完成"), isPresented: $showCheckResult) {
+            Button(localized("確定"), role: .cancel) {}
+        } message: {
+            Text(checkResultMessage)
         }
         .overlay {
             if checkingInvalid, let progress = checkProgress {
@@ -593,13 +620,20 @@ struct RSSFolderSourcesView: View {
 
         for (index, source) in targets.enumerated() {
             checkProgress = (index + 1, targets.count)
-            let fetcher = RSSFetcher()
+            let fetcher = RSSFetcher(session: Self.invalidCheckSession)
             await fetcher.fetchItems(from: source, metadata: store.feedMetadata(for: source.id))
             if fetcher.error != nil {
                 invalidSourceIDs.insert(source.id)
             }
         }
         checkProgress = nil
+
+        if invalidSourceIDs.isEmpty {
+            checkResultMessage = localized("檢測完成，所有訂閱源均有效")
+        } else {
+            checkResultMessage = String(format: localized("檢測完成：%d 個訂閱源失效"), invalidSourceIDs.count)
+        }
+        showCheckResult = true
     }
 }
 

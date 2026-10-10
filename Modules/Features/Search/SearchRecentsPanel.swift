@@ -3,20 +3,17 @@ import UIKit
 
 // MARK: - Idle content
 
-/// What the 搜索 page shows when it has no search to show: while its field is active
-/// and empty, 最近搜索 and 最近閱讀 — Apple Books shows Recently Searched and Recently
-/// Viewed when its field is tapped — and otherwise, or with neither to list, the page's
-/// own hint.
-///
-/// A view of its own because `isSearching` is set only for the views inside
-/// `.searchable`, never for the view that applies it.
+/// What the 搜索 page shows when it has no search to show: while its query is empty,
+/// 最近搜索 and 最近閱讀 — Apple Books shows Recently Searched and Recently Viewed when
+/// its field is tapped — and otherwise, or with neither to list, the page's own hint.
+/// The recents show before the field is even tapped, so the tab greets a reader with
+/// what they were reading, not a blank hint (v1.0.24 feedback).
 struct SearchIdleContent<Hint: View>: View {
     let isQueryEmpty: Bool
     let onSearch: (String) -> Void
     let onOpenBook: (ReadingBook) -> Void
     let hint: Hint
 
-    @Environment(\.isSearching) private var isSearching
     @EnvironmentObject private var bookStore: BookStore
     @AppStorage(RecentSearchQueries.storageKey) private var recentQueries = RecentSearchQueries()
     @AppStorage(RecentReadingSelection.clearedAtStorageKey) private var readingClearedAt: Double = 0
@@ -35,7 +32,7 @@ struct SearchIdleContent<Hint: View>: View {
     }
 
     var body: some View {
-        if isSearching, isQueryEmpty {
+        if isQueryEmpty {
             let books = RecentReadingSelection.entries(
                 shelf: bookStore.books,
                 records: offShelfReads.records,

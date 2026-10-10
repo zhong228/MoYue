@@ -13,6 +13,9 @@ enum ExploreNavigationRoute: Hashable {
     case sourceCategory(ExploreCategoryReference)
     /// Legado's 搜索 on a source: the search page scoped to that source alone.
     case searchInSource(sourceURL: String)
+    /// Global book search, pushed from 探索's search field — the same search as the
+    /// bookshelf's 搜索書籍 entry, not a filter over the source list (v1.0.24 feedback).
+    case globalSearch(initialQuery: String = "")
     /// 書源管理, pushed before iOS 18 (`BookSourceManagementPresentationPolicy`).
     case sourceManager
 
@@ -29,6 +32,8 @@ enum ExploreNavigationRoute: Hashable {
             return lhsReference == rhsReference
         case (.searchInSource(let lhsURL), .searchInSource(let rhsURL)):
             return lhsURL == rhsURL
+        case (.globalSearch(let lhsQuery), .globalSearch(let rhsQuery)):
+            return lhsQuery == rhsQuery
         case (.sourceManager, .sourceManager):
             return true
         default:
@@ -56,6 +61,9 @@ enum ExploreNavigationRoute: Hashable {
         case .customPageEditor(let id):
             hasher.combine(6)
             hasher.combine(id)
+        case .globalSearch(let initialQuery):
+            hasher.combine(8)
+            hasher.combine(initialQuery)
         case .sourceManager:
             hasher.combine(7)
         }

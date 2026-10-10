@@ -238,24 +238,13 @@ struct DSSettingsCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: DSSpacing.sm) {
-                HStack(spacing: 0) {
-                    DSIconBadge(systemImage: icon, gradient: DSBrandGradient.tint(for: icon))
-                    Spacer(minLength: 0)
-                    if isLocked {
-                        Image(systemName: "lock.fill")
-                            .font(DSFont.caption)
-                            .foregroundColor(DSColor.textSecondary)
-                    } else {
-                        Image(systemName: "chevron.right")
-                            .font(DSFont.caption.weight(.semibold))
-                            .foregroundColor(DSColor.textTertiary)
-                    }
-                }
+            HStack(spacing: DSSpacing.sm) {
+                DSIconBadge(systemImage: icon, gradient: DSBrandGradient.tint(for: icon), side: 30, iconSize: 16)
 
-                VStack(alignment: .leading, spacing: DSSpacing.xs) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                        .font(DSFont.body)
+                        .font(DSFont.subheadline)
+                        .fontWeight(.medium)
                         .foregroundColor(DSColor.textPrimary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -266,12 +255,23 @@ struct DSSettingsCard: View {
                             .lineLimit(1)
                     }
                 }
+
+                Spacer(minLength: 0)
+
+                if isLocked {
+                    Image(systemName: "lock.fill")
+                        .font(DSFont.caption)
+                        .foregroundColor(DSColor.textSecondary)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(DSFont.caption.weight(.semibold))
+                        .foregroundColor(DSColor.textTertiary)
+                }
             }
-            .padding(DSSpacing.md)
-            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-            .background(DSColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous))
-            .contentShape(Rectangle())
+            .padding(.horizontal, DSSpacing.md)
+            .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
+            .background(DSColor.surface, in: Capsule())
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
     }

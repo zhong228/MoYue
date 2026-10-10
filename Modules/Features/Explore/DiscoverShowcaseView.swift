@@ -706,7 +706,10 @@ struct DiscoverCategoryBookList: View {
                     loadMoreFooter
                 }
             } else {
-                VStack(spacing: 0) {
+                // Lazy, not eager: the list layout embeds this in 探索's unified ScrollView,
+                // and an eager VStack instantiates every row (and every remote cover) at once,
+                // which is what made the list layout jank when scrolling (v1.0.24 feedback).
+                LazyVStack(spacing: 0) {
                     bookRows
                     loadMoreFooter
                 }
