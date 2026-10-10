@@ -509,6 +509,8 @@ class GlobalSettings: ObservableObject {
     static let bookshelfGridColumnCountOptions = [2, 3, 4, 5]
     static let defaultBookshelfGridColumnCount = 3
     private static let bookshelfGridColumnCountKey = "yd_bookshelf_grid_column_count"
+    /// After a local import, look online for a missing cover (書坊刮削).
+    private static let autoScrapeCoversKey = "yd_auto_scrape_covers"
 
     // 預設封面 (default cover) — see `DefaultCoverLibrary`.
     private static let useDefaultCoverForAllBooksKey = "yd_default_cover_force"
@@ -1550,6 +1552,15 @@ class GlobalSettings: ObservableObject {
         return min(max(value, minimum), maximum)
     }
 
+    /// Scrape a cover from the open web when an imported book has none.
+    /// Off by default because scraping after every import costs network traffic;
+    /// the manual 刮削 button in the shelf menu works regardless.
+    @Published var autoScrapeCovers: Bool {
+        didSet {
+            UserDefaults.standard.set(autoScrapeCovers, forKey: Self.autoScrapeCoversKey)
+        }
+    }
+
     // MARK: - 預設封面 (Default Cover)
 
     /// Every book shows a default cover, ignoring the one it came with. Legado's
@@ -2233,6 +2244,7 @@ class GlobalSettings: ObservableObject {
             ?? Self.defaultBookshelfCoverCornerRadius
         )
         exploreUsesDefaultCover = UserDefaults.standard.bool(forKey: Self.exploreUsesDefaultCoverKey)
+        autoScrapeCovers = UserDefaults.standard.bool(forKey: Self.autoScrapeCoversKey)
         defaultCoverLightFileNames =
             UserDefaults.standard.stringArray(forKey: Self.defaultCoverLightFileNamesKey) ?? []
         defaultCoverDarkFileNames =

@@ -228,6 +228,55 @@ struct SettingsLockedRow: View {
     }
 }
 
+/// A card-style settings item for grid layouts.
+struct DSSettingsCard: View {
+    let icon: String
+    let title: String
+    var detail: String? = nil
+    var isLocked = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: DSSpacing.sm) {
+                HStack(spacing: 0) {
+                    DSIconBadge(systemImage: icon, gradient: DSBrandGradient.tint(for: icon))
+                    Spacer(minLength: 0)
+                    if isLocked {
+                        Image(systemName: "lock.fill")
+                            .font(DSFont.caption)
+                            .foregroundColor(DSColor.textSecondary)
+                    } else {
+                        Image(systemName: "chevron.right")
+                            .font(DSFont.caption.weight(.semibold))
+                            .foregroundColor(DSColor.textTertiary)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: DSSpacing.xs) {
+                    Text(title)
+                        .font(DSFont.body)
+                        .foregroundColor(DSColor.textPrimary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    if let detail {
+                        Text(detail)
+                            .font(DSFont.caption)
+                            .foregroundColor(DSColor.textSecondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .padding(DSSpacing.md)
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            .background(DSColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 #Preview {
     Form {
         Section {

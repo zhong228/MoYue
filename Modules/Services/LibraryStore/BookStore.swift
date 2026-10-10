@@ -253,6 +253,24 @@ class BookStore: ObservableObject, BookProvider {
         }
     }
 
+/// Scrape a cover for one imported book when the auto-scrape setting is on.
+    /// Runs after the record is committed so every import route shares one hook.
+    func autoScrapeCoverIfEnabled(for book: ReadingBook) {
+        guard GlobalSettings.shared.autoScrapeCovers, book.coverImagePath == nil else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let current = self.records.first(where: { $0.id == book.id }),
+                  current.coverImagePath == nil else { return }
+            let results = await OnlineCoverSearchService.searchCovers(
+                name: current.title, author: current.author
+            )
+            guard let first = results.first else { return }
+            _ = await self.applyCustomCover(
+                bookId: current.id, coverUrl: first.coverUrl, sourceId: nil
+            )
+        }
+    }
+
     // MARK: Import TXT File
 
     @MainActor @discardableResult
@@ -342,6 +360,7 @@ class BookStore: ObservableObject, BookProvider {
             }
             throw error
         }
+        autoScrapeCoverIfEnabled(for: importedBook)
         return importedBook
     }
 
@@ -419,17 +438,12 @@ class BookStore: ObservableObject, BookProvider {
                 OnlineChapterRef(index: 0, title: info.chapterTitle, url: filename)
             ]
             imported.coverImagePath = coverFilename
-            book = imported
-
-            _ = try await LocalMangaArchive.extractPages(
-                from: destURL,
-                to: LocalMangaArchive.chapterDirectory(bookId: imported.id, chapterIndex: 0)
-            )
 
             let importedBook = imported
             await MainActor.run {
                 self.records.insert(importedBook, at: 0)
                 self.saveMeta()
+                self.autoScrapeCoverIfEnabled(for: importedBook)
             }
             return importedBook
         } catch {
@@ -503,6 +517,7 @@ class BookStore: ObservableObject, BookProvider {
                 try Task.checkCancellation()
                 self.records.insert(importedBook, at: 0)
                 self.saveMeta()
+                self.autoScrapeCoverIfEnabled(for: importedBook)
             }
             return importedBook
         } catch {
@@ -590,6 +605,7 @@ class BookStore: ObservableObject, BookProvider {
             await MainActor.run {
                 self.records.insert(importedBook, at: 0)
                 self.saveMeta()
+                self.autoScrapeCoverIfEnabled(for: importedBook)
             }
             return importedBook
         } catch {
@@ -612,6 +628,7 @@ class BookStore: ObservableObject, BookProvider {
         book.contentPipelineKind = .txt
         records.insert(book, at: 0)
         saveMeta()
+        autoScrapeCoverIfEnabled(for: book)
         return book
     }
 
@@ -2263,6 +2280,7 @@ class BookStore: ObservableObject, BookProvider {
         book.contentPipelineKind = (format == .html) ? .html : .txt
         records.insert(book, at: 0)
         saveMeta()
+        autoScrapeCoverIfEnabled(for: book)
         return book
     }
 

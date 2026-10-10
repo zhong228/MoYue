@@ -8,7 +8,8 @@ protocol BookSourceHealthCheckFetching: Sendable {
         page: Int,
         earlyFilter: ((_ name: String, _ author: String) -> Bool)?,
         onHasMore: ((Bool?) -> Void)?,
-        failureMode: BookSourceSearchFailureMode
+        failureMode: BookSourceSearchFailureMode,
+        skipCheckKeyWordFilter: Bool
     ) async throws -> [OnlineBook]
     func discoverItems(page: Int, in source: BookSource) async -> [ModernParserBridge.DiscoverItem]
     func discoverBooks(
@@ -946,7 +947,8 @@ final class BookSourceHealthChecker: ObservableObject {
                 page: 1,
                 earlyFilter: nil,
                 onHasMore: nil,
-                failureMode: .propagateTransportError
+                failureMode: .propagateTransportError,
+                skipCheckKeyWordFilter: true
             )
             guard let book = OnlineBookValidationSelector.preferredBook(
                 from: books,

@@ -51,7 +51,8 @@ extension BookSourceFetcher {
         page: Int = 1,
         earlyFilter: ((_ name: String, _ author: String) -> Bool)? = nil,
         onHasMore: ((Bool?) -> Void)? = nil,
-        failureMode: BookSourceSearchFailureMode = .emptyResult
+        failureMode: BookSourceSearchFailureMode = .emptyResult,
+        skipCheckKeyWordFilter: Bool = false
     ) async throws -> [OnlineBook] {
         guard !source.searchUrl.isEmpty else { throw FetchError.noSearchURL }
         let cacheDays = GlobalSettings.shared.searchCacheDays
@@ -76,8 +77,10 @@ extension BookSourceFetcher {
                 // keeps the returned list consistent with the native path.
                 books = books.filter { earlyFilter($0.name, $0.author) }
             }
-            let filtered = Self.filterSearchResultsByCheckKeyWord(
-                books, query: query, checkKeyWord: source.ruleSearch.checkKeyWord)
+            let filtered = skipCheckKeyWordFilter
+                ? books
+                : Self.filterSearchResultsByCheckKeyWord(
+                    books, query: query, checkKeyWord: source.ruleSearch.checkKeyWord)
             if cacheEligible {
                 SearchResultCache.shared.store(
                     books: filtered,
@@ -161,8 +164,10 @@ extension BookSourceFetcher {
             }
         }
 
-        let filtered = Self.filterSearchResultsByCheckKeyWord(
-            books, query: query, checkKeyWord: source.ruleSearch.checkKeyWord)
+        let filtered = skipCheckKeyWordFilter
+            ? books
+            : Self.filterSearchResultsByCheckKeyWord(
+                books, query: query, checkKeyWord: source.ruleSearch.checkKeyWord)
         if cacheEligible {
             SearchResultCache.shared.store(
                 books: filtered,

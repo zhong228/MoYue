@@ -182,98 +182,352 @@ struct EditRSSSourceSheet: View {
     }
 }
 
-// MARK: - Organize Sheet (reorder)
+// MARK: - Organize Sheet
 
-/// Drag-to-reorder for RSS folders and sources, plus tap-to-edit each source.
-/// Uses a native `List` with `EditButton` + `.onMove`.
 struct RSSOrganizeSheet: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var store: RSSStore
     @Environment(\.dismiss) private var dismiss
     @State private var editMode: EditMode = .inactive
-
-    @State private var sourceToEdit: RSSSource?
+    @State private var showAddFolder = false
+    @State private var newFolderName = ""
 
     var body: some View {
         NavigationStack {
             List {
                 let folders = store.orderedFolders()
+                let rootSources = store.rootSources()
 
-                if folders.count > 1 {
+                if folders.isEmpty && rootSources.isEmpty {
+                    Section {
+                        Text(localized("还没有订阅源"))
+                            .foregroundStyle(DSColor.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 60)
+                    }
+                    .listRowBackground(Color.clear)
+                }
+
+                if !folders.isEmpty {
                     Section(header: Text(localized("資料夾")).foregroundStyle(DSColor.textSecondary)) {
                         ForEach(folders) { folder in
-                            Label(folder.name, systemImage: "folder")
-                                .foregroundStyle(DSColor.textPrimary)
+                            NavigationLink {
+                                RSSFolderSourcesView(folder: folder, store: store)
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "folder.fill")
+                                        .foregroundStyle(DSColor.accent)
+                                        .frame(width: 28, height: 28)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(folder.name)
+                                            .font(DSFont.body)
+                                            .foregroundStyle(DSColor.textPrimary)
+                                        Text("\(store.sources(in: folder).count) \(localized("個訂閱源"))")
+                                            .font(DSFont.caption)
+                                            .foregroundStyle(DSColor.textSecondary)
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                            }
                         }
                         .onMove { offsets, destination in
                             store.moveFolders(fromOffsets: offsets, toOffset: destination)
                         }
                     }
-                    .interfaceSectionSurface()
                 }
 
-                ForEach(folders) { folder in
-                    let folderSources = store.sources(in: folder)
-                    if !folderSources.isEmpty {
-                        Section(header: Text(folder.name).foregroundStyle(DSColor.textSecondary)) {
-                            ForEach(folderSources) { source in
-                                sourceRow(source)
-                            }
-                            .onMove { offsets, destination in
-                                store.moveSources(inFolderNamed: folder.name, fromOffsets: offsets, toOffset: destination)
-                            }
-                        }
-                        .interfaceSectionSurface()
-                    }
-                }
-
-                let rootSources = store.rootSources()
                 if !rootSources.isEmpty {
                     Section(header: Text(folders.isEmpty ? "" : localized("未分類")).foregroundStyle(DSColor.textSecondary)) {
-                        ForEach(rootSources) { source in
-                            sourceRow(source)
-                        }
-                        .onMove { offsets, destination in
-                            store.moveSources(inFolderNamed: nil, fromOffsets: offsets, toOffset: destination)
+                        NavigationLink {
+                            RSSFolderSourcesView(folder: nil, store: store)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "tray")
+                                    .foregroundStyle(DSColor.textSecondary)
+                                    .frame(width: 28, height: 28)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(localized("未分類"))
+                                        .font(DSFont.body)
+                                        .foregroundStyle(DSColor.textPrimary)
+                                    Text("\(rootSources.count) \(localized("個訂閱源"))")
+                                        .font(DSFont.caption)
+                                        .foregroundStyle(DSColor.textSecondary)
+                                }
+                                Spacer(minLength: 0)
+                            }
                         }
                     }
-                    .interfaceSectionSurface()
                 }
             }
+            .listStyle(.insetGrouped)
             .softScrollEdges()
             .environment(\.editMode, $editMode)
-            .navigationTitle(localized("整理訂閱"))
+            .navigationTitle(localized("管理订阅源"))
             .toolbarTitleDisplayMode(.inline)
             .themedAppSurface(for: .rss)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        withAnimation(reduceMotion ? nil : DSAnimation.standard) {
-                            editMode = (editMode == .active) ? .inactive : .active
-                        }
+                        dismiss()
                     } label: {
-                        Image(systemName: editMode == .active ? "xmark" : "checklist")
+                        Image(systemName: "xmark")
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "checkmark")
+                    HStack(spacing: 16) {
+                        Button {
+                            withAnimation(reduceMotion ? nil : DSAnimation.standard) {
+                                editMode = (editMode == .active) ? .inactive : .active
+                            }
+                        } label: {
+                            Image(systemName: editMode == .active ? "xmark" : "checklist")
+                        }
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "checkmark")
+                        }
                     }
                 }
             }
-            .sheet(item: $sourceToEdit) { source in
-                EditRSSSourceSheet(source: source, store: store)
+            .overlay(alignment: .bottom) {
+                Button {
+                    showAddFolder = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "folder.badge.plus")
+                        Text(localized("新增資料夾"))
+                    }
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(DSColor.accent, in: Capsule())
+                }
+                .padding(.bottom, 20)
+            }
+            .alert(localized("新增資料夾"), isPresented: $showAddFolder) {
+                TextField(localized("資料夾名稱"), text: $newFolderName)
+                Button(localized("新增")) {
+                    let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !name.isEmpty {
+                        _ = store.addFolder(named: name)
+                    }
+                    newFolderName = ""
+                }
+                Button(localized("取消"), role: .cancel) {
+                    newFolderName = ""
+                }
+            } message: {
+                Text(localized("請輸入資料夾名稱"))
+            }
+        }
+    }
+}
+
+// MARK: - Folder Sources View
+
+struct RSSFolderSourcesView: View {
+    let folder: RSSFolder?
+    @ObservedObject var store: RSSStore
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var editMode: EditMode = .inactive
+    @State private var selectionMode = false
+    @State private var selectedSourceIDs = Set<String>()
+    @State private var sourceToEdit: RSSSource?
+    @State private var showDeleteConfirm = false
+    @State private var showMoveSheet = false
+    @State private var checkingInvalid = false
+    @State private var invalidSourceIDs = Set<String>()
+    @State private var checkProgress: (current: Int, total: Int)?
+
+    private var sources: [RSSSource] {
+        if let folder { return store.sources(in: folder) }
+        return store.rootSources()
+    }
+
+    var body: some View {
+        List {
+            if sources.isEmpty {
+                Section {
+                    Text(localized("此資料夾沒有訂閱源"))
+                        .foregroundStyle(DSColor.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 40)
+                }
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(sources) { source in
+                    sourceRow(source)
+                }
+                .onMove { offsets, destination in
+                    store.moveSources(inFolderNamed: folder?.name, fromOffsets: offsets, toOffset: destination)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .softScrollEdges()
+        .environment(\.editMode, $editMode)
+        .navigationTitle(folder?.name ?? localized("未分類"))
+        .toolbarTitleDisplayMode(.inline)
+        .themedAppSurface(for: .rss)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 16) {
+                    if !selectionMode {
+                        Button {
+                            withAnimation {
+                                editMode = (editMode == .active) ? .inactive : .active
+                            }
+                        } label: {
+                            Image(systemName: editMode == .active ? "xmark" : "checklist")
+                        }
+                    }
+                    Button {
+                        withAnimation {
+                            selectionMode.toggle()
+                            editMode = .inactive
+                            if !selectionMode {
+                                selectedSourceIDs.removeAll()
+                            }
+                        }
+                    } label: {
+                        Text(selectionMode ? localized("完成") : localized("選擇"))
+                            .fontWeight(.medium)
+                    }
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if selectionMode {
+                selectionToolbar
+            }
+        }
+        .sheet(item: $sourceToEdit) { source in
+            EditRSSSourceSheet(source: source, store: store)
+        }
+        .sheet(isPresented: $showMoveSheet) {
+            RSSMoveSourcesSheet(store: store, sourceIDs: selectedSourceIDs) {
+                selectedSourceIDs.removeAll()
+                selectionMode = false
+            }
+        }
+        .alert(localized("刪除"), isPresented: $showDeleteConfirm) {
+            Button(localized("刪除"), role: .destructive) {
+                store.removeSources(ids: Array(selectedSourceIDs))
+                selectedSourceIDs.removeAll()
+                selectionMode = false
+            }
+            Button(localized("取消"), role: .cancel) {}
+        } message: {
+            Text(String(format: localized("確定要刪除 %d 個訂閱源嗎？"), selectedSourceIDs.count))
+        }
+        .overlay {
+            if checkingInvalid, let progress = checkProgress {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text("\(progress.current) / \(progress.total)")
+                        .font(.caption)
+                        .foregroundStyle(DSColor.textSecondary)
+                }
+                .padding()
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             }
         }
     }
 
+    @ViewBuilder
+    private var selectionToolbar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 0) {
+                Button {
+                    if selectedSourceIDs.count == sources.count {
+                        selectedSourceIDs.removeAll()
+                    } else {
+                        selectedSourceIDs = Set(sources.map(\.id))
+                    }
+                } label: {
+                    VStack(spacing: 2) {
+                        Image(systemName: selectedSourceIDs.count == sources.count ? "checkmark.circle.fill" : "checkmark.circle")
+                        Text(localized("全選"))
+                            .font(.caption)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+
+                Button {
+                    let allIDs = Set(sources.map(\.id))
+                    selectedSourceIDs = allIDs.symmetricDifference(selectedSourceIDs)
+                } label: {
+                    VStack(spacing: 2) {
+                        Image(systemName: "arrow.2.circlepath")
+                        Text(localized("反選"))
+                            .font(.caption)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+
+                Button {
+                    showMoveSheet = true
+                } label: {
+                    VStack(spacing: 2) {
+                        Image(systemName: "folder.badge.plus")
+                        Text(localized("移動到分組"))
+                            .font(.caption)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .disabled(selectedSourceIDs.isEmpty)
+
+                Button {
+                    Task { await checkInvalid() }
+                } label: {
+                    VStack(spacing: 2) {
+                        Image(systemName: "exclamationmark.triangle")
+                        Text(localized("檢測"))
+                            .font(.caption)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+
+                Button {
+                    guard !selectedSourceIDs.isEmpty else { return }
+                    showDeleteConfirm = true
+                } label: {
+                    VStack(spacing: 2) {
+                        Image(systemName: "trash")
+                        Text(localized("刪除"))
+                            .font(.caption)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .disabled(selectedSourceIDs.isEmpty)
+                .tint(.red)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial)
+        }
+    }
+
+    @ViewBuilder
     private func sourceRow(_ source: RSSSource) -> some View {
         Button {
-            sourceToEdit = source
+            if selectionMode {
+                toggleSelection(source.id)
+            } else {
+                sourceToEdit = source
+            }
         } label: {
             HStack(spacing: 12) {
+                if selectionMode {
+                    Image(systemName: selectedSourceIDs.contains(source.id) ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(selectedSourceIDs.contains(source.id) ? DSColor.accent : DSColor.textSecondary)
+                        .imageScale(.large)
+                }
+
                 RSSFaviconView(source: source, size: 24)
                     .frame(width: 28, height: 28)
 
@@ -282,17 +536,134 @@ struct RSSOrganizeSheet: View {
                         .font(DSFont.body)
                         .foregroundStyle(DSColor.textPrimary)
                         .lineLimit(1)
-                    Text(source.url)
-                        .font(DSFont.caption)
-                        .foregroundStyle(DSColor.textSecondary)
-                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Text(source.url)
+                            .font(DSFont.caption)
+                            .foregroundStyle(DSColor.textSecondary)
+                            .lineLimit(1)
+                        if invalidSourceIDs.contains(source.id) {
+                            Text(localized("失效"))
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.red, in: Capsule())
+                        }
+                    }
                 }
 
                 Spacer(minLength: 0)
+
+                if !selectionMode {
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(DSColor.textSecondary)
+                }
             }
-            .contentShape(Rectangle())
         }
         .tint(.primary)
+        .swipeActions(edge: .trailing) {
+            if !selectionMode {
+                Button(role: .destructive) {
+                    store.removeSources(ids: [source.id])
+                } label: {
+                    Label(localized("刪除"), systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    private func toggleSelection(_ id: String) {
+        if selectedSourceIDs.contains(id) {
+            selectedSourceIDs.remove(id)
+        } else {
+            selectedSourceIDs.insert(id)
+        }
+    }
+
+    @MainActor
+    private func checkInvalid() async {
+        checkingInvalid = true
+        defer { checkingInvalid = false }
+        invalidSourceIDs.removeAll()
+
+        let targets = !selectedSourceIDs.isEmpty
+            ? sources.filter { selectedSourceIDs.contains($0.id) }
+            : sources
+
+        for (index, source) in targets.enumerated() {
+            checkProgress = (index + 1, targets.count)
+            let fetcher = RSSFetcher()
+            await fetcher.fetchItems(from: source, metadata: store.feedMetadata(for: source.id))
+            if fetcher.error != nil {
+                invalidSourceIDs.insert(source.id)
+            }
+        }
+        checkProgress = nil
+    }
+}
+
+// MARK: - Move Sources Sheet
+
+struct RSSMoveSourcesSheet: View {
+    @ObservedObject var store: RSSStore
+    let sourceIDs: Set<String>
+    let onComplete: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button {
+                        moveSources(to: nil)
+                    } label: {
+                        HStack {
+                            Text(localized("無資料夾"))
+                            Spacer()
+                            Image(systemName: "tray")
+                                .foregroundStyle(DSColor.textSecondary)
+                        }
+                    }
+                }
+
+                let folders = store.orderedFolders()
+                if !folders.isEmpty {
+                    Section(header: Text(localized("資料夾")).foregroundStyle(DSColor.textSecondary)) {
+                        ForEach(folders) { folder in
+                            Button {
+                                moveSources(to: folder)
+                            } label: {
+                                HStack {
+                                    Text(folder.name)
+                                    Spacer()
+                                    Image(systemName: "folder")
+                                        .foregroundStyle(DSColor.textSecondary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .softScrollEdges()
+            .navigationTitle(localized("移動到分組"))
+            .toolbarTitleDisplayMode(.inline)
+            .themedAppSurface(for: .rss)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(localized("取消")) {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func moveSources(to folder: RSSFolder?) {
+        store.moveSources(ids: Array(sourceIDs), to: folder)
+        dismiss()
+        onComplete()
     }
 }
 

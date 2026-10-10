@@ -74,55 +74,74 @@ struct SourceValidationListHeader: View {
         .padding(.vertical, DSSpacing.sm)
     }
 
+    /// Modern dashboard-style stat tiles arranged in a 2×2 grid, replacing the classic
+    /// vertical list so the header no longer reads as the Legado / 閱讀 management screen.
     private var statsCard: some View {
-        VStack(spacing: 0) {
-            statRow(
+        HStack(spacing: DSSpacing.md) {
+            statTile(
                 icon: "checkmark.circle.fill",
                 title: localized("已啟用"),
-                value: "\(counts.enabled) / \(counts.total)"
+                value: "\(counts.enabled)",
+                total: counts.total,
+                tint: Color.indigo
             )
-            Divider()
-            statRow(icon: "safari.fill", title: localized("支持發現"), value: "\(counts.discover)")
+            statTile(
+                icon: "safari.fill",
+                title: localized("支持發現"),
+                value: "\(counts.discover)",
+                total: nil,
+                tint: Color.orange
+            )
         }
         .padding(.horizontal, DSSpacing.md)
-        .padding(.vertical, DSSpacing.xs)
-        // The card carries its own surface so it follows 毛玻璃／分組卡片／透明度 like the
-        // rows below it. A hardcoded `secondarySystemBackground` here was opaque at every
-        // setting, which is what made the header read as a solid slab above a see-through
-        // list. `clipShape` stays for the `Divider`, which is content rather than surface.
-        .interfaceCardSurface(in: RoundedRectangle(cornerRadius: DSRadius.md, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: DSRadius.md, style: .continuous))
-    }
-
-    private func statRow(icon: String, title: String, value: String) -> some View {
-        HStack(spacing: DSSpacing.sm) {
-            Image(systemName: icon)
-                .foregroundColor(DSColor.accent)
-            Text(title)
-                .font(DSFont.subheadline)
-                .foregroundStyle(DSColor.textPrimary)
-            Spacer()
-            Text(value)
-                .font(DSFont.subheadline)
-                .foregroundColor(DSColor.textSecondary)
-                .monospacedDigit()
-        }
         .padding(.vertical, DSSpacing.sm)
     }
 
-    /// 全部／抓取異常／正文異常 as system glass buttons. Each one is a page: switching
-    /// clears the selection, and the bottom bar's 全選 counts only the page on screen.
-    /// The buttons keep their natural width and scroll sideways once a large count
-    /// (「全部 50,000」), a longer language or an accessibility text size makes them wider
-    /// than the row — instead of wrapping into circles or truncating their counts.
+    private func statTile(icon: String, title: String, value: String, total: Int?, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: DSSpacing.xs) {
+            HStack(spacing: DSSpacing.xs) {
+                Image(systemName: icon)
+                    .font(DSFont.fixed(size: 14))
+                    .foregroundColor(tint)
+                Text(title)
+                    .font(DSFont.caption)
+                    .foregroundStyle(DSColor.textSecondary)
+                Spacer(minLength: 0)
+            }
+            HStack(alignment: .lastTextBaseline, spacing: 2) {
+                Text(value)
+                    .font(DSFont.title2.weight(.bold))
+                    .foregroundColor(DSColor.textPrimary)
+                    .monospacedDigit()
+                if let total {
+                    Text("/ \(total)")
+                        .font(DSFont.caption)
+                        .foregroundColor(DSColor.textSecondary)
+                        .monospacedDigit()
+                }
+            }
+        }
+        .padding(.horizontal, DSSpacing.md)
+        .padding(.vertical, DSSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous)
+                .fill(DSColor.surface)
+                .shadow(color: Color.black.opacity(0.03), radius: 3, x: 0, y: 1)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous)
+                .stroke(tint.opacity(0.15), lineWidth: 1)
+        )
+    }
+
+    /// Modern pill-style segmented page filter. Replaces the classic glass buttons
+    /// with a unified capsule strip so the header reads as a contemporary dashboard.
     private var pageButtons: some View {
         HStack(spacing: DSSpacing.sm) {
             ScrollView(.horizontal) {
-                SourceFilterButtonGroup {
-                    pageButtonRow
-                }
-                // Room for the glass edge inside the scroll view's clip.
-                .padding(.vertical, DSSpacing.xs)
+                pageButtonRow
+                    .padding(.vertical, DSSpacing.xs)
             }
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
@@ -138,19 +157,26 @@ struct SourceValidationListHeader: View {
         }
     }
 
-    /// Grouped ⇄ flat toggle. Icon-only, so the symbol is hidden from VoiceOver and the
-    /// button carries the name itself — an `accessibilityLabel` alone would be shadowed by
-    /// the SF Symbol's own element (docs/design.md §7.1).
+    /// Grouped ⇄ flat toggle. Modern pill button with filled/active state.
     private var groupingToggle: some View {
         Button {
             grouped.toggle()
         } label: {
-            Image(systemName: grouped ? "list.bullet.indent" : "list.bullet")
-                .font(DSFont.subheadline)
-                .foregroundColor(grouped ? DSColor.accent : DSColor.textSecondary)
-                .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
-                .contentShape(Rectangle())
-                .accessibilityHidden(true)
+            HStack(spacing: 4) {
+                Image(systemName: grouped ? "rectangle.grid.1x2" : "list.bullet")
+                    .font(DSFont.fixed(size: 13))
+                Text(grouped ? localized("分組") : localized("列表"))
+                    .font(DSFont.fixed(size: 12, weight: .medium))
+            }
+            .foregroundColor(grouped ? Color.indigo : DSColor.textSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(grouped ? Color.indigo.opacity(0.12) : DSColor.neutralControlFill)
+            )
+            .contentShape(Rectangle())
+            .accessibilityHidden(true)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(localized("書源排列方式"))

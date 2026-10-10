@@ -140,6 +140,8 @@ struct HomeView: View {
     @State private var showAddToGroupSheet = false
     /// Pushed rather than presented: a sheet asked for from a menu action can be dropped on iOS 17.
     @State private var showBookshelfOrganizer = false
+    /// Pushed for the same iOS 17 menu reason as `showBookshelfOrganizer`.
+    @State private var showScrapeView = false
     @State private var showAIPaywall = false
     @ObservedObject private var subscription = SubscriptionStore.shared
     @AppStorage("bookLayoutIsGrid") private var isGridMode = false
@@ -533,6 +535,9 @@ struct HomeView: View {
             .navigationDestination(isPresented: $showBookshelfOrganizer) {
                 AIBookshelfOrganizerView().environmentObject(store)
             }
+            .navigationDestination(isPresented: $showScrapeView) {
+                BookshelfScrapeView().environmentObject(store)
+            }
             .sheet(isPresented: $showAIPaywall) {
                 PaywallView(highlightedFeature: .aiReading)
                     .environmentObject(subscription)
@@ -715,6 +720,16 @@ struct HomeView: View {
                 Label(localized("選取"), systemImage: "checkmark.circle")
             }
             organizerMenuItem
+
+            Divider()
+
+            // 刮削 (cover scraping) is pushed, not presented — a menu action
+            // cannot open a sheet on iOS 17 (Technotes/iOS17MenuModalPresentation.md).
+            Button {
+                showScrapeView = true
+            } label: {
+                Label(localized("刮削書坊封面"), systemImage: "sparkle.magnifyingglass")
+            }
 
             Divider()
 

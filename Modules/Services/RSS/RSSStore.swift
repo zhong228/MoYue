@@ -197,6 +197,21 @@ final class RSSStore: ObservableObject {
         save()
     }
 
+    func moveSources(ids: [String], to folder: RSSFolder?) {
+        let targetName = normalizedFolderName(folder?.name)
+        for id in ids {
+            guard let index = sources.firstIndex(where: { $0.id == id }) else { continue }
+            var source = sources[index]
+            let oldGroup = normalizedFolderName(source.sourceGroup)
+            source.sourceGroup = targetName
+            if source.sourceGroup != oldGroup {
+                source.sortOrder = nextSourceSortOrder(in: folder)
+            }
+            sources[index] = source
+        }
+        save()
+    }
+
     func moveFolders(fromOffsets offsets: IndexSet, toOffset destination: Int) {
         var ordered = orderedFolders()
         ordered.move(fromOffsets: offsets, toOffset: destination)

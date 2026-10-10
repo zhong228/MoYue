@@ -421,7 +421,8 @@ private actor HealthCheckTransportFailureFetcher: BookSourceHealthCheckFetching 
         page: Int,
         earlyFilter: ((_ name: String, _ author: String) -> Bool)?,
         onHasMore: ((Bool?) -> Void)?,
-        failureMode: BookSourceSearchFailureMode
+        failureMode: BookSourceSearchFailureMode,
+        skipCheckKeyWordFilter: Bool
     ) async throws -> [OnlineBook] {
         calls.append("search")
         throw URLError(.timedOut)
@@ -483,7 +484,8 @@ private actor HealthCheckKeywordCaptureFetcher: BookSourceHealthCheckFetching {
         page: Int,
         earlyFilter: ((_ name: String, _ author: String) -> Bool)?,
         onHasMore: ((Bool?) -> Void)?,
-        failureMode: BookSourceSearchFailureMode
+        failureMode: BookSourceSearchFailureMode,
+        skipCheckKeyWordFilter: Bool
     ) async throws -> [OnlineBook] {
         queries.append(query)
         return [OnlineBook(
@@ -549,7 +551,8 @@ private actor HealthCheckMixedContentFetcher: BookSourceHealthCheckFetching {
         page: Int,
         earlyFilter: ((_ name: String, _ author: String) -> Bool)?,
         onHasMore: ((Bool?) -> Void)?,
-        failureMode: BookSourceSearchFailureMode
+        failureMode: BookSourceSearchFailureMode,
+        skipCheckKeyWordFilter: Bool
     ) async throws -> [OnlineBook] {
         [
             book(
@@ -726,7 +729,8 @@ private actor HealthCheckDetailFailureFetcher: BookSourceHealthCheckFetching {
         page: Int,
         earlyFilter: ((_ name: String, _ author: String) -> Bool)?,
         onHasMore: ((Bool?) -> Void)?,
-        failureMode: BookSourceSearchFailureMode
+        failureMode: BookSourceSearchFailureMode,
+        skipCheckKeyWordFilter: Bool
     ) async throws -> [OnlineBook] {
         calls.append("search")
         return [OnlineBook(
@@ -827,7 +831,8 @@ private actor TimedHealthCheckFetcher: BookSourceHealthCheckFetching {
         page: Int,
         earlyFilter: ((_ name: String, _ author: String) -> Bool)?,
         onHasMore: ((Bool?) -> Void)?,
-        failureMode: BookSourceSearchFailureMode
+        failureMode: BookSourceSearchFailureMode,
+        skipCheckKeyWordFilter: Bool
     ) async throws -> [OnlineBook] {
         let start = begin("search")
         defer { end("search", start) }

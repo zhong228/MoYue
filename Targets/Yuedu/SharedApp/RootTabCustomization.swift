@@ -23,10 +23,10 @@ enum RootTabItem: String, CaseIterable, Codable, Hashable, Identifiable {
 
     var defaultSystemImage: String {
         switch self {
-        case .bookshelf: return "text.book.closed.fill"
-        case .explore: return "sparkles"
-        case .rss: return "dot.radiowaves.left.and.right"
-        case .settings: return "gearshape.fill"
+        case .bookshelf: return "book.fill"
+        case .explore: return "safari.fill"
+        case .rss: return "newspaper.fill"
+        case .settings: return "gearshape.2.fill"
         // No filled variant exists for the glass; this is the intended icon.
         case .search: return "magnifyingglass"
         }

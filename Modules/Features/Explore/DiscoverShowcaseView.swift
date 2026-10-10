@@ -678,29 +678,39 @@ struct DiscoverCategoryBookList: View {
     }
 
     var body: some View {
-        let rows = LazyVStack(spacing: 0) {
-            ForEach(Array(books.enumerated()), id: \.element.id) { index, display in
-                if index > 0 {
-                    Divider()
-                        .padding(.leading, DSLayout.discoverRowCoverWidth + DSSpacing.md)
-                }
-                NavigationLink(value: ExploreNavigationRoute.book(display.book)) {
-                    DiscoverBookRow(
-                        rank: section.style == .ranked ? index + 1 : nil,
-                        display: display,
-                        section: section,
-                        showsIntro: true
-                    )
-                }
-                .buttonStyle(.plain)
-                .onAppear {
-                    if index >= books.count - 5 {
-                        loadMoreIfNeeded()
-                    }
+        let bookRows = ForEach(Array(books.enumerated()), id: \.element.id) { index, display in
+            if index > 0 {
+                Divider()
+                    .padding(.leading, DSLayout.discoverRowCoverWidth + DSSpacing.md)
+            }
+            NavigationLink(value: ExploreNavigationRoute.book(display.book)) {
+                DiscoverBookRow(
+                    rank: section.style == .ranked ? index + 1 : nil,
+                    display: display,
+                    section: section,
+                    showsIntro: true
+                )
+            }
+            .buttonStyle(.plain)
+            .onAppear {
+                if index >= books.count - 5 {
+                    loadMoreIfNeeded()
                 }
             }
+        }
 
-            loadMoreFooter
+        let rows: some View = Group {
+            if embedsScrollView {
+                LazyVStack(spacing: 0) {
+                    bookRows
+                    loadMoreFooter
+                }
+            } else {
+                VStack(spacing: 0) {
+                    bookRows
+                    loadMoreFooter
+                }
+            }
         }
         .padding(.horizontal, DSSpacing.lg)
         .padding(.vertical, DSSpacing.sm)
@@ -819,16 +829,50 @@ struct DiscoverListLayoutView: View {
 
     /// The chosen category, by the key that survives a reload; the first until one is chosen.
     @State private var selectedKey: String?
+    @State private var selectedSection: DiscoverShowcaseSection?
 
-    private var selectedSection: DiscoverShowcaseSection? {
-        discover.sections.first { $0.item.stableKey == selectedKey } ?? discover.sections.first
+    private var selectedSectionID: String? {
+        selectedSection?.id
     }
 
     private var pageItems: [DiscoverCardItem] {
         onOpenPage == nil ? [] : discover.pageItems
     }
 
+    init(discover: DiscoverViewModel, onOpenPage: ((String) -> Void)? = nil, embedsScrollView: Bool = true) {
+        self.discover = discover
+        self.onOpenPage = onOpenPage
+        self.embedsScrollView = embedsScrollView
+        let initial = discover.sections.first
+        _selectedKey = State(initialValue: initial?.item.stableKey)
+        _selectedSection = State(initialValue: initial)
+    }
+
     var body: some View {
+        Group {
+            if embedsScrollView {
+                vstackContent
+            } else {
+                LazyVStack(spacing: 0) {
+                    vstackContent
+                }
+            }
+        }
+        .onChange(of: selectedKey) { _, newKey in
+            selectedSection = discover.sections.first { $0.item.stableKey == newKey } ?? discover.sections.first
+        }
+        .onChange(of: discover.sections) { _, newSections in
+            if let key = selectedKey {
+                selectedSection = newSections.first { $0.item.stableKey == key } ?? newSections.first
+            } else {
+                selectedSection = newSections.first
+                selectedKey = newSections.first?.item.stableKey
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var vstackContent: some View {
         VStack(spacing: 0) {
             if !discover.filters.isEmpty || !pageItems.isEmpty {
                 DiscoverControlsRow(
@@ -879,7 +923,7 @@ struct DiscoverListLayoutView: View {
                 ForEach(discover.sections) { section in
                     DSChip(
                         title: section.title,
-                        isSelected: section.id == selectedSection?.id,
+                        isSelected: section.id == selectedSectionID,
                         minWidth: DSLayout.capsuleControlMinWidth
                     ) {
                         selectedKey = section.item.stableKey

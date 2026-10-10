@@ -3576,3 +3576,20 @@
 "管理订阅源" = "Manage Feeds";
 "还没有订阅源" = "No Feeds Yet";
 "没有符合条件的订阅源" = "No Matching Feeds";
+"檢測" = "Check";
+"失效" = "Invalid";
+"確定要刪除 %d 個訂閱源嗎？" = "Delete %d feed(s)?";
+"請輸入資料夾名稱" = "Enter a folder name";
+
+"刮削書坊封面" = "Scrape Cover Art";
+"掃描無封面書籍並自動搜尋封面" = "Scan coverless books and search for covers automatically";
+"書坊中共有 %d 本無封面書籍。" = "There are %d coverless books on the shelf.";
+"開始刮削" = "Start Scraping";
+"刮削中 %d/%d" = "Scraping %d/%d";
+"刮削完成" = "Scraping Complete";
+"刮削結果" = "Scraping Results";
+"找到封面" = "Cover Found";
+"未找到封面" = "No Cover Found";
+"成功 %d 本，失敗 %d 本。" = "%d succeeded, %d failed.";
+"匯入書籍後自動刮削封面" = "Auto-scrape covers after import";
+"開啟後，匯入本地書籍時會自動搜索並替無封面書籍套用網路封面。" = "When enabled, imported local books will automatically search for and apply online covers if none exists.";

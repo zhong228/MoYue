@@ -1,17 +1,12 @@
 import SwiftUI
 
 /// 探索設定, behind 探索's gear: how 探索 lays out its entries, how a source's page lays
-/// out its categories, the page 探索 opens straight onto, and how the charts and shelves
-/// fill and load.
+/// out its categories, and how the charts and shelves fill and load.
 struct ExploreSettingsSheet: View {
-    /// 探索's sources, for 首屏配置 to choose from.
-    let sources: [BookSource]
-
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(ExploreSettings.sourcePageLayoutKey)
     private var sourcePageLayout = ExploreSourcePageLayout.default
-    @AppStorage(ExploreSettings.landingKey) private var landing = ExploreLanding.off.rawValue
     @AppStorage(ExploreSettings.rankedKeywordsKey)
     private var rankedKeywordsRaw = ExploreSettings.encodeKeywords(ExploreSettings.defaultRankedKeywords)
     @AppStorage(ExploreSettings.chartBookCountKey)
@@ -21,7 +16,6 @@ struct ExploreSettingsSheet: View {
     @AppStorage(ExploreSettings.preloadCountKey)
     private var preloadCount = ExploreSettings.defaultPreloadCount
     @AppStorage(BookCoverLoader.downloadLimitKey) private var coverDownloadLimit = 0
-    @ObservedObject private var pageStore = CustomExplorePageStore.shared
     @State private var newKeyword = ""
 
     private var rankedKeywords: [String] {
@@ -32,7 +26,6 @@ struct ExploreSettingsSheet: View {
         NavigationStack {
             Form {
                 layoutSection
-                landingSection
                 // How the charts and shelves fill and load matters only to the magazine
                 // layout; the cover limit applies to every cover in the app.
                 if sourcePageLayout == .magazine {
@@ -75,39 +68,6 @@ struct ExploreSettingsSheet: View {
             sectionHeader(localized("佈局"))
         } footer: {
             Text(localized("列表是上方一排分類、下方所選分類的書；雜誌是每個分類一排書架或一欄榜單。"))
-                .dsSectionFooter()
-        }
-        .interfaceSectionSurface()
-    }
-
-    private var landingSection: some View {
-        Section {
-            Picker(selection: $landing) {
-                Text(localized("不啟用")).tag(ExploreLanding.off.rawValue)
-                if !pageStore.pages.isEmpty {
-                    Section(localized("自訂頁")) {
-                        ForEach(pageStore.pages) { page in
-                            Text(page.name)
-                                .tag(ExploreLanding.customPage(id: page.id).rawValue)
-                        }
-                    }
-                }
-                if !sources.isEmpty {
-                    Section(localized("書源")) {
-                        ForEach(sources) { source in
-                            Text(source.bookSourceName)
-                                .tag(ExploreLanding.source(url: source.bookSourceUrl).rawValue)
-                        }
-                    }
-                }
-            } label: {
-                SettingsRowLabel(localized("首屏配置"), systemImage: "arrow.right.circle")
-            }
-            .pickerStyle(.navigationLink)
-        } header: {
-            sectionHeader(localized("首屏配置"))
-        } footer: {
-            Text(localized("設定後，打開探索時會直接進入這一頁。"))
                 .dsSectionFooter()
         }
         .interfaceSectionSurface()
@@ -236,5 +196,5 @@ struct ExploreSettingsSheet: View {
 }
 
 #Preview {
-    ExploreSettingsSheet(sources: [])
+    ExploreSettingsSheet()
 }

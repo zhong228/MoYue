@@ -249,7 +249,7 @@ struct BookSourceListView: View {
                         Button {
                             presentCheckOptions()
                         } label: {
-                            Label(localized("書源驗證"), systemImage: "stethoscope")
+                            Label(localized("書源驗證"), systemImage: "antenna.radiowaves.left.and.right")
                         }
                         Divider()
                         Button {
@@ -777,12 +777,12 @@ struct BookSourceListView: View {
                 HStack(spacing: 6) {
                     Image(
                         systemName: model.isPageFullySelected
-                            ? "checkmark.square.fill" : "square"
+                            ? "checkmark.circle.fill" : "circle"
                     )
                     .font(DSFont.fixed(size: 18))
                     .foregroundColor(
                         model.isPageFullySelected
-                            ? DSColor.accent : Color(UIColor.systemGray3))
+                            ? Color.teal : Color(UIColor.systemGray3))
                     .accessibilityHidden(true)
                     Text(localized("全選") + "(\(model.pageSelectedCount)/\(model.pageCount))")
                         .font(DSFont.fixed(size: 13))
@@ -804,7 +804,7 @@ struct BookSourceListView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 7)
                     .background(Color(UIColor.systemGray5))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                     .foregroundStyle(DSColor.textPrimary)
             }
             .buttonStyle(.plain)
@@ -822,7 +822,7 @@ struct BookSourceListView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 7)
                     .background(Color(UIColor.systemGray5))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
             .disabled(model.selectedIDs.isEmpty)
@@ -833,27 +833,26 @@ struct BookSourceListView: View {
                 Button {
                     enableSelected()
                 } label: {
-                    Label(localized("啟用選中"), systemImage: "checkmark.circle")
+                    Label(localized("啟用選中"), systemImage: "bolt.fill")
                 }
                 .disabled(model.selectedIDs.isEmpty)
                 Button {
                     disableSelected()
                 } label: {
-                    Label(localized("停用選中"), systemImage: "xmark.circle")
+                    Label(localized("停用選中"), systemImage: "bolt.slash.fill")
                 }
                 .disabled(model.selectedIDs.isEmpty)
                 Divider()
                 Button {
                     presentCheckOptions()
                 } label: {
-                    Label(localized("書源驗證"), systemImage: "stethoscope")
+                    Label(localized("書源驗證"), systemImage: "antenna.radiowaves.left.and.right")
                 }
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(DSFont.toolbarIcon)
+                Image(systemName: "ellipsis.circle")
+                    .font(DSFont.fixed(size: 18, weight: .medium))
                     .foregroundColor(DSColor.textSecondary)
                     .frame(width: 32, height: 32)
-                    .rotationEffect(.degrees(90))
             }
             .accessibilityLabel(localized("更多"))
             .padding(.trailing, 12)
@@ -988,9 +987,9 @@ struct BookSourceListView: View {
     private var emptyView: some View {
         VStack(spacing: 24) {
             Spacer()
-            Image(systemName: "books.vertical.circle")
+            Image(systemName: "doc.text.magnifyingglass")
                 .font(DSFont.fixed(size: 64))
-                .foregroundStyle(DSColor.textSecondary.opacity(0.35))
+                .foregroundStyle(Color.teal.opacity(0.45))
             Text(localized("尚無書源"))
                 .font(DSFont.title2.weight(.semibold))
                 .foregroundStyle(DSColor.textPrimary)
@@ -1000,10 +999,10 @@ struct BookSourceListView: View {
             Button {
                 showImport = true
             } label: {
-                Label(localized("匯入書源 JSON"), systemImage: "square.and.arrow.down")
+                Label(localized("匯入書源 JSON"), systemImage: "arrow.down.doc")
                     .font(DSFont.headline).foregroundColor(.white)
                     .padding(.horizontal, 28).padding(.vertical, 13)
-                    .background(DSColor.accent).clipShape(Capsule())
+                    .background(Color.teal).clipShape(Capsule())
             }
             Spacer()
         }

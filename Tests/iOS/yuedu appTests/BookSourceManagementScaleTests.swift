@@ -436,7 +436,8 @@ actor FatalTransportFetcher: BookSourceHealthCheckFetching {
         page: Int,
         earlyFilter: ((_ name: String, _ author: String) -> Bool)?,
         onHasMore: ((Bool?) -> Void)?,
-        failureMode: BookSourceSearchFailureMode
+        failureMode: BookSourceSearchFailureMode,
+        skipCheckKeyWordFilter: Bool
     ) async throws -> [OnlineBook] {
         throw URLError(.timedOut)
     }
@@ -483,7 +484,8 @@ actor PassingSourceFetcher: BookSourceHealthCheckFetching {
         page: Int,
         earlyFilter: ((_ name: String, _ author: String) -> Bool)?,
         onHasMore: ((Bool?) -> Void)?,
-        failureMode: BookSourceSearchFailureMode
+        failureMode: BookSourceSearchFailureMode,
+        skipCheckKeyWordFilter: Bool
     ) async throws -> [OnlineBook] {
         [book(url: source.bookSourceUrl + "/book/\(query)", toc: "", source: source)]
     }

@@ -7,7 +7,6 @@ enum ExploreSettings {
     // MARK: 書源頁
 
     static let sourcePageLayoutKey = "explore.sourcePageLayout"
-    static let landingKey = "explore.landing"
 
     // MARK: 探索首頁
 
@@ -83,37 +82,6 @@ enum ExploreSourcePageLayout: String, CaseIterable, Identifiable {
         switch self {
         case .list: "list.bullet"
         case .magazine: "square.grid.2x2"
-        }
-    }
-}
-
-/// The page 探索 opens straight onto (首屏配置), stored as a string.
-enum ExploreLanding: Equatable {
-    case off
-    /// One of the reader's custom explore pages.
-    case customPage(id: UUID)
-    case source(url: String)
-
-    private static let customPagePrefix = "page:"
-    private static let sourcePrefix = "source:"
-
-    init(rawValue: String) {
-        if rawValue.hasPrefix(Self.customPagePrefix),
-           let id = UUID(uuidString: String(rawValue.dropFirst(Self.customPagePrefix.count))) {
-            self = .customPage(id: id)
-        } else if rawValue.hasPrefix(Self.sourcePrefix) {
-            let url = String(rawValue.dropFirst(Self.sourcePrefix.count))
-            self = url.isEmpty ? .off : .source(url: url)
-        } else {
-            self = .off
-        }
-    }
-
-    var rawValue: String {
-        switch self {
-        case .off: ""
-        case .customPage(let id): Self.customPagePrefix + id.uuidString
-        case .source(let url): Self.sourcePrefix + url
         }
     }
 }

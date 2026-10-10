@@ -3,16 +3,6 @@ import Testing
 @testable import yuedu_app
 
 struct ExploreSettingsTests {
-    @Test("首屏配置 keeps its choice as a string and reads anything else as off")
-    func landingRoundTrips() {
-        for landing in [ExploreLanding.off, .customPage(id: UUID()), .source(url: "https://fanqienovel.com")] {
-            #expect(ExploreLanding(rawValue: landing.rawValue) == landing)
-        }
-        #expect(ExploreLanding(rawValue: "source:") == .off)
-        #expect(ExploreLanding(rawValue: "page:not-a-uuid") == .off)
-        #expect(ExploreLanding(rawValue: "something else") == .off)
-    }
-
     @Test("chart keywords are stored one per line, blank lines dropped")
     func keywordsRoundTrip() {
         let keywords = ["榜", "排行", "top"]

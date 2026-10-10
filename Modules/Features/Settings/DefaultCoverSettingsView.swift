@@ -71,6 +71,17 @@ struct DefaultCoverSettingsView: View {
 
             Section {
                 Toggle(
+                    localized("匯入書籍後自動刮削封面"),
+                    isOn: $settings.autoScrapeCovers
+                )
+            } footer: {
+                Text(localized("開啟後，匯入本地書籍時會自動搜索並替無封面書籍套用網路封面。"))
+                    .dsSectionFooter()
+            }
+            .interfaceSectionSurface()
+
+            Section {
+                Toggle(
                     localized("封面顯示書名"),
                     isOn: $settings.defaultCoverDrawsBookName
                 )

@@ -102,88 +102,31 @@ struct SettingsView: View {
 
                 // ── Book Source Management ──
                 Section(header: Text(localized("書源管理")).foregroundStyle(DSColor.textSecondary)) {
-                    DSSettingsRow(
-                        icon: "books.vertical.fill",
-                        title: localized("管理書源"),
-                        action: { showSourceList = true }
-                    )
-
-                    DSSettingsRow(
-                        icon: "arrow.down.circle.fill",
-                        title: localized("下載管理"),
-                        detail: "\(downloadedBooksCount) \(localized("本"))",
-                        action: { showDownloadManager = true }
-                    )
-
-                    DSSettingsRow(
-                        icon: "network",
-                        title: localized("網路設定"),
-                        action: { showNetworkSettings = true }
-                    )
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: DSSpacing.md), GridItem(.flexible(), spacing: DSSpacing.md)], spacing: DSSpacing.md) {
+                        DSSettingsCard(icon: "books.vertical.fill", title: localized("管理書源"), action: { showSourceList = true })
+                        DSSettingsCard(icon: "arrow.down.circle.fill", title: localized("下載管理"), detail: "\(downloadedBooksCount) \(localized("本"))", action: { showDownloadManager = true })
+                        DSSettingsCard(icon: "network", title: localized("網路設定"), action: { showNetworkSettings = true })
+                    }
                 }
 
                 // ── Reading Tools ──
                 Section(header: Text(localized("閱讀工具")).foregroundStyle(DSColor.textSecondary)) {
-                    DSSettingsRow(
-                        icon: "waveform",
-                        title: localized("語音朗讀設定"),
-                        action: { showTTSSettings = true }
-                    )
-
-                    DSSettingsRow(
-                        icon: "sparkles",
-                        // Named for what it is — the reader's panel is also called
-                        // 「AI 助手", and someone looking for 人物卡 went here first.
-                        title: localized("AI 助手設定"),
-                        detail: isAILocked ? localized("需要 Pro") : aiAssistantDetail,
-                        isLocked: isAILocked,
-                        action: {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: DSSpacing.md), GridItem(.flexible(), spacing: DSSpacing.md)], spacing: DSSpacing.md) {
+                        DSSettingsCard(icon: "waveform", title: localized("語音朗讀設定"), action: { showTTSSettings = true })
+                        DSSettingsCard(icon: "sparkles", title: localized("AI 助手設定"), detail: isAILocked ? localized("需要 Pro") : aiAssistantDetail, isLocked: isAILocked, action: {
                             if isAILocked { showAIPaywall = true } else { showAISettings = true }
-                        }
-                    )
-
-                    DSSettingsRow(
-                        icon: "text.magnifyingglass",
-                        title: localized("替換規則"),
-                        action: { showReplaceRules = true }
-                    )
+                        })
+                        DSSettingsCard(icon: "text.magnifyingglass", title: localized("替換規則"), action: { showReplaceRules = true })
+                    }
                 }
 
                 // ── Data Management ──
                 Section(header: Text(localized("資料管理")).foregroundStyle(DSColor.textSecondary)) {
-                    DSSettingsRow(
-                        icon: "arrow.triangle.2.circlepath.icloud",
-                        title: localized("備份與同步"),
-                        detail: localized("iCloud、WebDAV"),
-                        action: { showBackupSync = true }
-                    )
-
-                    DSSettingsRow(
-                        icon: "externaldrive.fill",
-                        title: localized("快取管理"),
-                        action: { showCacheManagement = true }
-                    )
-
-                    DSSettingsRow(
-                        icon: "wifi",
-                        title: localized("局域網服務"),
-                        action: { showLanServer = true }
-                    )
-
-                    DSSettingsRow(
-                        icon: "arrow.down.doc.fill",
-                        title: localized("Legado 資料遷移"),
-                        action: { showLegadoMigration = true }
-                    )
-                }
-
-                // ── Advanced ──
-                Section(header: Text(localized("進階")).foregroundStyle(DSColor.textSecondary)) {
-                    DSSettingsNavRow(
-                        icon: "stethoscope",
-                        title: localized("診斷與回報")
-                    ) {
-                        DiagnosticsView()
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: DSSpacing.md), GridItem(.flexible(), spacing: DSSpacing.md)], spacing: DSSpacing.md) {
+                        DSSettingsCard(icon: "arrow.triangle.2.circlepath.icloud", title: localized("備份與同步"), detail: localized("iCloud、WebDAV"), action: { showBackupSync = true })
+                        DSSettingsCard(icon: "externaldrive.fill", title: localized("快取管理"), action: { showCacheManagement = true })
+                        DSSettingsCard(icon: "wifi", title: localized("局域網服務"), action: { showLanServer = true })
+                        DSSettingsCard(icon: "arrow.down.doc.fill", title: localized("Legado 資料遷移"), action: { showLegadoMigration = true })
                     }
                 }
 
@@ -408,6 +351,35 @@ private struct AboutSupportView: View {
                         openURL(url)
                     }
                 }
+            }
+            .interfaceSectionSurface()
+
+            Section(header: Text(localized("診斷與回報")).foregroundStyle(DSColor.textSecondary)) {
+                NavigationLink {
+                    DiagnosticsView()
+                } label: {
+                    HStack(spacing: 12) {
+                        DSIconBadge(
+                            systemImage: "stethoscope",
+                            gradient: DSBrandGradient.tint(for: "stethoscope"),
+                            side: 30,
+                            iconSize: 16
+                        )
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(localized("診斷與回報"))
+                                .foregroundColor(DSColor.textPrimary)
+                            Text(localized("應用診斷與問題回報"))
+                                .font(DSFont.caption)
+                                .foregroundColor(DSColor.textSecondary)
+                                .lineLimit(2)
+                        }
+                        Spacer(minLength: 12)
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(DSColor.textSecondary.opacity(0.6))
+                    }
+                }
+                .foregroundColor(DSColor.textPrimary)
             }
             .interfaceSectionSurface()
 

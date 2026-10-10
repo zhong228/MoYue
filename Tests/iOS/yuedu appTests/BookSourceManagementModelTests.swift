@@ -228,7 +228,8 @@ actor ScriptedHealthFetcher: BookSourceHealthCheckFetching {
         page: Int,
         earlyFilter: ((_ name: String, _ author: String) -> Bool)?,
         onHasMore: ((Bool?) -> Void)?,
-        failureMode: BookSourceSearchFailureMode
+        failureMode: BookSourceSearchFailureMode,
+        skipCheckKeyWordFilter: Bool
     ) async throws -> [OnlineBook] {
         if fetchFailures.contains(source.bookSourceUrl) { throw URLError(.timedOut) }
         return [book(url: source.bookSourceUrl + "/book", toc: "", source: source)]

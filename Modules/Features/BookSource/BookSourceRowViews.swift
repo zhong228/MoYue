@@ -109,14 +109,12 @@ struct BookSourceRowActions {
     var delete: (BookSource) -> Void
 }
 
-/// One VoiceOver element per source.
-///
-/// The row packs five separate controls (核取方塊 / 啟用開關 / 編輯 / 更多) around three
-/// lines of text, so unmerged it cost eight swipes per source and announced bare SF
-/// Symbol names ("square", "square.and.pencil", "ellipsis") for four of them. Merging
-/// means every control has to come back as a rotor action — see `rotorActions` — and the
-/// 網址 moves to rotor custom content so it isn't re-read on every swipe.
-/// Rules in `docs/design.md` §7.
+/// A modern card-style source row with a distinctive visual identity that does not
+/// resemble the classic Legado / 閱讀 management list. Features:
+/// - Rounded card container with subtle shadow
+/// - Coloured initial-avatar on the leading edge (hash-based hue, not teal)
+/// - Compact right-side action stack with capsule buttons
+/// - No status stripe; selection is shown by card border instead
 struct BookSourceRow: View {
     let source: BookSource
     let isSelected: Bool
@@ -126,9 +124,9 @@ struct BookSourceRow: View {
     let defaultGroupName: String
     let actions: BookSourceRowActions
 
-    /// Leading slot for the 置頂／置底 pin icon, matching the old warning bar + checkbox
-    /// padding so source names keep their horizontal position.
-    private let pinSlotWidth = DSSpacing.lg + DSSpacing.xs
+    /// A warm coral accent used only inside this management surface so the
+    /// screen no longer shares the same accent colour palette as the rest of the app.
+    private var rowAccent: Color { Color(red: 0.91, green: 0.36, blue: 0.31) }
 
     @ViewBuilder
     var body: some View {
@@ -154,90 +152,126 @@ struct BookSourceRow: View {
     // MARK: Visible content
 
     private var content: some View {
-        HStack(spacing: 0) {
-            pinIndicator
+        HStack(spacing: DSSpacing.md) {
+            // ── Leading avatar + selection ──
+            avatarBlock
 
-            Button {
-                actions.toggleSelection(source.id)
-            } label: {
-                Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                    .font(DSFont.fixed(size: 20))
-                    .foregroundColor(isSelected ? DSColor.accent : Color(UIColor.systemGray3))
-            }
-            .buttonStyle(.plain)
-            .padding(.trailing, 12)
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
+            // ── Text block ──
+            VStack(alignment: .leading, spacing: DSSpacing.xs) {
+                HStack(spacing: DSSpacing.sm) {
                     Text(source.bookSourceName.isEmpty
                         ? localized("未命名書源") : source.bookSourceName)
-                        .font(DSFont.toolbarIcon)
-                        .foregroundColor(source.enabled ? .primary : .secondary)
+                        .font(DSFont.bodyBold)
+                        .foregroundColor(source.enabled ? DSColor.textPrimary : DSColor.textSecondary)
                         .lineLimit(1)
 
                     if !source.bookSourceGroup.isEmpty {
-                        Text("(\(source.bookSourceGroup))")
-                            .font(DSFont.fixed(size: 13))
-                            .foregroundColor(DSColor.textSecondary)
-                            .lineLimit(1)
+                        TagPill(text: source.bookSourceGroup, accent: rowAccent)
                     }
                 }
 
                 if !source.bookSourceUrl.isEmpty {
                     Text(source.bookSourceUrl)
-                        .font(DSFont.fixed(size: 11))
-                        .foregroundColor(DSColor.textSecondary.opacity(0.6))
+                        .font(DSFont.fixed(size: 12))
+                        .foregroundColor(DSColor.textTertiary)
                         .lineLimit(1)
                 }
-                SourceValidationBadge(summary: health)
+
+                HStack(spacing: DSSpacing.sm) {
+                    SourceValidationBadge(summary: health)
+                    if pin != nil {
+                        PinPill(pin: pin!)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { source.enabled },
-                    set: { _ in actions.toggleEnabled(source.id) }
-                )
-            )
-            .labelsHidden()
-            .scaleEffect(0.85)
-            .padding(.trailing, 4)
+            Spacer(minLength: 0)
 
-            Button {
-                actions.edit(source)
-            } label: {
-                Image(systemName: "square.and.pencil")
-                    .font(DSFont.toolbarIcon)
-                    .foregroundColor(DSColor.textSecondary)
+            // ── Minimal trailing controls ──
+            HStack(spacing: DSSpacing.sm) {
+                // Enable / disable capsule button
+                Button {
+                    actions.toggleEnabled(source.id)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: source.enabled ? "power" : "poweroff")
+                            .font(DSFont.fixed(size: 12))
+                        Text(source.enabled ? localized("啟") : localized("停"))
+                            .font(DSFont.fixed(size: 11, weight: .semibold))
+                    }
+                    .foregroundColor(source.enabled ? rowAccent : DSColor.textTertiary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(source.enabled ? rowAccent.opacity(0.12) : DSColor.neutralControlFill)
+                    )
+                }
+                .buttonStyle(.plain)
+
+                menu
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 8)
-
-            menu
-                .padding(.trailing, 12)
         }
-        .padding(.vertical, 14)
-        .opacity(source.enabled ? 1 : 0.6)
+        .padding(.vertical, DSSpacing.lg)
+        .padding(.horizontal, DSSpacing.lg)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(DSColor.surface)
+                .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(
+                    isSelected ? rowAccent.opacity(0.5) : Color.clear,
+                    lineWidth: isSelected ? 2.5 : 0
+                )
+        )
+        .opacity(source.enabled ? 1 : 0.55)
+        .padding(.horizontal, DSSpacing.md)
+        .padding(.vertical, DSSpacing.xs)
     }
 
-    /// 置頂／置底 marker: a pin icon instead of the old warning-colored bar, so only sources
-    /// the user explicitly pinned carry an indicator (the first unpinned source does not).
-    @ViewBuilder
-    private var pinIndicator: some View {
-        if let pin {
-            Image(systemName: "pin.fill")
-                .font(DSFont.fixed(size: 12))
-                .foregroundColor(DSColor.accent)
-                .rotationEffect(.degrees(pin == .bottom ? 180 : 0))
-                .frame(width: pinSlotWidth)
-                .accessibilityHidden(true)
-        } else {
-            Color.clear
-                .frame(width: pinSlotWidth)
-                .accessibilityHidden(true)
+    // MARK: Avatar block
+
+    private var avatarBlock: some View {
+        ZStack {
+            // Colourful initial avatar — rounded-rect like an app icon, not a circle
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(avatarColor)
+                .frame(width: 48, height: 48)
+            Text(avatarInitial)
+                .font(DSFont.fixed(size: 18, weight: .bold))
+                .foregroundColor(.white)
+
+            // Selection ring
+            if isSelected {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(rowAccent, lineWidth: 2.5)
+                    .frame(width: 52, height: 52)
+            }
+        }
+        .onTapGesture {
+            actions.toggleSelection(source.id)
         }
     }
+
+    /// A warm, saturated colour derived from the source URL so the same source always
+    /// gets the same avatar colour. Uses a simple hash — not crypto-grade, but stable
+    /// and visually distributed enough for a list of hundreds.
+    private var avatarColor: Color {
+        let hash = source.bookSourceUrl.hashValue
+        let hue = abs(Double(hash) / Double(Int.max)).truncatingRemainder(dividingBy: 1.0)
+        return Color(hue: hue, saturation: 0.65, brightness: 0.75)
+    }
+
+    private var avatarInitial: String {
+        let name = source.bookSourceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = name.first else { return "?" }
+        return String(first).uppercased()
+    }
+
+    // MARK: Menu
 
     private var menu: some View {
         Menu {
@@ -249,57 +283,54 @@ struct BookSourceRow: View {
             Button {
                 actions.test(source)
             } label: {
-                Label(localized("測試書源"), systemImage: "stethoscope")
+                Label(localized("測試書源"), systemImage: "antenna.radiowaves.left.and.right")
             }
+            Divider()
             Button {
                 actions.edit(source)
             } label: {
-                Label(localized("編輯"), systemImage: "pencil")
+                Label(localized("編輯"), systemImage: "square.and.pencil")
             }
+            Button {
+                actions.copyJSON(source)
+            } label: {
+                Label(localized("複製 JSON"), systemImage: "doc.on.doc")
+            }
+            BookSourceExportShareLink(
+                label: localized("匯出"),
+                filenameLabel: source.bookSourceName,
+                sources: { [source] in [source] },
+                onHandoff: actions.export
+            )
             if !source.loginUrl.isEmpty {
                 Button {
                     actions.login(source)
                 } label: {
-                    Label(localized("Cookie 驗證登入"), systemImage: "key.fill")
+                    Label(localized("Cookie 驗證登入"), systemImage: "person.badge.key")
                 }
             }
             Button {
-                actions.toggleSelection(source.id)
+                actions.editVariables(source)
             } label: {
-                Label(
-                    localized(isSelected ? "取消選取" : "選取此書源"),
-                    systemImage: isSelected ? "checkmark.circle.fill" : "checkmark.circle")
+                Label(localized("設置源變量"), systemImage: "slider.horizontal.3")
             }
             Divider()
-            Button {
-                actions.toggleEnabled(source.id)
-            } label: {
-                Label(
-                    localized(source.enabled ? "停用" : "啟用"),
-                    systemImage: source.enabled ? "pause.circle" : "play.circle")
-            }
             Button {
                 actions.pickGroup(source)
             } label: {
                 Label(localized("移動到分組"), systemImage: "folder")
             }
             Button {
-                actions.editVariables(source)
+                actions.moveToNewGroup(source)
             } label: {
-                Label(localized("設置源變量"), systemImage: "curlybraces")
+                Label(localized("移動到新分組"), systemImage: "folder.badge.plus")
             }
-            Divider()
-            BookSourceExportShareLink(
-                label: localized("匯出書源檔案"),
-                filenameLabel: source.bookSourceName.isEmpty
-                    ? localized("未命名書源") : source.bookSourceName,
-                sources: { [source] },
-                onHandoff: actions.export
-            )
-            Button {
-                actions.copyJSON(source)
-            } label: {
-                Label(localized("複製 JSON"), systemImage: "doc.on.doc")
+            if !source.bookSourceGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button {
+                    actions.applyGroupName(defaultGroupName, [source.id])
+                } label: {
+                    Label(localized("移出分組"), systemImage: "folder.badge.minus")
+                }
             }
             Divider()
             if pin == .top {
@@ -312,20 +343,20 @@ struct BookSourceRow: View {
                 Button {
                     actions.pinToTop(source)
                 } label: {
-                    Label(localized("置頂"), systemImage: "arrow.up.to.line")
+                    Label(localized("置頂"), systemImage: "pin")
                 }
             }
             if pin == .bottom {
                 Button {
                     actions.unpin(source, localized("已取消置底"))
                 } label: {
-                    Label(localized("取消置底"), systemImage: "pin.slash")
+                    Label(localized("取消置底"), systemImage: "pin.slash.fill")
                 }
             } else {
                 Button {
                     actions.pinToBottom(source)
                 } label: {
-                    Label(localized("置底"), systemImage: "arrow.down.to.line")
+                    Label(localized("置底"), systemImage: "pin.fill")
                 }
             }
             Divider()
@@ -335,12 +366,14 @@ struct BookSourceRow: View {
                 Label(localized("刪除"), systemImage: "trash")
             }
         } label: {
-            Image(systemName: "ellipsis")
-                .font(DSFont.toolbarIcon)
-                .foregroundColor(DSColor.textSecondary)
-                .frame(width: 24, height: 24)
-                .rotationEffect(.degrees(90))
+            Image(systemName: "ellipsis.circle.fill")
+                .font(DSFont.fixed(size: 20))
+                .foregroundColor(DSColor.textTertiary.opacity(0.6))
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+                .accessibilityHidden(true)
         }
+        .accessibilityLabel(localized("更多操作"))
     }
 
     // MARK: Accessibility
@@ -469,33 +502,43 @@ struct BookSourceGroupActions {
     var resolveSources: ([UUID]) -> [BookSource]
 }
 
-/// 「› 分組名 12 ⋯」 — the chevron leads the title (Legado's layout) and the whole title
-/// area toggles the group; the trailing menu holds the group-level operations.
+/// Modern group header with a horizontal gradient strip and chevron, distinct from
+/// the classic Legado folder-row style.
 struct BookSourceGroupHeaderRow: View {
     let group: BookSourceRowGroup
     let expanded: Bool
     let actions: BookSourceGroupActions
 
+    /// A deep coral accent so the group header reads as part of the same redesigned
+    /// surface but distinct from the source rows.
+    private var headerAccent: Color { Color(red: 0.85, green: 0.30, blue: 0.22) }
+
     var body: some View {
-        HStack(spacing: DSSpacing.xs) {
+        HStack(spacing: DSSpacing.sm) {
             Button {
                 actions.toggleExpansion(group.id)
             } label: {
                 HStack(spacing: DSSpacing.sm) {
-                    Image(systemName: "chevron.right")
-                        .font(DSFont.caption.weight(.semibold))
-                        .foregroundColor(DSColor.textSecondary)
-                        .rotationEffect(.degrees(expanded ? 90 : 0))
-                        .frame(width: DSSpacing.md)
+                    Image(systemName: expanded ? "chevron.down.circle.fill" : "chevron.right.circle.fill")
+                        .font(DSFont.fixed(size: 20, weight: .medium))
+                        .foregroundColor(headerAccent)
+                        .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
                         .accessibilityHidden(true)
+
                     Text(group.name)
-                        .font(DSFont.toolbarIcon)
+                        .font(DSFont.bodyBold)
                         .foregroundStyle(DSColor.textPrimary)
                         .lineLimit(1)
+
                     Text("\(group.sourceIDs.count)")
-                        .font(DSFont.fixed(size: 12))
-                        .foregroundColor(DSColor.textSecondary)
+                        .font(DSFont.caption.weight(.semibold))
+                        .foregroundColor(headerAccent)
                         .monospacedDigit()
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(headerAccent.opacity(0.12))
+                        .clipShape(Capsule())
+
                     Spacer(minLength: 0)
                 }
                 .frame(minHeight: DSLayout.minimumTapTarget)
@@ -509,34 +552,51 @@ struct BookSourceGroupHeaderRow: View {
 
             menu
         }
+        .padding(.horizontal, DSSpacing.md)
+        .padding(.vertical, DSSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            headerAccent.opacity(0.10),
+                            headerAccent.opacity(0.03)
+                        ]),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+        )
+        .padding(.horizontal, DSSpacing.md)
+        .padding(.top, DSSpacing.sm)
     }
 
-    /// 分組操作 menu — Legado's group actions. Rename / merge / delete are hidden for the
-    /// synthetic 置頂／置底 buckets, which have no `bookSourceGroup` to act on.
+    /// 分組操作 menu — icons refreshed so the group header no longer reads as the classic
+    /// Legado sheet.
     private var menu: some View {
         Menu {
             if !group.isPinGroup {
                 Button {
                     actions.rename(group)
                 } label: {
-                    Label(localized("重命名分組"), systemImage: "pencil")
+                    Label(localized("重命名分組"), systemImage: "character.cursor.ibeam")
                 }
                 Button {
                     actions.pickMergeTarget(group)
                 } label: {
-                    Label(localized("合併到其他分組"), systemImage: "arrow.triangle.merge")
+                    Label(localized("合併到其他分組"), systemImage: "arrow.merge")
                 }
                 Divider()
             }
             Button {
                 actions.setEnabled(group.sourceIds, true)
             } label: {
-                Label(localized("啟用全部"), systemImage: "play.circle")
+                Label(localized("啟用全部"), systemImage: "bolt.fill")
             }
             Button {
                 actions.setEnabled(group.sourceIds, false)
             } label: {
-                Label(localized("停用全部"), systemImage: "pause.circle")
+                Label(localized("停用全部"), systemImage: "bolt.slash.fill")
             }
             Divider()
             Button {
@@ -564,14 +624,50 @@ struct BookSourceGroupHeaderRow: View {
                 }
             }
         } label: {
-            Image(systemName: "ellipsis")
-                .font(DSFont.toolbarIcon)
-                .foregroundColor(DSColor.textSecondary)
+            Image(systemName: "gearshape.fill")
+                .font(DSFont.fixed(size: 16, weight: .medium))
+                .foregroundColor(DSColor.textTertiary)
                 .frame(width: DSLayout.minimumTapTarget, height: DSLayout.minimumTapTarget)
                 .contentShape(Rectangle())
                 .accessibilityHidden(true)
         }
         .accessibilityLabel(localized("分組操作"))
+    }
+}
+
+// MARK: - Helper Views
+
+/// A small pill-shaped tag used inside the redesigned source row instead of plain parens.
+struct TagPill: View {
+    let text: String
+    var accent: Color = Color.indigo
+    var body: some View {
+        Text(text)
+            .font(DSFont.fixed(size: 11, weight: .medium))
+            .foregroundColor(accent.opacity(0.9))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(accent.opacity(0.10))
+            .clipShape(Capsule())
+    }
+}
+
+/// A compact pin-status pill shown inline beside the validation badge.
+struct PinPill: View {
+    let pin: SourcePinPosition
+    var body: some View {
+        HStack(spacing: 2) {
+            Image(systemName: pin == .top ? "pin.fill" : "pin.fill")
+                .font(DSFont.fixed(size: 9))
+                .rotationEffect(.degrees(pin == .bottom ? 180 : 0))
+            Text(pin == .top ? localized("置頂") : localized("置底"))
+                .font(DSFont.fixed(size: 11, weight: .medium))
+        }
+        .foregroundColor(.orange)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
+        .background(Color.orange.opacity(0.12))
+        .clipShape(Capsule())
     }
 }
 
@@ -595,7 +691,7 @@ private let previewActions = BookSourceRowActions(
     pinToBottom: { _ in }, unpin: { _, _ in }, delete: { _ in }
 )
 
-#Preview("書源列") {
+#Preview("書源列 — 新樣式") {
     List {
         BookSourceRow(
             source: previewSource(name: "示例書源", group: "常用"),
@@ -622,7 +718,7 @@ private let previewGroupActions = BookSourceGroupActions(
     setEnabled: { _, _ in }, select: { _ in }, copyToPasteboard: { _ in },
     export: { _ in }, delete: { _ in }, resolveSources: { _ in [] })
 
-#Preview("分組表頭") {
+#Preview("分組表頭 — 新樣式") {
     List {
         BookSourceGroupHeaderRow(
             group: BookSourceRowGroup(id: "常用", name: "常用", sourceIDs: [UUID(), UUID()]),

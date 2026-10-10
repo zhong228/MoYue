@@ -7,7 +7,6 @@ import SwiftUI
 struct ExploreHomeView: View {
     @EnvironmentObject private var store: BookStore
     @ObservedObject private var sourceStore = BookSourceStore.shared
-    @AppStorage(ExploreSettings.landingKey) private var landing = ExploreLanding.off.rawValue
     /// 書源頁佈局: the selected source's discover page on 探索 mirrors the same layout
     /// the source's own page uses (探索設定 › 書源頁佈局).
     @AppStorage(ExploreSettings.sourcePageLayoutKey)
@@ -24,8 +23,6 @@ struct ExploreHomeView: View {
     @State private var sourcePendingDeletion: BookSource?
     @State private var browserPresentation: BrowserPresentation?
     @State private var showsSettings = false
-    /// 首屏配置 opens its page once, the first time 探索 shows; going back stays here.
-    @State private var appliedLanding = false
     @ObservedObject private var pageStore = CustomExplorePageStore.shared
     /// 新增自訂頁's or 重新命名's name prompt, and the name typed into it.
     @State private var pageNamePrompt: PageNamePrompt?
@@ -136,14 +133,12 @@ struct ExploreHomeView: View {
                 prompt: localized("搜索")
             )
             .sheet(isPresented: $showsSettings) {
-                ExploreSettingsSheet(sources: exploreSources)
+                ExploreSettingsSheet()
             }
-            .onAppear(perform: applyLandingIfNeeded)
             .onReceive(sourceStore.$sources) { _ in
                 exploreSources = DiscoverViewModel.exploreSources(in: sourceStore)
                 if let group, !groups.contains(group) { self.group = nil }
                 restorePersistedSourceIfNeeded()
-                applyLandingIfNeeded()
             }
             .sheet(isPresented: $showSourceManager) {
                 BookSourceListView()
@@ -370,11 +365,8 @@ struct ExploreHomeView: View {
         }
     }
 
-    /// Deletes the page; 首屏配置 set to it goes back to off.
+    /// Deletes the page.
     private func deletePage(_ page: CustomExplorePage) {
-        if ExploreLanding(rawValue: landing) == .customPage(id: page.id) {
-            landing = ExploreLanding.off.rawValue
-        }
         pageStore.deletePage(id: page.id)
     }
 
@@ -428,16 +420,6 @@ struct ExploreHomeView: View {
         }
         .accessibilityLabel(localized("分組"))
         .accessibilityValue(group ?? localized("全部"))
-    }
-
-    /// 首屏配置: the page 探索 opens straight onto, pushed the first time 探索 shows. A
-    /// source's page waits for 探索's sources to load, so it never opens on one that only
-    /// looks deleted because the list was not there yet; a source that has since gone
-    /// opens nothing.
-    private func applyLandingIfNeeded() {
-        guard !appliedLanding, navigation.path.isEmpty else { return }
-        // Landing disabled: stay on unified explore page.
-        appliedLanding = true
     }
 
     /// 恢复上次选中的发现页书源：关闭 App 再打开仍保持选中。

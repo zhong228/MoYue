@@ -123,9 +123,9 @@ enum OnlineCoverSearchService {
         }
         let fields = provider.fields
         return items.compactMap { item in
-            guard let cover = (item[fields.cover] as? String)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-                !cover.isEmpty else { return nil }
+            guard let rawCover = item[fields.cover] as? String else { return nil }
+            let cover = normalizedCoverURL(rawCover)
+            guard !cover.isEmpty else { return nil }
             let itemTitle = item[fields.title] as? String ?? ""
             let itemAuthor = item[fields.author] as? String ?? ""
             guard matches(name: name, author: author, itemTitle: itemTitle, itemAuthor: itemAuthor)
@@ -134,24 +134,79 @@ enum OnlineCoverSearchService {
         }
     }
 
-    /// Legado's own test, kept verbatim: the local title contains the result's
-    /// title, and the authors contain one another (either direction, because
-    /// sources write 「作者：X」, 「X 著」 and bare 「X」 interchangeably).
-    /// An unknown local author matches on title alone rather than dropping every
-    /// candidate — an imported TXT usually has no author at all.
+    /// Matches a search result's title/author against the local book.
+    ///
+    /// Titles match either direction: providers pad titles with volume tags
+    /// (推書君 returns 「三体（全集）」 for 「三体」), so a strict one-way `contains`
+    /// dropped real hits. Authors contain one another (either direction, because
+    /// sources write 「作者：X」, 「X 著」 and bare 「X」 interchangeably). An unknown
+    /// local author matches on title alone rather than dropping every candidate —
+    /// an imported TXT usually has no author at all.
     private static func matches(
         name: String,
         author: String,
         itemTitle: String,
         itemAuthor: String
     ) -> Bool {
-        let title = itemTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty, name.contains(title) else { return false }
+        let localTitle = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let remoteTitle = itemTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !localTitle.isEmpty, titlesMatch(local: localTitle, remote: remoteTitle)
+        else { return false }
 
         let localAuthor = author.trimmingCharacters(in: .whitespacesAndNewlines)
         let remoteAuthor = itemAuthor.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !localAuthor.isEmpty, localAuthor != localized("未知作者"), !remoteAuthor.isEmpty
-        else { return true }
+        guard !isUnknownAuthor(localAuthor), !remoteAuthor.isEmpty else { return true }
         return localAuthor.contains(remoteAuthor) || remoteAuthor.contains(localAuthor)
+    }
+
+    /// Local imports hard-code Chinese placeholders for a missing author
+    /// (BookStore's 未知作者/未知), which is not the `localized("未知作者")` value the
+    /// old comparison used — that key reads "Unknown" in English and missed them.
+    private static func isUnknownAuthor(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+        let placeholders: Set<String> = [
+            "未知作者", "未知", "佚名", "Unknown", "Unknown Author",
+            "著者不明", "작자 미상", "作者不詳",
+        ]
+        return placeholders.contains(trimmed)
+    }
+
+    /// Two book names agree when either contains the other, or when their
+    /// trailing parenthetical tags (（全集） / (完結) …) are stripped they still do.
+    private static func titlesMatch(local: String, remote: String) -> Bool {
+        if local == remote || local.contains(remote) || remote.contains(local) { return true }
+        let a = withoutTrailingParenthetical(local)
+        let b = withoutTrailingParenthetical(remote)
+        return !a.isEmpty && !b.isEmpty && (a.contains(b) || b.contains(a))
+    }
+
+    private static func withoutTrailingParenthetical(_ value: String) -> String {
+        var result = value
+        var changed = true
+        while changed {
+            changed = false
+            // Full-width （…） first, then half-width (…): 「三体（全集）」 → 「三体」.
+            for pattern in [#"（[^（）]*）$"#, #"\([^()]*\)$"#] {
+                if let range = result.range(of: pattern, options: .regularExpression) {
+                    let trimmed = result[..<range.lowerBound]
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        result = trimmed
+                        changed = true
+                        break
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    /// ypshuo answers scheme-relative URLs (`//bookcover.yuewen.com/...`); for
+    /// those, `URL(string:)` alone yields a relative URL and the download fails.
+    private static func normalizedCoverURL(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("//") { return "https:" + trimmed }
+        return trimmed
     }
 }
