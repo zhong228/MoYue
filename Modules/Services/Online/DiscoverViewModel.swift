@@ -116,6 +116,12 @@ struct DiscoverShowcaseSection: Identifiable {
     }
 }
 
+extension DiscoverShowcaseSection: Equatable {
+    static func == (lhs: DiscoverShowcaseSection, rhs: DiscoverShowcaseSection) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
 // MARK: - Discover View Model
 
 /// One explore source's discover page: its categories, every one as a showcase section,

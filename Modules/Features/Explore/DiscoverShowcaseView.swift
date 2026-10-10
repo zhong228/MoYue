@@ -888,35 +888,49 @@ struct DiscoverListLayoutView: View {
             if !discover.sections.isEmpty {
                 categoryChips
             }
-            if discover.isLoadingItems && discover.sections.isEmpty {
-                if embedsScrollView {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, DSSpacing.xl)
-                }
-            } else if let section = selectedSection, let source = discover.selectedSource {
-                DiscoverCategoryBookList(
-                    section: section,
-                    source: source,
-                    onRefresh: { discover.reload(forceRefresh: true) },
-                    embedsScrollView: embedsScrollView
-                )
-                // A reload rebuilds the sections; their books start again from page one.
-                .id(section.id)
-            } else {
-                let empty = DiscoverEmptyState(discover: discover)
-                if embedsScrollView {
-                    ScrollView {
-                        empty
-                    }
-                    .refreshable { discover.reload(forceRefresh: true) }
-                } else {
-                    empty
-                }
+            contentArea
+        }
+    }
+
+    @ViewBuilder
+    private var contentArea: some View {
+        if discover.isLoadingItems && discover.sections.isEmpty {
+            loadingView
+        } else if let section = selectedSection, let source = discover.selectedSource {
+            DiscoverCategoryBookList(
+                section: section,
+                source: source,
+                onRefresh: { discover.reload(forceRefresh: true) },
+                embedsScrollView: embedsScrollView
+            )
+            // A reload rebuilds the sections; their books start again from page one.
+            .id(section.id)
+        } else {
+            emptyStateView
+        }
+    }
+
+    @ViewBuilder
+    private var loadingView: some View {
+        if embedsScrollView {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, DSSpacing.xl)
+        }
+    }
+
+    @ViewBuilder
+    private var emptyStateView: some View {
+        if embedsScrollView {
+            ScrollView {
+                DiscoverEmptyState(discover: discover)
             }
+            .refreshable { discover.reload(forceRefresh: true) }
+        } else {
+            DiscoverEmptyState(discover: discover)
         }
     }
 
