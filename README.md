@@ -51,7 +51,7 @@ Sync (WebDAV / iCloud / OPDS)
 
 ## Download
 
-**Latest release:** [MoYue v1.0.27](https://github.com/zhong228/MoYue/releases/tag/v1.0.27)
+**Latest release:** [MoYue v1.0.29](https://github.com/zhong228/MoYue/releases/tag/v1.0.29)
 
 ## Build
 
